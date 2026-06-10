@@ -1,0 +1,14 @@
+.git
+.github
+docs
+.claude
+_bmad
+.spec-workflow
+.vscode
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.local
+deploy/data

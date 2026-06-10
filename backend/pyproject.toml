@@ -1,0 +1,112 @@
+[project]
+name = "agent-flow-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bcrypt>=4.3.0",
+    "celery>=5.6.3",
+    "cryptography>=45.0.0",
+    "fastapi>=0.136.3",
+    "langchain-anthropic>=1.4.4",
+    "langchain-core>=1.4.1",
+    "langchain-mcp-adapters>=0.2.2",
+    "langchain-openai>=1.2.2",
+    "langgraph>=1.2.4",
+    "langgraph-checkpoint-mongodb>=0.4.0",
+    "loguru>=0.7.3",
+    "motor>=3.7.1",
+    "pydantic-settings>=2.14.1",
+    "pyjwt>=2.13.0",
+    "python-ulid>=3.1.0",
+    "pyyaml>=6.0.3",
+    "redis>=8.0.0",
+    "uvicorn[standard]>=0.49.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.1.0",
+    "pyright>=1.1.410",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+markers = [
+    "asyncio: marks tests as async",
+    "integration: requires real MongoDB / Redis connections",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line too long (handled by formatter)
+    "B008", # FastAPI relies on function calls in argument defaults (Depends, Query, Path…)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# These modules are imported by the app but lack py.typed markers.
+module = [
+    "celery",
+    "motor",
+    "motor.motor_asyncio",
+    "redis",
+    "redis.asyncio",
+    "ulid",
+]
+ignore_missing_imports = true
+
+[tool.pyright]
+typeCheckingMode = "basic"
+include = ["app"]
+exclude = ["**/node_modules"]
+venvPath = "."
+venv = ".venv"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportMissingParameterType = false
+reportAttributeAccessIssue = "warning"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

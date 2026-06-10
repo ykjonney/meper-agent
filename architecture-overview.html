@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Agent Platform — 功能架构设计</title>
+<style>
+/* ── Theme Variables ── */
+:root {
+  --radius:8px;
+  --green:#059669; --green2:#047857; --green-bg:rgba(5,150,105,.08);
+  --yellow:#d97706; --yellow-bg:rgba(217,119,6,.08);
+  --red:#dc2626; --red-bg:rgba(220,38,38,.08);
+  --blue:#2563eb; --blue-bg:rgba(37,99,235,.08);
+  --cyan:#0891b2; --cyan-bg:rgba(8,145,178,.08);
+  --orange:#ea580c; --orange-bg:rgba(234,88,12,.08);
+  --pink:#db2777; --pink-bg:rgba(219,39,119,.08);
+  --accent:#6d28d9; --accent2:#7c3aed; --accent3:#8b5cf6;
+  --accent-bg:rgba(109,40,217,.08);
+  --teal:#0d9488; --teal-bg:rgba(13,148,136,.08);
+  --lime:#65a30d; --lime-bg:rgba(101,163,13,.08);
+  --transition-speed:.25s;
+}
+[data-theme="light"] {
+  --bg:#f5f6fa; --bg2:#ffffff; --bg3:#f0f1f5; --bg4:#e5e7ee;
+  --border:#d8dbe6; --text:#1e2030; --text2:#4a4e6a; --text3:#8b8faa;
+  --header-bg:linear-gradient(135deg,#ffffff 0%,#f0eeff 100%);
+  --card-shadow:0 1px 3px rgba(0,0,0,.06);
+  --row-hover:rgba(109,40,217,.03);
+}
+[data-theme="dark"] {
+  --bg:#0c0e14; --bg2:#13151e; --bg3:#1a1d2b; --bg4:#222640;
+  --border:#2a2e48; --text:#e4e6f4; --text2:#9da1c4; --text3:#626890;
+  --accent:#7b6aef; --accent2:#a78bfa; --accent3:#c4b5fd;
+  --header-bg:linear-gradient(135deg,#13151e 0%,#1a1435 100%);
+  --card-shadow:none; --row-hover:rgba(255,255,255,.015);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;line-height:1.6;overflow-x:hidden;transition:background var(--transition-speed),color var(--transition-speed)}
+
+/* ── Header ── */
+.header{background:var(--header-bg);border-bottom:1px solid var(--border);padding:28px 40px 24px;transition:background var(--transition-speed)}
+.header-top{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.header-icon{width:40px;height:40px;background:linear-gradient(135deg,var(--accent),var(--cyan));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff;flex-shrink:0}
+.header h1{font-size:20px;font-weight:700;letter-spacing:-.5px}
+.header h1 span{color:var(--accent2)}
+.header-sub{font-size:12px;color:var(--text3);margin-top:2px}
+.theme-toggle{margin-left:auto;display:flex;align-items:center;gap:8px}
+.theme-btn{width:36px;height:20px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;position:relative;transition:all .2s;flex-shrink:0}
+.theme-btn::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--accent2);transition:transform .2s}
+[data-theme="dark"] .theme-btn::after{transform:translateX(16px)}
+.theme-label{font-size:10px;color:var(--text3);font-weight:600;letter-spacing:.3px}
+
+/* ── Stats ── */
+.stats{display:flex;gap:1px;background:var(--border);border-radius:var(--radius);overflow:hidden}
+.stat{flex:1;background:var(--bg2);padding:14px 18px;text-align:center;transition:background var(--transition-speed)}
+.stat-v{font-size:26px;font-weight:800;line-height:1.2}
+.stat-l{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:2px}
+
+/* ── Context ── */
+.context-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-top:20px;border-left:4px solid var(--accent2);box-shadow:var(--card-shadow);transition:background var(--transition-speed)}
+.context-box p{font-size:13px;color:var(--text2);line-height:1.7}
+.context-box strong{color:var(--accent2)}
+.context-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--accent2);margin-bottom:8px}
+
+/* ── Container ── */
+.container{padding:24px 40px 60px;max-width:1200px;margin:0 auto}
+
+/* ── Section Title ── */
+.sec-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin:36px 0 14px;display:flex;align-items:center;gap:8px}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.sec-title .num{font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:var(--accent-bg);color:var(--accent2)}
+
+/* ── Card ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--card-shadow);transition:background var(--transition-speed),border-color var(--transition-speed)}
+.card-hd{padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg3);display:flex;align-items:center;gap:10px}
+.card-hd-title{font-size:13px;font-weight:700;flex:1}
+.card-body{padding:18px 20px}
+
+/* ── Badge ── */
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:2px 8px;border-radius:10px}
+.badge-d1{background:var(--orange-bg);color:var(--orange)}
+.badge-d2{background:var(--cyan-bg);color:var(--cyan)}
+.badge-d3{background:var(--green-bg);color:var(--green)}
+.badge-d4{background:var(--accent-bg);color:var(--accent2)}
+.badge-d5{background:var(--yellow-bg);color:var(--yellow)}
+.badge-d6{background:var(--blue-bg);color:var(--blue)}
+.badge-d7{background:var(--teal-bg);color:var(--teal)}
+.badge-d8{background:var(--red-bg);color:var(--red)}
+.badge-core{background:var(--accent-bg);color:var(--accent2);font-size:10px;padding:3px 10px}
+
+/* ── Code Block ── */
+.code-block{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px 18px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code','SF Mono',Menlo,monospace;font-size:12px;line-height:1.65;color:var(--text);white-space:pre;margin:12px 0}
+.code-block.inline-sm{font-size:11px;padding:10px 14px}
+
+/* ── Table ── */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{background:var(--bg3);padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);font-weight:700;border-bottom:2px solid var(--border)}
+.tbl td{padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top;line-height:1.5}
+.tbl tr:hover td{background:var(--row-hover)}
+.tbl code{font-family:'JetBrains Mono','Fira Code','SF Mono',Menlo,monospace;font-size:11px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--accent2)}
+.tbl strong{color:var(--text);font-weight:600}
+
+/* ── Tag ── */
+.tag{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px}
+.tag-flow{background:var(--accent-bg);color:var(--accent2)}
+.tag-hitl{background:var(--yellow-bg);color:var(--yellow)}
+.tag-agent{background:var(--orange-bg);color:var(--orange)}
+.tag-ctx{background:var(--cyan-bg);color:var(--cyan)}
+
+/* ── Domain Grid ── */
+.domain-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
+.domain-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;position:relative;overflow:hidden;box-shadow:var(--card-shadow);transition:all var(--transition-speed);cursor:default}
+.domain-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.domain-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.domain-card.d1::before{background:var(--orange)}.domain-card.d2::before{background:var(--cyan)}
+.domain-card.d3::before{background:var(--green)}.domain-card.d4::before{background:var(--accent2)}
+.domain-card.d5::before{background:var(--yellow)}.domain-card.d6::before{background:var(--blue)}
+.domain-card.d7::before{background:var(--teal)}.domain-card.d8::before{background:var(--red)}
+.domain-card.core{border-color:var(--accent2);border-width:1.5px}
+.domain-name{font-size:12px;font-weight:700;line-height:1.3;margin-bottom:3px}
+.domain-desc{font-size:10px;color:var(--text3);line-height:1.4}
+.domain-role{font-size:9px;color:var(--text3);margin-top:6px;font-weight:600}
+
+/* ── Principle Grid ── */
+.principle-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.principle-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:flex-start;gap:10px;box-shadow:var(--card-shadow);transition:background var(--transition-speed)}
+.principle-num{font-size:18px;font-weight:800;color:var(--accent2);opacity:.5;line-height:1;min-width:24px}
+.principle-text{font-size:11px;color:var(--text2);line-height:1.5}
+.principle-text strong{color:var(--text)}
+.principle-tag{font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;margin-top:4px;display:inline-block}
+
+/* ── Subsection ── */
+.sub-title{font-size:12px;font-weight:700;color:var(--text);margin:18px 0 8px;display:flex;align-items:center;gap:6px}
+.sub-title .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+/* ── Flow Compare ── */
+.compare-grid{display:grid;grid-template-columns:1fr 40px 1fr;gap:0;margin:16px 0}
+.compare-col{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.compare-col h4{font-size:13px;font-weight:700;margin-bottom:10px}
+.compare-col.bad h4{color:var(--red)}.compare-col.good h4{color:var(--green)}
+.compare-col ul{list-style:none;padding:0}
+.compare-col li{font-size:11px;color:var(--text2);padding:4px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:6px}
+.compare-col li:last-child{border-bottom:none}
+.compare-vs{display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text3)}
+
+/* ── Scenario ── */
+.scenario-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scenario-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--card-shadow)}
+.scenario-hd{padding:10px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.scenario-num{font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;letter-spacing:.5px}
+.scenario-body{padding:14px 16px}
+.scenario-body .code-block{margin:8px 0;font-size:11px;padding:10px 14px}
+
+/* ── Text ── */
+.text-sm{font-size:12px;color:var(--text2);line-height:1.7}
+.text-sm strong{color:var(--text)}
+.text-xs{font-size:11px;color:var(--text2);line-height:1.6}
+.text-xs strong{color:var(--text)}
+.note{font-size:11px;color:var(--accent2);margin-top:6px;font-weight:500}
+
+/* ── Bullet List ── */
+.bullet-list{padding-left:0;list-style:none}
+.bullet-list li{font-size:12px;color:var(--text2);padding:4px 0;display:flex;align-items:flex-start;gap:8px;line-height:1.6}
+.bullet-list li strong{color:var(--text)}
+.bullet-list li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent2);flex-shrink:0;margin-top:7px;opacity:.6}
+
+/* ── Separator ── */
+.sep{height:1px;background:var(--border);margin:12px 0}
+
+/* ── Footer ── */
+.footer{text-align:center;padding:24px 40px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);margin-top:28px}
+
+/* ── Responsive ── */
+@media print{body{background:#fff!important;color:#1a1a2e!important}.header{background:#f8f8fc!important}.theme-toggle{display:none}}
+@media(max-width:900px){
+  .container,.header{padding-left:16px;padding-right:16px}
+  .domain-grid{grid-template-columns:repeat(2,1fr)}
+  .stats{flex-wrap:wrap}.stat{flex:1 1 30%}
+  .principle-grid{grid-template-columns:1fr}
+  .scenario-grid{grid-template-columns:1fr}
+  .compare-grid{grid-template-columns:1fr}
+  .compare-vs{transform:rotate(90deg)}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Header ═══ -->
+<div class="header">
+  <div class="header-top">
+    <div class="header-icon">A</div>
+    <div>
+      <h1>AI Agent Platform <span>功能架构设计</span></h1>
+      <div class="header-sub">八大领域 · Flow 为核心骨架 · Agent 稳定完成业务的关键保障</div>
+    </div>
+    <div class="theme-toggle">
+      <span class="theme-label" id="theme-label">Light</span>
+      <button class="theme-btn" id="theme-btn" onclick="toggleTheme()"></button>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-v" style="color:var(--accent2)">8</div><div class="stat-l">核心领域</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--green)">3</div><div class="stat-l">执行模式</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--cyan)">10</div><div class="stat-l">Context Slot</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--orange)">8</div><div class="stat-l">步骤类型</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--yellow)">3</div><div class="stat-l">HITL 形态</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--red)">4</div><div class="stat-l">权限层级</div></div>
+  </div>
+  <div class="context-box">
+    <div class="context-title">核心理念</div>
+    <p>Flow 是独立的一等领域，是业务流程的编排骨架，是 Agent 能够<strong>稳定、可靠、可重复</strong>地完成业务的关键保障。</p>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ═══ 架构全景 ═══ -->
+<div class="sec-title"><span class="num">01</span> 架构全景 — 八大领域</div>
+<div class="domain-grid">
+  <div class="domain-card d1"><div class="badge badge-d1">D1</div><div class="domain-name">Agent</div><div class="domain-desc">形态与生命周期</div><div class="domain-role">执行主体</div></div>
+  <div class="domain-card d2"><div class="badge badge-d2">D2</div><div class="domain-name">Context</div><div class="domain-desc">上下文设计</div><div class="domain-role">认知燃料</div></div>
+  <div class="domain-card d3"><div class="badge badge-d3">D3</div><div class="domain-name">Runtime</div><div class="domain-desc">运行时引擎</div><div class="domain-role">统一引擎，三种模式</div></div>
+  <div class="domain-card d4 core"><div class="badge badge-d4">D4 ★</div><div class="domain-name">Flow</div><div class="domain-desc">业务流程编排（核心骨架）</div><div class="domain-role">编排骨架</div></div>
+  <div class="domain-card d5"><div class="badge badge-d5">D5</div><div class="domain-name">Task + HITL</div><div class="domain-desc">执行工件 + 治理检查点</div><div class="domain-role">执行工件和治理</div></div>
+  <div class="domain-card d6"><div class="badge badge-d6">D6</div><div class="domain-name">Model</div><div class="domain-desc">模型接入层</div><div class="domain-role">每轮动态路由</div></div>
+  <div class="domain-card d7"><div class="badge badge-d7">D7</div><div class="domain-name">Integration</div><div class="domain-desc">外部服务集成层</div><div class="domain-role">统一网关</div></div>
+  <div class="domain-card d8"><div class="badge badge-d8">D8</div><div class="domain-name">Permission</div><div class="domain-desc">统一权限引擎</div><div class="domain-role">横切关注点</div></div>
+</div>
+
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d4">D4</span><span class="card-hd-title">核心层级关系</span></div>
+  <div class="card-body">
+    <div class="code-block">┌─────────────────────────────────────────────────────┐
+│  Flow (D4) — 业务流程编排层                           │
+│  "做什么业务、按什么顺序、什么质量标准"                    │
+│                                                      │
+│  ┌─── Step 1 ──→ Step 2 ──→ Step 3 ──→ Step 4 ──┐  │
+│  │  Agent(A)    HITL门控    Agent(B)    Agent(A)  │  │
+│  │  Task①      审批/协同    Task②      Task③     │  │
+│  │  AC验证                 AC验证      AC验证     │  │
+│  └────────────────────────────────────────────────┘  │
+│       ↕ context_bag (步骤间结构化数据传递)              │
+├─────────────────────────────────────────────────────┤
+│  Agent (D1) — 执行主体                                │
+│  "谁来执行、用什么模型、有什么工具、什么形态"              │
+├─────────────────────────────────────────────────────┤
+│  Task + HITL (D5) — 执行工件 + 治理检查点              │
+│  "做到哪了、什么质量、需要人参与吗"                      │
+├─────────────────────────────────────────────────────┤
+│  RuntimeEngine (D3) — 底层执行引擎                    │
+│  Context (D2) + Model (D6) + Integration (D7)       │
+└─────────────────────────────────────────────────────┘</div>
+    <ul class="bullet-list" style="margin-top:12px">
+      <li><strong>D8（权限）</strong>是横切层 — 每个领域都需要权限检查</li>
+      <li><strong>D1（Agent）</strong>是执行主体 — 被编排的智能单元</li>
+      <li><strong>D4（Flow）是核心骨架</strong> — 编排 Agent 按业务流程稳定执行</li>
+      <li><strong>D5（Task + HITL）</strong>是执行工件和治理 — 由 Flow 步骤产生和管控</li>
+      <li><strong>D3（运行时）</strong>是底层引擎 — 执行 Flow 中每个步骤</li>
+      <li><strong>D2（上下文）</strong>是认知燃料 — 被 D3 消费</li>
+      <li><strong>D6（模型）</strong>被 D3 每轮咨询</li>
+      <li><strong>D7（集成层）</strong>提供外部能力</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ D1: Agent ═══ -->
+<div class="sec-title"><span class="num">02</span> D1: Agent 形态与生命周期</div>
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d1">D1</span><span class="card-hd-title">Agent 是具有形态感知的一等实体</span></div>
+  <div class="card-body">
+    <div class="code-block">Agent
+ ├── identity: 名称、描述、分类、版本
+ ├── form: CHAT | SERVICE_RUNTIME | HYBRID        ← 核心概念
+ ├── capabilities: 支持的 RunMode 集合
+ ├── prompt_profile: 系统提示、人设、约束
+ ├── tool_bindings: 绑定的工具集
+ ├── model_preferences: 模型偏好列表（非单一模型）
+ ├── context_profile: 上下文组装策略
+ ├── integration_bindings: 外部服务绑定
+ ├── sandbox_policy: 沙箱策略
+ ├── lifecycle: DRAFT → PUBLISHED → DEPRECATED → ARCHIVED
+ └── visibility: private | org | public | marketplace</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--orange)"></span>Agent Form（形态）</div>
+    <table class="tbl">
+      <thead><tr><th>形态</th><th>入口</th><th>特征</th><th>典型场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CHAT</strong></td><td>用户对话</td><td>实时交互、SSE 流式响应</td><td>咨询、客服、问答</td></tr>
+        <tr><td><strong>SERVICE_RUNTIME</strong></td><td>Flow/Task/API 触发</td><td>自主执行、无用户在线、可常驻或按需</td><td>数据同步、报告生成、监控告警</td></tr>
+        <tr><td><strong>HYBRID</strong></td><td>两种入口均可</td><td>根据触发方式自动切换形态</td><td>KOL 触达（对话 + 自动跟进）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-title"><span class="dot" style="background:var(--accent2)"></span>Agent 与 Flow 的关系</div>
+    <div class="code-block inline-sm">Agent 不孤立存在 — 它在 Flow 中被编排执行：
+
+  没有 Flow 的 Agent:  自由对话，质量不可控，结果不确定
+  Flow 中的 Agent:     结构化执行，有 AC 约束，有 HITL 门控，结果可预期
+
+  Agent form=SERVICE_RUNTIME 时，几乎总是被 Flow 编排驱动
+  Agent form=CHAT 时，可以独立对话，也可以在 Flow 的 interactive 步骤中被调用</div>
+  </div>
+</div>
+
+<!-- ═══ D2: Context ═══ -->
+<div class="sec-title"><span class="num">03</span> D2: 上下文设计</div>
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d2">D2</span><span class="card-hd-title">动态预算 + 三级压缩</span></div>
+  <div class="card-body">
+    <div class="sub-title"><span class="dot" style="background:var(--cyan)"></span>Context Slot 标准化</div>
+    <table class="tbl">
+      <thead><tr><th>Slot</th><th>来源</th><th>内容</th><th>压缩策略</th></tr></thead>
+      <tbody>
+        <tr><td>SYSTEM</td><td>Prompt 模板</td><td>系统提示、人设</td><td>不压缩（始终完整）</td></tr>
+        <tr><td>POLICY</td><td>策略引擎</td><td>意图驱动的策略指令</td><td>浓缩为关键规则</td></tr>
+        <tr><td>PINNED_MEMORY</td><td>用户置顶记忆</td><td>用户重要信息</td><td>不压缩</td></tr>
+        <tr><td>TASK_STATE</td><td>任务服务</td><td>活跃任务上下文</td><td>已完成任务摘要化</td></tr>
+        <tr><td><strong>FLOW_CONTEXT</strong></td><td><strong>Flow 编排层</strong></td><td><strong>步骤定义、context_bag、执行状态</strong></td><td><strong>始终完整（Flow 控制）</strong></td></tr>
+        <tr><td>MEMORY</td><td>记忆服务</td><td>近期+语义召回记忆</td><td>时间衰减+MMR去重</td></tr>
+        <tr><td>RAG</td><td>RAG 服务</td><td>文档检索结果</td><td>块相关性评分</td></tr>
+        <tr><td>TOOL_STATE</td><td>工具执行服务</td><td>近期工具调用结果</td><td>保留最近N条，旧结果摘要化</td></tr>
+        <tr><td>HISTORY</td><td>消息历史</td><td>对话轮次</td><td><strong>三级压缩引擎</strong></td></tr>
+        <tr><td>MCP_CONTEXT</td><td>MCP Resources</td><td>外部知识注入</td><td>TTL 缓存 + 选择性刷新</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-title"><span class="dot" style="background:var(--cyan)"></span>三级压缩引擎</div>
+    <div class="code-block inline-sm">Tier 1: 滑动窗口（默认）— 保留最近 N 轮原文
+Tier 2: 滚动摘要 — 旧轮次由 LLM 生成摘要，链式叠加
+Tier 3: 语义压缩 — 提取关键事实为结构化记忆条目</div>
+    <p class="text-xs">压缩策略按 Agent 粒度配置。<strong>当 Agent 在 Flow 中执行时，FLOW_CONTEXT Slot 不参与压缩，始终完整保留</strong>——Flow 的编排指令不可丢失。</p>
+
+    <div class="sub-title"><span class="dot" style="background:var(--cyan)"></span>动态预算分配</div>
+    <div class="code-block inline-sm">总预算 = 模型上下文窗口 (来自 D6) - 响应预留 - 工具开销
+  └── 预算可随模型切换动态调整</div>
+  </div>
+</div>
+
+<!-- ═══ D4: Flow ═══ -->
+<div class="sec-title"><span class="num">04</span> D4: Flow — 业务流程编排（核心骨架）★</div>
+
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd" style="background:var(--accent-bg)"><span class="badge badge-core">★ 核心骨架</span><span class="card-hd-title">设计哲学</span></div>
+  <div class="card-body">
+    <p class="text-sm">Agent 是智能但不可预测的执行单元。Flow 是让 Agent 的行为变得<strong>可预测、可控制、可重复</strong>的编排骨架。没有 Flow，Agent 只能做"自由对话"；有了 Flow，Agent 才能稳定完成真实业务。</p>
+  </div>
+</div>
+
+<!-- 4.1 核心概念 -->
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d4">4.1</span><span class="card-hd-title">核心概念</span></div>
+  <div class="card-body">
+    <div class="code-block">FlowTemplate (业务流程定义)                    FlowInstance (运行时实例)
+├── steps[]: 有序步骤定义                       ├── status: 状态机
+│   ├── node_id                                ├── execution_state: 各步骤运行时状态
+│   ├── node_type: (见下表)                     ├── context_bag: 步骤间数据传递
+│   ├── agent_id / agent_selector              ├── current_step / total_steps / progress
+│   ├── acceptance_criteria                    ├── pending_action: HITL 暂停点
+│   ├── completion_mode                        └── origin: 触发来源
+│   ├── context_output_key
+│   ├── hitl_policy: (该步骤的 HITL 策略)
+│   └── edges[]: DAG 拓扑边
+├── trigger_config: 触发方式
+├── execution_mode: template | dynamic
+└── template_status: draft → published → archived</div>
+  </div>
+</div>
+
+<!-- 4.2 步骤类型 -->
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d4">4.2</span><span class="card-hd-title">Flow 步骤类型</span></div>
+  <div class="card-body">
+    <table class="tbl">
+      <thead><tr><th>节点类型</th><th>说明</th><th>完成方式</th><th>HITL 行为</th></tr></thead>
+      <tbody>
+        <tr><td><code>agent_auto</code></td><td>Agent 自主执行</td><td>AC 验证通过自动完成</td><td>工具级 HITL</td></tr>
+        <tr><td><code>agent_interactive</code></td><td>Agent + 人机交互</td><td>用户结束对话时完成</td><td>对话中自然交互</td></tr>
+        <tr><td><code>hitl_approval</code></td><td><strong>人工审批节点</strong></td><td><strong>批准/拒绝</strong></td><td><strong>必须人工决策才能流转</strong></td></tr>
+        <tr><td><code>hitl_cocreation</code></td><td><strong>人机协同创建</strong></td><td><strong>人机共同完成</strong></td><td><strong>人来主导，Agent 辅助</strong></td></tr>
+        <tr><td><code>condition</code></td><td>条件分支</td><td>根据上下文路由</td><td>无</td></tr>
+        <tr><td><code>fork/join</code></td><td>并行分叉/汇合</td><td>DAG 执行</td><td>无</td></tr>
+        <tr><td><code>sub_flow</code></td><td>子流程调用</td><td>子流程完成</td><td>子流程内部独立治理</td></tr>
+        <tr><td><code>external_wait</code></td><td>等待外部信号</td><td>Webhook/API 回调</td><td>无</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 4.3 状态机 -->
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d4">4.3</span><span class="card-hd-title">Flow 状态机</span></div>
+  <div class="card-body">
+    <div class="code-block">                    ┌──────────┐
+          ┌────────→│ pending  │
+          │         └────┬─────┘
+          │              ↓
+          │         ┌──────────────┐
+          │         │ in_progress  │◄────────────────────────┐
+          │         └──┬───┬──┬────┘                         │
+          │            │   │  │                              │
+          │            │   │  ├──→ ┌───────────────────┐     │
+          │            │   │  │     │ awaiting_action   │     │
+          │            │   │  │     │ (步骤级HITL暂停)   │─────┤ 用户操作
+          │            │   │  │     └───────────────────┘     │
+          │            │   │  │                               │
+          │            │   │  ├──→ ┌───────────────────┐     │
+          │            │   │  │     │ awaiting_approval │     │
+          │            │   │  │     │ (工具级HITL暂停)   │─────┤ 审批决策
+          │            │   │  │     └───────────────────┘     │
+          │            │   │  │                               │
+          │            │   │  └──→ ┌────────┐                │
+          │            │   │        │ paused │────────────────┤
+          │            │   │        └────────┘                │
+          │            ↓   ↓                                  │
+          │     ┌───────────┐ ┌───────┐ ┌─────────┐          │
+          │     │ completed │ │ failed│ │cancelled│ (终态)    │
+          │     └───────────┘ └───────┘ └─────────┘          │
+          │            ↑                                       │
+          └────────────┘ (重试)                                │</div>
+  </div>
+</div>
+
+<!-- 4.4 三大核心能力 -->
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d4">4.4</span><span class="card-hd-title">三大核心能力</span></div>
+  <div class="card-body">
+
+    <div class="sub-title"><span class="dot" style="background:var(--accent2)"></span>能力一：结构化步骤编排</div>
+    <div class="code-block inline-sm">FlowTemplate 定义了"做什么业务"和"按什么顺序做"：
+
+  用户意图: "帮我做一份市场调研报告"
+       │
+       ▼
+  Flow 自动编排:
+  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+  │ Step 1   │──→│ Step 2   │──→│ Step 3   │──→│ Step 4   │
+  │ 信息搜集  │   │ 数据分析  │   │ HITL审批  │   │ 报告生成  │
+  │ Agent(A) │   │ Agent(B) │   │ 人工审批  │   │ Agent(A) │
+  │ AC: 5条   │   │ AC: 3条   │   │          │   │ AC: 格式   │
+  └──────────┘   └──────────┘   └──────────┘   └──────────┘
+       │              │                              │
+       ▼              ▼                              ▼
+    context_bag["research_data"]  →  context_bag["analysis_result"]  →  最终输出</div>
+    <p class="text-xs" style="margin-bottom:16px"><strong>关键设计：步骤-任务解耦</strong> — Step 是编排单位（Flow 模板中定义），Task 是可选的执行工件（运行时按需创建）。不是所有步骤都需要 Task——HITL 节点、条件分支、外部等待都不产生 Task。</p>
+
+    <div class="sub-title"><span class="dot" style="background:var(--accent2)"></span>能力二：步骤间数据传递 — Context Bag</div>
+    <div class="code-block inline-sm">Context Bag 是 Flow 的" bloodstream "——在步骤之间传递结构化业务数据：
+
+  Step 1 (研究) ──写入──→ context_bag["research_output"] = {...}
+  │
+  Step 2 (分析) ←──读取─────┘ (只读，不可修改前置步骤的输出)
+  │  ──写入──→ context_bag["analysis_result"] = {...}
+  │
+  Step 3 (审批) ←──读取─────┘  人工审批时可以看到前置步骤的所有输出
+  │
+  Step 4 (生成) ←──读取─────┘  汇总所有前置上下文生成最终报告
+
+规则：
+  - 每个 key 只能写入一次（write-once 语义）
+  - 值经过净化（防止 Prompt Injection）
+  - 单步骤上限 50KB，总计上限 1MB</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--accent2)"></span>能力三：验收标准（AC）驱动的质量保障</div>
+    <div class="code-block inline-sm">每个步骤可以定义 Acceptance Criteria (AC):
+
+  AC 来源 (三层合并，优先级从高到低):
+  1. Template AC:  FlowTemplate 中步骤级定义的验收标准
+  2. Boss AC:      运行时由发起人/管理员覆盖的标准
+  3. Agent AC:     Agent 自身声明的能力标准
+
+  AC 验证:
+  ├── 里程碑检查: 输出是否包含关键交付物
+  ├── 格式检查:   输出是否符合指定格式
+  ├── 质量检查:   输出是否满足质量阈值
+  └── 自定义检查: 可扩展的验证器
+
+  AC 失败处理:
+  ├── 重试: 重新执行该步骤 (max_retries)
+  ├── 跳过: 标记为 "skipped"，继续推进
+  ├── 升级: 转为 HITL 节点，交由人工处理
+  └── 失败: 终止 Flow</div>
+  </div>
+</div>
+
+<!-- 4.5 触发方式 -->
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d4">4.5</span><span class="card-hd-title">Flow 的触发方式</span></div>
+  <div class="card-body">
+    <table class="tbl">
+      <thead><tr><th>触发来源</th><th>说明</th><th>Agent Form</th></tr></thead>
+      <tbody>
+        <tr><td><strong>手动</strong></td><td>用户从工作台/市场启动</td><td>任意</td></tr>
+        <tr><td><strong>对话触发</strong></td><td>用户在 Chat 中描述意图，系统自动匹配合适的 Flow</td><td>CHAT / HYBRID</td></tr>
+        <tr><td><strong>事件驱动</strong></td><td>外部 Webhook / MQ 消息到达</td><td>SERVICE_RUNTIME</td></tr>
+        <tr><td><strong>定时调度</strong></td><td>Cron 表达式定时触发</td><td>SERVICE_RUNTIME</td></tr>
+        <tr><td><strong>API 调用</strong></td><td>外部系统通过 API 触发</td><td>SERVICE_RUNTIME</td></tr>
+        <tr><td><strong>Flow 内部</strong></td><td>一个 Flow 的步骤触发另一个 Flow（sub_flow）</td><td>由子 Flow 定义</td></tr>
+        <tr><td><strong>计划分解</strong></td><td>PLAN_EXECUTE 模式将复杂任务分解为子 Flow</td><td>SERVICE_RUNTIME</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 4.7 为什么 Flow 是关键 -->
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d4">4.7</span><span class="card-hd-title">为什么 Flow 是 Agent 稳定完成业务的关键</span></div>
+  <div class="card-body">
+    <div class="compare-grid">
+      <div class="compare-col bad"><h4>没有 Flow</h4><ul>
+        <li>执行路径：Agent 自由发挥</li>
+        <li>质量保障：无</li>
+        <li>人工介入：只能对话中请求</li>
+        <li>数据传递：仅靠记忆</li>
+        <li>可重复性：每次结果不同</li>
+        <li>可观测性：只有对话日志</li>
+        <li>错误处理：靠 Agent 自愈</li>
+        <li>业务适配：靠 Prompt 工程</li>
+      </ul></div>
+      <div class="compare-vs">→</div>
+      <div class="compare-col good"><h4>有 Flow</h4><ul>
+        <li>结构化步骤编排</li>
+        <li>AC 验证 + 重试</li>
+        <li>原生 HITL 节点（审批/协同）</li>
+        <li>Context Bag（结构化）</li>
+        <li>相同输入 → 相似结果</li>
+        <li>步骤级状态 + 进度 + 审计</li>
+        <li>AC 失败 → 重试/升级/人工</li>
+        <li>Flow 模板 + AC + HITL 策略</li>
+      </ul></div>
+    </div>
+    <p class="note" style="margin-top:12px;text-align:center">结论：Agent 负责智能执行，Flow 负责业务保障。两者结合 = 灵活性 + 可靠性</p>
+  </div>
+</div>
+
+<!-- ═══ D5: Task + HITL ═══ -->
+<div class="sec-title"><span class="num">05</span> D5: Task + HITL — 执行工件与治理检查点</div>
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d5">D5</span><span class="card-hd-title">核心定位 — Flow 编排体系中的两个侧面</span></div>
+  <div class="card-body">
+    <div class="code-block inline-sm">Flow (业务流程)
+  │
+  ├── 每个 Step 可能产生一个 Task (执行工件)
+  │     Task 记录: 做了什么、进度如何、结果是什么
+  │
+  └── 每个 Step 可能有 HITL 检查点 (治理门控)
+        HITL 记录: 谁审批了、何时审批、审批结果</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--yellow)"></span>Task 生命周期</div>
+    <div class="code-block inline-sm">CREATED ──(规划)──→ PLANNED ──(启动)──→ EXECUTING ──(提交)──→ REVIEW
+  │                    │                    │                     │
+  │                    │                    ↓                     ↓
+  └──(取消)──→ CANCELLED              PAUSED ──(恢复)──→ EXECUTING
+                                        │
+                                        ↓
+                                  AWAITING_APPROVAL
+                                   ┌──┴──┐
+                              (批准)   (拒绝)
+                                   │      │
+                                   ↓      ↓
+                               EXECUTING  EXECUTING (带反馈)</div>
+    <ul class="bullet-list" style="margin-top:12px">
+      <li><strong>Flow 驱动</strong>：由 Flow 步骤创建（<code>flow_instance_id</code> + <code>step_order</code>）</li>
+      <li><strong>Plan 驱动</strong>：由 PLAN_EXECUTE 分解产生（<code>parent_task_id</code> 父子关系）</li>
+      <li><strong>独立创建</strong>：用户/Agent 直接创建，不依赖 Flow</li>
+    </ul>
+  </div>
+</div>
+
+<!-- HITL -->
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d5">D5</span><span class="card-hd-title">HITL — 统一 ApprovalGate，嵌入 Flow 治理</span></div>
+  <div class="card-body">
+    <div class="sub-title"><span class="dot" style="background:var(--yellow)"></span>ApprovalGate（统一审批门控）</div>
+    <div class="code-block">ApprovalGate
+ ├── trigger:
+ │   ├── TOOL_CALL        工具调用风险过高
+ │   ├── STEP_CHECKPOINT   Flow 步骤执行到检查点
+ │   ├── AC_FAILURE        AC 验证失败，需要人工裁决
+ │   ├── PLAN_REVIEW       PLAN_EXECUTE 计划需审批
+ │   └── SENSITIVE_ACTION  涉及敏感数据/操作
+ │
+ ├── scope: TOOL_LEVEL | STEP_LEVEL | TASK_LEVEL
+ │
+ ├── policy (由 Flow Step 的 hitl_policy 决定):
+ │   ├── AUTO_APPROVE        自动批准（仅记录审计）
+ │   ├── NOTIFY_THEN_PROCEED 通知后继续（异步通知）
+ │   ├── REQUIRE_APPROVAL    必须等待批准
+ │   └── REQUIRE_REASON      必须填写理由后批准
+ │
+ ├── state: PENDING → APPROVED | REJECTED | EXPIRED | CANCELLED
+ ├── approver: {user_id, role_requirement}
+ ├── context: 执行状态快照（用于恢复）
+ └── timeout: {duration, escalation_policy}</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--yellow)"></span>HITL 在 Flow 中的三种形态</div>
+    <div class="code-block inline-sm">形态 1: 工具级 HITL (自动触发)
+┌──────────┐
+│ Step 2   │  Agent 执行中调用高风险工具
+│ Agent(B) │──→ 工具触发 ApprovalGate (trigger=TOOL_CALL)
+│          │    Flow 暂停到 awaiting_approval
+│          │    用户批准后恢复执行
+└──────────┘
+
+形态 2: 步骤级 HITL (流程设计时定义)
+┌──────────┐
+│ Step 3   │  FlowTemplate 中定义为 hitl_approval 节点
+│ 人工审批  │  必须人工决策才能流转
+│          │  用户看到前置步骤的 context_bag 输出
+│          │  批准/拒绝 → Flow 继续推进
+└──────────┘
+
+形态 3: 协同级 HITL (人机共创)
+┌──────────┐
+│ Step 3   │  FlowTemplate 中定义为 hitl_cocreation 节点
+│ 人机协同  │  人工主导，Agent 辅助
+│          │  多轮交互直到双方满意
+│          │  完成后 → Flow 继续推进
+└──────────┘</div>
+  </div>
+</div>
+
+<!-- ═══ D3: Runtime ═══ -->
+<div class="sec-title"><span class="num">06</span> D3: 运行时引擎</div>
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d3">D3</span><span class="card-hd-title">统一引擎 + 三种执行模式</span></div>
+  <div class="card-body">
+    <div class="code-block inline-sm">统一 RuntimeEngine
+        ├── REACT 模式       (单步推理循环)
+        ├── PLAN_EXECUTE 模式 (规划-执行管道)
+        └── HYBRID 模式      (复杂度自适应路由)</div>
+
+    <table class="tbl" style="margin-top:14px">
+      <thead><tr><th>模式</th><th>流程</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr><td><strong>REACT</strong></td><td>观察 → 组装上下文 → LLM推理 → 工具调用? → [是] → 执行工具 → 回到推理 / [否] → 输出响应</td><td>单步推理循环</td></tr>
+        <tr><td><strong>PLAN_EXECUTE</strong></td><td>规划: 复杂任务 → 分解为子任务树/子Flow → 分配 Agent → [可选] 用户审批计划<br>执行: 按序/并行执行 → 每个子任务用 REACT → 检查点触发 HITL<br>回顾: 汇总结果 → 呈交审阅 → 收集反馈迭代</td><td>规划-执行管道</td></tr>
+        <tr><td><strong>HYBRID</strong></td><td>复杂度评估 → SIMPLE 路由到 REACT / COMPLEX 路由到 PLAN_EXECUTE<br>模糊时默认 REACT，后台影子模式对比优化</td><td>复杂度自适应路由</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-title"><span class="dot" style="background:var(--green)"></span>统一执行契约：所有模式产出相同的事件流</div>
+    <div class="code-block inline-sm">TEXT_DELTA → LLM 文本输出
+TOOL_CALL  → 工具调用请求
+TOOL_RESULT → 工具执行结果
+STATE_WRITE → 状态变更（任务更新、记忆写入）
+CHECKPOINT  → 计划进度检查点
+HITL_REQUEST → 需要人工审批
+ERROR → 执行错误
+COMPLETE → 执行完成</div>
+  </div>
+</div>
+
+<!-- ═══ D6: Model ═══ -->
+<div class="sec-title"><span class="num">07</span> D6: 模型接入层</div>
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d6">D6</span><span class="card-hd-title">每轮动态路由</span></div>
+  <div class="card-body">
+    <div class="code-block inline-sm">Agent.model_preferences → 每轮 ModelRouter 决策 → 可中途切换</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--blue)"></span>ModelRouter 决策流程</div>
+    <div class="code-block">输入: agent偏好 + 任务复杂度 + 上下文Token需求 + 成本预算 + 能力需求 + 用户权限
+  ├── 1. 能力过滤: 排除不满足能力需求的模型
+  ├── 2. 窗口过滤: 排除上下文窗口不足的模型（来自 D2 预算）
+  ├── 3. 权限过滤: 排除无权使用的模型（来自 D8）
+  ├── 4. 成本-性能优化: 简单→高效模型，复杂→强模型
+  ├── 5. 负载均衡: 多候选选最低负载
+  ↓
+输出: {selected_model, routing_reason, fallback_chain}</div>
+
+    <p class="text-xs" style="margin-top:12px"><strong>Flow 与模型路由的协作</strong>：Flow 的不同步骤可以路由到不同模型 — 规划步骤用强模型，数据处理步骤用高效模型，审批节点不需要模型。</p>
+  </div>
+</div>
+
+<!-- ═══ D7: Integration ═══ -->
+<div class="sec-title"><span class="num">08</span> D7: 外部服务集成层</div>
+<div class="card">
+  <div class="card-hd"><span class="badge badge-d7">D7</span><span class="card-hd-title">统一集成网关</span></div>
+  <div class="card-body">
+    <div class="code-block">IntegrationGateway（统一入口）
+ ├── IntegrationRegistry  (工具注册中心)
+ │   ├── MCP Server 连接时自动发现注册
+ │   ├── OpenAPI/Swagger 导入自动生成
+ │   ├── REST API 动态注册
+ │   └── 工具版本化
+ ├── IntegrationRouter    (tool_name → 确定来源适配器)
+ ├── IntegrationExecutor  (统一执行: Builtin/DB/Connector/MCP/Webhook)
+ └── IntegrationGovernance (限流/审计/凭据/健康监控/熔断)</div>
+    <p class="text-xs" style="margin-top:12px"><strong>Flow 与集成层的协作</strong>：Flow 步骤的 <code>agent_id</code> + Agent 的 <code>integration_bindings</code> 决定哪些外部服务在该步骤中可用。</p>
+  </div>
+</div>
+
+<!-- ═══ D8: Permission ═══ -->
+<div class="sec-title"><span class="num">09</span> D8: 统一权限设计</div>
+<div class="card" style="margin-bottom:8px">
+  <div class="card-hd"><span class="badge badge-d8">D8</span><span class="card-hd-title">四层权限管线 + Flow 级权限</span></div>
+  <div class="card-body">
+    <div class="code-block">Layer 1: 用户权限 — 谁能做什么
+  Action: create | read | update | delete | execute | approve
+  Resource: agent | task | flow | tool | model | connector | document | memory
+  Scope: GLOBAL | ORG | OWN_ONLY
+
+Layer 2: Agent 权限 — Agent 执行时能做什么
+  tool_access + data_access + action_limit
+
+Layer 3: Agent + 服务权限 — Agent 通过特定服务能做什么
+  allowed_operations + data_scope + rate_limit
+
+Layer 4: 服务自身权限 — 服务需要什么、合规要求
+  auth_requirements + data_requirements + compliance</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--red)"></span>Flow 级权限</div>
+    <div class="code-block inline-sm">FlowPermission
+ ├── 谁可以启动此 FlowTemplate (execute 权限)
+ ├── 谁可以审批此 Flow 中的 HITL 节点 (approve 权限)
+ ├── 此 Flow 可以访问哪些数据范围 (data_scope)
+ └── 此 Flow 的步骤可以调用哪些外部服务 (service_bindings)</div>
+
+    <div class="sub-title"><span class="dot" style="background:var(--red)"></span>权限评估管线</div>
+    <div class="code-block inline-sm">用户启动 Flow
+  ├── L1: 用户能否执行此 FlowTemplate?
+  ├── Flow 执行中，Step 2 的 Agent 调用 Connector Z 的 Operation Y:
+  │   ├── L2: Agent 能否使用此工具?
+  │   ├── L3: Agent 能否通过 Connector Z 调 Operation Y?
+  │   └── L4: Connector Z 的认证和合规是否满足?
+  └── Flow Step 3 是 HITL 审批节点:
+      └── L1: 审批人角色是否满足 approve 权限要求?</div>
+  </div>
+</div>
+
+<!-- ═══ 跨域流程示例 ═══ -->
+<div class="sec-title"><span class="num">10</span> 跨域流程示例</div>
+<div class="scenario-grid">
+  <div class="scenario-card">
+    <div class="scenario-hd"><span class="scenario-num" style="background:var(--orange-bg);color:var(--orange)">场景 1</span><span style="font-size:12px;font-weight:700">交互式对话（无 Flow）</span></div>
+    <div class="scenario-body">
+      <div class="code-block inline-sm">1. 用户发送消息
+2. [D8-L1] 用户能否与此 Agent 对话? ✓
+3. [D1] Agent form=CHAT, REACT 模式
+4. [D3] RuntimeEngine REACT 循环
+5. [D6] ModelRouter 选择模型
+6. [D2] 上下文组装 (无 FLOW_CONTEXT Slot)
+7. [D3] LLM → 工具调用 → [D7] IntegrationGateway → 响应用户</div>
+    </div>
+  </div>
+  <div class="scenario-card">
+    <div class="scenario-hd"><span class="scenario-num" style="background:var(--accent-bg);color:var(--accent2)">场景 3</span><span style="font-size:12px;font-weight:700">事件驱动的服务 Agent（无用户在线）</span></div>
+    <div class="scenario-body">
+      <div class="code-block inline-sm">外部系统 Webhook 触发 → Flow "数据同步" 启动
+  ├── Agent form=SERVICE_RUNTIME
+  ├── 完全自主执行，无用户交互
+  ├── AC 保障质量
+  ├── 高风险操作 → ApprovalGate (通知管理员，异步审批)
+  └── 完成/失败 → 通知相关人</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:8px">
+  <div class="card-hd"><span class="scenario-num" style="background:var(--green-bg);color:var(--green)">场景 2</span><span class="card-hd-title">Flow 驱动的业务流程（完整流）</span></div>
+  <div class="card-body">
+    <div class="code-block">用户说: "帮我做一份竞品分析报告"
+         │
+         ▼
+1. 系统匹配到 FlowTemplate "竞品分析报告" (5个步骤)
+2. [D8-L1] 用户能否执行此 Flow? ✓
+3. 创建 FlowInstance, status=in_progress
+         │
+         ▼
+4. Step 1: 信息搜集 (agent_auto, Agent-A)
+   ├── [D6] ModelRouter 为此步骤选择模型
+   ├── [D2] 上下文组装 (注入 FLOW_CONTEXT: 步骤定义+AC)
+   ├── [D3] RuntimeEngine REACT 循环执行
+   ├── [D7] 调用搜索引擎工具
+   ├── AC 验证通过 ✓
+   └── 写入 context_bag["research_data"]
+         │
+         ▼
+5. Step 2: 数据分析 (agent_auto, Agent-B)
+   ├── 读取 context_bag["research_data"]
+   ├── 执行分析，调用工具
+   ├── 高风险工具? → [D5] ApprovalGate (trigger=TOOL_CALL)
+   │   ├── 用户批准 → 恢复执行
+   │   └── 用户拒绝 → Agent 根据反馈重试
+   ├── AC 验证通过 ✓
+   └── 写入 context_bag["analysis_result"]
+         │
+         ▼
+6. Step 3: 人工审批 (hitl_approval)
+   ├── Flow 自动暂停，status=awaiting_action
+   ├── 通知用户 (SSE/推送)
+   ├── 用户在 WorkBoard 看到待处理项
+   ├── 用户查看 Step 1 & 2 的 context_bag 输出
+   ├── 用户批准 ✓
+   └── Flow 恢复推进
+         │
+         ▼
+7. Step 4: 报告生成 (agent_auto, Agent-A)
+   ├── 读取所有 context_bag 数据 → 生成最终报告
+   ├── AC 验证通过 ✓
+   └── 写入 context_bag["final_report"]
+         │
+         ▼
+8. Step 5: 人工确认 (hitl_cocreation)
+   ├── 人机协同编辑报告 → 用户满意后确认
+   └── Flow 完成, status=completed
+         │
+         ▼
+9. [D5] 所有 Task 标记 COMPLETED
+10. 通知用户: "竞品分析报告已完成"</div>
+  </div>
+</div>
+
+<!-- ═══ 设计原则总结 ═══ -->
+<div class="sec-title"><span class="num">11</span> 核心设计原则总结</div>
+<div class="principle-grid">
+  <div class="principle-item"><div class="principle-num">1</div><div><div class="principle-text">Agent 是有形态和生命周期的一等实体</div><div class="principle-tag" style="background:var(--orange-bg);color:var(--orange)">D1 Agent</div></div></div>
+  <div class="principle-item"><div class="principle-num">2</div><div><div class="principle-text"><strong>Flow 是业务流程编排骨架，Agent 稳定完成业务的关键</strong></div><div class="principle-tag" style="background:var(--accent-bg);color:var(--accent2)">★ D4 Flow</div></div></div>
+  <div class="principle-item"><div class="principle-num">3</div><div><div class="principle-text">一个引擎，三种模式 (REACT / PLAN / HYBRID)</div><div class="principle-tag" style="background:var(--green-bg);color:var(--green)">D3 Runtime</div></div></div>
+  <div class="principle-item"><div class="principle-num">4</div><div><div class="principle-text">上下文预算每轮动态计算</div><div class="principle-tag" style="background:var(--cyan-bg);color:var(--cyan)">D2 Context</div></div></div>
+  <div class="principle-item"><div class="principle-num">5</div><div><div class="principle-text">压缩策略按 Agent 粒度配置</div><div class="principle-tag" style="background:var(--cyan-bg);color:var(--cyan)">D2 Context</div></div></div>
+  <div class="principle-item"><div class="principle-num">6</div><div><div class="principle-text">模型选择每轮动态路由</div><div class="principle-tag" style="background:var(--blue-bg);color:var(--blue)">D6 Model</div></div></div>
+  <div class="principle-item"><div class="principle-num">7</div><div><div class="principle-text">工具运行时动态注册</div><div class="principle-tag" style="background:var(--teal-bg);color:var(--teal)">D7 Integration</div></div></div>
+  <div class="principle-item"><div class="principle-num">8</div><div><div class="principle-text">集成层是统一网关</div><div class="principle-tag" style="background:var(--teal-bg);color:var(--teal)">D7 Integration</div></div></div>
+  <div class="principle-item"><div class="principle-num">9</div><div><div class="principle-text"><strong>HITL 嵌入 Flow 治理，三种形态统一为 ApprovalGate</strong></div><div class="principle-tag" style="background:var(--yellow-bg);color:var(--yellow)">D5 Task+HITL</div></div></div>
+  <div class="principle-item"><div class="principle-num">10</div><div><div class="principle-text">Task 是 Flow 步骤的执行工件</div><div class="principle-tag" style="background:var(--yellow-bg);color:var(--yellow)">D5 Task+HITL</div></div></div>
+  <div class="principle-item"><div class="principle-num">11</div><div><div class="principle-text">权限是四层管线 + Flow 级权限</div><div class="principle-tag" style="background:var(--red-bg);color:var(--red)">D8 Permission</div></div></div>
+  <div class="principle-item"><div class="principle-num">12</div><div><div class="principle-text"><strong>Context Bag + AC 验证 = 业务质量双保障</strong></div><div class="principle-tag" style="background:var(--accent-bg);color:var(--accent2)">★ Flow 独有能力</div></div></div>
+</div>
+
+</div><!-- /container -->
+
+<div class="footer">AI Agent Platform 功能架构设计 · 八大领域 · Flow 核心骨架 · Agent + Flow = 灵活性 + 可靠性</div>
+
+<script>
+(function(){var saved=localStorage.getItem('arch-theme');if(saved)document.documentElement.setAttribute('data-theme',saved);updateLabel()})();
+function toggleTheme(){var html=document.documentElement;var next=html.getAttribute('data-theme')==='light'?'dark':'light';html.setAttribute('data-theme',next);localStorage.setItem('arch-theme',next);updateLabel()}
+function updateLabel(){var dark=document.documentElement.getAttribute('data-theme')==='dark';document.getElementById('theme-label').textContent=dark?'Dark':'Light'}
+</script>
+</body>
+</html>

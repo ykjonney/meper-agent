@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "charliermarsh.ruff",
+    "matangover.mypy",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "antfu.iconify",
+    "wayou.vscode-todo-highlight"
+  ]
+}

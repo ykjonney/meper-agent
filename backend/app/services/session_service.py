@@ -1,0 +1,179 @@
+"""Session and Message business logic — CRUD operations."""
+from __future__ import annotations
+
+from loguru import logger
+
+from app.db.mongodb import get_database
+from app.models.session import Message, Session
+
+
+class SessionService:
+    """Service layer for Session operations."""
+
+    COLLECTION = "sessions"
+
+    @staticmethod
+    def _collection():
+        return get_database()[SessionService.COLLECTION]
+
+    # ------------------------------------------------------------------
+    # Session CRUD
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def create_session(
+        user_id: str,
+        agent_id: str,
+        title: str = "",
+    ) -> dict:
+        """Create a new session for a user-agent pair.
+
+        Args:
+            user_id: Owner user ID.
+            agent_id: Associated agent ID.
+            title: Optional title (usually first message preview).
+
+        Returns:
+            Created session MongoDB document.
+        """
+        session = Session(
+            user_id=user_id,
+            agent_id=agent_id,
+            title=title[:200] if title else "",
+        )
+        doc = {
+            "_id": session.id,
+            "user_id": session.user_id,
+            "agent_id": session.agent_id,
+            "title": session.title,
+            "status": session.status.value,
+            "message_count": session.message_count,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+        }
+
+        await SessionService._collection().insert_one(doc)
+        logger.info("session_created", session_id=session.id, user_id=user_id, agent_id=agent_id)
+        return doc
+
+    @staticmethod
+    async def get_session(session_id: str) -> dict | None:
+        """Get a session by ID."""
+        return await SessionService._collection().find_one({"_id": session_id})
+
+    @staticmethod
+    async def list_sessions(
+        user_id: str,
+        agent_id: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
+        """List sessions for a user, optionally filtered by agent_id.
+
+        Returns:
+            Tuple of (items, total_count).
+        """
+        filter_query: dict = {"user_id": user_id}
+        if agent_id:
+            filter_query["agent_id"] = agent_id
+
+        col = SessionService._collection()
+        total = await col.count_documents(filter_query)
+        cursor = col.find(filter_query).sort("updated_at", -1).skip((page - 1) * page_size).limit(page_size)
+        items = await cursor.to_list(length=page_size)
+        return items, total
+
+    @staticmethod
+    async def delete_session(session_id: str) -> bool:
+        """Delete a session and all its associated messages.
+
+        Returns:
+            True if session was deleted, False if not found.
+        """
+        result = await SessionService._collection().delete_one({"_id": session_id})
+        if result.deleted_count > 0:
+            # Delete all messages in this session
+            await MessageService._collection().delete_many({"session_id": session_id})
+            logger.info("session_deleted", session_id=session_id)
+            return True
+        return False
+
+    @staticmethod
+    async def update_session(session_id: str, update_fields: dict) -> dict | None:
+        """Update specific fields on a session.
+
+        Returns:
+            Updated document or None if not found.
+        """
+        from app.models.base import utc_now
+
+        update_fields["updated_at"] = utc_now().isoformat()
+        await SessionService._collection().update_one(
+            {"_id": session_id},
+            {"$set": update_fields},
+        )
+        return await SessionService.get_session(session_id)
+
+
+class MessageService:
+    """Service layer for Message operations."""
+
+    COLLECTION = "messages"
+
+    @staticmethod
+    def _collection():
+        return get_database()[MessageService.COLLECTION]
+
+    @staticmethod
+    async def add_message(
+        session_id: str,
+        role: str,
+        content: str,
+        timeline_entries: list[dict] | None = None,
+    ) -> dict:
+        """Add a message to a session.
+
+        Args:
+            session_id: Parent session ID.
+            role: 'user' or 'agent'.
+            content: Message text.
+            timeline_entries: Structured timeline events (for agent messages).
+
+        Returns:
+            Created message document.
+        """
+        msg = Message(
+            session_id=session_id,
+            role=role,
+            content=content,
+            timeline_entries=timeline_entries or [],
+        )
+        doc = {
+            "_id": msg.id,
+            "session_id": msg.session_id,
+            "role": msg.role,
+            "content": msg.content,
+            "timeline_entries": msg.timeline_entries,
+            "created_at": msg.created_at,
+        }
+
+        await MessageService._collection().insert_one(doc)
+
+        # Update session metadata
+        update_fields: dict = {
+            "message_count": (await SessionService.get_session(session_id) or {}).get("message_count", 0) + 1,
+        }
+        # Only set title from user message if session title is still empty
+        if role == "user":
+            session_doc = await SessionService.get_session(session_id)
+            if session_doc and not session_doc.get("title"):
+                update_fields["title"] = content[:200]
+        await SessionService.update_session(session_id, update_fields)
+
+        return doc
+
+    @staticmethod
+    async def list_messages(session_id: str) -> list[dict]:
+        """List all messages for a session, ordered by creation time."""
+        cursor = MessageService._collection().find({"session_id": session_id}).sort("created_at", 1)
+        return await cursor.to_list(length=1000)

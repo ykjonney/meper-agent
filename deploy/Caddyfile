@@ -1,0 +1,19 @@
+# Caddy reverse proxy configuration
+# Production: routes all traffic, TLS handled by Caddy
+# Dev: Caddy is disabled (use Vite dev server proxy instead)
+
+:80 {
+	# Frontend (static SPA)
+	handle /* {
+		reverse_proxy frontend:80
+	}
+
+	# Backend API
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	log {
+		output stdout
+	}
+}

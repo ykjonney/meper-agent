@@ -1,0 +1,251 @@
+/**
+ * ToolSelector — 三段式工具选择器组件。
+ *
+ * 将 Agent 工具配置拆分为三个分类：
+ *  1. Built-in 工具（bash / read / write）— Checkbox 组
+ *  2. Skill 工具（source=markdown 的上传技能）— Switch 开关列表
+ *  3. MCP 连接（远程工具服务器）— Switch 开关列表
+ *
+ * 作为受控组件使用，value/onChange 接收/返回统一的 ToolSelectorValue。
+ */
+import { useQuery } from '@tanstack/react-query'
+import { Checkbox, Switch, Skeleton, Typography, Alert } from 'antd'
+import {
+  CodeOutlined,
+  ApiOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
+import { toolsApi, toolKeys } from '../services/tools-api'
+import { mcpApi, mcpKeys } from '../services/mcp-api'
+
+const { Text } = Typography
+
+/* ─── Built-in 工具常量 ─── */
+const BUILTIN_TOOLS = [
+  { name: 'bash', label: 'Bash', description: '执行 Shell 命令' },
+  { name: 'read', label: 'Read', description: '读取文件内容' },
+  { name: 'write', label: 'Write', description: '写入文件内容' },
+] as const
+
+/** MCP 连接状态中文映射 */
+const MCP_STATUS_LABELS: Record<string, string> = {
+  connecting: '连接中',
+  connected: '已连接',
+  disconnected: '已断开',
+  error: '异常',
+}
+
+/* ─── Value 类型 ─── */
+export interface ToolSelectorValue {
+  builtin_config: string[]
+  skill_ids: string[]
+  mcp_connection_ids: string[]
+}
+
+export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
+  builtin_config: [],
+  skill_ids: [],
+  mcp_connection_ids: [],
+}
+
+/* ─── Props ─── */
+export interface ToolSelectorProps {
+  value?: ToolSelectorValue
+  onChange?: (value: ToolSelectorValue) => void
+  /** 是否正在加载（父表单编辑态初始化时使用） */
+  loading?: boolean
+}
+
+/**
+ * 合并当前值与 partial update，返回新对象。
+ */
+function mergeValue(
+  prev: ToolSelectorValue,
+  patch: Partial<ToolSelectorValue>,
+): ToolSelectorValue {
+  return { ...prev, ...patch }
+}
+
+export default function ToolSelector({
+  value = DEFAULT_TOOL_VALUE,
+  onChange,
+  loading = false,
+}: ToolSelectorProps) {
+  /* ─── 数据请求 ─── */
+  const { data: skillsData, isLoading: skillsLoading, isError: skillsError } = useQuery({
+    queryKey: toolKeys.list({ page: 1, page_size: 100, source: 'markdown' }),
+    queryFn: () => toolsApi.list({ page: 1, page_size: 100, source: 'markdown' }),
+  })
+
+  const { data: mcpData, isLoading: mcpLoading, isError: mcpError } = useQuery({
+    queryKey: mcpKeys.list({ page: 1, page_size: 100 }),
+    queryFn: () => mcpApi.list({ page: 1, page_size: 100 }),
+  })
+
+  const availableSkills = skillsData?.items ?? []
+  const availableMcpConnections = mcpData?.items ?? []
+
+  /* ─── Handlers ─── */
+  const handleBuiltinChange = (checked: string[]) => {
+    onChange?.(mergeValue(value, { builtin_config: checked }))
+  }
+
+  /* ─── Loading ─── */
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4 p-4">
+        <Skeleton active paragraph={{ rows: 1 }} />
+        <Skeleton active paragraph={{ rows: 1 }} />
+        <Skeleton active paragraph={{ rows: 1 }} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* ────────── Built-in 工具 ────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <ThunderboltOutlined className="text-[#F59E0B] text-base" />
+          <Text strong className="text-sm">
+            Built-in 工具
+          </Text>
+          <Text className="text-[11px] text-[#94A3B8]">（始终可用，按需启用）</Text>
+        </div>
+        <Checkbox.Group
+          value={value.builtin_config}
+          onChange={(checked) => handleBuiltinChange(checked as string[])}
+        >
+          <div className="flex flex-wrap gap-3">
+            {BUILTIN_TOOLS.map((tool) => (
+              <div
+                key={tool.name}
+                className={`
+                  flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer
+                  transition-colors duration-150 text-sm
+                  ${
+                    value.builtin_config.includes(tool.name)
+                      ? 'border-[#3B82F6] bg-[#EFF6FF]'
+                      : 'border-[#E2E8F0] bg-white hover:border-[#94A3B8]'
+                  }
+                `}
+              >
+                <Checkbox
+                  value={tool.name}
+                  checked={value.builtin_config.includes(tool.name)}
+                  className="!mr-0"
+                />
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-[#0F172A]">{tool.label}</span>
+                  <span className="text-[11px] text-[#94A3B8]">{tool.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Checkbox.Group>
+      </div>
+
+      {/* ────────── Skill 工具 ────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <CodeOutlined className="text-[#3B82F6] text-base" />
+          <Text strong className="text-sm">
+            Skill 工具
+          </Text>
+          <Text className="text-[11px] text-[#94A3B8]">
+            （{value.skill_ids.length}/{availableSkills.length} 已启用）
+          </Text>
+        </div>
+        {skillsError ? (
+          <Alert message="加载 Skill 列表失败" type="error" showIcon className="!rounded-lg" />
+        ) : skillsLoading ? (
+          <Skeleton active paragraph={{ rows: 2 }} />
+        ) : (
+          <div className="max-h-[180px] overflow-y-auto border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
+            {availableSkills.length === 0 ? (
+              <div className="px-3 py-3 text-center text-[11px] text-[#94A3B8]">
+                暂无可用 Skill，请先在工具中心上传
+              </div>
+            ) : availableSkills.map((s) => {
+              const enabled = value.skill_ids.includes(s.id)
+              return (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <span className="text-sm text-[#0F172A] truncate pr-2">{s.name}</span>
+                  <Switch
+                    size="small"
+                    checked={enabled}
+                    onChange={(checked) => {
+                      const next = checked
+                        ? [...value.skill_ids, s.id]
+                        : value.skill_ids.filter((id) => id !== s.id)
+                      onChange?.(mergeValue(value, { skill_ids: next }))
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ────────── MCP 连接 ────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <ApiOutlined className="text-[#10B981] text-base" />
+          <Text strong className="text-sm">
+            MCP 连接
+          </Text>
+          <Text className="text-[11px] text-[#94A3B8]">
+            （{value.mcp_connection_ids.length}/{availableMcpConnections.length} 已启用）
+          </Text>
+        </div>
+        {mcpError ? (
+          <Alert message="加载 MCP 连接列表失败" type="error" showIcon className="!rounded-lg" />
+        ) : mcpLoading ? (
+          <Skeleton active paragraph={{ rows: 2 }} />
+        ) : (
+          <div className="max-h-[180px] overflow-y-auto border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
+            {availableMcpConnections.length === 0 ? (
+              <div className="px-3 py-3 text-center text-[11px] text-[#94A3B8]">
+                暂无 MCP 连接，请先在 MCP 页面配置
+              </div>
+            ) : availableMcpConnections.map((c) => {
+              const enabled = value.mcp_connection_ids.includes(c.id)
+              const statusLabel = MCP_STATUS_LABELS[c.status] ?? c.status
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0 pr-2">
+                    <span className="text-sm text-[#0F172A] truncate">{c.name}</span>
+                    <span className={`text-[11px] shrink-0 ${
+                      c.status === 'connected' ? 'text-[#10B981]' :
+                      c.status === 'error' ? 'text-[#EF4444]' :
+                      'text-[#94A3B8]'
+                    }`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={enabled}
+                    onChange={(checked) => {
+                      const next = checked
+                        ? [...value.mcp_connection_ids, c.id]
+                        : value.mcp_connection_ids.filter((id) => id !== c.id)
+                      onChange?.(mergeValue(value, { mcp_connection_ids: next }))
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,24 @@
+# Development overrides — hot reload + source mount
+# Usage: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up
+
+services:
+  backend:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ../backend/app:/app/app:ro
+    environment:
+      APP_ENV: development
+      DEBUG: "true"
+
+  # In dev mode, run frontend locally via `npm run dev` (port 5173, proxy /api)
+  # Frontend container is excluded from dev compose to allow HMR
+  frontend:
+    profiles:
+      - dont-start-in-dev
+
+  celery-worker:
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=debug", "--concurrency=1"]
+
+  caddy:
+    profiles:
+      - dont-start-in-dev

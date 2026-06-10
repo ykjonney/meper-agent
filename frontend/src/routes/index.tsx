@@ -1,0 +1,54 @@
+/**
+ * Route definitions — AppLayout wraps all pages with sidebar + header.
+ *
+ * ProtectedRoute guards authenticated routes; login & design-system are public.
+ */
+import AppLayout from '../components/AppLayout'
+import { ProtectedRoute } from './protected-routes'
+import DashboardPage from '../pages/dashboard-page'
+import AgentsPage from '../pages/agents-page'
+import AgentDetailPage from '../pages/agent-detail-page'
+import ModelsPage from '../pages/models-page'
+import SkillsPage from '../pages/skills-page'
+import McpPage from '../pages/mcp-page'
+import TasksPage from '../pages/tasks-page'
+import WorkflowsPage from '../pages/workflows-page'
+import ToolsPage from '../pages/tools-page'
+import SkillDetailPage from '../pages/skill-detail-page'
+import ExecutionLogsPage from '../pages/execution-logs-page'
+import ApiKeysPage from '../pages/api-keys-page'
+import UsersPage from '../pages/users-page'
+import SettingsPage from '../pages/settings-page'
+import { DesignSystemPage } from '../pages/design-system-page'
+import { LoginPage } from '../pages/login-page'
+
+export const routes = [
+  {
+    element: <ProtectedRoute />,
+    children: [
+      {
+        element: <AppLayout />,
+        children: [
+          { path: '/', element: <DashboardPage /> },
+          { path: '/dashboard', element: <DashboardPage /> },
+          { path: '/agents', element: <AgentsPage /> },
+          { path: '/agents/:id', element: <AgentDetailPage /> },
+          { path: '/models', element: <ModelsPage /> },
+          { path: '/skills', element: <SkillsPage /> },
+          { path: '/mcp', element: <McpPage /> },
+          { path: '/tasks', element: <TasksPage /> },
+          { path: '/workflows', element: <WorkflowsPage /> },
+          { path: '/tools', element: <ToolsPage /> },
+          { path: '/tools/:id', element: <SkillDetailPage /> },
+          { path: '/execution-logs', element: <ExecutionLogsPage /> },
+          { path: '/api-keys', element: <ApiKeysPage /> },
+          { path: '/users', element: <UsersPage /> },
+          { path: '/settings', element: <SettingsPage /> },
+        ],
+      },
+    ],
+  },
+  { path: '/design-system', element: <DesignSystemPage /> },
+  { path: '/login', element: <LoginPage /> },
+  { path: '*', element: <DashboardPage /> },
+]

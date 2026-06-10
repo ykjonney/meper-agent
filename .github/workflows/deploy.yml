@@ -1,0 +1,53 @@
+# Manual deployment workflow
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Image tag to deploy (SHA or "latest")'
+        required: true
+        default: 'latest'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print deploy info
+        run: |
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Image tag: ${{ github.event.inputs.image_tag }}"
+          echo ""
+          echo "To deploy manually, SSH into the target server and run:"
+          echo "  cd /opt/agent-flow"
+          echo "  export IMAGE_TAG=${{ github.event.inputs.image_tag }}"
+          echo "  docker compose -f deploy/docker-compose.yml pull"
+          echo "  docker compose -f deploy/docker-compose.yml up -d"
+          echo ""
+          echo "Automated SSH deployment will be added when infrastructure is ready."
+
+      # TODO: Add SSH deployment steps when target infrastructure is provisioned
+      # - name: Deploy via SSH
+      #   uses: appleboy/ssh-action@v1
+      #   with:
+      #     host: ${{ secrets.DEPLOY_HOST }}
+      #     username: ${{ secrets.DEPLOY_USER }}
+      #     key: ${{ secrets.DEPLOY_SSH_KEY }}
+      #     script: |
+      #       cd /opt/agent-flow
+      #       export IMAGE_TAG=${{ github.event.inputs.image_tag }}
+      #       docker compose -f deploy/docker-compose.yml pull
+      #       docker compose -f deploy/docker-compose.yml up -d
