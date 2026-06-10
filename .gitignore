@@ -86,3 +86,4 @@ logs/
 .playwright-mcp/
 .serena/
 .spec-workflow/
+.claude/
