@@ -13,12 +13,6 @@ import { authApi } from './auth-api'
 
 export type AgentStatus = 'draft' | 'published' | 'archived'
 
-export interface LlmConfig {
-  default_model: string
-  temperature: number
-  max_retry: number
-}
-
 export interface SavedPrompt {
   id: string
   name: string
@@ -40,7 +34,8 @@ export interface Agent {
   builtin_config: string[]
   workflow_ids: string[]
   knowledge_base_ids: string[]
-  llm_config: LlmConfig
+  default_model: string
+  max_retry: number
   status: AgentStatus
   created_at: string
   updated_at: string
@@ -68,13 +63,13 @@ export interface AgentUpdateInput {
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
-  llm_config?: Partial<LlmConfig>
+  default_model?: string
+  max_retry?: number
 }
 
 /** Model config update payload for PATCH /agents/{id}/model-config */
 export interface ModelConfigUpdateInput {
   default_model: string
-  temperature: number
   max_retry: number
 }
 

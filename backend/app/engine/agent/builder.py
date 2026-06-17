@@ -73,12 +73,14 @@ async def _resolve_execution_context(
     ``preview_workflow`` / ``confirm_workflow`` for workflow triggering),
     and the model's context window in a single pass.
     """
-    llm = await get_llm_client(agent.get("llm_config"), enable_thinking=enable_thinking)
+    llm = await get_llm_client(agent, enable_thinking=enable_thinking)
     agent_tools = await _resolve_tools(agent)
     builtin_tools = _resolve_builtin_tools(agent)
     all_tools = [*agent_tools, *builtin_tools]
 
-    model_ref = (agent.get("llm_config") or {}).get("default_model", "")
+    # Backward compat: flat field first, then legacy nested llm_config
+    legacy_llm = agent.get("llm_config") or {}
+    model_ref = agent.get("default_model") or legacy_llm.get("default_model", "")
     context_window = await get_context_window_async(model_ref)
 
     return _ExecutionContext(
@@ -398,14 +400,14 @@ async def build_agent_graph(
 
     Args:
         agent: The Agent document (from MongoDB).  Must contain at
-            least ``_id``, ``llm_config``, ``system_prompt``.
+            least ``_id``, ``default_model``, ``system_prompt``.
         enable_thinking: Enable LLM native reasoning for supported models.
 
     Returns:
         A compiled ``StateGraph`` ready for ``.invoke()`` / ``.astream()``.
     """
     # Validate the LLM client eagerly (await since get_llm_client is async)
-    await get_llm_client(agent.get("llm_config"), enable_thinking=enable_thinking)
+    await get_llm_client(agent, enable_thinking=enable_thinking)
     checkpointer = get_checkpointer()
 
     builder = StateGraph(AgentState)
@@ -731,8 +733,8 @@ async def preview_agent(
             })
 
     # --- LLM config preview ---
-    llm_config = agent.get("llm_config", {})
-    model_ref = llm_config.get("default_model", "")
+    legacy_llm = agent.get("llm_config") or {}
+    model_ref = agent.get("default_model") or legacy_llm.get("default_model", "")
 
     return {
         "system_prompt": system_text,

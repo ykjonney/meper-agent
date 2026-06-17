@@ -85,7 +85,12 @@ def _history_to_langchain_messages(records: list[dict]) -> list:
 
 
 def _doc_to_response(doc: dict) -> AgentResponse:
-    """Convert a raw MongoDB document to AgentResponse."""
+    """Convert a raw MongoDB document to AgentResponse.
+
+    Backward compat: reads flat ``default_model`` / ``max_retry`` first,
+    falls back to legacy nested ``llm_config`` dict for old documents.
+    """
+    legacy_llm = doc.get("llm_config") or {}
     return AgentResponse(
         id=doc["_id"],
         name=doc["name"],
@@ -97,7 +102,8 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         builtin_config=doc.get("builtin_config", []),
         workflow_ids=doc.get("workflow_ids", []),
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
-        llm_config=doc.get("llm_config", {}),
+        default_model=doc.get("default_model") or legacy_llm.get("default_model", ""),
+        max_retry=doc.get("max_retry", legacy_llm.get("max_retry", 3)),
         status=AgentStatus(doc["status"]),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -215,7 +221,8 @@ async def update_agent(
         builtin_config=body.builtin_config,
         workflow_ids=body.workflow_ids,
         knowledge_base_ids=body.knowledge_base_ids,
-        llm_config=body.llm_config,
+        default_model=body.default_model,
+        max_retry=body.max_retry,
     )
     if doc is None:
         raise NotFoundError(

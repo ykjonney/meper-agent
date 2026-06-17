@@ -70,7 +70,8 @@ def _fake_doc(agent_id: str = "agent_01HTEST", name: str = "Test Agent") -> dict
         "builtin_config": [],
         "workflow_ids": [],
         "knowledge_base_ids": [],
-        "llm_config": {"default_model": "gpt-4", "temperature": 0.7, "max_retry": 3},
+        "default_model": "gpt-4",
+        "max_retry": 3,
         "status": "draft",
         "created_at": "2026-01-01T00:00:00",
         "updated_at": "2026-01-01T00:00:00",
@@ -437,7 +438,7 @@ class TestAgentApiServiceContract:
             "name", "description", "system_prompt",
             "skill_ids", "mcp_connection_ids", "builtin_config",
             "workflow_ids", "knowledge_base_ids",
-            "llm_config",
+            "default_model", "max_retry",
         }
         unknown = api_kwargs - valid_params
         assert not unknown, (
@@ -452,7 +453,7 @@ class TestAgentApiServiceContract:
             "agent_id", "name", "description", "system_prompt",
             "skill_ids", "mcp_connection_ids", "builtin_config",
             "workflow_ids", "knowledge_base_ids",
-            "llm_config",
+            "default_model", "max_retry",
         }
         unknown = api_kwargs - valid_params
         assert not unknown, (

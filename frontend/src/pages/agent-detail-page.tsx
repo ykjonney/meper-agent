@@ -79,7 +79,7 @@ export default function AgentDetailPage() {
   }
 
   /* ─── Resolve model label for chat panel ─── */
-  const agentModel = agent.llm_config?.default_model ?? ''
+  const agentModel = agent.default_model ?? ''
 
   return (
     <div className="animate-[fadeIn_0.3s_ease-out] flex gap-6 h-full">

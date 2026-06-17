@@ -43,7 +43,8 @@ class TestAgentModel:
             builtin_config=["bash", "read"],
             workflow_ids=["wf_001"],
             knowledge_base_ids=["kb_001"],
-            llm_config={"default_model": "gpt-4", "temperature": 0.5, "max_retry": 5},
+            default_model="gpt-4",
+            max_retry=5,
             status=AgentStatus.PUBLISHED,
         )
         assert agent.skill_ids == ["skill_001"]

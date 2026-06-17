@@ -90,13 +90,15 @@ class AgentUpdate(BaseModel):
         default_factory=list,
         description="绑定的知识库 ID",
     )
-    llm_config: dict = Field(
-        default_factory=lambda: {
-            "default_model": "",
-            "temperature": 0.7,
-            "max_retry": 3,
-        },
-        description="模型配置（default_model / temperature / max_retry）",
+    default_model: str = Field(
+        default="",
+        description="模型引用（model_xxx ULID 或明文模型名）",
+    )
+    max_retry: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="LLM 调用失败时最大重试次数",
     )
 
 
@@ -113,14 +115,8 @@ class AgentResponse(BaseModel):
     builtin_config: list[str]
     workflow_ids: list[str]
     knowledge_base_ids: list[str]
-    llm_config: dict = Field(
-        default_factory=lambda: {
-            "default_model": "",
-            "temperature": 0.7,
-            "max_retry": 3,
-        },
-        description="Model configuration",
-    )
+    default_model: str = Field(default="", description="Model reference")
+    max_retry: int = Field(default=3, description="Max LLM call retries")
     status: AgentStatus
     created_at: str
     updated_at: str

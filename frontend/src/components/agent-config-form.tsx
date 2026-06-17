@@ -10,7 +10,7 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Input, InputNumber, Select, Slider, Button, Collapse, Tag, message, Modal,
+  Input, InputNumber, Select, Button, Collapse, Tag, message, Modal,
   Spin, Empty,
 } from 'antd'
 import {
@@ -67,7 +67,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     const [formDesc, setFormDesc] = useState('')
     const [formPrompt, setFormPrompt] = useState('')
     const [formModelId, setFormModelId] = useState('')
-    const [formTemperature, setFormTemperature] = useState(0.7)
     const [formMaxRetry, setFormMaxRetry] = useState(3)
     const [formPrompts, setFormPrompts] = useState<SavedPrompt[]>([])
     const [toolConfig, setToolConfig] = useState<ToolSelectorValue>(DEFAULT_TOOL_VALUE)
@@ -82,9 +81,8 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         setFormDesc(agent.description)
         setFormPrompt(agent.system_prompt)
         setFormPrompts(agent.saved_system_prompts ?? [])
-        setFormModelId(agent.llm_config?.default_model || '')
-        setFormTemperature(agent.llm_config?.temperature ?? 0.7)
-        setFormMaxRetry(agent.llm_config?.max_retry ?? 3)
+        setFormModelId(agent.default_model || '')
+        setFormMaxRetry(agent.max_retry ?? 3)
         setToolConfig({
           builtin_config: agent.builtin_config ?? [],
           skill_ids: agent.skill_ids ?? [],
@@ -97,7 +95,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         setFormPrompt('')
         setFormPrompts([])
         setFormModelId('')
-        setFormTemperature(0.7)
         setFormMaxRetry(3)
         setToolConfig(DEFAULT_TOOL_VALUE)
       }
@@ -113,12 +110,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     /* ─── Mutation: save agent ─── */
     const saveMutation = useMutation({
       mutationFn: async () => {
-        const llmConfig = {
-          default_model: formModelId,
-          temperature: formTemperature,
-          max_retry: formMaxRetry,
-        }
-
         if (isEdit && agent) {
           return agentApi.update(agent.id, {
             name: formName.trim(),
@@ -130,19 +121,14 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             builtin_config: toolConfig.builtin_config,
             workflow_ids: toolConfig.workflow_ids,
             knowledge_base_ids: agent.knowledge_base_ids,
-            llm_config: llmConfig,
+            default_model: formModelId,
+            max_retry: formMaxRetry,
           })
         } else {
           return agentApi.create({
             name: formName.trim(),
             description: formDesc.trim(),
             system_prompt: formPrompt.trim(),
-            saved_system_prompts: formPrompts,
-            skill_ids: toolConfig.skill_ids,
-            mcp_connection_ids: toolConfig.mcp_connection_ids,
-            builtin_config: toolConfig.builtin_config,
-            workflow_ids: toolConfig.workflow_ids,
-            llm_config: llmConfig,
           })
         }
       },
@@ -288,24 +274,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
                   label: `${m.name} (${m.model_id})`,
                 }))}
               />
-            </div>
-
-            <div>
-              <label className="block text-sm text-[#0F172A] mb-1.5">
-                Temperature <span className="text-[11px] text-[#94A3B8] font-normal">({formTemperature})</span>
-              </label>
-              <Slider
-                min={0}
-                max={2}
-                step={0.1}
-                value={formTemperature}
-                onChange={setFormTemperature}
-                tooltip={{ formatter: (v) => v?.toFixed(1) }}
-              />
-              <div className="flex justify-between text-[11px] text-[#94A3B8] -mt-2">
-                <span>精确 (0)</span>
-                <span>创意 (2)</span>
-              </div>
             </div>
 
             <div>

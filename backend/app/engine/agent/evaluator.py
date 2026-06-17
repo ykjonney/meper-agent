@@ -22,7 +22,7 @@ def evaluate_input(agent: dict, user_input: str, request_id: str | None = None) 
     or workflow Task creation).
 
     Args:
-        agent: The Agent MongoDB document (includes ``llm_config``,
+        agent: The Agent MongoDB document (includes ``default_model``,
             ``tool_ids``, ``workflow_ids``, ``system_prompt``).
         user_input: The raw text the user sent.
         request_id: Unique trace ID for this execution.

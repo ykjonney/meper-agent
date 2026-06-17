@@ -175,9 +175,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
             temperature = self.node_config.get("temperature")
             if temperature is not None:
-                if "llm_config" not in agent_doc:
-                    agent_doc["llm_config"] = {}
-                agent_doc["llm_config"]["temperature"] = temperature
+                agent_doc["temperature_override"] = temperature
 
             graph = await build_agent_graph(agent_doc)
 

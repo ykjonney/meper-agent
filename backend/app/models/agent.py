@@ -55,20 +55,22 @@ class Agent(BaseModel):
     builtin_config: list[str] = Field(default_factory=list)
     workflow_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str] = Field(default_factory=list)
-    llm_config: dict = Field(
-        default_factory=lambda: {
-            "default_model": "",
-            "temperature": 0.7,
-            "max_retry": 3,
-        },
-        description="Model configuration",
+    default_model: str = Field(
+        default="",
+        description="Model reference (model_xxx ULID or plain name)",
+    )
+    max_retry: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Max LLM call retries on failure",
     )
     status: AgentStatus = Field(default=AgentStatus.DRAFT)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
     def model_post_init(self, __context: object) -> None:
-        """Backward compat: populate skill_ids from tool_ids + migrate system_prompt."""
+        """Backward compat: populate skill_ids from tool_ids, migrate system_prompt."""
         super().model_post_init(__context)
         if not self.skill_ids and self.tool_ids:
             object.__setattr__(self, "skill_ids", list(self.tool_ids))

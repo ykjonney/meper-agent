@@ -217,7 +217,7 @@ export default function AgentsPage() {
 
   /* ─── Helper: model display ─── */
   const getModelDisplay = (agent: Agent): string => {
-    const modelRef = agent.llm_config?.default_model
+    const modelRef = agent.default_model
     if (!modelRef) return '未配置'
     return modelRef
   }

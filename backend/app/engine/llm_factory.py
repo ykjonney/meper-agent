@@ -1,8 +1,8 @@
-"""LLM client factory — creates LangChain chat models from ``llm_config``.
+"""LLM client factory — creates LangChain chat models from Agent documents.
 
 Supports two resolution strategies:
 
-1. **Model table lookup** (preferred): when ``llm_config.default_model``
+1. **Model table lookup** (preferred): when ``default_model``
    starts with ``model_``, it is treated as a ULID ``_id`` referencing
    a document in the ``models`` collection. The factory decrypts the
    stored API key and constructs a ChatModel with ``base_url``,
@@ -47,10 +47,10 @@ _KNOWN_PROVIDERS: dict[str, type] = {
 
 
 async def get_llm_client(
-    llm_config: dict | None = None,
+    agent_doc: dict | None = None,
     enable_thinking: bool = False,
 ) -> ChatOpenAI | ChatAnthropic:
-    """Construct a LangChain chat model from an Agent's ``llm_config``.
+    """Construct a LangChain chat model from an Agent document.
 
     Resolution order:
     1. If ``default_model`` starts with ``model_`` → look up the models
@@ -58,9 +58,10 @@ async def get_llm_client(
     2. Otherwise → fall back to the legacy env-var-based approach.
 
     Args:
-        llm_config: Agent's model configuration dict, expected to contain
-            ``default_model`` (str) and optionally ``temperature`` (float).
-            When ``None`` or empty, defaults to ``gpt-4o-mini``.
+        agent_doc: Agent document (from MongoDB). Reads ``default_model``
+            and ``temperature_override`` (runtime-only) from flat top-level
+            fields. Falls back to legacy ``llm_config`` nested dict for
+            old documents.
         enable_thinking: When True, enable LLM native reasoning for
             supported models (Claude extended thinking / OpenAI o-series
             reasoning_effort). Unsupported models silently ignore this.
@@ -72,14 +73,21 @@ async def get_llm_client(
         ValueError: If the model's provider cannot be determined or the
             model reference is invalid.
     """
-    config = llm_config or {}
-    model_ref: str = config.get("default_model") or ""
+    doc = agent_doc or {}
+    # Backward compat: flat fields first, then legacy nested llm_config
+    legacy_llm = doc.get("llm_config") or {}
+    model_ref: str = doc.get("default_model") or legacy_llm.get("default_model", "")
+    # Temperature: runtime override > model default_params (handled by caller)
+    temperature_override = doc.get("temperature_override")
 
     # 1. Try to resolve as model table _id (ULID prefix "model_")
     if model_ref.startswith("model_"):
         model_doc = await _resolve_model_doc(model_ref)
         if model_doc is not None:
-            return _build_client_from_doc(model_doc, config, enable_thinking=enable_thinking)
+            agent_config = {}
+            if temperature_override is not None:
+                agent_config["temperature"] = temperature_override
+            return _build_client_from_doc(model_doc, agent_config, enable_thinking=enable_thinking)
         # Model not found in table → fall through to legacy
 
         logger.warning(
@@ -90,10 +98,13 @@ async def get_llm_client(
 
     # 2. Legacy: model name string (env-var based)
     if model_ref:
-        return _build_client_from_env(model_ref, config, enable_thinking=enable_thinking)
+        agent_config = {}
+        if temperature_override is not None:
+            agent_config["temperature"] = temperature_override
+        return _build_client_from_env(model_ref, agent_config, enable_thinking=enable_thinking)
 
     # 3. Final fallback
-    return _build_client_from_env("gpt-4o-mini", config, enable_thinking=enable_thinking)
+    return _build_client_from_env("gpt-4o-mini", {}, enable_thinking=enable_thinking)
 
 
 async def _resolve_model_doc(model_ref: str) -> dict | None:
@@ -128,7 +139,7 @@ def build_client_from_doc(
         doc: Model document with decrypted ``api_key``, ``base_url``,
             ``model_id``, ``compatibility_type``, ``auth_type``,
             ``auth_header_format``, and ``default_params``.
-        agent_config: Optional overrides (e.g. temperature).
+        agent_config: Optional overrides (e.g. temperature from ``temperature_override``).
         enable_thinking: Enable native LLM reasoning if supported.
 
     Returns:
@@ -300,7 +311,7 @@ def _build_client_from_env(
     """Legacy fallback: build a ChatModel using environment variable credentials.
 
     Preserves backward compatibility with Agents that store plain model
-    names in ``llm_config.default_model``.
+    names in ``default_model`` (flat field) or legacy ``llm_config.default_model``.
     """
     temperature: float = float(agent_config.get("temperature", 0.7))
     provider = _detect_provider(model_name)

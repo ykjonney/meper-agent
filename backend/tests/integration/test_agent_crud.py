@@ -43,7 +43,7 @@ class TestCreateAgent:
         assert doc["skill_ids"] == []
         assert doc["workflow_ids"] == []
         assert doc["knowledge_base_ids"] == []
-        assert doc["llm_config"]["default_model"] == ""
+        assert doc["default_model"] == ""
 
     async def test_create_agent_duplicate_name(
         self,
@@ -312,7 +312,7 @@ class TestDuplicateAgent:
             "builtin_config": [],
             "workflow_ids": [],
             "knowledge_base_ids": [],
-            "llm_config": {"default_model": "", "temperature": 0.7, "max_retry": 3},
+            "llm_config": {"default_model": "", "temperature": 0.7, "max_retry": 3},  # legacy backward compat
             "status": "draft",
             "version": 1,
             "created_at": "2026-01-01T00:00:00",

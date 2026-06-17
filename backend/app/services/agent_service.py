@@ -34,7 +34,8 @@ class AgentService:
         builtin_config: list[str] | None = None,
         workflow_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
-        llm_config: dict | None = None,
+        default_model: str = "",
+        max_retry: int = 3,
     ) -> dict:
         """Create a new Agent in draft status.
 
@@ -48,7 +49,8 @@ class AgentService:
             builtin_config: Optional list of enabled built-in tool names.
             workflow_ids: Optional list of bound workflow IDs.
             knowledge_base_ids: Optional list of bound knowledge base IDs.
-            llm_config: Optional model configuration dict.
+            default_model: Model reference (model_xxx ULID or plain name).
+            max_retry: Max LLM call retries on failure.
 
         Returns:
             Created Agent MongoDB document.
@@ -89,11 +91,8 @@ class AgentService:
             builtin_config=builtin_config or [],
             workflow_ids=workflow_ids or [],
             knowledge_base_ids=knowledge_base_ids or [],
-            llm_config=llm_config or {
-                "default_model": "",
-                "temperature": 0.7,
-                "max_retry": 3,
-            },
+            default_model=default_model,
+            max_retry=max_retry,
             status=AgentStatus.DRAFT,
         )
 
@@ -108,7 +107,8 @@ class AgentService:
             "builtin_config": agent.builtin_config,
             "workflow_ids": agent.workflow_ids,
             "knowledge_base_ids": agent.knowledge_base_ids,
-            "llm_config": agent.llm_config,
+            "default_model": agent.default_model,
+            "max_retry": agent.max_retry,
             "status": agent.status.value,
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
@@ -195,7 +195,8 @@ class AgentService:
         builtin_config: list[str] | None = None,
         workflow_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
-        llm_config: dict | None = None,
+        default_model: str = "",
+        max_retry: int = 3,
     ) -> dict | None:
         """Update an existing Agent's configuration.
 
@@ -212,7 +213,8 @@ class AgentService:
             builtin_config: New built-in tool whitelist.
             workflow_ids: New workflow IDs.
             knowledge_base_ids: New knowledge base IDs.
-            llm_config: New model config.
+            default_model: New model reference.
+            max_retry: New max retry count.
 
         Returns:
             Updated Agent document, or None if not found.
@@ -258,11 +260,8 @@ class AgentService:
             "builtin_config": builtin_config or [],
             "workflow_ids": workflow_ids or [],
             "knowledge_base_ids": knowledge_base_ids or [],
-            "llm_config": llm_config or {
-                "default_model": "",
-                "temperature": 0.7,
-                "max_retry": 3,
-            },
+            "default_model": default_model,
+            "max_retry": max_retry,
             "updated_at": now_iso,
         }
 
@@ -445,5 +444,22 @@ class AgentService:
             builtin_config=source.get("builtin_config", []),
             workflow_ids=source.get("workflow_ids", []),
             knowledge_base_ids=source.get("knowledge_base_ids", []),
-            llm_config=source.get("llm_config"),
+            default_model=_resolve_default_model(source),
+            max_retry=_resolve_max_retry(source),
         )
+
+
+def _resolve_default_model(doc: dict) -> str:
+    """Extract default_model from a doc, with backward compat for nested llm_config."""
+    if doc.get("default_model"):
+        return doc["default_model"]
+    legacy = doc.get("llm_config") or {}
+    return legacy.get("default_model", "")
+
+
+def _resolve_max_retry(doc: dict) -> int:
+    """Extract max_retry from a doc, with backward compat for nested llm_config."""
+    if "max_retry" in doc:
+        return int(doc["max_retry"])
+    legacy = doc.get("llm_config") or {}
+    return int(legacy.get("max_retry", 3))
