@@ -375,9 +375,16 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
         "write_to_output": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
     }
 
-    for name in builtin_config:
-        desc = tool_desc_map.get(name, name)
-        lines.append(f"- **{name}**: {desc}")
+    # When bash is enabled, auto-include read/write/write_to_output in the declaration
+    enabled = set(builtin_config)
+    if "bash" in enabled:
+        enabled |= {"read", "write", "write_to_output"}
+
+    # Preserve a stable order
+    for name in ["bash", "read", "write", "write_to_output"]:
+        if name in enabled:
+            desc = tool_desc_map.get(name, name)
+            lines.append(f"- **{name}**: {desc}")
 
     return "\n".join(lines)
 
@@ -559,21 +566,29 @@ _MAX_SKILL_CONTENT = 50_000
 def _resolve_builtin_tools(agent: dict) -> list:
     """Resolve built-in tools based on Agent's ``builtin_config`` whitelist.
 
-    When ``builtin_config`` is non-empty, returns only the base tools (bash,
-    read, write) whose names are in the whitelist.  Task management tools are
-    always included regardless of ``builtin_config``.
+    When ``bash`` is in the whitelist, ``read``, ``write``, and
+    ``write_to_output`` are automatically included — any agent that can
+    execute shell commands will almost certainly need to read/write files.
 
+    Task management tools are always included regardless of ``builtin_config``.
     When ``builtin_config`` is empty, returns only the task management tools.
     """
     from app.engine.agent.workflow_executor import _TASK_TOOLS
 
-    builtin_config = agent.get("builtin_config") or []
+    builtin_config = set(agent.get("builtin_config") or [])
 
-    # Base tools (bash, read, write, write_to_output) — filtered by whitelist
+    # When bash is enabled, auto-include read/write/write_to_output
+    _BASH_TOOL_SET = {"bash", "read", "write", "write_to_output"}
+    if "bash" in builtin_config:
+        enabled_names = _BASH_TOOL_SET
+    else:
+        # Only include individually enabled tools (not bash bundle)
+        enabled_names = builtin_config & {"read", "write", "write_to_output"}
+
     base_tools = [
         _BUILTIN_TOOL_REGISTRY[name]
-        for name in builtin_config
-        if name in _BUILTIN_TOOL_REGISTRY and name in {"bash", "read", "write", "write_to_output"}
+        for name in enabled_names
+        if name in _BUILTIN_TOOL_REGISTRY
     ]
 
     # Task management tools — always available

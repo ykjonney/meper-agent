@@ -29,7 +29,7 @@ export interface MessageRecord {
 }
 
 export interface TimelineEntryData {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'final_answer'
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'tool' | 'final_answer'
   content?: string
   tool_name?: string
   args?: Record<string, unknown>

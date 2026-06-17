@@ -6,6 +6,7 @@
  * groups with multiple children. Single-page groups navigate directly.
  */
 import { useLocation, useNavigate, Outlet } from 'react-router-dom'
+import { REFRESH_TOKEN_KEY } from '../stores/auth-store'
 import {
   NodeIndexOutlined,
   DashboardOutlined,
@@ -169,7 +170,7 @@ export default function AppLayout() {
 
   const handleLogout = async () => {
     try {
-      await authApi.logout()
+      await authApi.logout(localStorage.getItem(REFRESH_TOKEN_KEY) ?? '')
     } catch {
       // 即使 API 失败也要本地清除登录态
     }

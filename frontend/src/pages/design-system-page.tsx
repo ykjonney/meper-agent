@@ -117,7 +117,7 @@ export default function DesignSystemPage() {
               <br />
               <Text type="secondary">次要文本 — #475569</Text>
               <br />
-              <Text type="tertiary" style={{ color: '#94A3B8' }}>辅助文本 — #94A3B8</Text>
+              <Text style={{ color: '#94A3B8' }}>辅助文本 — #94A3B8</Text>
               <br />
               <Text code>console.log("行内代码")</Text>
               <Text keyboard>⌘K</Text>

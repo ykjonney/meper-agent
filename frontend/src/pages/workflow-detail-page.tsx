@@ -10,7 +10,7 @@
  * - Version history display
  * - Publish / Archive lifecycle
  */
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -38,6 +38,7 @@ import {
   workflowsApi,
   workflowKeys,
   type WorkflowNode,
+  type WorkflowEdge,
 } from '../services/workflows-api'
 import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
@@ -315,7 +316,7 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
         {/* 动态表单区域 */}
         {hasDefinedVars ? (
           <div className="space-y-3">
-            {variables.map((v) => (
+            {variables.map((v: VariableDefinition) => (
               <VariableFormField
                 key={v.name}
                 variable={v}
@@ -632,7 +633,7 @@ export default function WorkflowDetailPage() {
     const derivedEdges = deriveXyflowEdgesFromNodes(editNodes)
 
     // 2. 运行前端验证（使用推导边而非空数组）
-    const validation = validateWorkflow(editNodes, derivedEdges, hasChanges)
+    const validation = validateWorkflow(editNodes, derivedEdges as unknown as WorkflowEdge[], hasChanges)
 
     if (!validation.valid || validation.warnings.length > 0) {
       const hasErrors = !validation.valid

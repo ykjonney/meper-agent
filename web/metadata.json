@@ -1,6 +1,0 @@
-{
-  "name": "AgentPlat",
-  "description": "Agent Platform UX Prototype for Agent management, Chat, Skill browser, MCP control, and Task boards.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

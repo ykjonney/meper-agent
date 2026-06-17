@@ -23,6 +23,18 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - SANDBOX_ENABLED=${SANDBOX_ENABLED:-true}
+      - SANDBOX_IMAGE=${SANDBOX_IMAGE:-agent-sandbox:latest}
+      - WORKSPACES_DIR=/data/workspaces
+      - SKILLS_DIR=/data/skills
+    volumes:
+      # Docker socket — backend spawns sandbox containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Workspaces — shared between backend and sandbox containers
+      - ../deploy/data/workspaces:/data/workspaces
+      # Skills — mounted read-only into sandbox containers
+      - ../deploy/data/skills:/data/skills
     depends_on:
       mongodb:
         condition: service_started
@@ -37,6 +49,15 @@ services:
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     env_file:
       - .env
+    environment:
+      - SANDBOX_ENABLED=${SANDBOX_ENABLED:-true}
+      - SANDBOX_IMAGE=${SANDBOX_IMAGE:-agent-sandbox:latest}
+      - WORKSPACES_DIR=/data/workspaces
+      - SKILLS_DIR=/data/skills
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../deploy/data/workspaces:/data/workspaces
+      - ../deploy/data/skills:/data/skills
     depends_on:
       - redis
       - mongodb
@@ -88,3 +109,13 @@ services:
       - mongodb
     profiles:
       - init
+
+  # Sandbox image — built but not run as a service.
+  # Build with: docker compose build sandbox
+  sandbox:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sandbox
+    image: ${SANDBOX_IMAGE:-agent-sandbox:latest}
+    profiles:
+      - tools

@@ -71,5 +71,19 @@ class Settings(BaseSettings):
     # Workspace quota — max bytes per workspace (default 500 MB).
     WORKSPACE_MAX_BYTES: int = 500 * 1024 * 1024
 
+    # ── Sandbox ──────────────────────────────────────────────────────────
+    # Docker image used for bash tool sandbox execution.
+    SANDBOX_IMAGE: str = "agent-sandbox:latest"
+
+    # Sandbox resource limits.
+    SANDBOX_MEM_LIMIT: str = "512m"
+    SANDBOX_CPU_QUOTA: int = 100_000  # 1 CPU core (100000 μs quota per 100000 μs period)
+    SANDBOX_TIMEOUT: int = 120  # seconds
+    SANDBOX_MAX_OUTPUT_BYTES: int = 50 * 1024  # 50 KB stdout/stderr cap
+
+    # When True, bash runs inside Docker container.
+    # When False (default for local dev), bash runs via subprocess.
+    SANDBOX_ENABLED: bool = False
+
 
 settings = Settings()

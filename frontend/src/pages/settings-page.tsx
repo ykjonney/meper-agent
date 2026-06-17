@@ -87,7 +87,7 @@ export default function SettingsPage() {
                 key={th.key}
                 onClick={() => setTheme(th)}
                 className={`w-7 h-7 rounded-full transition-all duration-200 ${theme.key === th.key ? 'ring-2 ring-offset-2 scale-110' : 'opacity-60 hover:opacity-100'}`}
-                style={{ background: th.primary, ringColor: th.primary }}
+                style={{ background: th.primary, '--tw-ring-color': th.primary } as React.CSSProperties}
                 title={th.zhName}
               />
             ))}

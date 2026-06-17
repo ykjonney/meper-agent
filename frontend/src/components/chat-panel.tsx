@@ -143,10 +143,10 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       const idx = result.length
       result.push(entry)
       // Track by tool_name to match with later tool_result
-      pendingToolCalls.set(e.tool_name, { idx, entry })
+      pendingToolCalls.set(e.tool_name ?? '', { idx, entry })
     } else if (e.type === 'tool_result') {
       // Find the last pending tool_call with matching name
-      const pending = pendingToolCalls.get(e.tool_name)
+      const pending = pendingToolCalls.get(e.tool_name ?? '')
       if (pending) {
         const isError = e.content?.startsWith('Error')
         result[pending.idx] = {
@@ -154,7 +154,7 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
           result: e.content,
           toolStatus: isError ? 'error' : 'success',
         }
-        pendingToolCalls.delete(e.tool_name)
+        pendingToolCalls.delete(e.tool_name ?? '')
       } else {
         // Standalone tool_result (shouldn't happen, but handle gracefully)
         result.push({
@@ -794,7 +794,7 @@ export default function ChatPanel({
           <div className="flex flex-col gap-2">
             <Tooltip title={isStreaming ? '停止' : '发送'}>
               <button
-                onClick={isStreaming ? handleStop : handleSend}
+                onClick={isStreaming ? handleStop : () => { handleSend() }}
                 disabled={!input.trim() && !isStreaming}
                 className="w-10 h-10 flex items-center justify-center rounded-xl border-0 text-white transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 style={{ background: t.primary }}
@@ -1052,7 +1052,6 @@ function TimelineEntryCard({
           {/* Structured card for known tool result types */}
           {entry.result && status !== 'running' && (
             <ToolResultCardRenderer
-              toolName={entry.toolName}
               result={entry.result}
               onSendMessage={onSendMessage}
             />
@@ -1118,7 +1117,7 @@ function ToolResultCardRenderer({
     return (
       <div className="px-3 pb-2">
         <WorkflowProposalCard
-          proposal={parsed as WorkflowProposal}
+          proposal={parsed as unknown as WorkflowProposal}
           onConfirm={(workflowName) => {
             onSendMessage?.(`确认执行 ${workflowName}`)
           }}
@@ -1131,7 +1130,7 @@ function ToolResultCardRenderer({
   if (type === 'task_created') {
     return (
       <div className="px-3 pb-2">
-        <TaskCreatedCard data={parsed as TaskCreated} />
+        <TaskCreatedCard data={parsed as unknown as TaskCreated} />
       </div>
     )
   }
@@ -1140,7 +1139,7 @@ function ToolResultCardRenderer({
   if (type === 'task_result') {
     return (
       <div className="px-3 pb-2">
-        <TaskResultCard data={parsed as TaskResult} />
+        <TaskResultCard data={parsed as unknown as TaskResult} />
       </div>
     )
   }

@@ -203,7 +203,6 @@ export default function VariableListEditor({
         }}
         okText="保存"
         cancelText="取消"
-        size="small"
         width={420}
         okButtonProps={{
           disabled: !draft.name,

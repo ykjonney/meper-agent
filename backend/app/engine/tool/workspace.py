@@ -226,3 +226,118 @@ class WorkspaceManager:
                 "modified": stat.st_mtime,
             })
         return entries
+
+    # ── Lifecycle cleanup ───────────────────────────────────────────────
+
+    @staticmethod
+    def cleanup_expired_workspaces(
+        tmp_retention_days: int | None = None,
+        full_retention_days: int | None = None,
+    ) -> dict:
+        """Remove expired workspace files.
+
+        Strategy:
+          - ``tmp/`` is cleaned when older than *tmp_retention_days* (default:
+            ``WORKSPACE_RETENTION_DAYS / 2``).
+          - The entire workspace is removed when older than *full_retention_days*
+            (default: ``WORKSPACE_RETENTION_DAYS``).
+
+        Only directories with a valid ``{user_id}/{session_id}`` structure are
+        considered.  Partial / orphan directories are left untouched.
+
+        Returns:
+            Summary dict with ``tmp_cleaned``, ``workspaces_removed``, and
+            ``bytes_freed``.
+        """
+        import time
+
+        tmp_days = tmp_retention_days or max(settings.WORKSPACE_RETENTION_DAYS // 2, 1)
+        full_days = full_retention_days or settings.WORKSPACE_RETENTION_DAYS
+
+        tmp_cutoff = time.time() - (tmp_days * 86400)
+        full_cutoff = time.time() - (full_days * 86400)
+
+        root = WorkspaceManager._workspaces_root()
+        if not root.exists():
+            return {"tmp_cleaned": 0, "workspaces_removed": 0, "bytes_freed": 0}
+
+        tmp_cleaned = 0
+        workspaces_removed = 0
+        bytes_freed = 0
+
+        for user_dir in root.iterdir():
+            if not user_dir.is_dir():
+                continue
+            for session_dir in user_dir.iterdir():
+                if not session_dir.is_dir():
+                    continue
+
+                # Get workspace mtime (latest modification in the tree)
+                try:
+                    ws_mtime = _get_dir_mtime(session_dir)
+                except OSError:
+                    continue
+
+                # Full removal
+                if ws_mtime < full_cutoff:
+                    size = _dir_size(session_dir)
+                    shutil.rmtree(session_dir, ignore_errors=True)
+                    workspaces_removed += 1
+                    bytes_freed += size
+                    logger.info(
+                        "workspace_cleanup_removed",
+                        user_id=user_dir.name,
+                        session_id=session_dir.name,
+                        bytes_freed=size,
+                    )
+                    continue
+
+                # tmp/ cleanup (only if tmp is old enough)
+                tmp_dir = session_dir / "tmp"
+                if tmp_dir.exists():
+                    try:
+                        tmp_mtime = _get_dir_mtime(tmp_dir)
+                    except OSError:
+                        tmp_mtime = ws_mtime
+
+                    if tmp_mtime < tmp_cutoff:
+                        size = _dir_size(tmp_dir)
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                        tmp_dir.mkdir(parents=True, exist_ok=True)
+                        tmp_cleaned += 1
+                        bytes_freed += size
+
+        logger.info(
+            "workspace_cleanup_completed",
+            tmp_cleaned=tmp_cleaned,
+            workspaces_removed=workspaces_removed,
+            bytes_freed=bytes_freed,
+        )
+        return {
+            "tmp_cleaned": tmp_cleaned,
+            "workspaces_removed": workspaces_removed,
+            "bytes_freed": bytes_freed,
+        }
+
+
+# ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+def _dir_size(path: Path) -> int:
+    """Calculate total size of all files under *path*."""
+    total = 0
+    for p in path.rglob("*"):
+        if p.is_file():
+            total += p.stat().st_size
+    return total
+
+
+def _get_dir_mtime(path: Path) -> float:
+    """Return the most recent mtime of any file under *path*."""
+    latest = path.stat().st_mtime
+    for p in path.rglob("*"):
+        if p.is_file():
+            mt = p.stat().st_mtime
+            if mt > latest:
+                latest = mt
+    return latest

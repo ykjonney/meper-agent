@@ -1,0 +1,77 @@
+# agent-sandbox — isolated execution environment for Agent bash/read/write tools.
+#
+# This image is used by SandboxExecutor to run arbitrary shell commands in a
+# Docker container with strict security isolation:
+#   - network_mode = "none"     (no network access)
+#   - read_only root filesystem (only /workspace and /tmp are writable)
+#   - non-root user "sandbox"
+#   - resource limits applied at runtime via docker-py
+#
+# Build:
+#   docker build -t agent-sandbox:latest -f deploy/Dockerfile.sandbox .
+
+FROM python:3.12-slim AS base
+
+# ── System packages ──────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    jq \
+    wget \
+    unzip \
+    tree \
+    ca-certificates \
+    # For compiling some pip packages (e.g. lxml)
+    gcc \
+    libxml2-dev \
+    libxslt1-dev \
+    # Pillow dependencies
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 22 ───────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
+
+# ── Python packages (common data-science / web libraries) ────────────────────
+RUN pip install --no-cache-dir \
+    pandas \
+    numpy \
+    scipy \
+    matplotlib \
+    openpyxl \
+    requests \
+    httpx \
+    pyyaml \
+    jinja2 \
+    toml \
+    beautifulsoup4 \
+    lxml \
+    pillow \
+    tabulate \
+    rich
+
+# ── Create non-root user ─────────────────────────────────────────────────────
+RUN groupadd -r sandbox && useradd -r -g sandbox -m -s /bin/bash sandbox
+
+# ── Workspace ─────────────────────────────────────────────────────────────────
+# /workspace is the mount point for the session workspace (tmp/ mounted rw).
+# /tmp is used for ephemeral scratch space.
+RUN mkdir -p /workspace /tmp/sandbox && chown sandbox:sandbox /workspace /tmp/sandbox
+
+WORKDIR /workspace
+
+# ── Security hardening ────────────────────────────────────────────────────────
+# Drop all capabilities, keep only what's needed for running scripts.
+# These are runtime defaults; docker-py can override per-container.
+USER sandbox
+
+# Prevent Python from writing .pyc files and buffer stdout for real-time logs.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/home/sandbox/.local/bin:$PATH"
+
+CMD ["bash"]

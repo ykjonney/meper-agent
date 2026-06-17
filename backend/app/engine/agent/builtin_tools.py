@@ -54,6 +54,24 @@ def _get_workspace():
     return _current_workspace.get()
 
 
+def _check_write_quota(workspace: Workspace, additional_bytes: int) -> bool:
+    """Check whether writing *additional_bytes* would exceed the workspace quota.
+
+    Returns ``True`` if within quota, ``False`` if exceeded.
+    """
+    from app.engine.tool.workspace import WorkspaceManager
+
+    return WorkspaceManager.check_quota(workspace, additional_bytes)
+
+
+def _workspace_log_context() -> dict:
+    """Return workspace context dict for structured logging."""
+    ws = _get_workspace()
+    if ws is None:
+        return {}
+    return {"user_id": ws.user_id, "session_id": ws.session_id}
+
+
 # ---------------------------------------------------------------------------
 # Path resolution helpers
 # ---------------------------------------------------------------------------
@@ -145,18 +163,58 @@ def bash(command: str) -> str:
     Use this tool when you need to run shell commands — file
     operations, git operations, inspections, or any CLI tool.
 
-    The command runs within the Session workspace. Use relative paths
-    to access workspace files.
+    The command runs inside an isolated sandbox container when
+    SANDBOX_ENABLED=True; otherwise it runs via subprocess (local dev).
+
+    Inside the sandbox, use relative paths to access workspace files:
+      - tmp/    → working area (read/write)
+      - input/  → user-uploaded files (read-only)
+      - output/ → files for user download (read/write)
 
     Args:
         command: The shell command to execute.
     """
     logger.info("builtin_bash_executed", command_preview=command[:80])
 
-    # Determine working directory (workspace tmp if available)
-    ws = _get_workspace()
-    cwd = str(ws.tmp_dir) if ws else None
+    # Circuit breaker — reject if too many recent failures
+    from app.core.circuit_breaker import get_breaker
 
+    breaker = get_breaker("bash")
+    if not breaker.allow_request():
+        return "Error: bash 工具暂时不可用（近期失败过多），请稍后再试。"
+
+    ws = _get_workspace()
+
+    # Without workspace context, fall back to simple subprocess (dev mode)
+    if ws is None:
+        result_text = _bash_subprocess_fallback(command)
+        breaker.record_success()
+        return result_text
+
+    # Use SandboxExecutor (auto-falls-back to subprocess when Docker unavailable)
+    from app.engine.tool.sandbox import SandboxExecutor
+
+    executor = SandboxExecutor()
+    result = executor.execute(command=command, workspace=ws)
+
+    # Record result for circuit breaker
+    # Count timeout and non-zero exit as failures
+    if result.timed_out or result.exit_code != 0:
+        breaker.record_failure()
+    else:
+        breaker.record_success()
+
+    output = result.stdout or ""
+    if result.stderr:
+        output += f"\nSTDERR:\n{result.stderr}"
+    if result.exit_code != 0 and not result.timed_out:
+        output += f"\nExit code: {result.exit_code}"
+
+    return output if output else "(command produced no output)"
+
+
+def _bash_subprocess_fallback(command: str) -> str:
+    """Run command via subprocess without workspace isolation (dev fallback)."""
     try:
         result = subprocess.run(
             command,
@@ -164,14 +222,12 @@ def bash(command: str) -> str:
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=cwd,
         )
         output = result.stdout or ""
         if result.stderr:
             output += f"\nSTDERR:\n{result.stderr}"
         if result.returncode != 0:
             output += f"\nExit code: {result.returncode}"
-        # Limit output to prevent context overflow
         max_output = 50_000
         if len(output) > max_output:
             output = output[:max_output] + (
@@ -195,7 +251,7 @@ def read(path: str) -> str:
     Args:
         path: Path to the file to read (relative to workspace or absolute).
     """
-    logger.info("builtin_read_executed", path=path)
+    logger.info("builtin_read_executed", path=path, workspace=_workspace_log_context())
 
     resolved, error = _safe_path_for_read(path)
     if error:
@@ -232,7 +288,12 @@ def write(path: str, content: str) -> str:
         path: Path to the file to write (relative to tmp/).
         content: The content to write.
     """
-    logger.info("builtin_write_executed", path=path, content_len=len(content))
+    logger.info("builtin_write_executed", path=path, content_len=len(content),
+                workspace=_workspace_log_context())
+
+    ws = _get_workspace()
+    if ws and not _check_write_quota(ws, len(content.encode("utf-8"))):
+        return "Error: Workspace quota exceeded — please free up space or download existing output files."
 
     resolved, error = _safe_path_for_write(path)
     if error:
@@ -262,7 +323,12 @@ def write_to_output(path: str, content: str) -> str:
         path: Filename (relative to output/) or absolute path within workspace.
         content: The content to write.
     """
-    logger.info("builtin_write_to_output_executed", path=path, content_len=len(content))
+    logger.info("builtin_write_to_output_executed", path=path, content_len=len(content),
+                workspace=_workspace_log_context())
+
+    ws = _get_workspace()
+    if ws and not _check_write_quota(ws, len(content.encode("utf-8"))):
+        return "Error: Workspace quota exceeded — please free up space or download existing output files."
 
     resolved, error = _safe_path_for_write(path, as_output=True)
     if error:

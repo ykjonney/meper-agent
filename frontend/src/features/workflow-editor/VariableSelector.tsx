@@ -126,7 +126,7 @@ function convertToUpstreamFields(variable: VariableDefinition | NodeOutputField)
     name: variable.name,
     label: variable.label,
     type: isUserDefined ? (variable as VariableDefinition).type : (variable as NodeOutputField).type,
-    description: variable.description,
+    description: variable.description ?? '',
     isUserDefined,
     constraints: isUserDefined ? (variable as VariableDefinition).constraints ?? null : null,
   }
@@ -381,7 +381,8 @@ export default function VariableSelector({
       <div className="relative">
         {textarea ? (
           <Input.TextArea
-            ref={inputRef as React.Ref<HTMLTextAreaElement>}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ref={inputRef as React.Ref<any>}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             rows={rows}

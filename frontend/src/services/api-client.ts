@@ -114,7 +114,7 @@ apiClient.interceptors.response.use(
       try {
         const newToken = await refreshAccessToken()
         // Replay the original request with the fresh token
-        const headers = new AxiosHeaders(originalRequest.headers)
+        const headers = new AxiosHeaders(originalRequest.headers as AxiosHeaders)
         headers.set('Authorization', `Bearer ${newToken}`)
         return apiClient.request({ ...originalRequest, headers })
       } catch {

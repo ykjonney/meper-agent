@@ -23,6 +23,7 @@ import {
   type OnNodesChange,
   type OnEdgesChange,
   type OnConnect,
+  type OnNodeDrag,
   type Node,
   type Edge,
   type Connection,
@@ -163,8 +164,8 @@ export default function WorkflowCanvas({
   )
 
   /* ── 拖拽结束 → 同步位置回 workflowNodes ─── */
-  const handleNodeDragStop = useCallback(
-    (_: React.MouseEvent | React.TouchEvent, node: Node) => {
+  const handleNodeDragStop: OnNodeDrag = useCallback(
+    (_, node) => {
       const updatedNodes = workflowNodes.map((n) =>
         n.node_id === node.id
           ? { ...n, position: { x: Math.round(node.position.x), y: Math.round(node.position.y) } }
