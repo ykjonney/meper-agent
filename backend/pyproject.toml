@@ -85,6 +85,7 @@ disable_error_code = ["no-any-return", "misc", "union-attr", "arg-type", "attr-d
 # These modules are imported by the app but lack py.typed markers.
 module = [
     "celery",
+    "docker",
     "motor",
     "motor.motor_asyncio",
     "redis",
