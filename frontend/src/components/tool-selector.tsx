@@ -40,6 +40,7 @@ export interface ToolSelectorValue {
   workflow_ids: string[]
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
   builtin_config: [],
   skill_ids: [],

@@ -11,7 +11,7 @@ import inspect
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError
 from app.core.security import get_current_user
 from app.main import app
 from app.schemas.user import UserResponse, UserStatus

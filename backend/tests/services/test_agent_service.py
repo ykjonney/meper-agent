@@ -2,7 +2,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.core.errors import ConflictError
 from app.services.agent_service import AgentService
 

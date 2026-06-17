@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from app.models.task import TaskStatus
 from app.schemas.common import PaginatedResponse
 
-
 # ── Request Schemas ──
 
 class TaskCreate(BaseModel):

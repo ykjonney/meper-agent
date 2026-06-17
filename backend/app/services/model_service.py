@@ -3,7 +3,12 @@ from __future__ import annotations
 
 from loguru import logger
 
-from app.core.crypto import decrypt_api_key, encrypt_api_key, get_encryption_key, mask_api_key
+from app.core.crypto import (
+    decrypt_api_key,
+    encrypt_api_key,
+    get_encryption_key,
+    mask_api_key,
+)
 from app.core.errors import ConflictError, ValidationError
 from app.db.mongodb import get_database
 from app.models.model import Model, ModelStatus
@@ -349,9 +354,10 @@ class ModelService:
         import time
         from datetime import UTC, datetime
 
-        from app.core.errors import NotFoundError, ValidationError
-        from app.engine.llm_factory import build_client_from_doc
         from langchain_core.messages import HumanMessage
+
+        from app.core.errors import NotFoundError
+        from app.engine.llm_factory import build_client_from_doc
 
         doc = await ModelService.get_model_config_by_id(model_id)
         if doc is None:

@@ -2,7 +2,7 @@
  * Knowledge page — knowledge base document management.
  */
 import { Button, Tag, Progress } from 'antd'
-import { SearchOutlined, PlusOutlined, DatabaseOutlined, FileTextOutlined, LinkOutlined, FolderOutlined, MoreOutlined } from '@ant-design/icons'
+import { SearchOutlined, PlusOutlined, FileTextOutlined, MoreOutlined } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 
 const DOCUMENTS = [

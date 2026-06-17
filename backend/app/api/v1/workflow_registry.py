@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.security import get_current_user
 from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserResponse
 from app.services.workflow_registry_service import WorkflowRegistryService
 
 router = APIRouter(

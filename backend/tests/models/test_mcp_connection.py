@@ -1,8 +1,7 @@
 """Tests for McpConnection model."""
 import pytest
-from pydantic import ValidationError
-
 from app.models.mcp_connection import AuthType, ConnectionStatus, McpConnection
+from pydantic import ValidationError
 
 
 def test_connection_status_enum():

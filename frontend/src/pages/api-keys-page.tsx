@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { Button, Tag, Tooltip, Switch } from 'antd'
-import { SearchOutlined, PlusOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined, MoreOutlined, LinkOutlined, EditOutlined, ApiOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined, MoreOutlined, LinkOutlined, EditOutlined, ApiOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 
 const API_KEYS = [

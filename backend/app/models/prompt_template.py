@@ -7,12 +7,9 @@ Templates only store default values for each slot.
 """
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.base import generate_id, utc_now
-
 
 # ── Fixed slot schema ────────────────────────────────────────────────
 

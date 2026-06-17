@@ -23,6 +23,7 @@ export interface Theme {
   vibe: string
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const THEMES: Theme[] = [
   { key: 'orange', name: 'Orange', zhName: '橙色', primary: '#F97316', hover: '#EA580C', active: '#C2410C', light: '#FB923C', bg: '#FFF7ED', bgStrong: '#FFEDD5', vibe: '温暖 · 活力' },
   { key: 'violet', name: 'Violet', zhName: '紫罗兰', primary: '#7C3AED', hover: '#8B5CF6', active: '#6D28D9', light: '#A78BFA', bg: '#F5F3FF', bgStrong: '#EDE9FE', vibe: 'AI · 创新' },
@@ -54,6 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext)
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')

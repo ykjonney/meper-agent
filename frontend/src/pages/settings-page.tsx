@@ -2,7 +2,7 @@
  * Settings page — application configuration sections.
  */
 import { Button, Switch, Select, Input } from 'antd'
-import { SettingOutlined, BellOutlined, LockOutlined, GlobalOutlined, BgColorsOutlined, KeyOutlined, SaveOutlined } from '@ant-design/icons'
+import { SettingOutlined, BellOutlined, LockOutlined, BgColorsOutlined, KeyOutlined, SaveOutlined } from '@ant-design/icons'
 import { useTheme, THEMES } from '../contexts/ThemeContext'
 
 const SECTIONS = [

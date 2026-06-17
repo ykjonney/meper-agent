@@ -428,7 +428,4 @@ def _extract_input_schema(nodes: list[dict]) -> dict:
 
 def _has_human_node(nodes: list[dict]) -> bool:
     """Check if the workflow has any human approval nodes."""
-    for node in nodes:
-        if isinstance(node, dict) and node.get("type") == "human":
-            return True
-    return False
+    return any(isinstance(node, dict) and node.get("type") == "human" for node in nodes)

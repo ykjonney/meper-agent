@@ -4,7 +4,6 @@
  * 结束节点通过 output_mapping 定义工作流最终输出。
  * output_mapping 是一个 dict: { "输出字段名": "{{上游变量表达式}}" }
  */
-import { useState } from 'react'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { Button, Input } from 'antd'
 import VariableSelector from '../VariableSelector'

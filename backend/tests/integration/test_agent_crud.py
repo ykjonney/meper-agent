@@ -4,7 +4,7 @@ Verifies the AgentService operations work correctly with
 actual database reads and writes.
 """
 import pytest
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import ConflictError
 from app.services.agent_service import AgentService
 
 pytestmark = pytest.mark.integration

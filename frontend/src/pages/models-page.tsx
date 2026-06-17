@@ -15,7 +15,6 @@ import {
   SearchOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  MoreOutlined,
   EditOutlined,
   DeleteOutlined,
   InboxOutlined,
@@ -32,12 +31,6 @@ import {
   type ModelTestResult,
   type AuthType,
 } from '../services/model-api'
-
-/* ─── Status mappings ─── */
-const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
-  active: { label: '已启用', color: '#10B981', bg: '#D1FAE5' },
-  inactive: { label: '已停用', color: '#94A3B8', bg: '#F1F5F9' },
-}
 
 /* ─── Compat / Auth labels ─── */
 const COMPAT_LABELS: Record<string, string> = {
@@ -336,6 +329,7 @@ export default function ModelsPage() {
   /* ─── Format relative time ─── */
   function formatTime(iso: string) {
     if (!iso) return '-'
+    // eslint-disable-next-line react-hooks/purity -- Date.now is needed for relative time display
     const diff = Date.now() - parseBackendDate(iso).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return '刚刚'
@@ -432,7 +426,6 @@ export default function ModelsPage() {
 
           {/* Rows */}
           {filtered.map((model, i) => {
-            const ss = STATUS_STYLES[model.status] ?? STATUS_STYLES.inactive
             const ctxWindow = model.default_params?.context_window
               ? `${Math.round(model.default_params.context_window / 1000)}K`
               : '-'

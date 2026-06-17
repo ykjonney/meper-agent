@@ -22,7 +22,6 @@ import {
   ThunderboltOutlined,
   CloseCircleOutlined,
   CheckOutlined,
-  ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -31,7 +30,6 @@ import {
   type TaskSummary,
   type TaskStatusValue,
   type TaskDetail,
-  type Checkpoint,
   type NodeProgress,
   BOARD_STATUSES,
   parseNodeProgress,

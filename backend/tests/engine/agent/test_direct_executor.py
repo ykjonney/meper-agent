@@ -1,10 +1,9 @@
 """Tests for the direct executor (single LLM call, no tool calling)."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
 from app.engine.agent.direct_executor import run
+from langchain_core.messages import AIMessage
 
 
 @pytest.fixture

@@ -61,5 +61,15 @@ class Settings(BaseSettings):
     # Each Skill lives under ``{SKILLS_DIR}/{skill_name}/``.
     SKILLS_DIR: str = "~/.agent-flow/skills"
 
+    # Workspace filesystem — root directory for per-Session workspaces.
+    # Layout: ``{WORKSPACES_DIR}/{user_id}/{session_id}/{input,output,tmp}``.
+    WORKSPACES_DIR: str = "~/.agent-flow/workspaces"
+
+    # Workspace retention — days to keep workspace files after Session deletion.
+    WORKSPACE_RETENTION_DAYS: int = 30
+
+    # Workspace quota — max bytes per workspace (default 500 MB).
+    WORKSPACE_MAX_BYTES: int = 500 * 1024 * 1024
+
 
 settings = Settings()

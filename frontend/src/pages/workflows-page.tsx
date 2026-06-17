@@ -23,8 +23,6 @@ import {
   CloudUploadOutlined,
   StopOutlined,
   EditOutlined,
-  PlayCircleOutlined,
-  FileTextOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
@@ -195,6 +193,7 @@ export default function WorkflowsPage() {
   /* ─── Format time ─── */
   function formatTime(iso: string) {
     if (!iso) return '-'
+    // eslint-disable-next-line react-hooks/purity -- Date.now is needed for relative time display
     const diff = Date.now() - new Date(iso).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return '刚刚'

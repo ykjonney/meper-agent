@@ -1,11 +1,10 @@
 """Tests for the workflow task tools — 8 task management tools with mocked services."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.engine.agent.workflow_executor import (
     _TASK_TOOLS,
     cancel_task,
@@ -28,14 +27,14 @@ _FAKE_TASK = {
     "input": {"product_name": "Widget-A"},
     "timeline": [
         {
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
             "event_type": "created",
             "data": {"workflow_id": "wf_quality_report"},
             "actor": "agent",
         }
     ],
-    "created_at": datetime.now(timezone.utc),
-    "updated_at": datetime.now(timezone.utc),
+    "created_at": datetime.now(UTC),
+    "updated_at": datetime.now(UTC),
 }
 
 _FAKE_TASK_RUNNING = {**_FAKE_TASK, "status": "running", "version": 2}
@@ -338,15 +337,17 @@ class TestProposeWorkflow:
             "description": "UI 设计工作流",
             "has_human_node": False,
         }
-        with patch(
-            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
-            return_value=fake_entry,
+        with (
+            patch(
+                "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+                return_value=fake_entry,
+            ),
+            pytest.raises(ValidationError),
         ):
-            with pytest.raises(ValidationError):
-                await propose_workflow.ainvoke({
-                    "workflow_name": "ui-designer",
-                    "params": "{not valid json}",
-                })
+            await propose_workflow.ainvoke({
+                "workflow_name": "ui-designer",
+                "params": "{not valid json}",
+            })
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
  * Provides an inline editing + testing experience so users can
  * tweak prompts and immediately test them side by side.
  */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Spin, message } from 'antd'
@@ -28,6 +28,7 @@ export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const formRef = useRef<AgentConfigFormHandle>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
 
   /* ─── Query: agent detail ─── */
@@ -98,7 +99,7 @@ export default function AgentDetailPage() {
             <Button
               type="primary"
               onClick={() => formRef.current?.submit()}
-              loading={formRef.current?.isSaving()}
+              loading={isSaving}
               disabled={isPublished}
               style={{ background: t.primary, borderColor: t.primary }}
             >
@@ -130,6 +131,7 @@ export default function AgentDetailPage() {
             ref={formRef}
             agent={agent}
             mode="edit"
+            onSavingChange={setIsSaving}
           />
         </div>
       </div>

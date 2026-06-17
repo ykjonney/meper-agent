@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-from loguru import logger
 
 from app.core.security import get_current_user, require_any_role
 from app.models.mcp_connection import ConnectionStatus

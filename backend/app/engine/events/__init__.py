@@ -23,12 +23,12 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Event types
@@ -40,7 +40,7 @@ class Event:
     """Base event with timestamp and type."""
 
     event_type: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -80,7 +80,7 @@ class DeadLetterRecord:
         self.handler_name = handler_name
         self.error = error
         self.attempts = attempts
-        self.timestamp = datetime.now(timezone.utc)
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -235,7 +235,7 @@ class EventBus:
 
         # Collect dead letters
         dead_letters: list[DeadLetterRecord] = []
-        for handler_wrapper, exc in zip(handlers, results):
+        for handler_wrapper, exc in zip(handlers, results, strict=True):
             if isinstance(exc, Exception):
                 record = DeadLetterRecord(
                     event=event,

@@ -54,6 +54,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         },
       ]
       onChange({ ...config, output_variables: defaults })
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialized(true)
     } else if (!initialized) {
       setInitialized(true)

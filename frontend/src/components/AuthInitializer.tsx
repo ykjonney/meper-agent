@@ -57,6 +57,8 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
       .finally(() => {
         setInitializing(false)
       })
+    // clearAuth/setAuth/setInitializing are stable zustand store setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (isInitializing) {

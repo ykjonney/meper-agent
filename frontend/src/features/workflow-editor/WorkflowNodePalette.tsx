@@ -10,11 +10,7 @@ import { NODE_TYPE_CONFIGS, NODE_TYPE_KEYS } from './utils/node-type-configs'
 /* ─── Drag data key ─── */
 export const DRAG_NODE_TYPE_KEY = 'application/x-workflow-node-type'
 
-interface Props {
-  /** 保留接口兼容性，当前仅支持拖拽添加 */
-}
-
-export default function WorkflowNodePalette(_props: Props) {
+export default function WorkflowNodePalette() {
   const handleDragStart = (e: DragEvent<HTMLDivElement>, type: string) => {
     e.dataTransfer.setData(DRAG_NODE_TYPE_KEY, type)
     e.dataTransfer.effectAllowed = 'copy'

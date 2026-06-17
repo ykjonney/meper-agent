@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.prompt_template import SLOT_SCHEMA, TOOL_DECLARATION_SLOT
+from app.models.prompt_template import SLOT_SCHEMA
 
 
 async def render_system_prompt_full(

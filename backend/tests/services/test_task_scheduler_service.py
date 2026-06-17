@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models.task import TaskStatus
-
 
 def _fake_task(overrides: dict | None = None) -> dict:
     """Build a fake Task document dict."""

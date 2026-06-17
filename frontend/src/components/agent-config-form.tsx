@@ -55,10 +55,12 @@ export interface AgentConfigFormProps {
   mode: 'create' | 'edit'
   /** Called after a successful save/create. */
   onSaved?: () => void
+  /** Called whenever the save mutation's pending state changes. */
+  onSavingChange?: (saving: boolean) => void
 }
 
 const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
-  function AgentConfigForm({ agent, mode, onSaved }, ref) {
+  function AgentConfigForm({ agent, mode, onSaved, onSavingChange }, ref) {
     const queryClient = useQueryClient()
     const isEdit = mode === 'edit' && agent !== null
 
@@ -127,7 +129,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           })
         }
       },
-      onSuccess: (data) => {
+      onSuccess: () => {
         message.success(isEdit ? 'Agent 更新成功' : 'Agent 创建成功')
         queryClient.invalidateQueries({ queryKey: agentKeys.lists() })
         if (agent) {
@@ -187,6 +189,11 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
       },
       isSaving: () => saveMutation.isPending,
     }), [formName, saveMutation])
+
+    /* ─── Notify parent when saving state changes ─── */
+    useEffect(() => {
+      onSavingChange?.(saveMutation.isPending)
+    }, [saveMutation.isPending, onSavingChange])
 
     /* ─── Current status info ─── */
     const currentStatus = agent?.status ?? 'draft'

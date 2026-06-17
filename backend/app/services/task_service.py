@@ -1,7 +1,7 @@
 """Task business logic — CRUD, state machine with optimistic locking, timeline, audit."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -599,7 +599,7 @@ class TaskService:
 
         # Merge variables using $each for top-level keys or $set individual fields
         for key, value in variables.items():
-            update[f"$set"]["variables.{key}"] = value
+            update["$set"][f"variables.{key}"] = value
 
         updated = await TaskService._collection().find_one_and_update(
             {"_id": task_id, "version": version},

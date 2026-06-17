@@ -1,5 +1,5 @@
 """Workflow template API endpoints — CRUD + lifecycle."""
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.core.security import get_current_user
 from app.models.workflow import WorkflowStatus

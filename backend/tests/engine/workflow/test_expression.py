@@ -1,10 +1,7 @@
 """ExpressionEngine unit tests — type preservation, resolve, resolve_bool, resolve_dict."""
 from __future__ import annotations
 
-import pytest
-
 from app.engine.workflow.expression import ExpressionEngine
-
 
 # ── resolve ──
 

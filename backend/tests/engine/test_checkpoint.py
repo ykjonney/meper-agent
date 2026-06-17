@@ -1,12 +1,10 @@
 """Tests for WorkflowEngine checkpoint save and resume_from_checkpoint."""
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from app.engine.workflow.engine import WorkflowEngine, WorkflowPaused
-from app.engine.workflow.variable_pool import VariablePool
-from app.models.task import Checkpoint, TaskStatus, utc_now
+import pytest
+from app.engine.workflow.engine import WorkflowEngine
 
 
 class TestGetDownstreamNodes:
@@ -143,10 +141,12 @@ class TestResumeFromCheckpoint:
             mock_workflows_col.find_one = AsyncMock(return_value=workflow_doc)
 
             # Mock _execute_node to avoid actual execution
-            with patch.object(engine, "_execute_node", new_callable=AsyncMock) as mock_exec:
-                with patch.object(engine, "_migrate_edges_to_next_nodes"):
-                    with patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock):
-                        result = await engine.resume_from_checkpoint("task_1")
+            with (
+                patch.object(engine, "_execute_node", new_callable=AsyncMock) as mock_exec,
+                patch.object(engine, "_migrate_edges_to_next_nodes"),
+                patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock),
+            ):
+                await engine.resume_from_checkpoint("task_1")
 
             # Verify completed_nodes restored (plus human_1 added)
             assert "start_1" in engine._completed_nodes

@@ -1,8 +1,6 @@
 """VariablePool unit tests — get, set, has, merge, snapshot, None distinction."""
 from __future__ import annotations
 
-import pytest
-
 from app.engine.workflow.variable_pool import VariablePool
 
 

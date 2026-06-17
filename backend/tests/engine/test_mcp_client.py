@@ -1,11 +1,8 @@
 """Tests for MCP client connection testing and tool discovery."""
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.engine.tool import mcp_client
-
 
 # ---------------------------------------------------------------------------
 # _build_headers tests (retained)

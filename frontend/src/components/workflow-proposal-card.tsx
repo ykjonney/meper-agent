@@ -8,7 +8,7 @@
  * 用户点击 [拒绝] → 卡片进入已拒绝状态
  */
 import { useState } from 'react'
-import { Button, Tag, Space, Typography } from 'antd'
+import { Button, Tag, Typography } from 'antd'
 import {
   RobotOutlined,
   CheckCircleOutlined,

@@ -140,11 +140,11 @@ export default function SkillUploadModal({ open, onClose, onSuccess }: SkillUplo
           </button>
 
           {/* Hidden directory input */}
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          { }
           <input
             ref={dirInputRef}
             type="file"
-            {...({ webkitdirectory: '', directory: '' } as any)}
+            {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
             onChange={handleDirInputChange}
             style={{ display: 'none' }}
           />

@@ -26,6 +26,8 @@ import {
   ToolOutlined,
   CheckCircleOutlined,
   ReloadOutlined,
+  FileTextOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import { parseBackendDate } from '../lib/format'
@@ -35,17 +37,17 @@ import {
   type ThinkingEvent,
   type ToolCallEvent,
   type ToolResultEvent,
-  type FinalAnswerEvent,
 } from '../services/agent-api'
 import {
   sessionApi,
   type MessageRecord,
   type TimelineEntryData,
   type Session,
+  type SessionFileEntry,
 } from '../services/session-api'
-import WorkflowProposalCard from './workflow-proposal-card'
-import TaskCreatedCard from './task-created-card'
-import TaskResultCard from './task-result-card'
+import WorkflowProposalCard, { type WorkflowProposal } from './workflow-proposal-card'
+import TaskCreatedCard, { type TaskCreated } from './task-created-card'
+import TaskResultCard, { type TaskResult } from './task-result-card'
 
 /* ─── Types ─── */
 
@@ -102,6 +104,14 @@ function generateId(): string {
 
 function nowTime(): string {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const val = bytes / Math.pow(1024, i)
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
 }
 
 function parseSseLines(buffer: string): { lines: string[]; remainder: string } {
@@ -215,6 +225,8 @@ export default function ChatPanel({
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionIdProp)
   const [sessionList, setSessionList] = useState<Session[]>([])
   const [isLoadingSessions, setIsLoadingSessions] = useState(false)
+  const [sessionFiles, setSessionFiles] = useState<SessionFileEntry[]>([])
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sseBufferRef = useRef('')
@@ -270,17 +282,43 @@ export default function ChatPanel({
 
   // Load session list on mount
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshSessionList()
   }, [refreshSessionList])
+
+  /* ─── Load output files for current session ─── */
+
+  const refreshSessionFiles = useCallback(async () => {
+    if (!currentSessionId) {
+      setSessionFiles([])
+      return
+    }
+    setIsLoadingFiles(true)
+    try {
+      const files = await sessionApi.listFiles(currentSessionId)
+      setSessionFiles(files)
+    } catch {
+      setSessionFiles([])
+    } finally {
+      setIsLoadingFiles(false)
+    }
+  }, [currentSessionId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshSessionFiles()
+  }, [refreshSessionFiles])
 
   /* ─── Load history when sessionId prop changes ─── */
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentSessionId(sessionIdProp)
   }, [sessionIdProp])
 
   useEffect(() => {
     if (!currentSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([])
       return
     }
@@ -509,7 +547,7 @@ export default function ChatPanel({
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [input, isStreaming, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList])
+  }, [input, isStreaming, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, appendDelta, flushDelta])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -881,6 +919,60 @@ export default function ChatPanel({
               </div>
             </div>
           </div>
+
+          {/* Output files */}
+          {currentSessionId && (
+            <div className="mt-3 shrink-0 rounded-xl border border-gray-200 bg-white p-3 max-h-48 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-2 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <FileTextOutlined className="text-xs text-[#64748B]" />
+                  <span className="text-xs font-medium text-[#0F172A]">生成文件</span>
+                  {sessionFiles.length > 0 && (
+                    <span className="text-[10px] text-[#94A3B8]">({sessionFiles.length})</span>
+                  )}
+                </div>
+                {sessionFiles.length > 0 && (
+                  <Tooltip title="下载全部 (ZIP)">
+                    <a
+                      href={sessionApi.getZipDownloadUrl(currentSessionId)}
+                      className="border-0 bg-transparent p-0.5 text-[#64748B] hover:text-blue-500 cursor-pointer transition-colors"
+                    >
+                      <DownloadOutlined className="text-xs" />
+                    </a>
+                  </Tooltip>
+                )}
+              </div>
+
+              {isLoadingFiles && (
+                <div className="flex items-center justify-center py-3">
+                  <Spin size="small" />
+                </div>
+              )}
+
+              {!isLoadingFiles && sessionFiles.length === 0 && (
+                <div className="text-[11px] text-[#94A3B8] text-center py-2">暂无生成文件</div>
+              )}
+
+              {!isLoadingFiles && sessionFiles.length > 0 && (
+                <div className="flex flex-col gap-1 overflow-y-auto min-h-0">
+                  {sessionFiles.map((file) => (
+                    <a
+                      key={file.path}
+                      href={sessionApi.getDownloadUrl(currentSessionId, file.path)}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-[#0F172A] hover:bg-blue-50 hover:text-blue-600 transition-colors no-underline group"
+                      title={file.path}
+                    >
+                      <FileTextOutlined className="text-[10px] text-[#94A3B8] group-hover:text-blue-400 shrink-0" />
+                      <span className="truncate flex-1">{file.path.split('/').pop()}</span>
+                      <span className="text-[10px] text-[#94A3B8] shrink-0">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1004,11 +1096,9 @@ function TimelineEntryCard({
 /* ─── Tool result card renderer ─── */
 
 function ToolResultCardRenderer({
-  toolName,
   result,
   onSendMessage,
 }: {
-  toolName?: string
   result: string
   onSendMessage?: (text: string) => void
 }) {
@@ -1028,7 +1118,7 @@ function ToolResultCardRenderer({
     return (
       <div className="px-3 pb-2">
         <WorkflowProposalCard
-          proposal={parsed as any}
+          proposal={parsed as WorkflowProposal}
           onConfirm={(workflowName) => {
             onSendMessage?.(`确认执行 ${workflowName}`)
           }}
@@ -1041,7 +1131,7 @@ function ToolResultCardRenderer({
   if (type === 'task_created') {
     return (
       <div className="px-3 pb-2">
-        <TaskCreatedCard data={parsed as any} />
+        <TaskCreatedCard data={parsed as TaskCreated} />
       </div>
     )
   }
@@ -1050,7 +1140,7 @@ function ToolResultCardRenderer({
   if (type === 'task_result') {
     return (
       <div className="px-3 pb-2">
-        <TaskResultCard data={parsed as any} />
+        <TaskResultCard data={parsed as TaskResult} />
       </div>
     )
   }

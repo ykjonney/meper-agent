@@ -1,17 +1,14 @@
 """Tests for the Markdown Skill parser."""
 import pytest
-
 from app.engine.tool.skill_parser import (
     ParsedSkill,
     ParsedSkillDirectory,
-    SkillFileEntry,
     SkillParseError,
     _params_to_json_schema,
     _returns_to_json_schema,
     parse_skill_directory,
     parse_skill_markdown,
 )
-
 
 # ---------------------------------------------------------------------------
 # Sample Skill Markdown files

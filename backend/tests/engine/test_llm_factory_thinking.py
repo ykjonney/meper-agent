@@ -1,5 +1,4 @@
 """Tests for LLM factory thinking parameter adaptation."""
-import pytest
 
 from app.engine.llm_factory import (
     _build_thinking_kwargs,

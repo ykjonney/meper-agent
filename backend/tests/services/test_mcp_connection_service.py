@@ -2,9 +2,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.core.errors import ConflictError, NotFoundError
-from app.db.mongodb import get_database
 from app.models.mcp_connection import ConnectionStatus
 from app.services.mcp_connection_service import McpConnectionService
 
@@ -61,7 +59,7 @@ async def test_create_connection_name_conflict(mock_database):
             "name": "dup",
             "url": "http://localhost:8080/mcp",
         })
-    assert "MCP_CONN_NAME_CONFLICT" in str(exc.value.code) or "MCP_CONN_NAME_CONFLICT" == exc.value.code
+    assert "MCP_CONN_NAME_CONFLICT" in str(exc.value.code) or exc.value.code == "MCP_CONN_NAME_CONFLICT"
 
 
 @pytest.mark.asyncio

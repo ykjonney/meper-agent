@@ -1,15 +1,12 @@
 """Tool business logic — CRUD operations and Markdown Skill registration."""
 from __future__ import annotations
 
-import os
 import re
-from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import ConflictError, ValidationError
 from app.db.mongodb import get_database
 from app.engine.tool.skill_fs import (
     delete_skill_dir,
@@ -22,7 +19,6 @@ from app.engine.tool.skill_parser import (
     ParsedSkill,
     ParsedSkillDirectory,
     SkillFileEntry,
-    parse_skill_markdown,
 )
 from app.models.base import generate_id, utc_now
 

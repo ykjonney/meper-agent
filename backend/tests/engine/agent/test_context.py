@@ -4,17 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-)
-
 from app.engine.agent.context import (
-    _DEFAULT_KEEP_MESSAGES,
-    _DEFAULT_RESERVED_TOKENS,
     _build_summary,
     compress_messages,
     estimate_message_tokens,
@@ -23,6 +13,13 @@ from app.engine.agent.context import (
     extract_model_name,
     get_context_window,
     should_compress,
+)
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
 )
 
 
@@ -295,7 +292,7 @@ class TestReactExecutorIntegration:
                 SystemMessage(content="[compressed]"),
                 *msgs[-3:],
             ],
-        ) as mock_compress:
+        ) as _:
             # Temporarily lower the threshold to force compression
             with patch(
                 "app.engine.agent.context._DEFAULT_COMPRESSION_THRESHOLD",

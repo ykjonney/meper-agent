@@ -1,0 +1,228 @@
+"""Session workspace manager — per-Session file isolation.
+
+Each Session gets an independent workspace directory tree::
+
+    {WORKSPACES_DIR}/{user_id}/{session_id}/
+        input/      ← user-uploaded attachments
+        output/     ← Agent-generated downloadable files
+        tmp/        ← bash execution working area (sandbox mount point)
+            tasks/{task_id}/  ← Task sub-workspaces (inherit from Session)
+
+The workspace provides file isolation between users and sessions,
+preventing cross-contamination when multiple users run Agents concurrently.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+
+from loguru import logger
+
+from app.core.config import settings
+
+
+@dataclass(frozen=True)
+class Workspace:
+    """Resolved paths for a Session workspace."""
+
+    root: Path
+    input_dir: Path
+    output_dir: Path
+    tmp_dir: Path
+
+    @property
+    def user_id(self) -> str:
+        """Extract user_id from the workspace path structure."""
+        return self.root.parent.name
+
+    @property
+    def session_id(self) -> str:
+        """Extract session_id from the workspace path structure."""
+        return self.root.name
+
+    def tasks_dir(self, task_id: str | None = None) -> Path:
+        """Return the tasks directory, optionally for a specific task."""
+        base = self.tmp_dir / "tasks"
+        if task_id:
+            return base / task_id
+        return base
+
+
+class WorkspaceManager:
+    """Manage per-Session workspace directories on the local filesystem."""
+
+    @staticmethod
+    def _workspaces_root() -> Path:
+        """Return the configured workspaces root directory (expanded)."""
+        return Path(settings.WORKSPACES_DIR).expanduser()
+
+    @staticmethod
+    def get_workspace(user_id: str, session_id: str) -> Workspace:
+        """Return a :class:`Workspace` object for an existing or new session.
+
+        Does **not** create the directories — call :meth:`create_workspace`
+        to ensure they exist on disk.
+        """
+        root = WorkspaceManager._workspaces_root() / user_id / session_id
+        return Workspace(
+            root=root,
+            input_dir=root / "input",
+            output_dir=root / "output",
+            tmp_dir=root / "tmp",
+        )
+
+    @staticmethod
+    def create_workspace(user_id: str, session_id: str) -> Workspace:
+        """Create the workspace directory tree for a Session.
+
+        Idempotent — existing directories are not replaced.
+
+        Args:
+            user_id: Owner user ID.
+            session_id: Session ID.
+
+        Returns:
+            The created :class:`Workspace`.
+        """
+        ws = WorkspaceManager.get_workspace(user_id, session_id)
+
+        for d in (ws.input_dir, ws.output_dir, ws.tmp_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            "workspace_created",
+            user_id=user_id,
+            session_id=session_id,
+            path=str(ws.root),
+        )
+        return ws
+
+    @staticmethod
+    def safe_resolve_path(base: Path, user_path: str) -> Path | None:
+        """Resolve a user-supplied path safely within a base directory.
+
+        Prevents path traversal attacks (``..`` components, absolute paths
+        that escape the base, symlink escapes).
+
+        Args:
+            base: The allowed root directory (e.g. workspace root).
+            user_path: The user-supplied relative path.
+
+        Returns:
+            The resolved absolute :class:`Path` if it stays within *base*,
+            or ``None`` if it escapes.
+        """
+        # Reject absolute paths that point outside the base
+        if os.path.isabs(user_path):
+            resolved = Path(os.path.realpath(user_path))
+        else:
+            resolved = Path(os.path.realpath(str(base / user_path)))
+
+        base_resolved = Path(os.path.realpath(str(base)))
+
+        # Check the resolved path is within the base directory
+        try:
+            resolved.relative_to(base_resolved)
+            return resolved
+        except ValueError:
+            return None
+
+    @staticmethod
+    def safe_resolve_workspace_path(
+        workspace: Workspace,
+        user_path: str,
+        *,
+        allow_skills_read: bool = False,
+    ) -> Path | None:
+        """Resolve a path within a workspace, with optional Skill read access.
+
+        Args:
+            workspace: The Session workspace.
+            user_path: The user-supplied relative path.
+            allow_skills_read: If True, also allow read access to SKILLS_DIR.
+
+        Returns:
+            Resolved :class:`Path` or ``None`` if access is denied.
+        """
+        # First try within the workspace
+        resolved = WorkspaceManager.safe_resolve_path(workspace.root, user_path)
+        if resolved is not None:
+            return resolved
+
+        # Optionally allow read access to Skill files
+        if allow_skills_read:
+            skills_root = Path(settings.SKILLS_DIR).expanduser()
+            resolved = WorkspaceManager.safe_resolve_path(skills_root, user_path)
+            if resolved is not None:
+                return resolved
+
+        return None
+
+    @staticmethod
+    def delete_workspace(user_id: str, session_id: str) -> bool:
+        """Remove a workspace directory tree.
+
+        Args:
+            user_id: Owner user ID.
+            session_id: Session ID.
+
+        Returns:
+            ``True`` if the directory existed and was removed.
+        """
+        ws = WorkspaceManager.get_workspace(user_id, session_id)
+        if not ws.root.exists():
+            return False
+
+        shutil.rmtree(ws.root)
+        logger.info(
+            "workspace_deleted",
+            user_id=user_id,
+            session_id=session_id,
+        )
+        return True
+
+    @staticmethod
+    def get_workspace_size(workspace: Workspace) -> int:
+        """Calculate the total size of all files in a workspace (bytes)."""
+        total = 0
+        if workspace.root.exists():
+            for p in workspace.root.rglob("*"):
+                if p.is_file():
+                    total += p.stat().st_size
+        return total
+
+    @staticmethod
+    def check_quota(workspace: Workspace, additional_bytes: int = 0) -> bool:
+        """Check whether writing *additional_bytes* would exceed the quota.
+
+        Returns:
+            ``True`` if within quota, ``False`` if exceeded.
+        """
+        current = WorkspaceManager.get_workspace_size(workspace)
+        return (current + additional_bytes) <= settings.WORKSPACE_MAX_BYTES
+
+    @staticmethod
+    def list_output_files(workspace: Workspace) -> list[dict]:
+        """List files in the output/ directory for download.
+
+        Returns:
+            List of dicts with ``path`` (relative to output/), ``size``,
+            and ``modified`` keys.
+        """
+        if not workspace.output_dir.exists():
+            return []
+
+        entries: list[dict] = []
+        for p in sorted(workspace.output_dir.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(workspace.output_dir)
+            stat = p.stat()
+            entries.append({
+                "path": str(rel),
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+            })
+        return entries

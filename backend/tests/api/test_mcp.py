@@ -2,11 +2,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.core.errors import ConflictError, NotFoundError
-from app.models.mcp_connection import ConnectionStatus
-
+from fastapi.testclient import TestClient
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -22,8 +19,8 @@ def mock_service():
 @pytest.fixture
 def client():
     """Create a TestClient with auth mock."""
-    from app.main import app
     from app.core.security import get_current_user
+    from app.main import app
 
     mock_user = MagicMock()
     mock_user.id = "user_01"

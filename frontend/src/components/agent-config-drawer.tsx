@@ -4,7 +4,7 @@
  * Used in the agents list page for quick create / edit.
  * The actual form logic lives in agent-config-form.tsx.
  */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Drawer, Button, Tag } from 'antd'
 import { useTheme } from '../contexts/ThemeContext'
 import type { Agent } from '../services/agent-api'
@@ -25,6 +25,7 @@ interface AgentConfigDrawerProps {
 export default function AgentConfigDrawer({ agent, open, onClose, mode }: AgentConfigDrawerProps) {
   const { t } = useTheme()
   const formRef = useRef<AgentConfigFormHandle>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const isEdit = mode === 'edit' && agent !== null
   const statusStyle = STATUS_STYLES[agent?.status ?? 'draft'] ?? STATUS_STYLES.draft
 
@@ -57,7 +58,7 @@ export default function AgentConfigDrawer({ agent, open, onClose, mode }: AgentC
           <Button
             type="primary"
             onClick={() => formRef.current?.submit()}
-            loading={formRef.current?.isSaving()}
+            loading={isSaving}
             style={{ background: t.primary, borderColor: t.primary }}
           >
             {isEdit ? '保存修改' : '创建'}
@@ -70,6 +71,7 @@ export default function AgentConfigDrawer({ agent, open, onClose, mode }: AgentC
         agent={agent}
         mode={mode}
         onSaved={onClose}
+        onSavingChange={setIsSaving}
       />
     </Drawer>
   )

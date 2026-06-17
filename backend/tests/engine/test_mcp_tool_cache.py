@@ -5,16 +5,13 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.engine.tool.mcp_tool_cache import (
     McpToolCache,
-    _CacheEntry,
     _wrap_tool_with_defaults,
     get_cache,
     get_mcp_tools_cached,
     invalidate_cache,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -176,11 +173,11 @@ async def test_get_mcp_tools_cached_miss_resolves():
 
     with patch(
         "langchain_mcp_adapters.client.MultiServerMCPClient"
-    ) as MockClient, patch(
+    ) as mock_client, patch(
         "app.services.mcp_connection_service.McpConnectionService"
-    ) as MockService:
+    ) as mock_service:
         # Mock connection lookup
-        MockService.get_connection = AsyncMock(return_value={
+        mock_service.get_connection = AsyncMock(return_value={
             "_id": "conn_1",
             "name": "TestServer",
             "url": "http://localhost:8080/mcp",
@@ -191,7 +188,7 @@ async def test_get_mcp_tools_cached_miss_resolves():
         })
 
         # Mock MCP client
-        mock_client_instance = MockClient.return_value
+        mock_client_instance = mock_client.return_value
         mock_client_instance.get_tools = AsyncMock(return_value=[mock_tool])
 
         result = await get_mcp_tools_cached(["conn_1"])
@@ -215,8 +212,8 @@ async def test_get_mcp_tools_cached_connection_not_found():
 
     with patch(
         "app.services.mcp_connection_service.McpConnectionService"
-    ) as MockService:
-        MockService.get_connection = AsyncMock(return_value=None)
+    ) as mock_service:
+        mock_service.get_connection = AsyncMock(return_value=None)
 
         result = await get_mcp_tools_cached(["conn_missing"])
         assert result == []
@@ -326,10 +323,10 @@ async def test_get_mcp_tools_cached_with_default_params():
 
     with patch(
         "langchain_mcp_adapters.client.MultiServerMCPClient"
-    ) as MockClient, patch(
+    ) as mock_client, patch(
         "app.services.mcp_connection_service.McpConnectionService"
-    ) as MockService:
-        MockService.get_connection = AsyncMock(return_value={
+    ) as mock_service:
+        mock_service.get_connection = AsyncMock(return_value={
             "_id": "conn_1",
             "name": "APIServer",
             "url": "http://localhost:8080/mcp",
@@ -340,7 +337,7 @@ async def test_get_mcp_tools_cached_with_default_params():
             "default_params": {"token": "injected_token", "limit": 20},
         })
 
-        mock_client_instance = MockClient.return_value
+        mock_client_instance = mock_client.return_value
         mock_client_instance.get_tools = AsyncMock(return_value=[mock_tool])
 
         result = await get_mcp_tools_cached(["conn_1"])

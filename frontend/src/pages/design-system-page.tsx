@@ -15,12 +15,9 @@ import {
   NodeIndexOutlined, CheckOutlined, PlusOutlined, StarOutlined, BellOutlined,
   UserOutlined, RobotOutlined, BranchesOutlined, ThunderboltOutlined, CheckCircleOutlined,
   ArrowUpOutlined, ArrowDownOutlined, SearchOutlined, DownloadOutlined, FilterOutlined,
-  MoreOutlined, SettingOutlined, KeyOutlined, DeleteOutlined, EditOutlined,
+  MoreOutlined, SettingOutlined, DeleteOutlined, EditOutlined,
   InfoCircleOutlined, ExclamationCircleOutlined, CloseCircleOutlined,
-  DownOutlined, LeftOutlined, RightOutlined, ReloadOutlined,
-  ClockCircleOutlined, FileTextOutlined, LinkOutlined,
-  HomeOutlined, TeamOutlined, ToolOutlined, DatabaseOutlined, WechatOutlined,
-  SmileOutlined, LoadingOutlined, SendOutlined,
+  DownOutlined, FileTextOutlined, HomeOutlined, LoadingOutlined, SendOutlined,
 } from '@ant-design/icons'
 import { useTheme, THEMES } from '../contexts/ThemeContext'
 

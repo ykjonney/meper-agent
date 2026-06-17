@@ -4,9 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.models.task import TaskStatus
-
 
 # Test settings override
 _GLOBAL_LIMIT = 3

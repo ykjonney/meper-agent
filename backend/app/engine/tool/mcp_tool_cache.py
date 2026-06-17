@@ -14,7 +14,7 @@ Cache invalidation is triggered by:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -247,13 +247,20 @@ def _rename_tool_to_mcp_prefix(tool: StructuredTool, server_names: set[str]) -> 
             original_func = tool.func
             original_coroutine = tool.coroutine
 
-            def _sync(**kwargs: Any) -> Any:
-                return original_func(**kwargs)
+            def _sync(
+                _func: Any = original_func,
+                **kwargs: Any,
+            ) -> Any:
+                return _func(**kwargs)
 
-            async def _async(**kwargs: Any) -> Any:
-                if original_coroutine is not None:
-                    return await original_coroutine(**kwargs)
-                return original_func(**kwargs)
+            async def _async(
+                _coro: Any = original_coroutine,
+                _func: Any = original_func,
+                **kwargs: Any,
+            ) -> Any:
+                if _coro is not None:
+                    return await _coro(**kwargs)
+                return _func(**kwargs)
 
             return StructuredTool.from_function(
                 func=_sync,
@@ -325,7 +332,7 @@ def _inject_schema_defaults(
 
     # Collect field overrides
     field_overrides: dict[str, Any] = {}
-    for field_name, field_info in schema_cls.model_fields.items():
+    for field_name, _field_info in schema_cls.model_fields.items():
         if field_name in defaults:
             field_overrides[field_name] = defaults[field_name]
 

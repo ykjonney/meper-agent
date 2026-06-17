@@ -6,7 +6,6 @@ On startup, scans for tasks stuck in waiting_human status and:
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from loguru import logger

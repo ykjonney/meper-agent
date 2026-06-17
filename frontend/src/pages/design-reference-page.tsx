@@ -14,9 +14,6 @@
 import { useState } from 'react'
 import {
   RobotOutlined,
-  BranchesOutlined,
-  ThunderboltOutlined,
-  CheckCircleOutlined,
   SearchOutlined,
   FilterOutlined,
   PlusOutlined,
@@ -24,10 +21,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   ArrowLeftOutlined,
-  MoreOutlined,
   InboxOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
   StopOutlined,
 } from '@ant-design/icons'
 

@@ -9,6 +9,7 @@ When a workflow reaches a Human node:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from loguru import logger
@@ -115,10 +116,8 @@ class HumanTimeoutMonitor:
         existing = self._tasks.pop(key, None)
         if existing is not None and not existing.done():
             existing.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await existing
-            except asyncio.CancelledError:
-                pass
 
     async def _monitor(
         self,

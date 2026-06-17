@@ -12,7 +12,7 @@ beforeAll(() => {
     observe() {}
     unobserve() {}
     disconnect() {}
-  } as any
+  } as unknown as typeof ResizeObserver
 })
 
 const baseConfig = {
@@ -119,7 +119,7 @@ describe('HumanNodeConfig', () => {
     const onChange = vi.fn()
     const { container } = render(
       <HumanNodeConfig
-        config={{ options: 'corrupted' } as any}
+        config={{ options: 'corrupted' } as Record<string, unknown>}
         onChange={onChange}
       />,
     )

@@ -2,9 +2,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
 from app.engine.agent.planner_executor import run
+from langchain_core.messages import AIMessage
 
 
 @pytest.fixture

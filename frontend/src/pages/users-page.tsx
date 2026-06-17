@@ -109,7 +109,9 @@ export default function UsersPage() {
     }
   }, [])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchUsers() }, [fetchUsers])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchRoles() }, [fetchRoles])
 
   // Role options for filters/dropdowns

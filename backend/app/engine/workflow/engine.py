@@ -13,7 +13,6 @@ Handles:
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from datetime import timedelta
 from typing import Any
 
@@ -171,7 +170,7 @@ class WorkflowEngine:
 
             return final_output
 
-        except WorkflowPaused:
+        except WorkflowPausedError:
             # Graceful pause — not an error, return current state.
             logger.info("workflow_paused", task_id=self._task_id)
             return self._pool.get_all() if self._pool else {}
@@ -207,7 +206,9 @@ class WorkflowEngine:
                     original_error=str(exc),
                 )
                 try:
-                    from app.models.task import TimelineEvent, utc_now as _utc_now
+                    from app.db.mongodb import get_database
+                    from app.models.task import TimelineEvent
+                    from app.models.task import utc_now as _utc_now
 
                     await get_database()["tasks"].update_one(
                         {"_id": self._task_id},
@@ -247,7 +248,7 @@ class WorkflowEngine:
         3. Find downstream nodes of the paused Human node
         4. Continue execution from those downstream nodes
         5. On completion → COMPLETED + clear checkpoint
-        6. On encountering another human → WorkflowPaused (new checkpoint saved)
+        6. On encountering another human → WorkflowPausedError (new checkpoint saved)
         7. On error → FAILED
         """
         from app.db.mongodb import get_database
@@ -351,7 +352,7 @@ class WorkflowEngine:
             )
             return final_output
 
-        except WorkflowPaused:
+        except WorkflowPausedError:
             # Encountered another human node — new checkpoint already saved
             logger.info("resume_checkpoint_paused_again", task_id=task_id)
             return self._pool.get_all() if self._pool else {}
@@ -425,10 +426,10 @@ class WorkflowEngine:
         Gateway and parallel nodes manage their own routing internally
         (``conditions[].target`` / ``branches[].start_node``) and are skipped.
         """
-        _SKIP_TYPES = {"gateway", "parallel"}
+        _skip_types = {"gateway", "parallel"}
 
         for node in self._nodes:
-            if node.get("type") in _SKIP_TYPES:
+            if node.get("type") in _skip_types:
                 continue
             config = node.setdefault("config", {})
             if config.get("next_nodes"):
@@ -551,7 +552,9 @@ class WorkflowEngine:
 
                 # Start timeout monitor
                 if timeout_ms > 0:
-                    from app.engine.workflow.nodes.human import get_human_timeout_monitor
+                    from app.engine.workflow.nodes.human import (
+                        get_human_timeout_monitor,
+                    )
                     await get_human_timeout_monitor().start_monitor(
                         task_id=self._task_id,
                         node_id=node_id,
@@ -560,7 +563,7 @@ class WorkflowEngine:
                     )
 
                 # Stop execution — wait for external intervention
-                raise WorkflowPaused(
+                raise WorkflowPausedError(
                     node_id=node_id,
                     node_type=node_type,
                     message=f"等待人工审批: {result.output.get('title', '')}",
@@ -586,7 +589,7 @@ class WorkflowEngine:
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     for t in pending:
                         t.cancel()
-                    branch_results = list(done)
+                    list(done)  # consume results
                 elif join_strategy == "n-of-m" and join_count and join_count > 0:
                     # n-of-m: wait until join_count branches complete
                     tasks = [asyncio.ensure_future(c) for c in coros]
@@ -599,10 +602,10 @@ class WorkflowEngine:
                         done_tasks.update(newly_done)
                     for t in pending_tasks:
                         t.cancel()
-                    branch_results = list(done_tasks)
+                    list(done_tasks)
                 else:
                     # all (default): wait for all branches
-                    branch_results = await asyncio.gather(*coros, return_exceptions=True)
+                    await asyncio.gather(*coros, return_exceptions=True)
 
                 logger.debug(
                     "parallel_complete",
@@ -674,7 +677,7 @@ class WorkflowNodeError(Exception):
         super().__init__(message)
 
 
-class WorkflowPaused(Exception):
+class WorkflowPausedError(Exception):
     """Raised when a workflow pauses for human intervention (not an error)."""
 
     def __init__(self, node_id: str, node_type: str, message: str) -> None:

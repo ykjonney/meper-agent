@@ -21,9 +21,7 @@ import {
   Spin,
   Modal,
   Input,
-  Tabs,
   Drawer,
-  Empty,
   Alert,
   Divider,
 } from 'antd'
@@ -32,13 +30,9 @@ import {
   SaveOutlined,
   CloudUploadOutlined,
   StopOutlined,
-  DeleteOutlined,
   PlayCircleOutlined,
-  PlusOutlined,
   HistoryOutlined,
-  SettingOutlined,
   ExclamationCircleOutlined,
-  LinkOutlined,
 } from '@ant-design/icons'
 import {
   workflowsApi,
@@ -49,11 +43,9 @@ import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
 
 /* ─── Workflow Editor 组件 ─── */
-import { NODE_TYPE_CONFIGS } from '../features/workflow-editor/utils/node-type-configs'
 import WorkflowCanvas from '../features/workflow-editor/WorkflowCanvas'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
 import WorkflowNodeConfigPanel from '../features/workflow-editor/WorkflowNodeConfigPanel'
-import { getDefaultNodeConfig, generateNodeId, computeDefaultPosition } from '../features/workflow-editor/utils/node-defaults'
 import { validateWorkflow } from '../features/workflow-editor/utils/workflow-validator'
 import { deriveXyflowEdgesFromNodes } from '../features/workflow-editor/utils/canvas-converters'
 import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
@@ -224,28 +216,32 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
 }) {
   // 从 start 节点提取变量定义
   const startNode = nodes.find((n) => n.type === 'start')
-  const variables = (startNode?.config?.output_variables as VariableDefinition[]) ?? []
+  const variables = useMemo<VariableDefinition[]>(
+    () => (startNode?.config?.output_variables as VariableDefinition[]) ?? [],
+    [startNode],
+  )
   const hasDefinedVars = variables.length > 0
 
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<{ taskId: string; status: string; output?: Record<string, unknown> | null; error?: string | null } | null>(null)
 
-  // 重置表单状态
+  // 当 modal 打开时重置表单状态（延迟到微任务避免 effect 内同步 setState 导致的级联渲染）
   useEffect(() => {
     if (open) {
-      // 从变量定义初始化默认值
-      const defaults: Record<string, unknown> = {}
-      for (const v of variables) {
-        if (v.constraints?.default_value !== undefined && v.constraints?.default_value !== null) {
-          defaults[v.name] = v.constraints.default_value
+      queueMicrotask(() => {
+        const defaults: Record<string, unknown> = {}
+        for (const v of variables) {
+          if (v.constraints?.default_value !== undefined && v.constraints?.default_value !== null) {
+            defaults[v.name] = v.constraints.default_value
+          }
         }
-      }
-      setFormValues(defaults)
-      setResult(null)
-      setRunning(false)
+        setFormValues(defaults)
+        setResult(null)
+        setRunning(false)
+      })
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, variables])
 
   const setValue = useCallback((name: string, val: unknown) => {
     setFormValues((prev) => ({ ...prev, [name]: val }))
@@ -361,7 +357,7 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
               {JSON.stringify(
                 Object.fromEntries(
                   Object.entries(formValues).filter(
-                    ([_, v]) => v !== undefined && v !== null && v !== '',
+                    ([, v]) => v !== undefined && v !== null && v !== '',
                   ),
                 ),
                 null,
@@ -630,20 +626,6 @@ export default function WorkflowDetailPage() {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: () => workflowsApi.remove(id!),
-    onSuccess: () => {
-      message.success('工作流已删除')
-      queryClient.invalidateQueries({ queryKey: workflowKeys.lists() })
-      navigate('/workflows')
-    },
-    onError: (err: unknown) => {
-      const msg = err && typeof err === 'object' && 'message' in err
-        ? (err as { message: string }).message : '删除失败'
-      message.error(msg)
-    },
-  })
-
   /* ─── Publish handler with validation ─── */
   const handlePublish = () => {
     // 1. 从节点的 next_nodes / gateway / parallel config 推导出边
@@ -721,20 +703,6 @@ export default function WorkflowDetailPage() {
   }
 
   /* ─── Node operations ─── */
-  const addNode = useCallback((type: string) => {
-    const nodeId = generateNodeId()
-    const nt = NODE_TYPE_CONFIGS[type]
-    const newNode: WorkflowNode = {
-      node_id: nodeId,
-      type,
-      label: nt?.label ?? type,
-      config: getDefaultNodeConfig(type),
-      position: computeDefaultPosition(editNodes, type),
-    }
-    setEditNodes((prev) => [...prev, newNode])
-    setHasChanges(true)
-  }, [editNodes])
-
   const updateNode = useCallback((updated: WorkflowNode) => {
     setEditNodes((prev) => prev.map((n) => n.node_id === updated.node_id ? updated : n))
     setSelectedNode(updated)

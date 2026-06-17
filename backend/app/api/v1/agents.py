@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Header, Query
 
 from app.core.security import get_current_user, require_any_role
+from app.engine.agent.builder import build_system_prompt
 from app.models.agent import AgentStatus
 from app.models.compat import resolve_skill_ids
 from app.schemas.agent import (
@@ -10,7 +11,12 @@ from app.schemas.agent import (
     AgentResponse,
     AgentUpdate,
 )
-from app.schemas.execution import ExecutionRequest, ExecutionResponse, PreviewRequest, PreviewResponse
+from app.schemas.execution import (
+    ExecutionRequest,
+    ExecutionResponse,
+    PreviewRequest,
+    PreviewResponse,
+)
 from app.schemas.user import UserResponse
 from app.services.agent_service import AgentService
 
@@ -19,9 +25,6 @@ router = APIRouter(
     tags=["agents"],
     dependencies=[Depends(get_current_user)],
 )
-
-
-from app.engine.agent.builder import build_system_prompt
 
 
 def _history_to_langchain_messages(records: list[dict]) -> list:
@@ -440,6 +443,8 @@ async def invoke_agent(
         "error": None,
         "call_chain": call_chain,
         "current_depth": len(external_chain),
+        "session_id": session_id,
+        "user_id": user.id,
     }
     result = await graph.ainvoke(initial_state, config=config)
 
@@ -588,6 +593,8 @@ async def stream_agent(
             "error": None,
             "call_chain": call_chain,
             "current_depth": len(external_chain),
+            "session_id": session_id,
+            "user_id": user.id,
         }
         try:
             result = await run_agent_streaming(

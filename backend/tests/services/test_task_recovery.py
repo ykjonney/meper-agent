@@ -1,12 +1,15 @@
 """Tests for task recovery service — recover_waiting_human_tasks."""
 from __future__ import annotations
 
-import pytest
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta, timezone
 
-from app.services.task_recovery import recover_waiting_human_tasks, _execute_timeout_action
+import pytest
 from app.models.task import TaskStatus, utc_now
+from app.services.task_recovery import (
+    _execute_timeout_action,
+    recover_waiting_human_tasks,
+)
 
 
 class AsyncCursorMock:
@@ -22,7 +25,7 @@ class AsyncCursorMock:
         try:
             return next(self._items)
         except StopIteration:
-            raise StopAsyncIteration
+            raise StopAsyncIteration from None
 
 
 class TestRecoverWaitingHumanTasks:
@@ -121,12 +124,14 @@ class TestRecoverWaitingHumanTasks:
             mock_db.return_value = {"tasks": mock_collection}
             mock_collection.find = MagicMock(return_value=mock_cursor)
 
-            with patch("app.services.task_recovery._execute_timeout_action", new_callable=AsyncMock) as mock_action:
-                with patch("app.services.task_recovery._restart_timeout_monitor", new_callable=AsyncMock) as mock_restart:
-                    await recover_waiting_human_tasks()
-                    # Neither action should be called
-                    mock_action.assert_not_called()
-                    mock_restart.assert_not_called()
+            with (
+                patch("app.services.task_recovery._execute_timeout_action", new_callable=AsyncMock) as mock_action,
+                patch("app.services.task_recovery._restart_timeout_monitor", new_callable=AsyncMock) as mock_restart,
+            ):
+                await recover_waiting_human_tasks()
+                # Neither action should be called
+                mock_action.assert_not_called()
+                mock_restart.assert_not_called()
 
 
 class TestExecuteTimeoutAction:
@@ -135,35 +140,41 @@ class TestExecuteTimeoutAction:
     @pytest.mark.asyncio
     async def test_auto_approve_transitions_to_running(self) -> None:
         """auto_approve → RUNNING + resume."""
-        with patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition:
-            with patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume:
-                await _execute_timeout_action("task_1", "auto_approve")
+        with (
+            patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition,
+            patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume,
+        ):
+            await _execute_timeout_action("task_1", "auto_approve")
 
-                mock_transition.assert_called_once()
-                call_kwargs = mock_transition.call_args.kwargs
-                assert call_kwargs["to_status"] == TaskStatus.RUNNING
-                mock_resume.assert_called_once_with("task_1")
+            mock_transition.assert_called_once()
+            call_kwargs = mock_transition.call_args.kwargs
+            assert call_kwargs["to_status"] == TaskStatus.RUNNING
+            mock_resume.assert_called_once_with("task_1")
 
     @pytest.mark.asyncio
     async def test_fail_transitions_to_failed(self) -> None:
         """fail → FAILED (no resume)."""
-        with patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition:
-            with patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume:
-                await _execute_timeout_action("task_1", "fail")
+        with (
+            patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition,
+            patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume,
+        ):
+            await _execute_timeout_action("task_1", "fail")
 
-                mock_transition.assert_called_once()
-                call_kwargs = mock_transition.call_args.kwargs
-                assert call_kwargs["to_status"] == TaskStatus.FAILED
-                mock_resume.assert_not_called()
+            mock_transition.assert_called_once()
+            call_kwargs = mock_transition.call_args.kwargs
+            assert call_kwargs["to_status"] == TaskStatus.FAILED
+            mock_resume.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_auto_skip_transitions_to_running(self) -> None:
         """auto_skip → RUNNING + resume."""
-        with patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition:
-            with patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume:
-                await _execute_timeout_action("task_1", "auto_skip")
+        with (
+            patch("app.services.task_service.TaskService.transition_task", new_callable=AsyncMock) as mock_transition,
+            patch("app.services.task_service.TaskService.resume_task_execution") as mock_resume,
+        ):
+            await _execute_timeout_action("task_1", "auto_skip")
 
-                mock_transition.assert_called_once()
-                call_kwargs = mock_transition.call_args.kwargs
-                assert call_kwargs["to_status"] == TaskStatus.RUNNING
-                mock_resume.assert_called_once_with("task_1")
+            mock_transition.assert_called_once()
+            call_kwargs = mock_transition.call_args.kwargs
+            assert call_kwargs["to_status"] == TaskStatus.RUNNING
+            mock_resume.assert_called_once_with("task_1")

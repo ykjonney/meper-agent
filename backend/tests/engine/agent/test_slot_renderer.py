@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+
 def _fake_agent(
     prompt_slots: dict | None = None,
 ) -> dict:
@@ -49,9 +50,8 @@ class TestEmptyPromptSlots:
         with patch(
             "app.engine.agent.builder.build_tool_declaration",
             new=AsyncMock(return_value="## Tools\n- bash"),
-        ):
-            with pytest.raises(ValueError) as exc_info:
-                await render_system_prompt_full(agent)
+        ), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent)
 
         msg = str(exc_info.value)
         assert "角色定义" in msg
@@ -62,9 +62,8 @@ class TestEmptyPromptSlots:
         from app.engine.agent.slot_renderer import render_system_prompt_full
 
         agent = _fake_agent()
-        with _no_tools():
-            with pytest.raises(ValueError):
-                await render_system_prompt_full(agent)
+        with _no_tools(), pytest.raises(ValueError):
+            await render_system_prompt_full(agent)
 
 
 class TestSlotPriority:
@@ -209,9 +208,8 @@ class TestRequiredValidation:
         # 只给 task，role 缺失
         agent = _fake_agent(prompt_slots={"task": "Do something."})
 
-        with _no_tools():
-            with pytest.raises(ValueError) as exc_info:
-                await render_system_prompt_full(agent)
+        with _no_tools(), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent)
 
         assert "角色定义" in str(exc_info.value)
         # task 已给值，不应出现在缺失列表
@@ -224,9 +222,8 @@ class TestRequiredValidation:
         # 只给 role，task 缺失
         agent = _fake_agent(prompt_slots={"role": "You are X."})
 
-        with _no_tools():
-            with pytest.raises(ValueError) as exc_info:
-                await render_system_prompt_full(agent)
+        with _no_tools(), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent)
 
         assert "任务描述" in str(exc_info.value)
         assert "角色定义" not in str(exc_info.value)
@@ -237,9 +234,8 @@ class TestRequiredValidation:
 
         agent = _fake_agent(prompt_slots={})
 
-        with _no_tools():
-            with pytest.raises(ValueError) as exc_info:
-                await render_system_prompt_full(agent)
+        with _no_tools(), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent)
 
         msg = str(exc_info.value)
         # 两个必填 label 都应列出

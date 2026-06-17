@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.engine.workflow.nodes.human import HumanTimeoutMonitor
 from app.models.task import TaskStatus
 
@@ -111,7 +110,7 @@ class TestHumanTimeoutMonitor:
     async def test_zero_timeout_no_monitor(self) -> None:
         """timeout_ms=0 does not start monitoring."""
         monitor = HumanTimeoutMonitor()
-        with patch("app.engine.workflow.nodes.human.TaskService") as mock_ts:
+        with patch("app.engine.workflow.nodes.human.TaskService"):
             await monitor.start_monitor("t7", "n7", timeout_ms=0, timeout_action="fail")
             assert not monitor._tasks
 

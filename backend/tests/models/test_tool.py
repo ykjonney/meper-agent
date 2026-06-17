@@ -31,14 +31,16 @@ class TestToolModel:
 
     def test_name_required(self) -> None:
         import pytest
+        from pydantic import ValidationError
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Tool()  # type: ignore[call-arg]
 
     def test_name_length_limit(self) -> None:
         import pytest
+        from pydantic import ValidationError
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Tool(name="")
 
     def test_full_construction(self) -> None:

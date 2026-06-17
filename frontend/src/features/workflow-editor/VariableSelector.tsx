@@ -381,7 +381,7 @@ export default function VariableSelector({
       <div className="relative">
         {textarea ? (
           <Input.TextArea
-            ref={inputRef as React.Ref<any>}
+            ref={inputRef as React.Ref<HTMLTextAreaElement>}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             rows={rows}

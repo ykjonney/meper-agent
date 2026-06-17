@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from loguru import logger
 
@@ -10,9 +11,9 @@ from app.engine.tool.skill_fs import list_skill_files
 from app.schemas.tool import (
     BuiltinToolResponse,
     SkillFileResponse,
+    SkillFileTreeNode,
     SkillFileTreeResponse,
     SkillFileUpdate,
-    SkillFileTreeNode,
     ToolListResponse,
     ToolResponse,
     ToolUpdate,
@@ -20,7 +21,7 @@ from app.schemas.tool import (
     ToolUploadResponse,
 )
 from app.schemas.user import UserResponse
-from app.services.tool_service import ToolService, MAX_FILE_SIZE, MAX_DIRECTORY_SIZE
+from app.services.tool_service import MAX_DIRECTORY_SIZE, MAX_FILE_SIZE, ToolService
 
 router = APIRouter(
     prefix="/tools",
@@ -122,7 +123,11 @@ async def upload_tools(
     are reported as errors (no overwrite).
     """
     from app.core.errors import ConflictError, ValidationError
-    from app.engine.tool.skill_parser import SkillParseError, parse_skill_directory, parse_skill_markdown
+    from app.engine.tool.skill_parser import (
+        SkillParseError,
+        parse_skill_directory,
+        parse_skill_markdown,
+    )
 
     # Group files by directory prefix
     dir_groups: dict[str, dict[str, str]] = defaultdict(dict)

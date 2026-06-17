@@ -203,9 +203,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
             resolved_context = engine.resolve(legacy_slot_ctx) if legacy_slot_ctx else ""
 
         try:
-            from app.engine.agent.builder import build_agent_graph
-            from app.db.mongodb import get_database
             from langchain_core.messages import SystemMessage
+
+            from app.db.mongodb import get_database
+            from app.engine.agent.builder import build_agent_graph
 
             db = get_database()
             agent_doc = await db["agents"].find_one({"_id": agent_id})
@@ -309,7 +310,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     success=True,
                     output={"response": output_content, "agent_id": agent_id},
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 last_error = f"Agent 执行超时 ({timeout_ms}ms)"
                 logger.warning("node_agent_timeout", node_id=self.node_id, attempt=attempt + 1)
             except Exception as exc:
@@ -439,7 +440,7 @@ class ToolNodeExecutor(BaseNodeExecutor):
                 try:
                     result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
                     return NodeResult(success=True, output={"result": result, "tool_id": tool_doc["_id"]})
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     last_error = f"MCP 工具执行超时 ({timeout_ms}ms)"
                     logger.warning("mcp_tool_timeout", node_id=self.node_id, attempt=attempt + 1)
                 except Exception as exc:
@@ -632,7 +633,7 @@ class SubflowNodeExecutor(BaseNodeExecutor):
                     child_engine.execute_task(child_doc, child_wf_doc),
                     timeout=timeout_ms / 1000,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return NodeResult(
                     success=False,
                     output={},

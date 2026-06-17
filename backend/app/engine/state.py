@@ -58,3 +58,9 @@ class AgentState(TypedDict):
     explicitly so depth can be incremented without mutating the chain
     (e.g. for Workflow-level depth that does not add a chain entry).
     """
+
+    session_id: str
+    """Session ID for workspace isolation.  Set by the API layer."""
+
+    user_id: str
+    """User ID for workspace isolation.  Set by the API layer."""

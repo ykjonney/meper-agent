@@ -11,7 +11,6 @@ import { Select, Input, Switch, Tag } from 'antd'
 import type { VariableTypeName, VariableDefinition } from './utils/variable-types'
 import {
   VARIABLE_TYPE_CONFIGS,
-  getTypeColor,
   getTypeIcon,
   getDefaultConstraints,
 } from './utils/variable-types'

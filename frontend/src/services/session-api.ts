@@ -47,6 +47,12 @@ export interface SessionDetailResponse {
   messages: MessageRecord[]
 }
 
+export interface SessionFileEntry {
+  path: string
+  size: number
+  modified: number
+}
+
 /* ─── API methods ─── */
 
 export const sessionApi = {
@@ -98,6 +104,36 @@ export const sessionApi = {
    */
   async remove(sessionId: string): Promise<void> {
     await apiClient.delete(`/api/v1/sessions/${encodeURIComponent(sessionId)}`)
+  },
+
+  /* ─── File download endpoints ─── */
+
+  /**
+   * List output files for a session.
+   * GET /api/v1/sessions/{id}/files
+   */
+  async listFiles(sessionId: string): Promise<SessionFileEntry[]> {
+    const res = await apiClient.get<SessionFileEntry[]>(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/files`,
+    )
+    return res.data
+  },
+
+  /**
+   * Get the download URL for a single file.
+   * Returns a URL string (not fetched) — use in <a href> or window.open.
+   */
+  getDownloadUrl(sessionId: string, filePath: string): string {
+    const base = apiClient.defaults.baseURL ?? ''
+    return `${base}/api/v1/sessions/${encodeURIComponent(sessionId)}/files/${filePath}`
+  },
+
+  /**
+   * Get the download URL for all files as ZIP.
+   */
+  getZipDownloadUrl(sessionId: string): string {
+    const base = apiClient.defaults.baseURL ?? ''
+    return `${base}/api/v1/sessions/${encodeURIComponent(sessionId)}/files.zip`
   },
 }
 

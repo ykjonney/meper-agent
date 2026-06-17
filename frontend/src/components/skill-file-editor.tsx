@@ -30,6 +30,7 @@ export default function SkillFileEditor({ toolId, filePath }: SkillFileEditorPro
   // Sync local state when data loads or filePath changes
   useEffect(() => {
     if (fileData?.content !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalContent(fileData.content)
       setIsDirty(false)
     }

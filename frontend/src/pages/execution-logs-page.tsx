@@ -9,14 +9,13 @@ import { Tag, Select, Empty, Spin } from 'antd'
 import {
   SearchOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined,
   MessageOutlined,
   RobotOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useTheme } from '../contexts/ThemeContext'
-import { sessionApi, sessionKeys, type Session } from '../services/session-api'
+import { sessionApi, sessionKeys } from '../services/session-api'
 import { agentApi, agentKeys } from '../services/agent-api'
 
 /* ─── Helpers ─── */

@@ -13,7 +13,6 @@ import os
 from unittest.mock import patch
 
 import pytest
-
 from app.engine.agent.depth_guard import (
     MAX_DEPTH,
     DepthCheckResult,
@@ -21,7 +20,6 @@ from app.engine.agent.depth_guard import (
     detect_cycle,
     format_call_chain,
 )
-
 
 # ---------------------------------------------------------------------------
 # detect_cycle

@@ -1,11 +1,9 @@
 """Tests for the REACT executor (Reasoning + Acting loop)."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.tools import tool
-
 from app.engine.agent.react_executor import run
+from langchain_core.messages import AIMessage
 
 
 @pytest.fixture

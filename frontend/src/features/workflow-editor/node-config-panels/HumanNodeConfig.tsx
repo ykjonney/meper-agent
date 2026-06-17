@@ -21,8 +21,6 @@ const TIMEOUT_ACTIONS = [
   { label: '标记失败', value: 'fail' },
 ]
 
-const DEFAULT_OPTIONS: string[] = []
-
 /** 安全提取 options，保证返回 string[] */
 function safeOptions(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String)

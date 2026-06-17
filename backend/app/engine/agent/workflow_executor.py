@@ -20,7 +20,6 @@ from pydantic import BeforeValidator
 from app.models.task import TaskStatus
 from app.services.task_service import TaskService
 
-
 # ---------------------------------------------------------------------------
 # Serialisation helpers
 # ---------------------------------------------------------------------------

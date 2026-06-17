@@ -7,7 +7,7 @@ a final text response or the iteration limit is reached.
 """
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -45,6 +45,27 @@ async def run(
         Updated state with accumulated messages, tool results, and
         step_count incremented for each LLM call.
     """
+    # Set workspace context for tool isolation (read/write path guards)
+    from app.engine.agent.builtin_tools import (
+        reset_workspace_context,
+    )
+
+    ws_token = _setup_workspace_context(state)
+
+    try:
+        return await _run_react_inner(state, llm, tools, context_window)
+    finally:
+        if ws_token is not None:
+            reset_workspace_context(ws_token)
+
+
+async def _run_react_inner(
+    state: AgentState,
+    llm: BaseChatModel,
+    tools: list[Callable],
+    context_window: int | None = None,
+) -> dict:
+    """Inner REACT loop — workspace context is already set by the caller."""
     messages = state.get("messages", [])
     step_count = state.get("step_count", 0)
 
@@ -166,6 +187,31 @@ async def run(
 # ---------------------------------------------------------------------------
 
 
+def _setup_workspace_context(state: AgentState):
+    """Set the workspace context var from AgentState, returning a reset token.
+
+    Returns ``None`` if no workspace could be resolved.
+    """
+    session_id = state.get("session_id", "")
+    user_id = state.get("user_id", "")
+    if not session_id or not user_id:
+        return None
+
+    try:
+        from app.engine.agent.builtin_tools import set_workspace_context
+        from app.engine.tool.workspace import WorkspaceManager
+
+        ws = WorkspaceManager.get_workspace(user_id, session_id)
+        # Ensure workspace exists (idempotent)
+        ws.input_dir.mkdir(parents=True, exist_ok=True)
+        ws.output_dir.mkdir(parents=True, exist_ok=True)
+        ws.tmp_dir.mkdir(parents=True, exist_ok=True)
+        return set_workspace_context(ws)
+    except Exception as exc:
+        logger.warning("workspace_context_setup_failed", error=str(exc))
+        return None
+
+
 def _build_tool_map(tools: list[Callable]) -> dict[str, StructuredTool]:
     """Convert a list of callables into a name -> StructuredTool map."""
     return {fn.name: fn for fn in tools if isinstance(fn, StructuredTool)}
@@ -257,6 +303,31 @@ async def run_streaming(
     The overall REACT control flow (depth guard, context compression,
     iteration limit) mirrors :func:`run`.
     """
+    # Set workspace context for tool isolation (read/write path guards)
+    from app.engine.agent.builtin_tools import (
+        reset_workspace_context,
+    )
+
+    ws_token = _setup_workspace_context(state)
+
+    try:
+        return await _run_streaming_inner(
+            state, llm, tools, on_event, enable_thinking, context_window,
+        )
+    finally:
+        if ws_token is not None:
+            reset_workspace_context(ws_token)
+
+
+async def _run_streaming_inner(
+    state: AgentState,
+    llm: BaseChatModel,
+    tools: list[Callable],
+    on_event: StreamCallback,
+    enable_thinking: bool = False,
+    context_window: int | None = None,
+) -> dict:
+    """Inner streaming REACT loop — workspace context is already set."""
     messages = state.get("messages", [])
     step_count = state.get("step_count", 0)
     tool_map = _build_tool_map(tools)

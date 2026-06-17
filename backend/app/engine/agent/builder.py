@@ -25,9 +25,8 @@ Graph topology::
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Awaitable
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import tool as lc_tool
@@ -35,19 +34,20 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 
+from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
 from app.engine.agent.context import get_context_window_async
 from app.engine.agent.evaluator import evaluate_input
+from app.engine.agent.react_executor import (
+    StreamCallback,
+)
 from app.engine.agent.react_executor import run as react_run
 from app.engine.agent.react_executor import (
     run_streaming as react_run_streaming,
-    StreamCallback,
 )
-from app.engine.agent.builtin_tools import _BUILTIN_TOOLS, _BUILTIN_TOOL_REGISTRY
 from app.engine.checkpointer import get_checkpointer
 from app.engine.llm_factory import get_llm_client
 from app.engine.state import AgentState
 from app.models.compat import resolve_skill_ids
-
 
 # ---------------------------------------------------------------------------
 # Shared execution context — eliminates duplication between graph & streaming
@@ -200,8 +200,8 @@ async def build_system_prompt(agent_doc: dict) -> str:
 
 async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
     """Build MCP tool declaration section for the system prompt."""
-    from app.services.mcp_connection_service import McpConnectionService
     from app.db.mongodb import get_database
+    from app.services.mcp_connection_service import McpConnectionService
 
     lines = [
         "",
@@ -281,7 +281,7 @@ async def _build_workflow_tool_declaration(workflow_ids: list[str]) -> str:
 
         lines.append(f"- **{wf_name}**: {wf_desc}")
         if has_human:
-            lines.append(f"  - ⚠️ Contains human approval nodes")
+            lines.append("  - ⚠️ Contains human approval nodes")
 
         # Read the actual Workflow definition to extract the Start
         # node's output_variables — these define the input params
@@ -371,8 +371,8 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
     tool_desc_map = {
         "bash": "Execute shell commands (command: str)",
         "read": "Read file contents (path: str)",
-        "write": "Write content to a file in tmp/ (path: str, content: str)",
-        "write_to_output": "Write content to output/ for user download (path: str, content: str)",
+        "write": "Write content to tmp/ — for intermediate/scratch files only. These files are NOT visible or downloadable by the user. NEVER use this for files the user needs to keep.",
+        "write_to_output": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
     }
 
     for name in builtin_config:
@@ -665,7 +665,6 @@ async def preview_agent(
     Returns:
         Dict with keys: system_prompt, messages, tools, tool_summary.
     """
-    from langchain_core.messages import SystemMessage
     from langchain_core.tools import StructuredTool
 
     # --- Resolve system prompt via slot renderer ---

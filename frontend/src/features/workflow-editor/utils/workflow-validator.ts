@@ -103,7 +103,7 @@ export function validateWorkflow(
   allIssues.push(...validateDagConnectivity(nodes, edges))
 
   // 4. 变量引用验证
-  allIssues.push(...validateVariableReferences(nodes, edges))
+  allIssues.push(...validateVariableReferences(nodes))
 
   return buildResult(allIssues)
 }
@@ -419,7 +419,6 @@ const VARIABLE_REGEX = /\{\{(\w+)\.(\w+)\}\}/g
  */
 function validateVariableReferences(
   nodes: WorkflowNode[],
-  edges: WorkflowEdge[],
 ): ValidationError[] {
   const issues: ValidationError[] = []
   const nodeMap = new Map(nodes.map((n) => [n.node_id, n]))

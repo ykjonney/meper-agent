@@ -7,7 +7,7 @@ from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db.mongodb import get_database
 from app.db.redis import get_redis_client
 from app.models.base import utc_now
-from app.models.role import Role, RoleType
+from app.models.role import RoleType
 from app.schemas.role import RoleCreate, RoleUpdate
 
 # Redis cache TTL: 1 hour

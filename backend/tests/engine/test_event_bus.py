@@ -1,10 +1,7 @@
 """Tests for the in-process Event Bus — pub/sub, retry, dead letter."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-
 from app.engine.events import (
     Event,
     EventBus,

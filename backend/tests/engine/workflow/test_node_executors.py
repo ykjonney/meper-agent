@@ -1,23 +1,19 @@
 """Node executor unit tests — all external dependencies mocked."""
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.engine.workflow.node_executor import (
     AgentNodeExecutor,
     EndNodeExecutor,
     GatewayNodeExecutor,
-    NodeResult,
     ParallelNodeExecutor,
     StartNodeExecutor,
     SubflowNodeExecutor,
     ToolNodeExecutor,
     get_node_executor,
 )
-
 
 # ── StartNodeExecutor ──
 
@@ -250,7 +246,7 @@ class TestAgentNodeExecutor:
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_graph.ainvoke = AsyncMock(side_effect=TimeoutError())
         mock_build.return_value = mock_graph
 
         executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx", "timeout_ms": 100})
@@ -397,7 +393,7 @@ class TestToolNodeExecutor:
 
         mock_tool = MagicMock()
         mock_tool.name = "my_tool"
-        mock_tool.ainvoke = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_tool.ainvoke = AsyncMock(side_effect=TimeoutError())
         mock_cache.return_value = [mock_tool]
 
         executor = ToolNodeExecutor("tool_1", {"tool_id": "tool_xxx", "timeout_ms": 100})
@@ -418,7 +414,7 @@ class TestToolNodeExecutor:
         mock_tool = MagicMock()
         mock_tool.name = "my_tool"
         mock_tool.ainvoke = AsyncMock(
-            side_effect=[asyncio.TimeoutError(), {"data": "ok"}],
+            side_effect=[TimeoutError(), {"data": "ok"}],
         )
         mock_cache.return_value = [mock_tool]
 
@@ -442,7 +438,7 @@ class TestToolNodeExecutor:
 
         mock_tool = MagicMock()
         mock_tool.name = "my_tool"
-        mock_tool.ainvoke = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_tool.ainvoke = AsyncMock(side_effect=TimeoutError())
         mock_cache.return_value = [mock_tool]
 
         executor = ToolNodeExecutor(
@@ -633,7 +629,7 @@ class TestSubflowNodeExecutor:
         with patch("app.engine.workflow.engine.WorkflowEngine") as mock_engine_cls:
             mock_engine_instance = MagicMock()
             mock_engine_instance._pool = None
-            mock_engine_instance.execute_task = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_engine_instance.execute_task = AsyncMock(side_effect=TimeoutError())
             mock_engine_cls.return_value = mock_engine_instance
 
             executor = SubflowNodeExecutor("sub_1", {"workflow_id": "wf_xxx", "timeout_ms": 100})

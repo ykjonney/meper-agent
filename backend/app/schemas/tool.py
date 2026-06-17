@@ -26,7 +26,7 @@ class SkillFileTreeNode(BaseModel):
     key: str = Field(..., description="唯一标识（相对路径）")
     title: str = Field(..., description="显示名称")
     is_leaf: bool = Field(default=True)
-    children: list["SkillFileTreeNode"] | None = Field(default=None)
+    children: list[SkillFileTreeNode] | None = Field(default=None)
     size: int = Field(default=0, description="文件大小（仅文件节点有效）")
 
 

@@ -53,6 +53,19 @@ class SessionService:
         }
 
         await SessionService._collection().insert_one(doc)
+
+        # Create workspace directory tree for this session (AC: file isolation)
+        try:
+            from app.engine.tool.workspace import WorkspaceManager
+
+            WorkspaceManager.create_workspace(user_id, session.id)
+        except Exception as exc:
+            logger.warning(
+                "workspace_creation_failed",
+                session_id=session.id,
+                error=str(exc),
+            )
+
         logger.info("session_created", session_id=session.id, user_id=user_id, agent_id=agent_id)
         return doc
 
@@ -90,10 +103,29 @@ class SessionService:
         Returns:
             True if session was deleted, False if not found.
         """
+        # Fetch session doc before deletion (needed for workspace cleanup)
+        session_doc = await SessionService._collection().find_one({"_id": session_id})
+
         result = await SessionService._collection().delete_one({"_id": session_id})
         if result.deleted_count > 0:
             # Delete all messages in this session
             await MessageService._collection().delete_many({"session_id": session_id})
+
+            # Clean up workspace files
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
+
+                if session_doc:
+                    WorkspaceManager.delete_workspace(
+                        session_doc["user_id"], session_id
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "workspace_cleanup_failed",
+                    session_id=session_id,
+                    error=str(exc),
+                )
+
             logger.info("session_deleted", session_id=session_id)
             return True
         return False

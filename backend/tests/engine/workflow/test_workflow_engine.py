@@ -5,9 +5,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from app.engine.workflow.engine import WorkflowEngine, WorkflowNodeError, WorkflowPaused
-from app.engine.workflow.node_executor import NodeResult
+from app.engine.workflow.engine import WorkflowEngine
 from app.models.task import TaskStatus
 from langchain_core.messages import AIMessage
 
@@ -150,7 +148,7 @@ class TestWorkflowEngine:
         assert "node_b" in result
 
     async def test_human_pause(self, mock_ts: MagicMock) -> None:
-        """Human node triggers WorkflowPaused."""
+        """Human node triggers WorkflowPausedError."""
         mock_ts.transition_task = AsyncMock()
         mock_ts.append_timeline_event = AsyncMock()
 
@@ -166,7 +164,7 @@ class TestWorkflowEngine:
         )
         engine = WorkflowEngine()
         result = await engine.execute_task(_make_task(), wf)
-        # Should not raise — WorkflowPaused is caught gracefully
+        # Should not raise — WorkflowPausedError is caught gracefully
         assert "start_1" in result
 
     async def test_node_failure_propagation(self, mock_ts: MagicMock) -> None:

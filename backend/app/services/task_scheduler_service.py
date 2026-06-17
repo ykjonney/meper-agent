@@ -14,7 +14,8 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+import contextlib
+from datetime import UTC, datetime
 
 from loguru import logger
 
@@ -62,10 +63,8 @@ class TaskSchedulerService:
 
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
         self._task = None
         logger.info("task_scheduler_stopped")
@@ -110,7 +109,7 @@ class TaskSchedulerService:
             Number of Tasks successfully started.
         """
         col = get_database()["tasks"]
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Find due tasks — query for pending with scheduled_at <= now
         cursor = col.find(

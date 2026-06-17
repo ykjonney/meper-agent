@@ -1,13 +1,10 @@
 """Tests for Task model — Checkpoint, TRANSITION_MAP retry."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from app.models.task import (
     TRANSITION_MAP,
     Checkpoint,
     Task,
-    TaskError,
     TaskStatus,
     is_valid_transition,
     utc_now,

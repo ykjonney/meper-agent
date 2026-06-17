@@ -1,14 +1,13 @@
 """Tests for the Agent builder — Skill declaration and tool resolution."""
-import pytest
 from unittest.mock import patch
 
+import pytest
 from app.engine.agent.builder import (
-    _resolve_tools,
-    _resolve_builtin_tools,
     _make_skill_loader,
+    _resolve_builtin_tools,
+    _resolve_tools,
     build_skill_declaration,
 )
-
 
 # ---------------------------------------------------------------------------
 # _resolve_tools

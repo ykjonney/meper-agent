@@ -7,11 +7,9 @@ registered into the ``tools`` MongoDB collection with ``source="mcp"``.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Connection config builder

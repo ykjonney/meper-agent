@@ -1,8 +1,14 @@
-"""Session API endpoints — chat conversation management."""
+"""Session API endpoints — chat conversation management and file downloads."""
+import io
+import mimetypes
+import zipfile
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 from app.core.errors import NotFoundError
 from app.core.security import get_current_user
+from app.engine.tool.workspace import Workspace
 from app.schemas.session import (
     MessageResponse,
     SessionCreate,
@@ -143,3 +149,120 @@ async def delete_session(
         )
 
     await SessionService.delete_session(session_id)
+
+
+# ---------------------------------------------------------------------------
+# File download endpoints
+# ---------------------------------------------------------------------------
+
+
+async def _verify_session_ownership(session_id: str, user_id: str) -> Workspace:
+    """Verify session exists and belongs to user, return workspace."""
+    from app.engine.tool.workspace import WorkspaceManager
+
+    session_doc = await SessionService.get_session(session_id)
+    if session_doc is None:
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message=f"Session {session_id} 不存在",
+        )
+    if session_doc["user_id"] != user_id:
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message=f"Session {session_id} 不存在",
+        )
+
+    return WorkspaceManager.get_workspace(user_id, session_id)
+
+
+@router.get(
+    "/{session_id}/files",
+    summary="List output files for a session",
+)
+async def list_session_files(
+    session_id: str,
+    user: UserResponse = Depends(get_current_user),
+) -> list[dict]:
+    """List all files in the session's output/ directory.
+
+    Returns a list of file entries with path, size, and modified timestamp.
+    """
+    ws = await _verify_session_ownership(session_id, user.id)
+
+    from app.engine.tool.workspace import WorkspaceManager
+
+    return WorkspaceManager.list_output_files(ws)
+
+
+@router.get(
+    "/{session_id}/files.zip",
+    summary="Download all output files as ZIP",
+)
+async def download_session_files_zip(
+    session_id: str,
+    user: UserResponse = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download all files in the session's output/ as a ZIP archive."""
+    ws = await _verify_session_ownership(session_id, user.id)
+
+    from app.engine.tool.workspace import WorkspaceManager
+
+    files = WorkspaceManager.list_output_files(ws)
+    if not files:
+        raise NotFoundError(
+            code="NO_FILES",
+            message="Session has no output files",
+        )
+
+    # Build ZIP in memory (sufficient for MVP scale)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for entry in files:
+            file_abs = ws.output_dir / entry["path"]
+            if file_abs.is_file():
+                zf.write(file_abs, entry["path"])
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="session-{session_id}-output.zip"',
+        },
+    )
+
+
+@router.get(
+    "/{session_id}/files/{file_path:path}",
+    summary="Download a single output file",
+)
+async def download_session_file(
+    session_id: str,
+    file_path: str,
+    user: UserResponse = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download a single file from the session's output/ directory."""
+    ws = await _verify_session_ownership(session_id, user.id)
+
+
+    from app.engine.tool.workspace import WorkspaceManager
+
+    resolved = WorkspaceManager.safe_resolve_path(ws.output_dir, file_path)
+    if resolved is None or not resolved.exists() or not resolved.is_file():
+        raise NotFoundError(
+            code="FILE_NOT_FOUND",
+            message=f"File '{file_path}' not found in session output",
+        )
+
+    # Determine content type
+    content_type, _ = mimetypes.guess_type(str(resolved))
+    content_type = content_type or "application/octet-stream"
+
+    return StreamingResponse(
+        open(resolved, "rb"),
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{resolved.name}"',
+            "Content-Length": str(resolved.stat().st_size),
+        },
+    )
