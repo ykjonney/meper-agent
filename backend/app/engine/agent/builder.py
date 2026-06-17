@@ -578,9 +578,9 @@ def _resolve_builtin_tools(agent: dict) -> list:
     builtin_config = set(agent.get("builtin_config") or [])
 
     # When bash is enabled, auto-include read/write/write_to_output
-    _BASH_TOOL_SET = {"bash", "read", "write", "write_to_output"}
+    _bash_tool_set = {"bash", "read", "write", "write_to_output"}
     if "bash" in builtin_config:
-        enabled_names = _BASH_TOOL_SET
+        enabled_names = _bash_tool_set
     else:
         # Only include individually enabled tools (not bash bundle)
         enabled_names = builtin_config & {"read", "write", "write_to_output"}

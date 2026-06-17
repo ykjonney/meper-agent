@@ -15,6 +15,7 @@ falls back to ``subprocess.run()`` so development works without Docker.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import time
@@ -169,7 +170,7 @@ class SandboxExecutor:
             raise _DockerUnavailableError(
                 f"Sandbox image '{self.image}' not found. "
                 "Build with: docker build -t agent-sandbox:latest -f deploy/Dockerfile.sandbox ."
-            )
+            ) from None
         except Exception as exc:
             raise _DockerUnavailableError(str(exc)) from exc
 
@@ -180,10 +181,8 @@ class SandboxExecutor:
             # Timeout — kill the container
             timed_out = True
             exit_code = -1
-            try:
+            with contextlib.suppress(Exception):
                 container.kill()
-            except Exception:
-                pass
 
         duration = time.monotonic() - start
 
@@ -196,10 +195,8 @@ class SandboxExecutor:
             stderr_raw = b""
 
         # Cleanup
-        try:
+        with contextlib.suppress(Exception):
             container.remove(force=True)
-        except Exception:
-            pass
 
         stdout = _truncate(stdout_raw.decode("utf-8", errors="replace"), self.max_output_bytes)
         stderr = _truncate(stderr_raw.decode("utf-8", errors="replace"), self.max_output_bytes)

@@ -72,11 +72,7 @@ class CircuitBreaker:
         """Return True if a call is permitted, False if circuit is OPEN."""
         with self._lock:
             state = self._get_state_locked()
-            if state == CircuitState.CLOSED:
-                return True
-            if state == CircuitState.HALF_OPEN:
-                return True  # Allow one probe call
-            return False  # OPEN
+            return state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
     def record_success(self) -> None:
         """Record a successful call — resets failures and closes circuit."""
