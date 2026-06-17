@@ -21,8 +21,8 @@ class SlotDef(BaseModel):
 
 
 SLOT_SCHEMA: list[SlotDef] = [
-    SlotDef(name="role", label="角色定义"),
-    SlotDef(name="task", label="任务描述"),
+    SlotDef(name="role", label="角色定义", required=True),
+    SlotDef(name="task", label="任务描述", required=True),
     SlotDef(name="constraints", label="约束规则"),
     SlotDef(name="context", label="上下文信息"),
     SlotDef(name="output_format", label="输出格式"),

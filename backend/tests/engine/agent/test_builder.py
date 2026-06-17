@@ -233,16 +233,19 @@ class TestResolveBuiltinTools:
         assert names == self._task_tool_names()
 
     def test_whitelist_returns_base_plus_task_tools(self) -> None:
-        """Whitelisted base tools + all task tools are returned."""
+        """Whitelisted base tools + all task tools are returned.
+
+        ``bash`` pulls in the full bash tool set (read / write / write_to_output).
+        """
         result = _resolve_builtin_tools({"builtin_config": ["bash", "read"]})
         names = {t.name for t in result}
-        assert names == {"bash", "read"} | self._task_tool_names()
+        assert names == {"bash", "read", "write", "write_to_output"} | self._task_tool_names()
 
     def test_invalid_names_are_ignored(self) -> None:
         """Invalid tool names in builtin_config are silently skipped."""
         result = _resolve_builtin_tools({"builtin_config": ["bash", "nonexistent_tool"]})
         names = {t.name for t in result}
-        assert names == {"bash"} | self._task_tool_names()
+        assert names == {"bash", "read", "write", "write_to_output"} | self._task_tool_names()
 
     def test_partial_whitelist(self) -> None:
         """Only a subset of base built-in tools can be enabled."""
@@ -251,10 +254,13 @@ class TestResolveBuiltinTools:
         assert names == {"write"} | self._task_tool_names()
 
     def test_all_base_tools_enabled(self) -> None:
-        """All base tools + task tools returned when fully whitelisted."""
+        """All base tools + task tools returned when fully whitelisted.
+
+        ``bash`` pulls in the full bash tool set (read / write / write_to_output).
+        """
         result = _resolve_builtin_tools({"builtin_config": ["bash", "read", "write"]})
         names = {t.name for t in result}
-        assert names == {"bash", "read", "write"} | self._task_tool_names()
+        assert names == {"bash", "read", "write", "write_to_output"} | self._task_tool_names()
 
 
 # ---------------------------------------------------------------------------

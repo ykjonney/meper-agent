@@ -58,7 +58,10 @@ def _fake_agent_doc() -> dict:
         "_id": "agent_01HTEST",
         "name": "Test Agent",
         "description": "A test agent",
-        "prompt_slots": {},
+        "prompt_slots": {
+            "role": "You are a helpful test assistant.",
+            "task": "Respond to the user's message.",
+        },
         "skill_ids": [],
         "mcp_connection_ids": [],
         "builtin_config": [],
@@ -114,6 +117,8 @@ class TestInvokeAgent:
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
             patch("app.engine.agent.builder.build_tool_declaration", new_callable=AsyncMock, return_value=""),
             patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
+            patch("app.services.session_service.SessionService.create_session", new_callable=AsyncMock, return_value={"_id": "session_mock"}),
+            patch("app.services.session_service.MessageService.add_message", new_callable=AsyncMock),
         ):
             resp = client.post(
                 "/api/v1/agents/agent_01HTEST/invoke",

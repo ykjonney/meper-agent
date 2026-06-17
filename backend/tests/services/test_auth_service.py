@@ -168,7 +168,7 @@ class TestRefreshToken:
         with pytest.raises(UnauthorizedError):
             await AuthService.refresh_token(expired_token)
 
-    async def test_refresh_with_access_token_rejected(self) -> None:
+    async def test_refresh_with_access_token_rejected(self, mock_redis) -> None:
         """Using access_token as refresh_token returns 401."""
         access = create_access_token(subject="user_01HTEST")
 

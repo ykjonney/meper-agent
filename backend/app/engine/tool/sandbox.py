@@ -101,6 +101,39 @@ class SandboxExecutor:
                 exit_code=1,
             )
 
+    # ── Path translation ────────────────────────────────────────────────
+
+    @staticmethod
+    def _host_path(container_path: str) -> str:
+        """Translate a container-internal path to the corresponding host path.
+
+        When the backend runs inside a Docker container, the Docker daemon
+        (on the host) needs **host-side** paths for bind mounts, not the
+        paths the backend sees internally.
+
+        Example:
+            container_path = "/data/workspaces/uid/sid/tmp"
+            SANDBOX_HOST_WORKSPACES_DIR = "/home/user/project/deploy/data/workspaces"
+            WORKSPACES_DIR (container) = "/data/workspaces"
+            → returns "/home/user/project/deploy/data/workspaces/uid/sid/tmp"
+
+        When SANDBOX_HOST_WORKSPACES_DIR is empty (local dev), returns the
+        path unchanged.
+        """
+        # Workspace path translation
+        host_ws = settings.SANDBOX_HOST_WORKSPACES_DIR
+        container_ws = os.path.expanduser(settings.WORKSPACES_DIR)
+        if host_ws and container_path.startswith(container_ws):
+            return container_path.replace(container_ws, host_ws, 1)
+
+        # Skills path translation
+        host_sk = settings.SANDBOX_HOST_SKILLS_DIR
+        container_sk = os.path.expanduser(settings.SKILLS_DIR)
+        if host_sk and container_path.startswith(container_sk):
+            return container_path.replace(container_sk, host_sk, 1)
+
+        return container_path
+
     # ── Docker execution ────────────────────────────────────────────────
 
     def _execute_docker(
@@ -124,17 +157,18 @@ class SandboxExecutor:
         workspace.output_dir.mkdir(parents=True, exist_ok=True)
         workspace.input_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build volume mounts
+        # Build volume mounts — translate container paths to host paths
+        # when running inside a container (SANDBOX_HOST_*_DIR configured).
         volumes = {
-            str(workspace.tmp_dir): {"bind": "/workspace/tmp", "mode": "rw"},
-            str(workspace.output_dir): {"bind": "/workspace/output", "mode": "rw"},
-            str(workspace.input_dir): {"bind": "/workspace/input", "mode": "ro"},
+            self._host_path(str(workspace.tmp_dir)): {"bind": "/workspace/tmp", "mode": "rw"},
+            self._host_path(str(workspace.output_dir)): {"bind": "/workspace/output", "mode": "rw"},
+            self._host_path(str(workspace.input_dir)): {"bind": "/workspace/input", "mode": "ro"},
         }
 
         # Mount SKILLS_DIR read-only if it exists
         skills_dir = Path(os.path.expanduser(settings.SKILLS_DIR))
         if skills_dir.exists():
-            volumes[str(skills_dir)] = {"bind": "/data/skills", "mode": "ro"}
+            volumes[self._host_path(str(skills_dir))] = {"bind": "/data/skills", "mode": "ro"}
 
         # Build environment
         env = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}

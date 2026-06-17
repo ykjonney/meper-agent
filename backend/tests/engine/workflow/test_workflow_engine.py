@@ -84,7 +84,13 @@ class TestWorkflowEngine:
         with patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock) as mock_build, \
              patch("app.db.mongodb.get_database", new_callable=MagicMock) as mock_db:
             mock_collection = MagicMock()
-            mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx"})
+            mock_collection.find_one = AsyncMock(return_value={
+                "_id": "agent_xxx",
+                "prompt_slots": {
+                    "role": "You are a helpful assistant.",
+                    "task": "Respond to the user.",
+                },
+            })
             mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
             mock_graph = AsyncMock()

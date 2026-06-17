@@ -85,5 +85,13 @@ class Settings(BaseSettings):
     # When False (default for local dev), bash runs via subprocess.
     SANDBOX_ENABLED: bool = False
 
+    # Host-side path prefix for volume mounts.
+    # When backend runs inside a container, the Docker daemon (on the host)
+    # needs HOST paths for bind mounts, not container-internal paths.
+    # Set these to the host-side equivalents of WORKSPACES_DIR / SKILLS_DIR.
+    # Leave empty when backend runs directly on the host (local dev).
+    SANDBOX_HOST_WORKSPACES_DIR: str = ""
+    SANDBOX_HOST_SKILLS_DIR: str = ""
+
 
 settings = Settings()
