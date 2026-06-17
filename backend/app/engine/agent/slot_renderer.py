@@ -27,6 +27,7 @@ async def render_system_prompt_full(
     *,
     node_slot_overrides: dict[str, str] | None = None,
     variable_pool: dict[str, Any] | None = None,
+    strict: bool = True,
 ) -> str:
     """Render the full system prompt from Agent's prompt_slots.
 
@@ -34,6 +35,8 @@ async def render_system_prompt_full(
         agent_doc: The Agent MongoDB document.
         node_slot_overrides: Per-node slot overrides (highest priority).
         variable_pool: Variable pool for Jinja2 ``{{var}}`` resolution.
+        strict: When True (default), missing required slots raise ValueError.
+            When False, missing slots are silently skipped (for preview).
 
     Returns:
         Fully assembled system prompt string.
@@ -83,10 +86,14 @@ async def render_system_prompt_full(
             missing_required.append(label)
 
     if missing_required:
-        raise ValueError(
-            f"必填 Prompt Slot 缺失: {', '.join(missing_required)}。"
-            f"请在 Agent 配置或节点覆写中补充这些字段。"
-        )
+        if strict:
+            raise ValueError(
+                f"必填 Prompt Slot 缺失: {', '.join(missing_required)}。"
+                f"请在 Agent 配置或节点覆写中补充这些字段。"
+            )
+        # Non-strict mode: add placeholder for missing required slots
+        for label in missing_required:
+            parts.append(f"【{label}】\n（未配置）")
 
     # ── Always append tool_declaration at the end ──
     from app.engine.agent.builder import build_tool_declaration

@@ -371,7 +371,8 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
     tool_desc_map = {
         "bash": "Execute shell commands (command: str)",
         "read": "Read file contents (path: str)",
-        "write": "Write content to a file (path: str, content: str)",
+        "write": "Write content to a file in tmp/ (path: str, content: str)",
+        "write_to_output": "Write content to output/ for user download (path: str, content: str)",
     }
 
     for name in builtin_config:
@@ -568,11 +569,11 @@ def _resolve_builtin_tools(agent: dict) -> list:
 
     builtin_config = agent.get("builtin_config") or []
 
-    # Base tools (bash, read, write) — filtered by whitelist
+    # Base tools (bash, read, write, write_to_output) — filtered by whitelist
     base_tools = [
         _BUILTIN_TOOL_REGISTRY[name]
         for name in builtin_config
-        if name in _BUILTIN_TOOL_REGISTRY and name in {"bash", "read", "write"}
+        if name in _BUILTIN_TOOL_REGISTRY and name in {"bash", "read", "write", "write_to_output"}
     ]
 
     # Task management tools — always available
@@ -670,7 +671,7 @@ async def preview_agent(
     # --- Resolve system prompt via slot renderer ---
     from app.engine.agent.slot_renderer import render_system_prompt_full
 
-    system_text = await render_system_prompt_full(agent)
+    system_text = await render_system_prompt_full(agent, strict=False)
 
     # --- Assemble messages ---
     messages: list[dict] = []
