@@ -16,6 +16,7 @@ const DEFAULT_CONFIGS: Record<string, Record<string, unknown>> = {
   end: {},
   agent: {
     agent_id: '',
+    input_query: '',
     input_prompt: '',
     temperature: 0.7,
     max_retry: 3,

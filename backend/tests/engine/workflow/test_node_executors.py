@@ -62,6 +62,119 @@ class TestStartNodeExecutor:
         assert result.success
         assert result.output == {"input": {"user": "Alice"}}
 
+    @pytest.mark.asyncio
+    async def test_required_missing_from_input_fails(self) -> None:
+        """必填变量未提供且无默认值 → 失败。"""
+        config = {
+            "output_variables": [
+                {"name": "query", "type": "text", "required": True},
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert not result.success
+        assert "必填变量缺失" in result.error_message
+        assert "query" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_required_empty_string_fails(self) -> None:
+        """必填变量传入空字符串 → 视为缺失。"""
+        config = {
+            "output_variables": [
+                {"name": "query", "type": "text", "required": True},
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {"query": ""}})
+        assert not result.success
+        assert "query" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_required_satisfied_by_default_value(self) -> None:
+        """必填变量未传入但有 constraints.default_value → 通过。"""
+        config = {
+            "output_variables": [
+                {
+                    "name": "query",
+                    "type": "text",
+                    "constraints": {"required": True, "default_value": "fallback"},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert result.success
+        assert result.output["query"] == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_required_from_constraints_frontend_schema(self) -> None:
+        """前端实际保存格式：required 在 constraints 里，default_value 也在 constraints 里。"""
+        config = {
+            "output_variables": [
+                {
+                    "name": "user_name",
+                    "type": "text",
+                    "label": "用户名",
+                    "constraints": {"required": True, "max_length": 100},
+                },
+                {
+                    "name": "mode",
+                    "type": "text",
+                    "constraints": {"required": False, "default_value": "fast"},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        # 缺 user_name → 失败
+        result = await executor.execute({"input": {"mode": "slow"}})
+        assert not result.success
+        assert "user_name" in result.error_message
+        # mode 有默认值，不会出现在缺失列表
+        assert "mode" not in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_optional_missing_succeeds_with_none(self) -> None:
+        """可选变量缺失 → 成功，值为 None。"""
+        config = {
+            "output_variables": [
+                {"name": "extra", "type": "text"},
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert result.success
+        assert result.output["extra"] is None
+
+    @pytest.mark.asyncio
+    async def test_file_type_no_required_field(self) -> None:
+        """file 类型无 required 字段 → 默认 optional，缺失也成功。"""
+        config = {
+            "output_variables": [
+                {
+                    "name": "attachment",
+                    "type": "file",
+                    "constraints": {"allowed_extensions": [".pdf"], "max_size_mb": 10},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert result.success
+        assert result.output["attachment"] is None
+
+    @pytest.mark.asyncio
+    async def test_legacy_top_level_default_still_works(self) -> None:
+        """旧 schema：顶层 default 字段仍能识别（向后兼容）。"""
+        config = {
+            "output_variables": [
+                {"name": "query", "type": "text", "default": "legacy_fallback"},
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert result.success
+        assert result.output["query"] == "legacy_fallback"
+
 
 # ── EndNodeExecutor ──
 
@@ -112,7 +225,9 @@ class TestAgentNodeExecutor:
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
     async def test_normal_execution(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx", "system_prompt": ""})
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+        )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()
@@ -129,7 +244,9 @@ class TestAgentNodeExecutor:
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
     async def test_timeout(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx"})
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+        )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()
@@ -146,7 +263,9 @@ class TestAgentNodeExecutor:
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
     async def test_retry_success(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx"})
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+        )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()
@@ -171,7 +290,9 @@ class TestAgentNodeExecutor:
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
     async def test_retry_exhausted(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx"})
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+        )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()
@@ -191,7 +312,9 @@ class TestAgentNodeExecutor:
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
     async def test_llm_exception(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value={"_id": "agent_xxx"})
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+        )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = AsyncMock()

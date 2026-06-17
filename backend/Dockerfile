@@ -3,8 +3,8 @@
 # --- Builder stage: use uv to install prod deps in a slim venv ---
 FROM python:3.12-slim AS builder
 
-# Install uv from official image
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /bin/
+# Install uv via pip (avoids ghcr.io network issues)
+RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
@@ -29,6 +29,9 @@ COPY --from=builder /app/.venv /app/.venv
 COPY app/ app/
 COPY scripts/ scripts/
 COPY pyproject.toml uv.lock .python-version ./
+
+# Create logs directory for non-root user
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
 # Ensure the venv takes precedence on PATH
 ENV PATH="/app/.venv/bin:$PATH" \

@@ -54,12 +54,17 @@ export function LoginPage() {
         return
       }
 
+      // Use user info from login response (includes permissions)
+      const userInfo = data.user
+      const permissions = userInfo?.permissions ?? []
+
       // Store tokens
       localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
       setAuth(data.access_token, {
-        id: payload.sub,
-        username: payload.username,
-        role: payload.role,
+        id: userInfo?.id ?? payload.sub,
+        username: userInfo?.username ?? payload.username,
+        role: userInfo?.role ?? payload.role,
+        permissions,
       })
 
       const redirect = searchParams.get('redirect') || '/dashboard'

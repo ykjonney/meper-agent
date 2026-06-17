@@ -46,6 +46,7 @@ import {
   type WorkflowNode,
 } from '../services/workflows-api'
 import { useAuthStore } from '../stores/auth-store'
+import { parseBackendDate } from '../lib/format'
 
 /* ─── Workflow Editor 组件 ─── */
 import { NODE_TYPE_CONFIGS } from '../features/workflow-editor/utils/node-type-configs'
@@ -439,8 +440,8 @@ function VersionHistoryDrawer({ workflowId, open, onClose }: { workflowId: strin
           </div>
           <Divider className="!my-3" />
           <div className="text-xs text-[#94A3B8]">
-            <div>创建时间: {new Date(workflow.created_at).toLocaleString('zh-CN')}</div>
-            <div className="mt-1">更新时间: {new Date(workflow.updated_at).toLocaleString('zh-CN')}</div>
+            <div>创建时间: {parseBackendDate(workflow.created_at).toLocaleString('zh-CN')}</div>
+            <div className="mt-1">更新时间: {parseBackendDate(workflow.updated_at).toLocaleString('zh-CN')}</div>
           </div>
           <Divider className="!my-3" />
           <div className="text-xs text-[#94A3B8]">

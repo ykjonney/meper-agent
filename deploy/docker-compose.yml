@@ -3,12 +3,13 @@
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up
 
 services:
-  frontend:
+  caddy:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile.caddy
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       backend:
         condition: service_healthy
@@ -64,16 +65,26 @@ services:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  # One-time init service: create admin user
+  # Run with: docker compose run --rm create-admin
+  create-admin:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command:
+      - "python"
+      - "-m"
+      - "app.cli"
+      - "create-admin"
+      - "--username"
+      - "${ADMIN_USERNAME:-admin}"
+      - "--password"
+      - "${ADMIN_PASSWORD:-admin123}"
+      - "--email"
+      - "${ADMIN_EMAIL:-admin@example.com}"
+    env_file:
+      - .env
     depends_on:
-      - frontend
-      - backend
-    restart: unless-stopped
+      - mongodb
     profiles:
-      - with-caddy
+      - init

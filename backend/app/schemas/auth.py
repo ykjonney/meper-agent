@@ -15,6 +15,15 @@ class RefreshRequest(BaseModel):
     refresh_token: str = Field(..., description="JWT refresh token")
 
 
+class UserInfo(BaseModel):
+    """Minimal user info returned alongside tokens."""
+
+    id: str
+    username: str
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+
+
 class TokenResponse(BaseModel):
     """JWT token pair returned after login or admin creation."""
 
@@ -22,6 +31,7 @@ class TokenResponse(BaseModel):
     refresh_token: str = Field(..., description="Long-lived JWT refresh token (7d)")
     token_type: str = Field(default="bearer")
     expires_in: int = Field(default=900, description="Access token TTL in seconds (override at creation from settings)")
+    user: UserInfo | None = Field(default=None, description="Basic user info including permissions")
 
 
 class AdminCreateResult(BaseModel):

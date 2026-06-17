@@ -14,6 +14,7 @@ export interface AuthUser {
   id: string
   username: string
   role: string
+  permissions: string[]
 }
 
 interface AuthState {
@@ -24,6 +25,7 @@ interface AuthState {
 
   setAuth: (accessToken: string, user: AuthUser) => void
   setAccessToken: (token: string) => void
+  setUserPermissions: (permissions: string[]) => void
   clearAuth: () => void
   setInitializing: (v: boolean) => void
 }
@@ -40,6 +42,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAccessToken: (token) => {
     set({ accessToken: token })
+  },
+
+  setUserPermissions: (permissions) => {
+    set((state) => ({
+      user: state.user ? { ...state.user, permissions } : null,
+    }))
   },
 
   clearAuth: () => {

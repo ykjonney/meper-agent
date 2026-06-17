@@ -13,19 +13,11 @@ import { authApi } from './auth-api'
 
 export type AgentStatus = 'draft' | 'published' | 'archived'
 
-export interface SavedPrompt {
-  id: string
-  name: string
-  content: string
-  is_active: boolean
-}
-
 export interface Agent {
   id: string
   name: string
   description: string
-  system_prompt: string
-  saved_system_prompts: SavedPrompt[]
+  prompt_slots: Record<string, string>
   /** Skill tool IDs (source=markdown) */
   skill_ids: string[]
   /** MCP connection IDs (tools loaded from remote MCP servers) */
@@ -46,15 +38,13 @@ export interface AgentCreateInput {
   name: string
   /** Agent 简要描述 */
   description?: string
-  /** 系统提示词（初始版本） */
-  system_prompt?: string
 }
 
 export interface AgentUpdateInput {
   name: string
   description?: string
-  system_prompt?: string
-  saved_system_prompts?: SavedPrompt[]
+  /** 提示词卡槽内容 */
+  prompt_slots?: Record<string, string>
   /** Skill tool IDs (source=markdown) */
   skill_ids?: string[]
   /** MCP connection IDs */
@@ -67,7 +57,7 @@ export interface AgentUpdateInput {
   max_retry?: number
 }
 
-/** Model config update payload for PATCH /agents/{id}/model-config */
+/** Model config update payload — kept for backward compat type exports */
 export interface ModelConfigUpdateInput {
   default_model: string
   max_retry: number

@@ -32,14 +32,29 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
       .refresh(refreshToken)
       .then((res) => {
         if (cancelled) return
-        const { access_token, refresh_token } = res.data
-        const payload = decodeAccessToken(access_token)
-        if (payload) {
-          setAuth(access_token, { id: payload.sub, username: payload.username, role: payload.role })
-          localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
+        const { access_token, refresh_token, user } = res.data
+        if (user) {
+          setAuth(access_token, {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            permissions: user.permissions,
+          })
         } else {
-          clearAuth()
+          const payload = decodeAccessToken(access_token)
+          if (payload) {
+            setAuth(access_token, {
+              id: payload.sub,
+              username: payload.username,
+              role: payload.role,
+              permissions: [],
+            })
+          } else {
+            clearAuth()
+            return
+          }
         }
+        localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
       })
       .catch(() => {
         if (cancelled) return

@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentPlat API · Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ============ Design Tokens ============ */
+:root[data-theme="dark"]{
+  --bg: #07080d;
+  --bg-grad-1: #0a0e1a;
+  --bg-grad-2: #14182b;
+  --blob-1: rgba(94,106,210,0.18);
+  --blob-2: rgba(52,211,153,0.10);
+  --surface: rgba(255,255,255,0.035);
+  --surface-2: rgba(255,255,255,0.06);
+  --surface-3: rgba(255,255,255,0.09);
+  --surface-hover: rgba(255,255,255,0.07);
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.16);
+  --text: #EDEDEF;
+  --text-muted: #9aa0ac;
+  --text-dim: #626773;
+  --accent: #5E6AD2;
+  --accent-2: #7c89ff;
+  --accent-glow: rgba(94,106,210,0.30);
+  --code-bg: rgba(0,0,0,0.35);
+  --code-border: rgba(255,255,255,0.08);
+  --shadow: 0 10px 40px -12px rgba(0,0,0,0.6);
+  --m-GET:#34d399; --m-POST:#60a5fa; --m-PUT:#fbbf24; --m-PATCH:#c084fc; --m-DELETE:#f87171;
+  --tok-k:#7c89ff; --tok-s:#34d399; --tok-n:#fbbf24; --tok-b:#c084fc; --tok-p:#9aa0ac;
+}
+:root[data-theme="light"]{
+  --bg: #f7f8fa;
+  --bg-grad-1: #ffffff;
+  --bg-grad-2: #eef0f6;
+  --blob-1: rgba(94,106,210,0.12);
+  --blob-2: rgba(52,211,153,0.10);
+  --surface: #ffffff;
+  --surface-2: #f4f5f8;
+  --surface-3: #eceef3;
+  --surface-hover: #f0f2f7;
+  --border: #e6e8ee;
+  --border-strong: #d0d4dd;
+  --text: #16181d;
+  --text-muted: #555b66;
+  --text-dim: #8a909c;
+  --accent: #5E6AD2;
+  --accent-2: #4c56b8;
+  --accent-glow: rgba(94,106,210,0.18);
+  --code-bg: #1a1d2b;
+  --code-border: #2a2e3e;
+  --shadow: 0 6px 24px -10px rgba(20,24,43,0.18);
+  --m-GET:#0a8f63; --m-POST:#2563eb; --m-PUT:#b45309; --m-PATCH:#7c3aed; --m-DELETE:#dc2626;
+  --tok-k:#7c89ff; --tok-s:#4ade80; --tok-n:#fbbf24; --tok-b:#c084fc; --tok-p:#9aa0ac;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:15px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  transition:background .4s ease,color .3s ease;
+  min-height:100vh;
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(900px 600px at 12% -5%, var(--blob-1), transparent 60%),
+    radial-gradient(800px 500px at 95% 8%, var(--blob-2), transparent 55%),
+    linear-gradient(180deg, var(--bg-grad-1), var(--bg-grad-2));
+  transition:opacity .4s ease;
+}
+::selection{background:var(--accent-glow);color:var(--text)}
+a{color:inherit;text-decoration:none}
+
+/* ============ Topbar ============ */
+.topbar{
+  position:sticky;top:0;z-index:50;
+  height:60px;display:flex;align-items:center;gap:20px;
+  padding:0 22px;
+  background:color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter:saturate(180%) blur(18px);
+  -webkit-backdrop-filter:saturate(180%) blur(18px);
+  border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:-.02em;white-space:nowrap}
+.brand-mark{
+  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--accent),#8b5cf6);
+  box-shadow:0 4px 14px var(--accent-glow);
+  font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;color:#fff;
+}
+.brand b{font-size:16px}
+.brand .ver{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:var(--text-dim);
+  border:1px solid var(--border);padding:2px 7px;border-radius:6px;margin-left:2px}
+.search-wrap{flex:1;max-width:480px;position:relative}
+.search{
+  width:100%;height:38px;border-radius:10px;
+  background:var(--surface-2);border:1px solid var(--border);
+  color:var(--text);padding:0 14px 0 38px;font-size:14px;font-family:inherit;
+  transition:border-color .2s, background .2s;
+}
+.search:focus{outline:none;border-color:var(--accent);background:var(--surface-3)}
+.search::placeholder{color:var(--text-dim)}
+.search-ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--text-dim);pointer-events:none}
+.search-kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);
+  border:1px solid var(--border);border-radius:5px;padding:1px 6px;background:var(--surface)}
+.topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto}
+.baseurl{
+  font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-muted);
+  background:var(--surface-2);border:1px solid var(--border);padding:6px 11px;border-radius:8px;white-space:nowrap;
+}
+.baseurl b{color:var(--accent-2);font-weight:600}
+.icon-btn{
+  width:38px;height:38px;border-radius:10px;display:grid;place-items:center;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);
+  transition:all .2s;
+}
+.icon-btn:hover{background:var(--surface-3);color:var(--text);border-color:var(--border-strong)}
+.menu-btn{display:none}
+
+/* ============ Layout ============ */
+.layout{display:flex;align-items:flex-start}
+.sidebar{
+  width:286px;flex-shrink:0;position:sticky;top:60px;
+  height:calc(100vh - 60px);overflow-y:auto;
+  padding:18px 12px 40px;
+  border-right:1px solid var(--border);
+}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}
+.sidebar::-webkit-scrollbar-track{background:transparent}
+.main{flex:1;min-width:0;padding:32px 44px 120px;max-width:1000px;margin:0 auto}
+
+/* ============ Sidebar nav ============ */
+.nav-module{margin-bottom:6px}
+.nav-mod-head{
+  display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+  padding:8px 10px;border-radius:8px;font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);
+  transition:background .15s;
+}
+.nav-mod-head:hover{background:var(--surface)}
+.nav-mod-head .mod-ico{width:15px;height:15px;color:var(--accent-2);flex-shrink:0}
+.nav-mod-head .chev{margin-left:auto;width:13px;height:13px;color:var(--text-dim);transition:transform .2s}
+.nav-module.collapsed .chev{transform:rotate(-90deg)}
+.nav-mod-head .mod-count{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);
+  background:var(--surface-2);padding:1px 6px;border-radius:5px;font-weight:500;letter-spacing:0}
+.nav-resources{overflow:hidden;max-height:2000px;transition:max-height .3s ease}
+.nav-module.collapsed .nav-resources{max-height:0}
+.nav-res{padding:2px 0 2px 10px}
+.nav-res-label{font-size:11px;color:var(--text-dim);padding:6px 10px 3px;font-weight:500;letter-spacing:.02em}
+.nav-ep{
+  display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:7px;cursor:pointer;
+  font-size:13px;color:var(--text-muted);transition:all .15s;line-height:1.35;
+}
+.nav-ep:hover{background:var(--surface);color:var(--text)}
+.nav-ep.active{background:var(--accent-glow);color:var(--text)}
+.nav-ep.active .ep-path{font-weight:600}
+.ep-method{
+  font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;
+  padding:2px 0;width:42px;text-align:center;border-radius:4px;flex-shrink:0;letter-spacing:.02em;
+  background:color-mix(in srgb, var(--mc) 16%, transparent);
+  color:var(--mc);
+}
+.ep-path{font-family:'JetBrains Mono',monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-ep.hidden{display:none}
+
+/* ============ Main content ============ */
+.crumbs{font-size:12px;color:var(--text-dim);margin-bottom:14px;font-family:'JetBrains Mono',monospace}
+.crumbs span{color:var(--text-muted)}
+.crumbs .sep{margin:0 7px;color:var(--text-dim)}
+
+.ep-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+.method-badge{
+  font-family:'JetBrains Mono',monospace;font-weight:600;font-size:13px;
+  padding:6px 13px;border-radius:8px;height:fit-content;
+  background:color-mix(in srgb, var(--mc) 16%, transparent);
+  color:var(--mc);border:1px solid color-mix(in srgb, var(--mc) 30%, transparent);
+  letter-spacing:.03em;
+}
+.ep-path-title{
+  font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;letter-spacing:-.01em;
+  word-break:break-all;line-height:1.3;
+}
+.ep-title-zh{font-size:19px;font-weight:600;color:var(--text);letter-spacing:-.01em;margin:6px 0 0}
+.ep-desc{color:var(--text-muted);font-size:14.5px;margin:14px 0 0;max-width:680px}
+
+.section{margin-top:34px}
+.section-h{
+  display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);
+  margin-bottom:13px;padding-bottom:10px;border-bottom:1px solid var(--border);
+}
+.section-h .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+
+/* param table */
+.param-table{width:100%;border-collapse:collapse;font-size:13.5px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.param-table th,.param-table td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+.param-table tr:last-child td{border-bottom:none}
+.param-table th{background:var(--surface-2);font-weight:600;font-size:12px;color:var(--text-muted);letter-spacing:.02em}
+.p-name{font-family:'JetBrains Mono',monospace;color:var(--text);font-weight:500;white-space:nowrap}
+.p-type{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-2)}
+.p-req{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;letter-spacing:.04em}
+.p-req.yes{background:color-mix(in srgb,#f87171 16%,transparent);color:#f87171}
+:root[data-theme="light"] .p-req.yes{color:#dc2626}
+.p-req.no{background:var(--surface-3);color:var(--text-dim)}
+.p-desc{color:var(--text-muted)}
+.p-desc code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--surface-3);padding:1px 5px;border-radius:4px;color:var(--accent-2)}
+
+/* code block */
+.code-block{
+  position:relative;border-radius:12px;overflow:hidden;
+  background:var(--code-bg);border:1px solid var(--code-border);margin-top:4px;
+}
+.code-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 14px;border-bottom:1px solid var(--code-border);
+  background:color-mix(in srgb,var(--code-bg) 60%, #fff 4%);
+}
+.code-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a909c;letter-spacing:.05em;text-transform:uppercase}
+.code-status{font-family:'JetBrains Mono',monospace;font-size:11px;color:#4ade80;font-weight:600}
+.copy-btn{
+  display:flex;align-items:center;gap:5px;cursor:pointer;
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa0ac;
+  background:transparent;border:1px solid rgba(255,255,255,.12);padding:4px 9px;border-radius:6px;
+  transition:all .15s;
+}
+.copy-btn:hover{color:#fff;border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.06)}
+.copy-btn.copied{color:#4ade80;border-color:rgba(74,222,128,.4)}
+pre{margin:0;padding:15px 16px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.65;color:#dfe3ec}
+pre::-webkit-scrollbar{height:8px}
+pre::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:4px}
+.tok-k{color:var(--tok-k)} .tok-s{color:var(--tok-s)} .tok-n{color:var(--tok-n)} .tok-b{color:var(--tok-b)} .tok-p{color:var(--tok-p)}
+
+.note{
+  font-size:13px;color:var(--text-muted);background:color-mix(in srgb,var(--accent) 8%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:9px;
+  padding:10px 14px;margin-top:12px;
+}
+.note b{color:var(--accent-2)}
+
+/* error list */
+.err-list{display:flex;flex-direction:column;gap:8px}
+.err-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:9px;background:var(--surface);font-size:13px}
+.err-code{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#f87171;background:color-mix(in srgb,#f87171 12%,transparent);padding:3px 9px;border-radius:6px;white-space:nowrap}
+:root[data-theme="light"] .err-code{color:#dc2626}
+.err-http{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);min-width:34px}
+.err-msg{color:var(--text-muted)}
+
+/* response transition diagram */
+.trans-diagram{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.9;color:var(--text-muted);
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;white-space:pre;overflow-x:auto}
+.trans-diagram .st{color:var(--accent-2)}
+
+/* ============ Overview ============ */
+.hero{margin-bottom:36px}
+.hero h1{font-size:34px;font-weight:700;letter-spacing:-.025em;margin:0 0 10px;line-height:1.15}
+.hero h1 .grad{background:linear-gradient(120deg,var(--accent-2),#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{font-size:16px;color:var(--text-muted);max-width:620px;margin:0}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:28px 0}
+.stat-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;
+  transition:all .2s;
+}
+.stat-card:hover{border-color:var(--border-strong);transform:translateY(-2px)}
+.stat-num{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:600;letter-spacing:-.02em;background:linear-gradient(120deg,var(--text),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat-label{font-size:12px;color:var(--text-dim);margin-top:3px;letter-spacing:.02em}
+.stat-sub{font-size:11px;color:var(--text-muted);margin-top:8px;font-family:'JetBrains Mono',monospace}
+
+.module-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:14px}
+.mod-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;cursor:pointer;
+  transition:all .2s;position:relative;overflow:hidden;
+}
+.mod-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
+.mod-card::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,var(--accent-glow),transparent 50%);opacity:0;transition:opacity .25s}
+.mod-card:hover::before{opacity:1}
+.mod-card > *{position:relative}
+.mod-ico-lg{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent-2);margin-bottom:12px}
+.mod-card h3{margin:0 0 4px;font-size:15px;font-weight:600}
+.mod-card .mc-en{font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;letter-spacing:.03em}
+.mod-card .mc-desc{font-size:13px;color:var(--text-muted);margin:10px 0 12px;line-height:1.5}
+.mod-card .mc-meta{display:flex;gap:6px;flex-wrap:wrap}
+.mc-tag{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);padding:2px 8px;border-radius:5px}
+
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
+.info-card h3{margin:0 0 14px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.info-card h3 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+.empty{text-align:center;padding:80px 20px;color:var(--text-dim)}
+.empty-ico{font-size:36px;margin-bottom:12px;opacity:.5}
+
+/* ============ mobile ============ */
+.sidebar-backdrop{display:none}
+@media(max-width:980px){
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .info-grid{grid-template-columns:1fr}
+  .baseurl{display:none}
+}
+@media(max-width:768px){
+  .main{padding:22px 18px 100px}
+  .search-wrap{max-width:none}
+  .menu-btn{display:grid}
+  .sidebar{
+    position:fixed;top:60px;left:0;z-index:40;width:300px;
+    transform:translateX(-105%);transition:transform .28s cubic-bezier(.16,1,.3,1);
+    background:var(--bg);box-shadow:var(--shadow);
+  }
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-backdrop{display:block;position:fixed;inset:60px 0 0;background:rgba(0,0,0,.5);z-index:35;opacity:0;pointer-events:none;transition:opacity .25s}
+  .sidebar-backdrop.show{opacity:1;pointer-events:auto}
+  .hero h1{font-size:27px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="菜单">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="brand">
+    <div class="brand-mark">A</div>
+    <b>AgentPlat API</b>
+    <span class="ver">v1</span>
+  </div>
+  <div class="search-wrap">
+    <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input class="search" id="search" placeholder="搜索端点、路径、关键词…" autocomplete="off" />
+    <span class="search-kbd">/</span>
+  </div>
+  <div class="topbar-right">
+    <div class="baseurl"><b>POST</b> http://localhost:3000<b>/api/v1</b></div>
+    <button class="icon-btn" id="themeBtn" aria-label="切换主题" title="切换主题">
+      <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"></svg>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="sidebar-backdrop" id="backdrop"></div>
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+/* ============ API Data ============ */
+const MODULES = [
+  { id:'smart', name:'Smart Foundation', nameZh:'智能基础', count:14,
+    desc:'Agent 与 Chat 对话智能体核心', res:['Agent','Chat'],
+    icon:'<path d="M12 2a4 4 0 0 1 4 4v1h1a4 4 0 0 1 4 4 4 4 0 0 1-4 4h-1v1a4 4 0 0 1-8 0v-1H7a4 4 0 0 1-4-4 4 4 0 0 1 4-4h1V6a4 4 0 0 1 4-4z"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/>' },
+  { id:'ext', name:'Extension Capabilities', nameZh:'扩展能力', count:12,
+    desc:'Skill 技能与 MCP Server 外部工具', res:['Skill','MCP'],
+    icon:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>' },
+  { id:'wf', name:'Workflow Engine', nameZh:'工作流引擎', count:17,
+    desc:'PresetNode → Flow → Task 三层流水线', res:['PresetNode','Flow','Task'],
+    icon:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M17.5 10v4M14 17.5h-4"/>' },
+  { id:'sys', name:'System Admin', nameZh:'系统管理', count:12,
+    desc:'User / Role / Permission 的 RBAC 体系', res:['User','Role','Permission'],
+    icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
+  { id:'auth', name:'Auth & Profile', nameZh:'认证与个人', count:6,
+    desc:'登录注册与会话资料管理', res:['Auth','Profile'],
+    icon:'<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>' },
+];
+
+/* helper to build standard pagination query */
+const pg = (extra=[]) => [
+  {n:'page',ty:'integer',req:false,d:'页码 (默认 1)'},
+  {n:'pageSize',ty:'integer',req:false,d:'每页数量 (默认 20, 最大 100)'},
+  {n:'keyword',ty:'string',req:false,d:'关键词搜索'},
+  ...extra
+];
+
+const EP = [
+  /* ===== Smart Foundation: Agent ===== */
+  {m:'GET',p:'/agents',mod:'smart',res:'Agent',t:'获取 Agent 列表',d:'分页查询 Agent,支持按状态、类型、可见性过滤。',
+    q:pg([{n:'status',ty:'string',req:false,d:'published · draft · deprecated · archived'},{n:'type',ty:'string',req:false,d:'conversational · service · hybrid'},{n:'visibility',ty:'string',req:false,d:'me · org · public'}]),
+    r:{code:200,data:{items:[{id:'agent-abc123',name:'Data Analysis Assistant',status:'published',type:'hybrid',models:[{model:'claude-sonnet-4-6',priority:10,enabled:true}],skills:['web_search','data_analysis'],visibility:'org',version:'1.0.0'}],total:3,page:1,pageSize:20},message:'success'},
+    c:'curl -X GET "http://localhost:3000/api/v1/agents?status=published&page=1" \\\n  -H "Authorization: Bearer <token>"'},
+
+  {m:'GET',p:'/agents/:id',mod:'smart',res:'Agent',t:'获取 Agent 详情',d:'按 ID 获取单个 Agent 完整配置。',
+    pp:[{n:'id',ty:'string',req:true,d:'Agent ID'}],
+    r:{code:200,data:{id:'agent-abc123',name:'Data Analysis Assistant',status:'published',type:'hybrid',systemPrompt:'You are a professional data analysis expert...',persona:{role:'Data Analysis Expert',tone:'Professional',welcomeMessage:'Hello!',constraints:['Answer truthfully.']},models:[{model:'claude-sonnet-4-6',priority:10,maxTokens:8192,temperature:0.5,enabled:true}],skills:['web_search','data_analysis'],mcpServers:['filesystem-mcp'],flows:['flow-sales-report'],visibility:'org',version:'1.0.0'},message:'success'},
+    e:[{code:'AGENT_NOT_FOUND',http:404,msg:'Agent 不存在'}]},
+
+  {m:'POST',p:'/agents',mod:'smart',res:'Agent',t:'创建 Agent',d:'创建新 Agent,id 由服务端生成。',
+    b:{name:'New Agent',status:'draft',type:'conversational',systemPrompt:'You are a helpful assistant.',persona:{role:'Assistant',tone:'Friendly',welcomeMessage:'How can I help?',constraints:[]},models:[{model:'claude-sonnet-4-6',priority:10,maxTokens:4096,temperature:0.7,enabled:true}],skills:[],mcpServers:[],flows:[],visibility:'me',version:'0.1.0'},
+    r:{code:201,data:{id:'agent-xyz789',name:'New Agent',status:'draft',type:'conversational',visibility:'me',version:'0.1.0'},message:'Agent created successfully'},
+    note:'请求体 <b>不要包含 id</b>,由服务端自动生成。'},
+
+  {m:'PUT',p:'/agents/:id',mod:'smart',res:'Agent',t:'更新 Agent',d:'全量更新 Agent,需传完整对象 (含 id)。',
+    pp:[{n:'id',ty:'string',req:true,d:'Agent ID'}],
+    b:{id:'agent-abc123',name:'Data Analysis Assistant v2',status:'published',type:'hybrid',skills:['web_search','data_analysis'],visibility:'org',version:'1.1.0'},
+    r:{code:200,data:{id:'agent-abc123',name:'Data Analysis Assistant v2',status:'published',version:'1.1.0'},message:'Agent updated successfully'}},
+
+  {m:'DELETE',p:'/agents/:id',mod:'smart',res:'Agent',t:'删除 Agent',d:'按 ID 删除 Agent。',
+    pp:[{n:'id',ty:'string',req:true,d:'Agent ID'}],
+    r:{code:200,data:null,message:'Agent deleted successfully'}},
+
+  {m:'PATCH',p:'/agents/:id/skills',mod:'smart',res:'Agent',t:'更新 Agent 技能绑定',d:'局部更新 Agent 的 skills 绑定数组。',
+    pp:[{n:'id',ty:'string',req:true,d:'Agent ID'}],
+    b:{skills:['web_search','code_execute','data_analysis']},
+    r:{code:200,data:{id:'agent-abc123',skills:['web_search','code_execute','data_analysis']},message:'Agent skills updated'},
+    note:'<b>设计提示:</b> 当前仅有 skills 的专属 PATCH,缺少 mcp-servers / flows 同类端点,建议统一。'},
+
+  /* ===== Smart Foundation: Chat ===== */
+  {m:'GET',p:'/chats',mod:'smart',res:'Chat',t:'获取对话列表',d:'分页查询当前用户的对话列表。',
+    q:pg([{n:'agentId',ty:'string',req:false,d:'按关联 Agent 过滤'}]),
+    r:{code:200,data:{items:[{id:'chat-abc123',agentId:'agent-abc123',title:'Q1 Sales Data Analysis',updatedAt:'2026-06-05 10:30',messages:[]}],total:5,page:1,pageSize:20},message:'success'},
+    note:'列表响应中 messages 通常为空,需调用 <b>GET /chats/:id</b> 获取完整历史。'},
+
+  {m:'GET',p:'/chats/:id',mod:'smart',res:'Chat',t:'获取对话详情 (含完整消息)',d:'按 ID 获取对话及其完整消息历史。',
+    pp:[{n:'id',ty:'string',req:true,d:'Chat ID'}],
+    r:{code:200,data:{id:'chat-abc123',agentId:'agent-abc123',title:'Q1 Sales Data Analysis',updatedAt:'2026-06-05 10:30',messages:[{id:'msg-001',sender:'user',text:'Help me analyze the Q1 sales data.',timestamp:'10:00',toolCalls:null,taskCard:null},{id:'msg-002',sender:'agent',text:'I will dispatch tools to assist.',timestamp:'10:01',toolCalls:[{id:'tc-001',name:'data_analysis',args:'{"filepath":"/workspace/sales.csv"}',status:'success',result:'{"rows_processed":1250}',duration:1.8}],taskCard:{taskId:'task-abc123',title:'Analyze Q1 Sales',status:'running',progress:45}}]},message:'success'}},
+
+  {m:'POST',p:'/chats',mod:'smart',res:'Chat',t:'创建对话',d:'与指定 Agent 开启新对话,首条消息由 persona.welcomeMessage 自动生成。',
+    b:{agentId:'agent-abc123'},
+    r:{code:201,data:{id:'chat-xyz789',agentId:'agent-abc123',title:'Data Analysis Assistant Chat',updatedAt:'Just now',messages:[{id:'welcome-001',sender:'agent',text:'Hello! I am your data analysis assistant.',timestamp:'10:30'}]},message:'Chat created successfully'}},
+
+  {m:'DELETE',p:'/chats/:id',mod:'smart',res:'Chat',t:'删除对话',d:'按 ID 删除对话。',
+    pp:[{n:'id',ty:'string',req:true,d:'Chat ID'}],
+    r:{code:200,data:null,message:'Chat deleted successfully'}},
+
+  {m:'POST',p:'/chats/:id/messages',mod:'smart',res:'Chat',t:'发送消息',d:'在对话中发送用户消息,Agent 处理后返回响应 (含 toolCalls / 卡片)。',
+    pp:[{n:'id',ty:'string',req:true,d:'Chat ID'}],
+    b:{text:'Help me analyze the Q1 sales data including trends and anomalies.'},
+    r:{code:200,data:{userMessage:{id:'u-001',sender:'user',text:'Help me analyze the Q1 sales data.',timestamp:'10:30'},agentMessage:{id:'a-001',sender:'agent',text:'I need to dispatch tools to assist.',timestamp:'10:31',toolCalls:[{id:'tc-001',name:'data_analysis',args:'{"filepath":"sales.csv"}',status:'success',duration:1.8}],suggestionCard:{title:'Q1 Sales Data Analysis',stepsCount:5,eta:'~10 minutes'}}},message:'success'}},
+
+  {m:'POST',p:'/chats/:chatId/messages/:messageId/convert-to-task',mod:'smart',res:'Chat',t:'消息转任务',d:'将对话中的消息转换为后台 Task。',
+    pp:[{n:'chatId',ty:'string',req:true,d:'Chat ID'},{n:'messageId',ty:'string',req:true,d:'Message ID'}],
+    b:{title:'Analyze Q1 Sales Data',priority:'high'},
+    r:{code:201,data:{id:'task-abc123',title:'Analyze Q1 Sales Data',status:'running',priority:'high',agentId:'agent-abc123',progress:15,sourceChatId:'chat-abc123',subtasks:[{id:'sub-c1',title:'Read conversation context',status:'completed',progress:100},{id:'sub-c2',title:'Execute delegated instructions',status:'running',progress:15}]},message:'Task created from message'},
+    note:'title 与 priority 均可省略,默认从消息文本派生、priority 默认 <b>high</b>。'},
+
+  {m:'POST',p:'/chats/:id/suggest-task',mod:'smart',res:'Chat',t:'触发任务建议',d:'让 Agent 基于当前对话上下文生成任务建议卡片。',
+    pp:[{n:'id',ty:'string',req:true,d:'Chat ID'}],
+    r:{code:200,data:{id:'sys-suggest-001',sender:'agent',text:'I recommend creating a background task:',timestamp:'10:35',suggestionCard:{title:'Multi-source Data Cleaning and Clustering',stepsCount:5,eta:'~15 minutes'}},message:'success'}},
+
+  {m:'POST',p:'/chats/:chatId/messages/:messageId/delegate',mod:'smart',res:'Chat',t:'委派后台执行',d:'将消息执行委派到后台,创建关联 Task 并在原消息附加 delegationTip。',
+    pp:[{n:'chatId',ty:'string',req:true,d:'Chat ID'},{n:'messageId',ty:'string',req:true,d:'Message ID'}],
+    r:{code:200,data:{taskId:'task-abc123',progress:15,message:'Execution delegated to background'},message:'success'},
+    note:'内部基于 <b>convert-to-task</b> 实现,语义边界可在后续收敛。'},
+
+  /* ===== Extension: Skill ===== */
+  {m:'GET',p:'/skills',mod:'ext',res:'Skill',t:'获取 Skill 列表',d:'分页查询技能 (工具函数)。',
+    q:pg([{n:'category',ty:'string',req:false,d:'Built-in · Custom'},{n:'sortBy',ty:'string',req:false,d:'默认 name'}]),
+    r:{code:200,data:{items:[{id:'web_search',name:'web_search',type:'Function',category:'Built-in',version:'1.0.0',tags:['search']}],total:3,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/skills/:id',mod:'ext',res:'Skill',t:'获取 Skill 详情',d:'按 ID 获取单个技能配置。',
+    pp:[{n:'id',ty:'string',req:true,d:'Skill ID'}],
+    r:{code:200,data:{id:'data_analysis',name:'data_analysis',type:'Function',category:'Custom',version:'1.2.0',schema:'{"filepath":{"type":"string","required":true}}',testParams:'{"filepath":"/workspace/sales.csv"}',mockOutput:'{"status":"success","rows_processed":5420}'},message:'success'},
+    e:[{code:'SKILL_NOT_FOUND',http:404,msg:'Skill 不存在'}]},
+
+  {m:'POST',p:'/skills',mod:'ext',res:'Skill',t:'创建 Skill',d:'创建自定义技能,id 由服务端生成。',
+    b:{name:'pdf_generator',description:'Generate PDF documents',type:'Function',category:'Custom',version:'1.0.0',tags:['pdf'],schema:'{"template":{"type":"string","required":true}}',testParams:'{"template":"standard_report"}',mockOutput:'{"status":"success","file_path":"/workspace/output.pdf"}'},
+    r:{code:201,data:{id:'skill-abc123',name:'pdf_generator',type:'Function',category:'Custom',version:'1.0.0'},message:'Skill created successfully'}},
+
+  {m:'PUT',p:'/skills/:id',mod:'ext',res:'Skill',t:'更新 Skill',d:'全量更新技能配置。',
+    pp:[{n:'id',ty:'string',req:true,d:'Skill ID'}],
+    b:{id:'skill-abc123',name:'pdf_generator',version:'1.1.0',schema:'{"template":{"type":"string"}}'},
+    r:{code:200,data:{id:'skill-abc123',name:'pdf_generator',version:'1.1.0'},message:'Skill updated successfully'}},
+
+  {m:'DELETE',p:'/skills/:id',mod:'ext',res:'Skill',t:'删除 Skill',d:'按 ID 删除技能。',
+    pp:[{n:'id',ty:'string',req:true,d:'Skill ID'}],
+    r:{code:200,data:null,message:'Skill deleted successfully'}},
+
+  /* ===== Extension: MCP Server ===== */
+  {m:'GET',p:'/mcp-servers',mod:'ext',res:'MCP',t:'获取 MCP Server 列表',d:'分页查询 MCP 服务器连接。',
+    q:pg([{n:'status',ty:'string',req:false,d:'connected · connecting · disconnected'},{n:'connectionType',ty:'string',req:false,d:'STDIO · SSE · Streamable HTTP'}]),
+    r:{code:200,data:{items:[{id:'filesystem-mcp',name:'filesystem-mcp',status:'connected',connectionType:'STDIO',toolsCount:3,lastConnected:'5 minutes ago'}],total:2,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/mcp-servers/:id',mod:'ext',res:'MCP',t:'获取 MCP Server 详情',d:'按 ID 获取 MCP 服务器,含 tools / config / logs。',
+    pp:[{n:'id',ty:'string',req:true,d:'MCP Server ID'}],
+    r:{code:200,data:{id:'filesystem-mcp',name:'filesystem-mcp',status:'connected',connectionType:'STDIO',toolsCount:3,tools:[{name:'read_file',description:'Read file contents',schema:'{"path":{"type":"string"}}'}],config:{command:'npx',args:['-y','@modelcontextprotocol/server-filesystem','/workspace'],timeout:30,reconnect:true},logs:[{time:'10:30:00',fromStatus:'disconnected',toStatus:'connecting',message:'Initiating stdio connection...'}]},message:'success'},
+    e:[{code:'MCP_NOT_FOUND',http:404,msg:'MCP Server 不存在'}]},
+
+  {m:'POST',p:'/mcp-servers',mod:'ext',res:'MCP',t:'创建 MCP Server',d:'创建新的 MCP 服务器连接配置。',
+    b:{name:'database-mcp',description:'Database query MCP Server',connectionType:'SSE',config:{url:'http://localhost:8080/mcp',headers:[{key:'Authorization',value:'Bearer token'}],timeout:15,reconnect:false}},
+    r:{code:201,data:{id:'mcp-abc123',name:'database-mcp',status:'disconnected',connectionType:'SSE',toolsCount:0},message:'MCP Server created successfully'}},
+
+  {m:'PUT',p:'/mcp-servers/:id',mod:'ext',res:'MCP',t:'更新 MCP Server',d:'全量更新 MCP 服务器配置。',
+    pp:[{n:'id',ty:'string',req:true,d:'MCP Server ID'}],
+    r:{code:200,data:{id:'mcp-abc123',name:'database-mcp',status:'disconnected'},message:'MCP Server updated successfully'}},
+
+  {m:'DELETE',p:'/mcp-servers/:id',mod:'ext',res:'MCP',t:'删除 MCP Server',d:'按 ID 删除 MCP 服务器。',
+    pp:[{n:'id',ty:'string',req:true,d:'MCP Server ID'}],
+    r:{code:200,data:null,message:'MCP Server deleted successfully'}},
+
+  {m:'POST',p:'/mcp-servers/:id/toggle-connection',mod:'ext',res:'MCP',t:'切换连接状态',d:'切换 MCP 服务器连接 (connected ↔ disconnected)。',
+    pp:[{n:'id',ty:'string',req:true,d:'MCP Server ID'}],
+    r:{code:200,data:{id:'filesystem-mcp',status:'connected',toolsCount:3,lastConnected:'Just now',logs:[{time:'10:35:01',fromStatus:'connecting',toStatus:'connected',message:'Socket upgraded. 3 tools synchronized.'}]},message:'MCP Server connected successfully'},
+    e:[{code:'MCP_CONNECT_ERROR',http:500,msg:'MCP Server 连接失败'}],
+    note:'<b>实现状态:</b> 类型定义仅含 connected / connecting / disconnected 三态,无 disconnecting 中间态。'},
+
+  {m:'POST',p:'/mcp-servers/:id/discover',mod:'ext',res:'MCP',t:'触发工具发现',d:'对已连接的 MCP 服务器触发 tools / schema 发现。',
+    pp:[{n:'id',ty:'string',req:true,d:'MCP Server ID'}],
+    r:{code:200,data:{id:'filesystem-mcp',toolsCount:3,resourcesCount:0,promptsCount:0,tools:[{name:'read_file',schema:'{"path":{"type":"string"}}'},{name:'write_file',schema:'{"path":{"type":"string"},"content":{"type":"string"}}'}]},message:'Discovery initiated'}},
+
+  /* ===== Workflow: PresetNode ===== */
+  {m:'GET',p:'/preset-nodes',mod:'wf',res:'PresetNode',t:'获取预设节点列表',d:'分页查询可复用任务节点。',
+    q:pg([{n:'agentId',ty:'string',req:false,d:'按绑定 Agent 过滤'}]),
+    r:{code:200,data:{items:[{id:'node-data-clean',name:'Data Cleaning Node',agentId:'data-assistant',preFilledInput:'{"clean_rules":"remove_nulls"}'}],total:4,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/preset-nodes/:id',mod:'wf',res:'PresetNode',t:'获取预设节点详情',d:'按 ID 获取单个预设节点。',
+    pp:[{n:'id',ty:'string',req:true,d:'PresetNode ID'}],
+    r:{code:200,data:{id:'node-data-clean',name:'Data Cleaning Node',description:'Filter missing values and normalize sales columns.',agentId:'data-assistant',preFilledInput:'{"clean_rules":"remove_nulls","target_columns":["amount","region"]}'},message:'success'}},
+
+  {m:'POST',p:'/preset-nodes',mod:'wf',res:'PresetNode',t:'创建预设节点',d:'创建可复用任务节点,绑定 Agent。',
+    b:{name:'New Processing Node',description:'Description of this workflow step.',agentId:'agent-abc123',preFilledInput:'{"param1":"value1"}'},
+    r:{code:201,data:{id:'node-abc123',name:'New Processing Node',agentId:'agent-abc123',preFilledInput:'{"param1":"value1"}'},message:'Preset node created successfully'}},
+
+  {m:'PUT',p:'/preset-nodes/:id',mod:'wf',res:'PresetNode',t:'更新预设节点',d:'全量更新预设节点。',
+    pp:[{n:'id',ty:'string',req:true,d:'PresetNode ID'}],
+    b:{id:'node-abc123',name:'Updated Node',agentId:'agent-abc123',preFilledInput:'{"updated":true}'},
+    r:{code:200,data:{id:'node-abc123',name:'Updated Node',agentId:'agent-abc123'},message:'Preset node updated successfully'}},
+
+  {m:'DELETE',p:'/preset-nodes/:id',mod:'wf',res:'PresetNode',t:'删除预设节点',d:'按 ID 删除预设节点。',
+    pp:[{n:'id',ty:'string',req:true,d:'PresetNode ID'}],
+    r:{code:200,data:null,message:'Preset node deleted successfully'}},
+
+  /* ===== Workflow: Flow ===== */
+  {m:'GET',p:'/flows',mod:'wf',res:'Flow',t:'获取 Flow 列表',d:'分页查询工作流定义。',
+    q:pg(),
+    r:{code:200,data:{items:[{id:'flow-sales-report',name:'Automated Sales Weekly Report',nodes:[{nodeId:'node-data-clean'},{nodeId:'node-pdf-compile'}],createdAt:'2026-06-05',lastTriggeredAt:'2026-06-05 10:30'}],total:1,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/flows/:id',mod:'wf',res:'Flow',t:'获取 Flow 详情',d:'按 ID 获取工作流定义,含有序节点序列。',
+    pp:[{n:'id',ty:'string',req:true,d:'Flow ID'}],
+    r:{code:200,data:{id:'flow-sales-report',name:'Automated Sales Weekly Report',description:'Chain data cleaning, search, render and PDF archival.',nodes:[{nodeId:'node-data-clean',overrideInput:null},{nodeId:'node-market-search',overrideInput:null},{nodeId:'node-pdf-compile',overrideInput:null}],createdAt:'2026-06-05',lastTriggeredAt:'2026-06-05 10:30'},message:'success'},
+    e:[{code:'FLOW_NOT_FOUND',http:404,msg:'Flow 不存在'}]},
+
+  {m:'POST',p:'/flows',mod:'wf',res:'Flow',t:'创建 Flow',d:'创建工作流定义,id 与 createdAt 由服务端生成。',
+    b:{name:'New Workflow',description:'Workflow description',nodes:[{nodeId:'node-data-clean'},{nodeId:'node-code-render',overrideInput:'{"format":"png"}'}],lastTriggeredAt:null},
+    r:{code:201,data:{id:'flow-abc123',name:'New Workflow',nodes:[{nodeId:'node-data-clean'},{nodeId:'node-code-render',overrideInput:'{"format":"png"}'}],createdAt:'2026-06-12',lastTriggeredAt:null},message:'Flow created successfully'}},
+
+  {m:'PUT',p:'/flows/:id',mod:'wf',res:'Flow',t:'更新 Flow',d:'全量更新工作流定义。',
+    pp:[{n:'id',ty:'string',req:true,d:'Flow ID'}],
+    r:{code:200,data:{id:'flow-abc123',name:'Updated Flow'},message:'Flow updated successfully'}},
+
+  {m:'DELETE',p:'/flows/:id',mod:'wf',res:'Flow',t:'删除 Flow',d:'按 ID 删除工作流。',
+    pp:[{n:'id',ty:'string',req:true,d:'Flow ID'}],
+    r:{code:200,data:null,message:'Flow deleted successfully'}},
+
+  {m:'POST',p:'/flows/:id/trigger',mod:'wf',res:'Flow',t:'触发 Flow 执行',d:'触发工作流执行,创建 Task 并以节点序列作为 subtasks。',
+    pp:[{n:'id',ty:'string',req:true,d:'Flow ID'}],
+    r:{code:201,data:{id:'task-flow-run-abc123',title:'Pipeline: Automated Sales Weekly Report',status:'running',priority:'high',agentId:'data-assistant',progress:5,flowId:'flow-sales-report',currentStepIndex:0,subtasks:[{id:'fs-0',title:'Data Cleaning Node',status:'running',progress:10},{id:'fs-1',title:'Web Market Search Node',status:'pending',progress:0},{id:'fs-2',title:'PDF Final Packaging Node',status:'pending',progress:0}],timeline:[{id:'t-init',time:'10:00:00',status:'Started',message:"Flow triggered. Running with 3 node operators."}]},message:'Flow triggered successfully'},
+    e:[{code:'FLOW_TRIGGER_ERROR',http:500,msg:'Flow 触发执行失败'}]},
+
+  /* ===== Workflow: Task ===== */
+  {m:'GET',p:'/tasks',mod:'wf',res:'Task',t:'获取 Task 列表',d:'分页查询任务执行实例。',
+    q:pg([{n:'status',ty:'string',req:false,d:'created · planned · running · review · paused · completed · failed · cancelled'},{n:'priority',ty:'string',req:false,d:'low · medium · high · urgent'},{n:'agentId',ty:'string',req:false,d:'按分配 Agent 过滤'},{n:'flowId',ty:'string',req:false,d:'按来源 Flow 过滤'}]),
+    r:{code:200,data:{items:[{id:'task-1',title:'Analyze Q1 Sales Data',status:'running',priority:'high',agentId:'data-assistant',progress:45,subtasks:[{id:'sub-1',title:'Download raw data',status:'completed',progress:100},{id:'sub-2',title:'Data cleaning',status:'running',progress:30}],sourceChatId:'chat-1',flowId:null}],total:5,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/tasks/:id',mod:'wf',res:'Task',t:'获取 Task 详情',d:'按 ID 获取任务,含完整 subtasks 与 timeline。',
+    pp:[{n:'id',ty:'string',req:true,d:'Task ID'}],
+    r:{code:200,data:{id:'task-1',title:'Analyze Q1 Sales Data',status:'running',priority:'high',agentId:'data-assistant',progress:45,maxRetries:3,timeout:3600,subtasks:[{id:'sub-1',title:'Download Q1 raw data',status:'completed',progress:100},{id:'sub-2',title:'Data cleaning',status:'completed',progress:100},{id:'sub-3',title:'Trend analysis',status:'running',progress:30},{id:'sub-4',title:'Generate SVG charts',status:'pending',progress:0},{id:'sub-5',title:'Output PDF report',status:'pending',progress:0}],timeline:[{id:'t-1',time:'10:00:12',status:'Created',message:'Task created from chat message.'},{id:'t-2',time:'10:01:05',status:'Planned',message:'5-step decomposition plan generated.'},{id:'t-3',time:'10:02:00',status:'Running',message:'Execution started.'}],sourceChatId:'chat-1',flowId:null,currentStepIndex:null},message:'success'},
+    e:[{code:'TASK_NOT_FOUND',http:404,msg:'Task 不存在'}]},
+
+  {m:'POST',p:'/tasks',mod:'wf',res:'Task',t:'创建 Task',d:'手动创建任务,id / createdAt / progress / timeline 由服务端生成。',
+    b:{title:'New Task',description:'Task description',status:'created',priority:'medium',agentId:'agent-abc123',subtasks:[],tags:['tag1'],input:'{"param":"value"}',maxRetries:3,timeout:3600,sourceChatId:null,flowId:null},
+    r:{code:201,data:{id:'task-abc123',title:'New Task',status:'created',priority:'medium',agentId:'agent-abc123',progress:0,timeline:[{id:'t-init',time:'10:00:00',status:'Created',message:'User created the task.'}]},message:'Task created successfully'}},
+
+  {m:'PUT',p:'/tasks/:id',mod:'wf',res:'Task',t:'更新 Task',d:'全量更新任务。',
+    pp:[{n:'id',ty:'string',req:true,d:'Task ID'}],
+    r:{code:200,data:{id:'task-abc123',title:'Updated Task'},message:'Task updated successfully'}},
+
+  {m:'DELETE',p:'/tasks/:id',mod:'wf',res:'Task',t:'删除 Task',d:'按 ID 删除任务。',
+    pp:[{n:'id',ty:'string',req:true,d:'Task ID'}],
+    r:{code:200,data:null,message:'Task deleted successfully'}},
+
+  {m:'PATCH',p:'/tasks/:id/status',mod:'wf',res:'Task',t:'推进 Task 状态',d:'转换任务到新状态,自动更新 timeline 与 subtask 进度。',
+    pp:[{n:'id',ty:'string',req:true,d:'Task ID'}],
+    b:{status:'running'},
+    r:{code:200,data:{id:'task-abc123',status:'planned',subtasks:[{id:'sub-p1',title:'Read and validate SourceSchema',status:'completed',progress:100},{id:'sub-p2',title:'Plan algorithm pipeline',status:'pending',progress:0}],timeline:[{id:'t-planned',time:'10:05:00',status:'Planned',message:'Step decomposition tree generated.'}],updatedAt:'2026-06-12 10:05'},message:'Task status advanced'},
+    diagram:`<span class="st">created</span> → <span class="st">planned</span> → <span class="st">running</span> → <span class="st">review</span> → <span class="st">completed</span>
+                       │                    │
+                       │                    ├─→ <span class="st">paused</span> ⇄ running
+                       │                    ├─→ <span class="st">failed</span>
+                       └────────────────────┴─→ <span class="st">cancelled</span>
+          (建议补全: review → failed / review → cancelled)`,
+    e:[{code:'TASK_STATUS_INVALID',http:400,msg:"非法状态转换,如 'completed' → 'running'"}]},
+
+  /* ===== System: User ===== */
+  {m:'GET',p:'/users',mod:'sys',res:'User',t:'获取用户列表',d:'分页查询系统用户。',
+    q:pg([{n:'status',ty:'string',req:false,d:'active · inactive · locked'},{n:'roleId',ty:'string',req:false,d:'按分配角色过滤'}]),
+    r:{code:200,data:{items:[{id:'user-admin',username:'admin',email:'admin@agentplat.dev',password:null,department:'Engineering',status:'active',roleIds:['role-admin'],createdAt:'2026-01-01',lastLoginAt:'2026-06-11 09:30'}],total:4,page:1,pageSize:20},message:'success'},
+    note:'<b>安全:</b> password 字段始终返回 null,绝不回传客户端。'},
+
+  {m:'GET',p:'/users/:id',mod:'sys',res:'User',t:'获取用户详情',d:'按 ID 获取单个用户。',
+    pp:[{n:'id',ty:'string',req:true,d:'User ID'}],
+    r:{code:200,data:{id:'user-admin',username:'admin',email:'admin@agentplat.dev',password:null,department:'Engineering',status:'active',roleIds:['role-admin'],createdAt:'2026-01-01'},message:'success'}},
+
+  {m:'POST',p:'/users',mod:'sys',res:'User',t:'创建用户',d:'创建系统用户,id 与 createdAt 由服务端生成。',
+    b:{username:'newuser',email:'newuser@agentplat.dev',password:'securePassword123',phone:'138-0000-0099',department:'Marketing',status:'active',roleIds:['role-viewer'],lastLoginAt:null},
+    r:{code:201,data:{id:'user-abc123',username:'newuser',email:'newuser@agentplat.dev',password:null,department:'Marketing',status:'active',roleIds:['role-viewer'],createdAt:'2026-06-12'},message:'User created successfully'},
+    e:[{code:'USER_EXISTS',http:409,msg:'用户名或邮箱已存在'}]},
+
+  {m:'PUT',p:'/users/:id',mod:'sys',res:'User',t:'更新用户',d:'全量更新用户 (状态 / 角色 / 资料)。',
+    pp:[{n:'id',ty:'string',req:true,d:'User ID'}],
+    b:{id:'user-abc123',username:'newuser',email:'newuser@agentplat.dev',department:'Data Team',status:'active',roleIds:['role-editor']},
+    r:{code:200,data:{id:'user-abc123',username:'newuser',department:'Data Team',roleIds:['role-editor']},message:'User updated successfully'},
+    note:'密码修改请走 <b>POST /auth/change-password</b>;此处 password 字段语义建议收敛。'},
+
+  {m:'DELETE',p:'/users/:id',mod:'sys',res:'User',t:'删除用户',d:'按 ID 删除用户。',
+    pp:[{n:'id',ty:'string',req:true,d:'User ID'}],
+    r:{code:200,data:null,message:'User deleted successfully'}},
+
+  /* ===== System: Role ===== */
+  {m:'GET',p:'/roles',mod:'sys',res:'Role',t:'获取角色列表',d:'分页查询系统角色。',
+    q:pg(),
+    r:{code:200,data:{items:[{id:'role-admin',name:'Super Admin',code:'admin',permissionIds:['agent:create','agent:read','task:advance'],isSystem:true,createdAt:'2026-01-01'},{id:'role-viewer',name:'Viewer',code:'viewer',permissionIds:['agent:read','task:read'],isSystem:false,createdAt:'2026-01-15'}],total:3,page:1,pageSize:20},message:'success'}},
+
+  {m:'GET',p:'/roles/:id',mod:'sys',res:'Role',t:'获取角色详情',d:'按 ID 获取单个角色。',
+    pp:[{n:'id',ty:'string',req:true,d:'Role ID'}],
+    r:{code:200,data:{id:'role-editor',name:'Editor',code:'editor',description:'Can create and edit resources',permissionIds:['agent:create','agent:read','agent:update','task:advance'],isSystem:true,createdAt:'2026-01-01'},message:'success'}},
+
+  {m:'POST',p:'/roles',mod:'sys',res:'Role',t:'创建角色',d:'创建自定义角色。',
+    b:{name:'Data Analyst',code:'analyst',description:'Can manage data tasks and reports',permissionIds:['agent:read','task:create','task:read','flow:trigger'],isSystem:false},
+    r:{code:201,data:{id:'role-abc123',name:'Data Analyst',code:'analyst',permissionIds:['agent:read','task:create'],isSystem:false,createdAt:'2026-06-12'},message:'Role created successfully'}},
+
+  {m:'PUT',p:'/roles/:id',mod:'sys',res:'Role',t:'更新角色',d:'全量更新角色及权限分配。',
+    pp:[{n:'id',ty:'string',req:true,d:'Role ID'}],
+    b:{id:'role-abc123',name:'Senior Data Analyst',code:'senior-analyst',permissionIds:['agent:read','task:advance'],isSystem:false},
+    r:{code:200,data:{id:'role-abc123',name:'Senior Data Analyst',code:'senior-analyst',permissionIds:['agent:read','task:advance']},message:'Role updated successfully'},
+    e:[{code:'ROLE_IS_SYSTEM',http:403,msg:'系统角色不可修改'}]},
+
+  {m:'DELETE',p:'/roles/:id',mod:'sys',res:'Role',t:'删除角色',d:'删除非系统角色。',
+    pp:[{n:'id',ty:'string',req:true,d:'Role ID'}],
+    r:{code:200,data:null,message:'Role deleted successfully'},
+    e:[{code:'ROLE_IS_SYSTEM',http:403,msg:'系统角色不可删除'}]},
+
+  /* ===== System: Permission ===== */
+  {m:'GET',p:'/permissions',mod:'sys',res:'Permission',t:'获取权限列表',d:'获取系统全部权限点 (不分页,数量固定)。',
+    r:{code:200,data:[{id:'agent:create',module:'Agent',action:'create',label:'Create Agent',description:'Create new AI agent',enabled:true},{id:'task:advance',module:'Task',action:'advance',label:'Advance Task Status',description:'Change task execution phase',enabled:true},{id:'flow:trigger',module:'Flow',action:'trigger',label:'Trigger Flow',description:'Manually execute workflow',enabled:true},{id:'system:role_manage',module:'System',action:'manage',label:'Role Management',description:'Manage system roles',enabled:true}],message:'success'}},
+
+  {m:'PATCH',p:'/permissions/:id',mod:'sys',res:'Permission',t:'更新权限',d:'更新单个权限的启用状态等属性。',
+    pp:[{n:'id',ty:'string',req:true,d:'Permission ID,如 agent:create'}],
+    b:{enabled:false},
+    r:{code:200,data:{id:'agent:delete',module:'Agent',action:'delete',label:'Delete Agent',description:'Delete agent instance',enabled:false},message:'Permission updated successfully'},
+    note:'可更新字段: <b>enabled</b> · label · description'},
+
+  /* ===== Auth & Profile ===== */
+  {m:'POST',p:'/auth/login',mod:'auth',res:'Auth',t:'登录',d:'用户名密码登录,返回 session token。',
+    b:{username:'admin',password:'admin123'},
+    r:{code:200,data:{token:'mock-session-token-admin-1234567890',user:{id:'user-admin',username:'admin',email:'admin@agentplat.dev',password:null,department:'Engineering',status:'active',roleIds:['role-admin'],lastLoginAt:'2026-06-12 10:00'}},message:'Login successful'},
+    e:[{code:'AUTH_INVALID_CREDENTIALS',http:401,msg:'用户名或密码错误'}],
+    note:'用户状态为 inactive / locked 时登录失败。'},
+
+  {m:'POST',p:'/auth/register',mod:'auth',res:'Auth',t:'注册',d:'注册新用户并自动登录,返回 session token。',
+    b:{username:'newuser',email:'newuser@agentplat.dev',password:'securePassword123',roleIds:['role-viewer']},
+    r:{code:201,data:{token:'mock-session-token-user-1234567890',user:{id:'user-abc123',username:'newuser',email:'newuser@agentplat.dev',status:'active',roleIds:['role-viewer'],createdAt:'2026-06-12'}},message:'Registration successful'},
+    e:[{code:'AUTH_USER_EXISTS',http:409,msg:'用户名或邮箱已注册'}]},
+
+  {m:'POST',p:'/auth/logout',mod:'auth',res:'Auth',t:'登出',d:'结束当前会话。',
+    r:{code:200,data:null,message:'Logout successful'}},
+
+  {m:'GET',p:'/auth/profile',mod:'auth',res:'Profile',t:'获取当前用户资料',d:'获取当前登录用户的资料。',
+    r:{code:200,data:{id:'user-admin',username:'admin',email:'admin@agentplat.dev',password:null,department:'Engineering',bio:'System administrator',status:'active',roleIds:['role-admin'],createdAt:'2026-01-01'},message:'success'}},
+
+  {m:'PATCH',p:'/auth/profile',mod:'auth',res:'Profile',t:'更新资料',d:'更新当前用户资料 (局部更新)。',
+    b:{email:'newemail@agentplat.dev',phone:'138-0000-9999',department:'Data Team',bio:'Updated bio.'},
+    r:{code:200,data:{id:'user-admin',username:'admin',email:'newemail@agentplat.dev',phone:'138-0000-9999',department:'Data Team',bio:'Updated bio.',roleIds:['role-admin']},message:'Profile updated successfully'},
+    note:'可更新: email · phone · department · bio。username 不可改,密码请用 change-password。'},
+
+  {m:'POST',p:'/auth/change-password',mod:'auth',res:'Profile',t:'修改密码',d:'校验旧密码后修改当前用户密码。',
+    b:{oldPassword:'admin123',newPassword:'newSecurePassword456'},
+    r:{code:200,data:null,message:'Password changed successfully'},
+    e:[{code:'AUTH_INVALID_CREDENTIALS',http:401,msg:'旧密码错误'}]},
+];
+
+/* ============ Overview data ============ */
+const HTTP_CODES = [
+  ['200','成功'],['201','创建成功'],['204','删除成功 (无内容)'],
+  ['400','参数错误'],['401','未认证'],['403','无权限'],['404','资源不存在'],
+  ['409','冲突 (如名称重复)'],['500','服务器内部错误']
+];
+const ERR_CODES = [
+  ['AGENT_CREATE_400','400','Agent 创建参数错误'],['AGENT_NOT_FOUND','404','Agent 不存在'],
+  ['SKILL_CREATE_400','400','Skill 创建参数错误'],['SKILL_NOT_FOUND','404','Skill 不存在'],
+  ['MCP_CONNECT_ERROR','500','MCP 连接失败'],['MCP_NOT_FOUND','404','MCP 不存在'],
+  ['TASK_STATUS_INVALID','400','非法任务状态转换'],['TASK_NOT_FOUND','404','Task 不存在'],
+  ['FLOW_TRIGGER_ERROR','500','Flow 触发失败'],['FLOW_NOT_FOUND','404','Flow 不存在'],
+  ['USER_EXISTS','409','用户名/邮箱已存在'],['USER_NOT_FOUND','404','User 不存在'],
+  ['ROLE_IS_SYSTEM','403','系统角色不可操作'],
+  ['AUTH_INVALID_CREDENTIALS','401','凭证无效'],['AUTH_USER_EXISTS','409','用户名/邮箱已注册'],
+];
+const ENUMS = [
+  ['Agent.status','published · draft · deprecated · archived'],
+  ['Agent.type','conversational · service · hybrid'],
+  ['Agent.visibility','me · org · public'],
+  ['MCPServer.status','connected · connecting · disconnected'],
+  ['MCPServer.connectionType','STDIO · SSE · Streamable HTTP'],
+  ['Task.status','created · planned · running · review · paused · completed · failed · cancelled'],
+  ['Task.priority','low · medium · high · urgent'],
+  ['User.status','active · inactive · locked'],
+  ['Message.sender','user · agent · system'],
+  ['ToolCall.status','running · success · failed'],
+];
+
+/* ============ Render ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function hlJson(obj){
+  let j = JSON.stringify(obj, null, 2);
+  j = esc(j);
+  // keys (string followed by colon)
+  j = j.replace(/("(?:\\.|[^"\\])*")(\s*:)/g, '<span class="tok-k">$1</span>$2');
+  // string values (after colon)
+  j = j.replace(/(:\s*)("(?:\\.|[^"\\])*")/g, '$1<span class="tok-s">$2</span>');
+  // string items in arrays (after [ or ,) — skip ones already wrapped
+  j = j.replace(/([\[,]\s*)("(?:\\.|[^"\\])*")(?!\s*<)/g, '$1<span class="tok-s">$2</span>');
+  // numbers / booleans / null — anchored to value position (: or [ or ,) so digits inside strings are never touched
+  j = j.replace(/(:\s*|[\[,]\s*)(-?\d+\.?\d*(?:e[+-]?\d+)?|true|false|null)\b/gi, (m, p1, p2) => {
+    const cls = /^(true|false|null)$/i.test(p2) ? 'tok-b' : 'tok-n';
+    return `${p1}<span class="${cls}">${p2}</span>`;
+  });
+  return j;
+}
+function curlBlock(ep){
+  const code = esc(ep.c || `curl -X ${ep.m} "http://localhost:3000/api/v1${ep.p}" \\\n  -H "Authorization: Bearer <token>"`);
+  return `<div class="code-block"><div class="code-head"><span class="code-label">cURL · Bash</span><button class="copy-btn" data-copy="${encodeURIComponent(ep.c || '')}">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    Copy</button></div><pre>${code}</pre></div>`;
+}
+function jsonBlock(label, obj, status){
+  return `<div class="code-block"><div class="code-head"><span class="code-label">${label}</span>${status?`<span class="code-status">${status}</span>`:''}</div><pre>${hlJson(obj)}</pre></div>`;
+}
+function paramTable(rows){
+  return `<table class="param-table"><thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead><tbody>
+    ${rows.map(p=>`<tr><td class="p-name">${p.n}</td><td class="p-type">${p.ty}</td><td><span class="p-req ${p.req?'yes':'no'}">${p.req?'Yes':'No'}</span></td><td class="p-desc">${p.d}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+function errList(errs){
+  return `<div class="err-list">${errs.map(e=>`<div class="err-item"><span class="err-code">${e.code}</span><span class="err-http">${e.http}</span><span class="err-msg">${e.msg}</span></div>`).join('')}</div>`;
+}
+
+function renderSidebar(){
+  const sb = $('#sidebar');
+  let html = '';
+  MODULES.forEach(mod=>{
+    const eps = EP.filter(e=>e.mod===mod.id);
+    html += `<div class="nav-module" data-mod="${mod.id}">
+      <div class="nav-mod-head"><svg class="mod-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${mod.icon}</svg>
+      <span>${mod.nameZh}</span><span class="mod-count">${eps.length}</span>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div class="nav-resources">`;
+    let curRes = '';
+    eps.forEach((ep,i)=>{
+      const idx = EP.indexOf(ep);
+      if(ep.res!==curRes){ curRes=ep.res; html += `<div class="nav-res-label">${ep.res}</div>`; }
+      html += `<div class="nav-ep m-${ep.m}" data-idx="${idx}">
+        <span class="ep-method">${ep.m}</span><span class="ep-path">${ep.p}</span></div>`;
+    });
+    html += `</div></div>`;
+  });
+  sb.innerHTML = html;
+
+  sb.querySelectorAll('.nav-mod-head').forEach(h=>{
+    h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+  });
+  sb.querySelectorAll('.nav-ep').forEach(el=>{
+    el.addEventListener('click',()=>{
+      location.hash = '#ep-' + el.dataset.idx;
+      closeMobileNav();
+    });
+  });
+}
+
+function renderEndpoint(idx){
+  const ep = EP[idx];
+  const mod = MODULES.find(m=>m.id===ep.mod);
+  let html = `<div class="crumbs">${mod.nameZh}<span class="sep">/</span><span>${ep.res}</span><span class="sep">/</span>${ep.t}</div>`;
+  html += `<div class="ep-head"><span class="method-badge m-${ep.m}">${ep.m}</span>
+    <div><div class="ep-path-title">${ep.p}</div></div></div>`;
+  html += `<div class="ep-title-zh">${ep.t}</div>`;
+  html += `<p class="ep-desc">${ep.d}</p>`;
+
+  if(ep.pp){ html += `<section class="section"><div class="section-h"><span class="dot"></span>Path Parameters</div>${paramTable(ep.pp)}</section>`; }
+  if(ep.q){ html += `<section class="section"><div class="section-h"><span class="dot"></span>Query Parameters</div>${paramTable(ep.q)}</section>`; }
+  if(ep.b){ html += `<section class="section"><div class="section-h"><span class="dot"></span>Request Body</div>${jsonBlock('JSON', ep.b)}</section>`; }
+  if(ep.r){ html += `<section class="section"><div class="section-h"><span class="dot"></span>Response</div>${jsonBlock('JSON', ep.r, 'code '+ep.r.code)}</section>`; }
+  if(ep.diagram){ html += `<section class="section"><div class="section-h"><span class="dot"></span>状态转换图</div><div class="trans-diagram">${ep.diagram}</div></section>`; }
+  html += `<section class="section"><div class="section-h"><span class="dot"></span>cURL 示例</div>${curlBlock(ep)}</section>`;
+  if(ep.note){ html += `<div class="note">${ep.note}</div>`; }
+  if(ep.e){ html += `<section class="section"><div class="section-h"><span class="dot"></span>错误响应</div>${errList(ep.e)}</section>`; }
+
+  $('#main').innerHTML = html;
+  $('#main').scrollTo(0,0);
+  bindCopy();
+  document.querySelectorAll('.nav-ep').forEach(el=>el.classList.toggle('active', +el.dataset.idx===idx));
+}
+
+function renderOverview(){
+  const total = EP.length;
+  const resources = [...new Set(EP.map(e=>e.res))].length;
+  let html = `<div class="hero">
+    <h1>AgentPlat <span class="grad">API</span> 文档</h1>
+    <p>纯前端原型平台的完整 Mock API 规范 — ${MODULES.length} 大模块 · ${resources} 类资源 · ${total} 个端点。统一 <code style="font-family:'JetBrains Mono',monospace;background:var(--surface-3);padding:1px 6px;border-radius:4px;color:var(--accent-2)">/api/v1</code> 前缀,RESTful 风格,供未来后端实现参考。</p>
+  </div>`;
+
+  html += `<div class="stat-grid">
+    <div class="stat-card"><div class="stat-num">${MODULES.length}</div><div class="stat-label">业务模块</div><div class="stat-sub">modules</div></div>
+    <div class="stat-card"><div class="stat-num">${resources}</div><div class="stat-label">资源类型</div><div class="stat-sub">resources</div></div>
+    <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">API 端点</div><div class="stat-sub">endpoints</div></div>
+    <div class="stat-card"><div class="stat-num">${EP.filter(e=>e.m==='GET').length}/${EP.filter(e=>e.m==='POST').length}/${EP.filter(e=>e.m==='PUT').length}/${EP.filter(e=>e.m==='PATCH').length}/${EP.filter(e=>e.m==='DELETE').length}</div><div class="stat-label">方法分布</div><div class="stat-sub">GET/POST/PUT/PATCH/DEL</div></div>
+  </div>`;
+
+  html += `<section class="section"><div class="section-h"><span class="dot"></span>模块导览</div><div class="module-cards">`;
+  MODULES.forEach((m,i)=>{
+    html += `<div class="mod-card" data-go-mod="${m.id}">
+      <div class="mod-ico-lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${m.icon}</svg></div>
+      <h3>${m.nameZh}</h3><div class="mc-en">${m.name}</div>
+      <div class="mc-desc">${m.desc}</div>
+      <div class="mc-meta">${m.res.map(r=>`<span class="mc-tag">${r}</span>`).join('')}<span class="mc-tag" style="color:var(--accent-2)">${m.count} 端点</span></div>
+    </div>`;
+  });
+  html += `</div></section>`;
+
+  html += `<div class="info-grid">
+    <div class="info-card"><h3><span class="dot"></span>统一响应格式</h3>${jsonBlock('Success · {code,data,message}', {code:200,data:'<T>',message:'success'})}
+      <div style="margin-top:12px">${jsonBlock('Paginated', {code:200,data:{items:['<T>'],total:100,page:1,pageSize:20},message:'success'})}</div></div>
+    <div class="info-card"><h3><span class="dot"></span>枚举值参考</h3><div class="err-list">${ENUMS.map(e=>`<div class="err-item"><span class="err-code" style="color:var(--accent-2);background:color-mix(in srgb,var(--accent) 12%,transparent)">${e[0]}</span><span class="err-msg" style="font-family:'JetBrains Mono',monospace;font-size:11.5px">${e[1]}</span></div>`).join('')}</div></div>
+    <div class="info-card"><h3><span class="dot"></span>HTTP 状态码</h3><div class="err-list">${HTTP_CODES.map(c=>`<div class="err-item"><span class="err-http" style="color:#4ade80;font-weight:600">${c[0]}</span><span class="err-msg">${c[1]}</span></div>`).join('')}</div></div>
+    <div class="info-card"><h3><span class="dot"></span>错误码体系</h3><div class="err-list" style="max-height:280px;overflow-y:auto">${ERR_CODES.map(c=>`<div class="err-item"><span class="err-code">${c[0]}</span><span class="err-http">${c[1]}</span><span class="err-msg">${c[2]}</span></div>`).join('')}</div></div>
+  </div>`;
+
+  $('#main').innerHTML = html;
+  document.querySelectorAll('.nav-ep').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.mod-card').forEach(c=>{
+    c.addEventListener('click',()=>{
+      const firstEp = EP.findIndex(e=>e.mod===c.dataset.goMod);
+      if(firstEp>=0){ location.hash='#ep-'+firstEp; }
+    });
+  });
+}
+
+function bindCopy(){
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.onclick=()=>{
+      const txt = decodeURIComponent(btn.dataset.copy);
+      navigator.clipboard.writeText(txt).then(()=>{
+        btn.classList.add('copied');
+        btn.querySelector('svg').outerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
+        const lbl = btn.childNodes[btn.childNodes.length-1];
+        if(lbl && lbl.nodeType===3) lbl.textContent=' Copied';
+        setTimeout(()=>{
+          btn.classList.remove('copied');
+          btn.querySelector('svg').outerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+          if(lbl && lbl.nodeType===3) lbl.textContent=' Copy';
+        },1600);
+      });
+    };
+  });
+}
+
+/* ============ Search ============ */
+function applySearch(q){
+  q = q.trim().toLowerCase();
+  document.querySelectorAll('.nav-ep').forEach(el=>{
+    const idx=+el.dataset.idx, ep=EP[idx];
+    const hay = (ep.m+' '+ep.p+' '+ep.t+' '+ep.res+' '+ep.d).toLowerCase();
+    el.classList.toggle('hidden', q && !hay.includes(q));
+  });
+  // expand all modules when searching
+  document.querySelectorAll('.nav-module').forEach(m=>{
+    if(q) m.classList.remove('collapsed');
+  });
+}
+
+/* ============ Theme ============ */
+const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>';
+const MOON='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  $('#themeIcon').innerHTML = t==='dark'?MOON:SUN;
+  localStorage.setItem('apitheme', t);
+}
+function initTheme(){
+  const saved = localStorage.getItem('apitheme');
+  const sys = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  setTheme(saved || sys);
+}
+
+/* ============ Mobile nav ============ */
+function closeMobileNav(){ $('#sidebar').classList.remove('open'); $('#backdrop').classList.remove('show'); }
+
+/* ============ Router ============ */
+function route(){
+  const h = location.hash;
+  const m = h.match(/^#ep-(\d+)$/);
+  if(m && EP[+m[1]]){ renderEndpoint(+m[1]); }
+  else{ renderOverview(); }
+  window.scrollTo(0,0);
+}
+
+/* ============ Init ============ */
+renderSidebar();
+initTheme();
+route();
+$('#themeBtn').addEventListener('click',()=>{
+  const cur = document.documentElement.getAttribute('data-theme');
+  setTheme(cur==='dark'?'light':'dark');
+});
+$('#search').addEventListener('input', e=>applySearch(e.target.value));
+window.addEventListener('hashchange', route);
+$('#menuBtn').addEventListener('click',()=>{ $('#sidebar').classList.add('open'); $('#backdrop').classList.add('show'); });
+$('#backdrop').addEventListener('click', closeMobileNav);
+document.addEventListener('keydown', e=>{
+  if(e.key==='/' && document.activeElement!==$('#search')){ e.preventDefault(); $('#search').focus(); }
+  if(e.key==='Escape'){ $('#search').value=''; applySearch(''); $('#search').blur(); }
+});
+</script>
+</body>
+</html>

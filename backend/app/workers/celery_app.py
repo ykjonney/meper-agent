@@ -7,11 +7,12 @@ celery_app = Celery(
     "agent_flow",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=[
-        "app.workers.tasks.agents",
-        "app.workers.tasks.workflows",
-        "app.workers.tasks.callbacks",
-    ],
+    # TODO: Add task modules when implemented
+    # include=[
+    #     "app.workers.tasks.agents",
+    #     "app.workers.tasks.workflows",
+    #     "app.workers.tasks.callbacks",
+    # ],
 )
 
 celery_app.conf.update(

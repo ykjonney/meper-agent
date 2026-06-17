@@ -1,7 +1,7 @@
 """User business logic — creation, lookup, and admin initialization."""
 from loguru import logger
 
-from app.core.errors import ForbiddenError, ValidationError
+from app.core.errors import ForbiddenError, NotFoundError, ValidationError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -11,6 +11,9 @@ from app.core.security import (
 from app.db.mongodb import get_database
 from app.models.user import User, UserRole, UserStatus
 from app.schemas.auth import AdminCreateResult, TokenResponse
+
+# System role names for quick validation
+_SYSTEM_ROLES = {r.value for r in UserRole}
 
 
 class UserService:
@@ -72,9 +75,27 @@ class UserService:
     async def _admin_exists() -> bool:
         """Check if any admin-role user already exists."""
         return (
-            await UserService._collection().find_one({"role": UserRole.ADMIN})
+            await UserService._collection().find_one({"role": UserRole.ADMIN.value})
             is not None
         )
+
+    @staticmethod
+    async def _validate_role_exists(role: str) -> None:
+        """Validate that a role name exists (system or custom).
+
+        Raises:
+            NotFoundError: If the role does not exist.
+        """
+        if role in _SYSTEM_ROLES:
+            return  # System role always exists
+
+        from app.services.role_service import RoleService
+        role_doc = await RoleService.get_role_by_name(role)
+        if role_doc is None:
+            raise NotFoundError(
+                code="ROLE_NOT_FOUND",
+                message=f"角色 '{role}' 不存在",
+            )
 
     @staticmethod
     async def create_admin_user(
@@ -123,7 +144,7 @@ class UserService:
             username=username,
             email=email,
             password_hash=hash_password(password),
-            role=UserRole.ADMIN,
+            role=UserRole.ADMIN.value,
             status=UserStatus.ACTIVE,
         )
 
@@ -133,7 +154,7 @@ class UserService:
             "username": user.username,
             "email": user.email,
             "password_hash": user.password_hash,
-            "role": user.role.value,
+            "role": user.role,
             "status": user.status.value,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
@@ -167,7 +188,7 @@ class UserService:
         tokens = TokenResponse(
             access_token=create_access_token(
                 subject=user.id,
-                claims={"role": user.role.value},
+                claims={"role": user.role},
             ),
             refresh_token=create_refresh_token(subject=user.id),
             expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -198,7 +219,7 @@ class UserService:
             page: Page number (1-based).
             page_size: Items per page (max 100).
             username: Optional username substring filter (case-insensitive).
-            role: Optional role filter.
+            role: Optional role filter (string, supports custom roles).
             status: Optional status filter.
 
         Returns:
@@ -237,15 +258,19 @@ class UserService:
             username: Unique username.
             email: Unique email address.
             password: Plaintext password (strength-validated here).
-            role: Role to assign (default: viewer).
+            role: Role name to assign (system or custom, default: viewer).
 
         Returns:
             Created user MongoDB document.
 
         Raises:
             ValidationError: If username/email exists or password is weak.
+            NotFoundError: If the specified role does not exist.
         """
         validate_password_strength(password)
+
+        # Validate role exists
+        await UserService._validate_role_exists(role)
 
         # Check uniqueness
         if await UserService.get_user_by_username(username) is not None:
@@ -265,7 +290,7 @@ class UserService:
             username=username,
             email=email,
             password_hash=hash_password(password),
-            role=UserRole(role) if isinstance(role, str) else role,
+            role=role,
             status=UserStatus.ACTIVE,
         )
 
@@ -274,7 +299,7 @@ class UserService:
             "username": user.username,
             "email": user.email,
             "password_hash": user.password_hash,
-            "role": user.role.value,
+            "role": user.role,
             "status": user.status.value,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
@@ -332,9 +357,7 @@ class UserService:
         # Business rule: permission suicide protection
         if user_id == current_user_id and "role" in updates:
             new_role = updates["role"]
-            if isinstance(new_role, str):
-                new_role = UserRole(new_role)
-            if new_role != UserRole.ADMIN:
+            if new_role != UserRole.ADMIN.value:
                 raise ValidationError(
                     code="SELF_DEMOTE_FORBIDDEN",
                     message="不能将自己的角色从管理员降级",
@@ -345,11 +368,8 @@ class UserService:
             new_role = updates.get("role", target_doc.get("role"))
             new_status = updates.get("status", target_doc.get("status"))
 
-            if isinstance(new_role, str):
-                new_role = UserRole(new_role)
-
             is_target_admin = target_doc.get("role") == UserRole.ADMIN.value
-            is_demoting = new_role != UserRole.ADMIN
+            is_demoting = new_role != UserRole.ADMIN.value
             is_disabling = new_status == UserStatus.DISABLED.value
 
             if is_target_admin and (is_demoting or is_disabling):
@@ -362,13 +382,16 @@ class UserService:
                         message="不能降级或禁用最后一位管理员",
                     )
 
+        # Validate new role exists if being changed
+        if "role" in updates:
+            await UserService._validate_role_exists(updates["role"])
+
         from app.models.base import utc_now
 
         now_iso = utc_now().isoformat()
         set_fields: dict = {"updated_at": now_iso}
         if "role" in updates:
-            role_val = updates["role"]
-            set_fields["role"] = role_val.value if isinstance(role_val, UserRole) else role_val
+            set_fields["role"] = updates["role"]
         if "status" in updates:
             status_val = updates["status"]
             set_fields["status"] = status_val.value if isinstance(status_val, UserStatus) else status_val

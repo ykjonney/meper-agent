@@ -35,8 +35,8 @@ import ToolSelector, {
   DEFAULT_TOOL_VALUE,
   type ToolSelectorValue,
 } from './tool-selector'
-import SystemPromptManager from './system-prompt-manager'
-import type { SavedPrompt } from '../services/agent-api'
+import SlotValueEditor from './slot-value-editor'
+import { parseBackendDate } from '../lib/format'
 
 /* ─── Status styles ─── */
 const STATUS_STYLES = AGENT_STATUS_STYLES
@@ -65,10 +65,9 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     /* ─── Form state ─── */
     const [formName, setFormName] = useState('')
     const [formDesc, setFormDesc] = useState('')
-    const [formPrompt, setFormPrompt] = useState('')
+    const [formPromptSlots, setFormPromptSlots] = useState<Record<string, string>>({})
     const [formModelId, setFormModelId] = useState('')
     const [formMaxRetry, setFormMaxRetry] = useState(3)
-    const [formPrompts, setFormPrompts] = useState<SavedPrompt[]>([])
     const [toolConfig, setToolConfig] = useState<ToolSelectorValue>(DEFAULT_TOOL_VALUE)
     const [previewOpen, setPreviewOpen] = useState(false)
     const [previewData, setPreviewData] = useState<PreviewResponse | null>(null)
@@ -79,8 +78,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
       if (agent && isEdit) {
         setFormName(agent.name)
         setFormDesc(agent.description)
-        setFormPrompt(agent.system_prompt)
-        setFormPrompts(agent.saved_system_prompts ?? [])
+        setFormPromptSlots(agent.prompt_slots || {})
         setFormModelId(agent.default_model || '')
         setFormMaxRetry(agent.max_retry ?? 3)
         setToolConfig({
@@ -92,8 +90,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
       } else {
         setFormName('')
         setFormDesc('')
-        setFormPrompt('')
-        setFormPrompts([])
+        setFormPromptSlots({})
         setFormModelId('')
         setFormMaxRetry(3)
         setToolConfig(DEFAULT_TOOL_VALUE)
@@ -114,8 +111,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           return agentApi.update(agent.id, {
             name: formName.trim(),
             description: formDesc.trim(),
-            system_prompt: formPrompt.trim(),
-            saved_system_prompts: formPrompts,
+            prompt_slots: formPromptSlots,
             skill_ids: toolConfig.skill_ids,
             mcp_connection_ids: toolConfig.mcp_connection_ids,
             builtin_config: toolConfig.builtin_config,
@@ -128,7 +124,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           return agentApi.create({
             name: formName.trim(),
             description: formDesc.trim(),
-            system_prompt: formPrompt.trim(),
           })
         }
       },
@@ -235,21 +230,14 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
       {
         key: 'prompt',
         label: '系统提示词',
-        extra: formPrompts.length > 0
-          ? <span className="text-[11px] text-[#94A3B8]">{formPrompts.length} 个模板</span>
-          : undefined,
         children: (
           <div>
-            <SystemPromptManager
-              value={formPrompt}
-              prompts={formPrompts}
-              onChange={(prompt, prompts) => {
-                setFormPrompt(prompt)
-                setFormPrompts(prompts)
-              }}
+            <SlotValueEditor
+              slotValues={formPromptSlots}
+              onChange={setFormPromptSlots}
             />
             <div className="text-[11px] text-[#94A3B8] mt-1">
-              提示词决定了 Agent 的行为方式和能力边界
+              填写各卡槽内容，定义 Agent 的行为方式和能力边界
             </div>
           </div>
         ),
@@ -318,11 +306,11 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-[#0F172A]">创建时间</span>
-                  <span className="text-xs text-[#94A3B8]">{agent?.created_at ? new Date(agent.created_at).toLocaleString('zh-CN') : '-'}</span>
+                  <span className="text-xs text-[#94A3B8]">{agent?.created_at ? parseBackendDate(agent.created_at).toLocaleString('zh-CN') : '-'}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-[#0F172A]">更新时间</span>
-                  <span className="text-xs text-[#94A3B8]">{agent?.updated_at ? new Date(agent.updated_at).toLocaleString('zh-CN') : '-'}</span>
+                  <span className="text-xs text-[#94A3B8]">{agent?.updated_at ? parseBackendDate(agent.updated_at).toLocaleString('zh-CN') : '-'}</span>
                 </div>
                 <div className="pt-2 border-t border-gray-100 flex gap-2">
                   {canPublish && (
@@ -387,7 +375,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
       setPreviewData(null)
       try {
         const data = await agentApi.preview(agent.id, {
-          input: formPrompt ? '测试消息' : 'Hello',
+          input: '测试消息',
           enable_thinking: false,
         })
         setPreviewData(data)

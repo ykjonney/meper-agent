@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
+from pydantic import BeforeValidator
 
 from app.models.task import TaskStatus
 from app.services.task_service import TaskService
@@ -33,6 +34,47 @@ _SERIALISER_KWARGS: dict[str, Any] = {
 def _to_json(obj: Any) -> str:
     """Serialize *obj* to a JSON string safe for LLM consumption."""
     return json.dumps(obj, **_SERIALISER_KWARGS)
+
+
+# ---------------------------------------------------------------------------
+# LLM params coercion — LLMs sometimes pass dict params as a JSON string.
+# The schema still exposes ``dict`` so the LLM isn't confused, but we
+# transparently parse a JSON string if we receive one.
+# ---------------------------------------------------------------------------
+
+
+def _coerce_params_dict(value: Any) -> dict[str, Any] | None:
+    """Accept dict / JSON string / None and normalise to dict | None.
+
+    Raises ``ValueError`` if the string isn't valid JSON or parses to a
+    non-dict (list, scalar, etc.).
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"params 不是合法的 JSON 字符串: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"params 必须是 dict，实际解析为 {type(parsed).__name__}"
+            )
+        return parsed
+    raise ValueError(
+        f"params 类型错误：期望 dict 或 JSON 字符串，收到 {type(value).__name__}"
+    )
+
+
+# Type alias used in @tool signatures.  Pydantic resolves the
+# BeforeValidator at validation time; the exposed JSON Schema still
+# declares ``object`` (plus ``null``), so the LLM sees the same shape.
+ParamsDict = Annotated[dict[str, Any] | None, BeforeValidator(_coerce_params_dict)]
 
 
 def _from_json(s: str) -> Any:
@@ -316,7 +358,7 @@ async def update_task_variables(task_id: str, variables: str, version: int = 0) 
 @tool
 async def propose_workflow(
     workflow_name: str,
-    params: dict[str, Any] | None = None,
+    params: ParamsDict = None,
 ) -> str:
     """Propose a workflow to the user by showing a confirmation card.
 
@@ -369,7 +411,7 @@ async def propose_workflow(
 @tool
 async def dispatch_workflow(
     workflow_name: str,
-    params: dict[str, Any] | None = None,
+    params: ParamsDict = None,
 ) -> str:
     """Create and dispatch a workflow Task.
 

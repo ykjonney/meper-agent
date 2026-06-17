@@ -85,25 +85,24 @@ def _history_to_langchain_messages(records: list[dict]) -> list:
 
 
 def _doc_to_response(doc: dict) -> AgentResponse:
-    """Convert a raw MongoDB document to AgentResponse.
+    """Convert a raw MongoDB document to AgentResponse."""
+    # Backward compat: old docs may still have nested llm_config
+    llm_config = doc.get("llm_config") or {}
+    default_model = doc.get("default_model") or llm_config.get("default_model", "")
+    max_retry = doc.get("max_retry") if "max_retry" in doc else llm_config.get("max_retry", 3)
 
-    Backward compat: reads flat ``default_model`` / ``max_retry`` first,
-    falls back to legacy nested ``llm_config`` dict for old documents.
-    """
-    legacy_llm = doc.get("llm_config") or {}
     return AgentResponse(
         id=doc["_id"],
         name=doc["name"],
         description=doc.get("description", ""),
-        system_prompt=doc.get("system_prompt", ""),
-        saved_system_prompts=doc.get("saved_system_prompts", []),
+        prompt_slots=doc.get("prompt_slots", {}),
         skill_ids=resolve_skill_ids(doc),
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
         builtin_config=doc.get("builtin_config", []),
         workflow_ids=doc.get("workflow_ids", []),
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
-        default_model=doc.get("default_model") or legacy_llm.get("default_model", ""),
-        max_retry=doc.get("max_retry", legacy_llm.get("max_retry", 3)),
+        default_model=default_model,
+        max_retry=max_retry,
         status=AgentStatus(doc["status"]),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -156,7 +155,6 @@ async def create_agent(
     doc = await AgentService.create_agent(
         name=body.name,
         description=body.description,
-        system_prompt=body.system_prompt,
     )
     return _doc_to_response(doc)
 
@@ -214,8 +212,7 @@ async def update_agent(
         agent_id=agent_id,
         name=body.name,
         description=body.description,
-        system_prompt=body.system_prompt,
-        saved_system_prompts=[p.model_dump() for p in body.saved_system_prompts],
+        prompt_slots=body.prompt_slots,
         skill_ids=body.skill_ids,
         mcp_connection_ids=body.mcp_connection_ids,
         builtin_config=body.builtin_config,

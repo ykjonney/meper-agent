@@ -28,6 +28,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
+import { parseBackendDate } from '../lib/format'
 import {
   agentApi,
   type StreamEvent,
@@ -185,7 +186,7 @@ function historyToMessages(records: MessageRecord[]): Message[] {
     id: rec._id,
     role: rec.role,
     content: rec.content,
-    time: rec.created_at ? new Date(rec.created_at).toLocaleTimeString('zh-CN', { hour12: false }) : '',
+    time: rec.created_at ? parseBackendDate(rec.created_at).toLocaleTimeString('zh-CN', { hour12: false }) : '',
     timeline: rec.role === 'agent' && rec.timeline_entries?.length
       ? historyEntryToTimeline(rec.timeline_entries)
       : undefined,
@@ -809,7 +810,7 @@ export default function ChatPanel({
                 const isActive = s._id === currentSessionId
                 const title = s.title || '新会话'
                 const time = s.updated_at
-                  ? new Date(s.updated_at).toLocaleString('zh-CN', {
+                  ? parseBackendDate(s.updated_at).toLocaleString('zh-CN', {
                       month: '2-digit',
                       day: '2-digit',
                       hour: '2-digit',

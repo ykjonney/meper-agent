@@ -2,9 +2,13 @@
  * AgentNodeConfig — Agent 节点配置面板。
  *
  * - Agent ID 通过 Select 选择
- * - 查询（input_query）：必填，支持变量池
- * - 上下文（input_prompt）：可选，支持变量池
+ * - 查询（input_query）：必填，作为 user message，支持变量池
+ * - 上下文（input_prompt）：可选，注入 Agent 的 context 卡槽，支持变量池
  * - 输出变量：VariableListEditor，默认 response(text)
+ *
+ * Agent 节点不覆盖其他卡槽（role/task/constraints/output_format），
+ * 这些由 Agent 自身的配置决定。
+ * 工作流中的行为约束（如"禁止反问"）应在 Agent 自身的 constraints 卡槽中配置。
  */
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -28,7 +32,8 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     queryFn: () => agentApi.list({ page: 1, page_size: 100 }),
   })
 
-  const agentOptions = (agentsData?.items ?? []).map((a) => ({
+  const agents = agentsData?.items ?? []
+  const agentOptions = agents.map((a) => ({
     value: a.id,
     label: `${a.name} (${a.id.substring(0, 8)}...)`,
   }))
@@ -59,9 +64,14 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     onChange({ ...config, output_variables: variables })
   }
 
-  // 查询内容变更
+  // 查询内容变更（作为 user message）
   const handleInputQueryChange = (val: string) => {
     onChange({ ...config, input_query: val })
+  }
+
+  // 上下文变更（注入 Agent 的 context 卡槽）
+  const handleContextChange = (val: string) => {
+    onChange({ ...config, input_prompt: val })
   }
 
   return (
@@ -87,7 +97,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         )}
       </div>
 
-      {/* 查询（必填） */}
+      {/* 查询（必填）→ user message */}
       <div>
         <VariableSelector
           label="查询"
@@ -95,23 +105,26 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           onChange={handleInputQueryChange}
           currentNodeId={currentNodeId}
           allNodes={allNodes}
-          placeholder="输入查询内容，支持 {{变量}} ..."
+          placeholder="作为用户消息发送给 Agent，支持 {{变量}} ..."
           rows={2}
           required
         />
       </div>
 
-      {/* 上下文（可选） */}
+      {/* 上下文（可选）→ 注入 context 卡槽 */}
       <div>
         <VariableSelector
           label="上下文"
           value={config.input_prompt as string ?? ''}
-          onChange={(val) => onChange({ ...config, input_prompt: val })}
+          onChange={handleContextChange}
           currentNodeId={currentNodeId}
           allNodes={allNodes}
-          placeholder="可选上下文，支持 {{变量}} ..."
+          placeholder="注入到 Agent 的 context 卡槽，支持 {{变量}} ..."
           rows={3}
         />
+        <div className="text-[10px] text-[#94A3B8] mt-0.5">
+          此内容会覆盖 Agent 的 context 卡槽值，用于注入工作流上下文。角色、任务、约束等由 Agent 自身配置决定。
+        </div>
       </div>
 
       {/* 输出变量区域 */}

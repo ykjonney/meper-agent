@@ -12,13 +12,14 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    get_role_permissions,
     hash_password,
     validate_password_strength,
     verify_password,
 )
 from app.db.redis import get_redis_client
 from app.models.user import UserRole, UserStatus
-from app.schemas.auth import TokenResponse
+from app.schemas.auth import TokenResponse, UserInfo
 from app.services.user_service import UserService
 
 # Account lockout configuration
@@ -132,7 +133,16 @@ class AuthService:
 
         # Sign tokens
         role = user_doc.get("role", UserRole.VIEWER.value)
-        tokens = AuthService._issue_tokens(user_id, role)
+        tokens = await AuthService._issue_tokens(user_id, role)
+
+        # Resolve permissions and include user info
+        perms = await get_role_permissions(role)
+        tokens.user = UserInfo(
+            id=user_id,
+            username=user_doc.get("username", ""),
+            role=role,
+            permissions=sorted(perms),
+        )
 
         logger.info("login_success", username=username, user_id=user_id)
         return tokens
@@ -192,10 +202,20 @@ class AuthService:
         else:
             new_refresh = refresh_token
 
+        # Include user info with permissions
+        perms = await get_role_permissions(role)
+        user_info = UserInfo(
+            id=user_id,
+            username=user_doc.get("username", ""),
+            role=role,
+            permissions=sorted(perms),
+        )
+
         logger.info("token_refreshed", user_id=user_id)
         return TokenResponse(
             access_token=new_access,
             refresh_token=new_refresh,
+            user=user_info,
         )
 
     # ------------------------------------------------------------------
@@ -203,7 +223,7 @@ class AuthService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _issue_tokens(user_id: str, role: str) -> TokenResponse:
+    async def _issue_tokens(user_id: str, role: str) -> TokenResponse:
         """Build a fresh access + refresh token pair."""
         return TokenResponse(
             access_token=create_access_token(

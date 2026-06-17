@@ -38,6 +38,7 @@ import {
 } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 import { TaskBoardColumn } from '../components/task-board-column'
+import { parseBackendDate } from '../lib/format'
 
 /* ─── helpers ─── */
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -51,7 +52,7 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 
 function formatDateTime(iso: string) {
   if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN', {
+  return parseBackendDate(iso).toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -557,71 +558,151 @@ export default function TasksPage() {
                 <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
                 <InfoRow label="创建者" value={taskDetail.created_by || '系统'} />
                 <InfoRow label="版本" value={`v${taskDetail.version}`} />
-                <InfoRow label="创建时间" value={new Date(taskDetail.created_at).toLocaleString('zh-CN')} />
-                <InfoRow label="更新时间" value={new Date(taskDetail.updated_at).toLocaleString('zh-CN')} />
+                <InfoRow label="创建时间" value={parseBackendDate(taskDetail.created_at).toLocaleString('zh-CN')} />
+                <InfoRow label="更新时间" value={parseBackendDate(taskDetail.updated_at).toLocaleString('zh-CN')} />
               </div>
             </section>
 
-            {/* Input / Output */}
+            {/* 输入参数 + 错误信息 */}
             <section>
-              <h4 className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider mb-3">数据</h4>
-              <div className="space-y-2">
-                <div>
-                  <div className="text-xs text-[#64748B] mb-1">输入</div>
-                  <pre className="text-xs bg-[#F8FAFC] rounded-lg p-3 overflow-x-auto text-[#0F172A] max-h-32">
-                    {JSON.stringify(taskDetail.input, null, 2) || '{}'}
-                  </pre>
-                </div>
-                {taskDetail.output && (
-                  <div>
-                    <div className="text-xs text-[#64748B] mb-1">输出</div>
-                    <pre className="text-xs bg-[#F8FAFC] rounded-lg p-3 overflow-x-auto text-[#0F172A] max-h-32">
-                      {JSON.stringify(taskDetail.output, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {taskDetail.error && (
-                  <Alert
-                    type="error"
-                    showIcon
-                    message="执行错误"
-                    description={`[${taskDetail.error.error_code}] ${taskDetail.error.error_message}`}
-                  />
-                )}
+              <h4 className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider mb-3">输入参数</h4>
+              <div className="space-y-1.5">
+                {(() => {
+                  const inp = taskDetail.input ?? {}
+                  const entries = Object.entries(inp)
+                  if (entries.length === 0) return <div className="text-xs text-[#94A3B8] italic">无</div>
+                  return entries.map(([k, v]) => (
+                    <div key={k} className="flex gap-2 text-xs">
+                      <span className="text-[#64748B] font-medium shrink-0 min-w-[80px]">{k}</span>
+                      <span className="text-[#0F172A] break-all">
+                        {typeof v === 'string' ? v : JSON.stringify(v)}
+                      </span>
+                    </div>
+                  ))
+                })()}
               </div>
+              {taskDetail.error && (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="执行错误"
+                  description={`[${taskDetail.error.error_code}] ${taskDetail.error.error_message}`}
+                  className="mt-3"
+                />
+              )}
             </section>
 
-            {/* Timeline（waiting_human 事件显示紫色节点） */}
+            {/* 执行流程 */}
             <section>
               <h4 className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider mb-3">
-                时间线 <span className="font-normal">({taskDetail.timeline?.length ?? 0})</span>
+                执行流程 <span className="font-normal">({taskDetail.timeline?.length ?? 0})</span>
               </h4>
               {taskDetail.timeline && taskDetail.timeline.length > 0 ? (
-                <div className="relative pl-5 border-l-2 border-gray-100 space-y-3">
-                  {taskDetail.timeline.map((evt, idx) => {
-                    const isWaitingHuman = evt.event_type === 'waiting_human' || evt.event_type === 'human_node_start'
-                    const isFailed = evt.event_type === 'node_failed' || evt.event_type === 'task_failed'
-                    const dotColor = isWaitingHuman ? '#8B5CF6' : isFailed ? '#EF4444' : '#1E5EFF'
-                    return (
-                      <div key={idx} className="relative">
-                        <div
-                          className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-white border-2"
-                          style={{ borderColor: dotColor }}
-                        />
-                        <div className="text-xs">
-                          <span className="font-medium text-[#0F172A]">{evt.event_type}</span>
-                          <span className="text-[#94A3B8] ml-2">{formatDateTime(evt.timestamp)}</span>
-                        </div>
-                        <div className="text-[11px] text-[#64748B] mt-0.5">
-                          {evt.actor && <span>由 {evt.actor} 执行</span>}
-                          {Object.keys(evt.data ?? {}).length > 0 && (
-                            <pre className="text-[10px] text-[#94A3B8] mt-1">{JSON.stringify(evt.data, null, 2)}</pre>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                (() => {
+                  const timeline = taskDetail.timeline!
+                  // 过滤：如果时间线中存在任何审批完成事件，说明所有 waiting_human 都已解决，全部隐藏
+                  const approveTypes = new Set([
+                    'approve', 'skip', 'reject', 'cancel', 'resume',  // UI API (tasks.py)
+                    'intervene_approve', 'intervene_reject', 'intervene_cancel', 'intervene_resume',  // Agent 工具
+                    'human_approved', 'human_rejected',  // 引擎内部
+                  ])
+                  const hasAnyApproval = timeline.some(e => approveTypes.has(e.event_type))
+                  const filtered = timeline.filter(e => {
+                    // 审批已完成 → 隐藏所有 waiting_human
+                    if (hasAnyApproval && e.event_type === 'waiting_human') return false
+                    // 人工审批节点的 node_complete 只是引擎恢复信号，审批事件已覆盖
+                    if (e.event_type === 'node_complete' && e.data?.node_type === 'human') return false
+                    return true
+                  })
+
+                  // 节点类型 → 中文标签
+                  const nodeTypeLabel: Record<string, string> = {
+                    start: '输入节点', end: '输出节点', agent: 'Agent 节点',
+                    tool: '工具节点', gateway: '网关节点', parallel: '并行节点', human: '人工审批节点',
+                  }
+                  // 事件类型 → 中文标签 + 颜色
+                  const eventMeta: Record<string, { label: string; color: string }> = {
+                    // ── 生命周期 ──
+                    created:           { label: '任务创建',   color: '#1E5EFF' },
+                    started:           { label: '开始执行',   color: '#1E5EFF' },
+                    auto_scheduled:    { label: '自动调度',   color: '#1E5EFF' },
+                    completed:         { label: '任务完成',   color: '#10B981' },
+                    failed:            { label: '任务失败',   color: '#EF4444' },
+                    task_failed:       { label: '任务失败',   color: '#EF4444' },
+                    cancelled:         { label: '任务取消',   color: '#94A3B8' },
+                    // ── 节点执行 ──
+                    node_start:        { label: '节点开始',   color: '#1E5EFF' },
+                    node_complete:     { label: '节点完成',   color: '#10B981' },
+                    node_failed:       { label: '节点失败',   color: '#EF4444' },
+                    // ── 人工审批（UI API） ──
+                    waiting_human:     { label: '等待审批',   color: '#8B5CF6' },
+                    human_node_start:  { label: '审批开始',   color: '#8B5CF6' },
+                    approve:           { label: '审批通过',   color: '#10B981' },
+                    skip:              { label: '审批跳过',   color: '#F59E0B' },
+                    reject:            { label: '审批驳回',   color: '#EF4444' },
+                    cancel:            { label: '人工取消',   color: '#94A3B8' },
+                    resume:            { label: '人工恢复',   color: '#1E5EFF' },
+                    // ── 人工干预（Agent 工具） ──
+                    human_approved:    { label: '审批通过',   color: '#10B981' },
+                    human_rejected:    { label: '审批拒绝',   color: '#EF4444' },
+                    intervene_approve: { label: '人工通过',   color: '#10B981' },
+                    intervene_reject:  { label: '人工拒绝',   color: '#EF4444' },
+                    intervene_cancel:  { label: '人工取消',   color: '#EF4444' },
+                    intervene_resume:  { label: '人工恢复',   color: '#1E5EFF' },
+                    intervene_retry:    { label: '人工重试',   color: '#F59E0B' },
+                  }
+
+                  return (
+                    <div className="relative pl-7">
+                      {/* 连续连接线 */}
+                      <div className="absolute left-[9px] top-2 bottom-2 w-[2px] bg-[#E2E8F0]" />
+                      {filtered.map((evt, idx) => {
+                        const meta = eventMeta[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
+
+                        // 节点事件：拼接类型前缀 → "Agent 节点开始" / "输入节点完成"
+                        const nodeType = evt.data?.node_type as string | undefined
+                        const isNodeEvent = !!nodeType && (
+                          evt.event_type === 'node_start' ||
+                          evt.event_type === 'node_complete' ||
+                          evt.event_type === 'node_failed'
+                        )
+                        const displayLabel = isNodeEvent
+                          ? `${nodeTypeLabel[nodeType] ?? nodeType}${meta.label.replace('节点', '')}`
+                          : meta.label
+
+                        const hasData = Object.keys(evt.data ?? {}).length > 0
+
+                        return (
+                          <div key={idx} className="relative py-2">
+                            {/* 时间轴圆点 */}
+                            <div
+                              className="absolute -left-7 top-2.5 w-[14px] h-[14px] rounded-full border-2 border-white shadow-sm z-10"
+                              style={{ backgroundColor: meta.color }}
+                            />
+                            {/* 事件主体 */}
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-xs font-medium" style={{ color: meta.color }}>{displayLabel}</span>
+                              <span className="text-[11px] text-[#94A3B8]">{formatDateTime(evt.timestamp)}</span>
+                              {evt.actor && <span className="text-[11px] text-[#94A3B8]">· {evt.actor}</span>}
+                            </div>
+                            {/* 所有数据统一折叠 */}
+                            {hasData && (
+                              <details className="mt-1">
+                                <summary className="text-[10px] text-[#94A3B8] cursor-pointer hover:text-[#1E5EFF] list-none flex items-center gap-1">
+                                  <span className="text-[8px]">▶</span>
+                                  详细数据
+                                </summary>
+                                <pre className="text-[10px] text-[#64748B] bg-[#F8FAFC] rounded p-2 mt-1 overflow-x-auto max-h-32">
+                                  {JSON.stringify(evt.data, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()
               ) : (
                 <Empty description="暂无时间线事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               )}
@@ -649,7 +730,7 @@ export default function TasksPage() {
                   {taskDetail.checkpoint.timeout_deadline && (
                     <InfoRow
                       label="超时截止"
-                      value={`${new Date(taskDetail.checkpoint.timeout_deadline).toLocaleString('zh-CN')} (${taskDetail.checkpoint.timeout_action})`}
+                      value={`${parseBackendDate(taskDetail.checkpoint.timeout_deadline).toLocaleString('zh-CN')} (${taskDetail.checkpoint.timeout_action})`}
                     />
                   )}
                   {/* Upstream node outputs (exclude 'input' and the paused node itself) */}

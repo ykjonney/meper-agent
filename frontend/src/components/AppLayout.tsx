@@ -27,11 +27,20 @@ import { authApi } from '../services/auth-api'
 import { LogoutOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
+/* ─── System role display name mapping ─── */
+const SYSTEM_ROLE_DISPLAY: Record<string, string> = {
+  admin: '管理员',
+  developer: '开发者',
+  operator: '运营者',
+  viewer: '查看者',
+}
+
 /* ─── Group nav items ─── */
 interface SubPage {
   label: string
   path: string
   key: string
+  permission?: string // Required permission to show this sub-page
 }
 
 interface NavGroup {
@@ -41,6 +50,7 @@ interface NavGroup {
   single?: boolean       // single-page group, no sub-tabs
   path?: string           // path for single groups
   children?: SubPage[]    // sub-pages for grouped groups
+  permission?: string     // Required permission to show this group
 }
 
 const GROUPS: NavGroup[] = [
@@ -48,32 +58,40 @@ const GROUPS: NavGroup[] = [
   {
     key: 'agent', label: 'Agent', icon: <RobotOutlined />,
     children: [
-      { label: 'Agent 管理', path: '/agents', key: 'agents' },
-      { label: '模型', path: '/models', key: 'models' },
+      { label: 'Agent 管理', path: '/agents', key: 'agents', permission: 'agent:read' },
+      { label: '模型', path: '/models', key: 'models', permission: 'model:read' },
     ],
   },
   {
     key: 'workflow', label: '工作流', icon: <BranchesOutlined />,
     children: [
-      { label: '工作流', path: '/workflows', key: 'workflows' },
-      { label: '任务管理', path: '/tasks', key: 'tasks' },
+      { label: '工作流', path: '/workflows', key: 'workflows', permission: 'workflow:read' },
+      { label: '任务管理', path: '/tasks', key: 'tasks', permission: 'task:read' },
     ],
   },
   {
     key: 'tools', label: '工具', icon: <ToolOutlined />,
     children: [
-      { label: '工具', path: '/tools', key: 'tools' },
-      { label: 'MCP', path: '/mcp', key: 'mcp' },
-      { label: 'Skill', path: '/skills', key: 'skills' },
+      { label: '工具', path: '/tools', key: 'tools', permission: 'tool:read' },
+      { label: 'MCP', path: '/mcp', key: 'mcp', permission: 'mcp:read' },
+      { label: 'Skill', path: '/skills', key: 'skills', permission: 'skill:read' },
     ],
   },
-  { key: 'users', label: '用户管理', icon: <TeamOutlined />, single: true, path: '/users' },
+  {
+    key: 'users',
+    label: '用户管理',
+    icon: <TeamOutlined />,
+    children: [
+      { label: '用户', path: '/users', key: 'users', permission: 'user:read' },
+      { label: '角色管理', path: '/roles', key: 'roles', permission: 'user:read' },
+    ],
+  },
   {
     key: 'system', label: '系统信息', icon: <SettingOutlined />,
     children: [
-      { label: 'API 密钥', path: '/api-keys', key: 'api-keys' },
-      { label: '执行日志', path: '/execution-logs', key: 'execution-logs' },
-      { label: '设置', path: '/settings', key: 'settings' },
+      { label: 'API 密钥', path: '/api-keys', key: 'api-keys', permission: 'apikey:manage' },
+      { label: '执行日志', path: '/execution-logs', key: 'execution-logs', permission: 'execution:read:own' },
+      { label: '设置', path: '/settings', key: 'settings', permission: 'settings:manage' },
     ],
   },
 ]
@@ -89,6 +107,7 @@ const PATH_TO_GROUP: Record<string, string> = {
   '/mcp': 'tools',
   '/skills': 'tools',
   '/users': 'users',
+  '/roles': 'users',
   '/api-keys': 'system',
   '/execution-logs': 'system',
   '/settings': 'system',
@@ -99,7 +118,33 @@ export default function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const currentPath = location.pathname
-  const { clearAuth } = useAuthStore()
+  const { clearAuth, user } = useAuthStore()
+
+  // Resolve user display info
+  const username = user?.username ?? 'User'
+  const roleDisplayName = user?.role
+    ? (SYSTEM_ROLE_DISPLAY[user.role] ?? user.role)
+    : '用户'
+
+  /* ─── Filter groups by permissions ─── */
+  const userPermissions = user?.permissions ?? []
+  const hasPermission = (perm: string) => userPermissions.includes(perm)
+
+  const visibleGroups = GROUPS.filter((group) => {
+    if (group.permission && !hasPermission(group.permission)) return false
+    return true
+  }).map((group) => {
+    if (!group.children) return group
+    const visibleChildren = group.children.filter(
+      (child) => !child.permission || hasPermission(child.permission),
+    )
+    if (visibleChildren.length === 0) return null
+    if (visibleChildren.length === 1) {
+      // Collapse to single-page group
+      return { ...group, single: true, path: visibleChildren[0].path, children: undefined }
+    }
+    return { ...group, children: visibleChildren }
+  }).filter(Boolean) as NavGroup[]
 
   /* ─── Resolve active group & child ─── */
   // Support dynamic routes like /agents/:id → group "agent", /workflows/:id → group "workflow"
@@ -109,7 +154,7 @@ export default function AppLayout() {
       ? '/workflows'
       : currentPath
   const activeGroupKey = PATH_TO_GROUP[basePath] || 'dashboard'
-  const activeGroup = GROUPS.find((g) => g.key === activeGroupKey)
+  const activeGroup = visibleGroups.find((g) => g.key === activeGroupKey)
 
   const handleGroupClick = (group: NavGroup) => {
     if (group.single && group.path) {
@@ -156,7 +201,7 @@ export default function AppLayout() {
 
         {/* Group tabs */}
         <nav className="flex items-center gap-0.5">
-          {GROUPS.map((group) => {
+          {visibleGroups.map((group) => {
             const isActive = activeGroupKey === group.key
             return (
               <button
@@ -197,8 +242,8 @@ export default function AppLayout() {
             <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-muted transition-colors duration-150 cursor-pointer">
               <Avatar size={28} icon={<UserOutlined />} style={{ background: t.primary }} />
               <div className="hidden sm:block text-left leading-tight">
-                <div className="text-sm font-medium text-txt">Admin</div>
-                <div className="text-[11px] text-txt-muted">管理员</div>
+                <div className="text-sm font-medium text-txt">{username}</div>
+                <div className="text-[11px] text-txt-muted">{roleDisplayName}</div>
               </div>
             </div>
           </Dropdown>

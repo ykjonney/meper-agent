@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from app.core.security import get_current_user
 from app.main import app
-from app.schemas.user import UserResponse, UserRole, UserStatus
+from app.schemas.user import UserResponse, UserStatus
 from fastapi.testclient import TestClient
 
 
@@ -24,10 +24,11 @@ def auth_admin():
         id="user_01HTEST",
         username="admin",
         email="admin@example.com",
-        role=UserRole.ADMIN,
+        role="admin",
         status=UserStatus.ACTIVE,
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
+        permissions=[],
     )
     app.dependency_overrides[get_current_user] = lambda: user
     yield
@@ -41,10 +42,11 @@ def auth_viewer():
         id="user_02HTEST",
         username="viewer",
         email="viewer@example.com",
-        role=UserRole.VIEWER,
+        role="viewer",
         status=UserStatus.ACTIVE,
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
+        permissions=[],
     )
     app.dependency_overrides[get_current_user] = lambda: user
     yield
@@ -56,8 +58,7 @@ def _fake_agent_doc() -> dict:
         "_id": "agent_01HTEST",
         "name": "Test Agent",
         "description": "A test agent",
-        "system_prompt": "You are a helpful assistant.",
-        "saved_system_prompts": [],
+        "prompt_slots": {},
         "skill_ids": [],
         "mcp_connection_ids": [],
         "builtin_config": [],

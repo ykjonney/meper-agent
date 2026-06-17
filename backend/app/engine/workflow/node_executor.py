@@ -58,11 +58,21 @@ class StartNodeExecutor(BaseNodeExecutor):
 
         {
             "output_variables": [
-                {"name": "query", "type": "text", "required": true, "default": ""},
+                {
+                    "name": "query",
+                    "type": "text",
+                    "constraints": {"required": true, "default_value": ""},
+                    ...
+                },
                 ...
             ],
             "input_mapping": { "var_name": "{{ input.field }}" }  # optional override
         }
+
+    ``required`` / ``default_value`` are read from ``constraints``
+    (matching the frontend ``VariableListEditor`` schema).  Top-level
+    ``required`` / ``default`` keys are still accepted for backward
+    compatibility with legacy data.
     """
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
@@ -81,22 +91,51 @@ class StartNodeExecutor(BaseNodeExecutor):
 
         # 2. Otherwise, initialize variables from output_variables definition
         output_variables = self.node_config.get("output_variables", [])
-        task_input = variables.get("input", {})
+        task_input = variables.get("input")
+        if not isinstance(task_input, dict):
+            task_input = {}
 
         if isinstance(output_variables, list) and output_variables:
+            missing_required: list[str] = []
+
             for var_def in output_variables:
                 if not isinstance(var_def, dict):
                     continue
                 name = var_def.get("name", "")
                 if not name:
                     continue
-                # Use input value if provided, else use default
-                if isinstance(task_input, dict) and name in task_input:
-                    output[name] = task_input[name]
-                elif "default" in var_def and var_def["default"] is not None:
-                    output[name] = var_def["default"]
+
+                # Read required/default from `constraints` (frontend schema)
+                # with top-level fallback for legacy data.
+                constraints = var_def.get("constraints") if isinstance(var_def.get("constraints"), dict) else {}
+                raw_required = constraints.get("required", var_def.get("required"))
+                is_required = bool(raw_required) if raw_required is not None else False
+                default_val = constraints.get("default_value", var_def.get("default"))
+
+                # Use input value if provided, else fall back to default.
+                if name in task_input:
+                    value = task_input[name]
+                elif default_val not in (None, ""):
+                    value = default_val
                 else:
-                    output[name] = None
+                    value = None
+
+                # Required validation: None or empty string counts as missing.
+                if is_required and value in (None, ""):
+                    missing_required.append(name)
+                else:
+                    output[name] = value
+
+            if missing_required:
+                return NodeResult(
+                    success=False,
+                    output={},
+                    error_message=(
+                        f"Start 节点必填变量缺失: {', '.join(missing_required)}。"
+                        f"请在 dispatch_workflow 的 params 中补充这些字段。"
+                    ),
+                )
+
             return NodeResult(success=True, output=output)
 
         # 3. Fallback: pass through all task input
@@ -147,16 +186,24 @@ class AgentNodeExecutor(BaseNodeExecutor):
         if not agent_id:
             return NodeResult(success=False, output={}, error_message="agent_id 未配置")
 
-        # Resolve input prompt from variables
-        # 兼容 input_query（前端保存）和 input_prompt（旧字段名）
         from app.engine.workflow.expression import ExpressionEngine
 
         engine = ExpressionEngine(variables)
-        input_prompt = self.node_config.get("input_query") or self.node_config.get("input_prompt", "")
-        resolved_prompt = engine.resolve(input_prompt) if input_prompt else ""
+
+        # input_query → user message（查询）
+        input_query = self.node_config.get("input_query", "")
+        resolved_query = engine.resolve(input_query) if input_query else ""
+
+        # input_prompt → context 卡槽覆盖（注入系统提示，不作为 user message）
+        # 向后兼容：也读取 slot_values.context
+        input_prompt = self.node_config.get("input_prompt", "")
+        resolved_context = engine.resolve(input_prompt) if input_prompt else ""
+        if not resolved_context:
+            legacy_slot_ctx = self.node_config.get("slot_values", {}).get("context", "")
+            resolved_context = engine.resolve(legacy_slot_ctx) if legacy_slot_ctx else ""
 
         try:
-            from app.engine.agent.builder import build_agent_graph, build_system_prompt
+            from app.engine.agent.builder import build_agent_graph
             from app.db.mongodb import get_database
             from langchain_core.messages import SystemMessage
 
@@ -169,9 +216,8 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     error_message=f"Agent {agent_id} 不存在",
                 )
 
-            # Apply system prompt override (only when explicitly configured)
-            if self.node_config.get("system_prompt_override"):
-                agent_doc["system_prompt"] = self.node_config["system_prompt_override"]
+            # 仅允许覆盖 context 卡槽（role/task/constraints/output_format 由 Agent 自身决定）
+            context_overrides = {"context": resolved_context} if resolved_context else None
 
             temperature = self.node_config.get("temperature")
             if temperature is not None:
@@ -179,8 +225,14 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
             graph = await build_agent_graph(agent_doc)
 
-            # 构建 system prompt（含工具声明），与 Chat Agent 保持一致
-            system_text = await build_system_prompt(agent_doc)
+            # Build system prompt via slot renderer (context override + variable pool)
+            from app.engine.agent.slot_renderer import render_system_prompt_full
+
+            system_text = await render_system_prompt_full(
+                agent_doc,
+                node_slot_overrides=context_overrides,
+                variable_pool=variables,
+            )
         except Exception as exc:
             # 展开 ExceptionGroup 以显示真正原因
             detail = str(exc)
@@ -204,18 +256,20 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
         _thread_id = f"{self.node_id}_{int(_time.time() * 1000)}"
 
-        # 组装初始消息：system prompt（含工具声明）+ 用户查询
-        # 注意：strip() 防止空白字符串逃过 truthiness 检查导致 LLM API 报
+        # 组装初始消息：system prompt（含工具声明 + context 卡槽注入）+ 用户查询
+        # 注意：input_prompt 已经通过 context 卡槽注入系统提示，不作为独立 user message
+        # 只有 input_query 作为 user message
+        # strip() 防止空白字符串逃过 truthiness 检查导致 LLM API 报
         # "messages: at least one message is required"（空 SystemMessage 不算有效消息）
         stripped_system = system_text.strip() if system_text else ""
-        stripped_prompt = resolved_prompt.strip() if resolved_prompt else ""
+        stripped_query = resolved_query.strip() if resolved_query else ""
 
         initial_messages: list = []
         if stripped_system:
             initial_messages.append(SystemMessage(content=stripped_system))
 
-        if stripped_prompt:
-            initial_messages.append({"role": "user", "content": stripped_prompt})
+        if stripped_query:
+            initial_messages.append({"role": "user", "content": stripped_query})
 
         # 兜底：没有任何有效消息时 LLM API 会报 "at least one message is required"
         if not initial_messages:
@@ -223,12 +277,12 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 "node_agent_empty_messages",
                 node_id=self.node_id,
                 agent_id=agent_id,
-                input_prompt=input_prompt,
+                input_query=input_query,
                 variables=variables,
             )
             initial_messages.append({
                 "role": "user",
-                "content": f"请根据你的系统提示执行任务（input_query='{input_prompt}' 解析结果为空）",
+                "content": f"请根据你的系统提示执行任务（input_query='{input_query}' 解析结果为空）",
             })
 
         last_error: str | None = None

@@ -24,19 +24,32 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
     authApi
       .refresh(refreshToken)
       .then((res) => {
-        const { access_token, refresh_token } = res.data
-        const payload = decodeAccessToken(access_token)
-        if (payload) {
+        const { access_token, refresh_token, user } = res.data
+        if (user) {
+          // Use user info from refresh response (includes permissions)
           setAuth(access_token, {
-            id: payload.sub,
-            username: payload.username,
-            role: payload.role,
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            permissions: user.permissions,
           })
-          // refresh token rotation — store the new one
-          localStorage.setItem('agentflow_refresh_token', refresh_token)
         } else {
-          clearAuth()
+          // Fallback: decode JWT (no permissions — nav permission filtering won't work)
+          const payload = decodeAccessToken(access_token)
+          if (payload) {
+            setAuth(access_token, {
+              id: payload.sub,
+              username: payload.username,
+              role: payload.role,
+              permissions: [],
+            })
+          } else {
+            clearAuth()
+            return
+          }
         }
+        // refresh token rotation — store the new one
+        localStorage.setItem('agentflow_refresh_token', refresh_token)
       })
       .catch(() => {
         clearAuth()

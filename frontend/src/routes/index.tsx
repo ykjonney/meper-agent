@@ -19,8 +19,10 @@ import SkillDetailPage from '../pages/skill-detail-page'
 import ExecutionLogsPage from '../pages/execution-logs-page'
 import ApiKeysPage from '../pages/api-keys-page'
 import UsersPage from '../pages/users-page'
+import RolesPage from '../pages/roles-page'
 import SettingsPage from '../pages/settings-page'
 import { DesignSystemPage } from '../pages/design-system-page'
+import DesignReferencePage from '../pages/design-reference-page'
 import { LoginPage } from '../pages/login-page'
 
 export const routes = [
@@ -45,12 +47,14 @@ export const routes = [
           { path: '/execution-logs', element: <ExecutionLogsPage /> },
           { path: '/api-keys', element: <ApiKeysPage /> },
           { path: '/users', element: <UsersPage /> },
+          { path: '/roles', element: <RolesPage /> },
           { path: '/settings', element: <SettingsPage /> },
         ],
       },
     ],
   },
   { path: '/design-system', element: <DesignSystemPage /> },
+  { path: '/design-reference', element: <DesignReferencePage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '*', element: <DashboardPage /> },
 ]

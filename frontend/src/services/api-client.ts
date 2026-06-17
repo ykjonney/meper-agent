@@ -67,9 +67,13 @@ async function refreshAccessToken(): Promise<string> {
   refreshPromise = authApi
     .refresh(refreshToken)
     .then((res) => {
-      const { access_token, refresh_token } = res.data
+      const { access_token, refresh_token, user } = res.data
       localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
       useAuthStore.getState().setAccessToken(access_token)
+      // Sync permissions from refresh response if user info is included
+      if (user?.permissions) {
+        useAuthStore.getState().setUserPermissions(user.permissions)
+      }
       return access_token
     })
     .finally(() => {

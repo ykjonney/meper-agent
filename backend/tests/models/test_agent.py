@@ -37,7 +37,7 @@ class TestAgentModel:
         agent = Agent(
             name="Full Agent",
             description="Has all fields",
-            system_prompt="You are helpful.",
+            prompt_slots={"role": "Helper"},
             skill_ids=["skill_001"],
             mcp_connection_ids=["mcp_001"],
             builtin_config=["bash", "read"],
@@ -50,4 +50,5 @@ class TestAgentModel:
         assert agent.skill_ids == ["skill_001"]
         assert agent.mcp_connection_ids == ["mcp_001"]
         assert agent.builtin_config == ["bash", "read"]
+        assert agent.prompt_slots == {"role": "Helper"}
         assert agent.status == AgentStatus.PUBLISHED

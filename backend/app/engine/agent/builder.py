@@ -78,9 +78,7 @@ async def _resolve_execution_context(
     builtin_tools = _resolve_builtin_tools(agent)
     all_tools = [*agent_tools, *builtin_tools]
 
-    # Backward compat: flat field first, then legacy nested llm_config
-    legacy_llm = agent.get("llm_config") or {}
-    model_ref = agent.get("default_model") or legacy_llm.get("default_model", "")
+    model_ref = agent.get("default_model") or (agent.get("llm_config") or {}).get("default_model", "")
     context_window = await get_context_window_async(model_ref)
 
     return _ExecutionContext(
@@ -191,22 +189,13 @@ async def build_tool_declaration(agent: dict) -> str:
 async def build_system_prompt(agent_doc: dict) -> str:
     """Build the fully assembled system prompt for an Agent.
 
-    Resolves the active saved prompt (if any), then appends the
-    tool declaration section (Skills + MCP + Builtin + Workflow).
-
-    Shared between Chat Agent (agents.py) and Workflow Agent (node_executor.py).
+    Delegates to the slot renderer which handles PromptTemplate-based
+    prompt composition. Falls back to tool declaration only when no
+    template is configured.
     """
-    system_text = agent_doc.get("system_prompt", "")
-    saved_prompts = agent_doc.get("saved_system_prompts", [])
-    active_prompt = next((p for p in saved_prompts if p.get("is_active")), None)
-    if active_prompt and active_prompt.get("content"):
-        system_text = active_prompt["content"]
+    from app.engine.agent.slot_renderer import render_system_prompt_full
 
-    tool_declaration = await build_tool_declaration(agent_doc)
-    if tool_declaration:
-        system_text = f"{system_text}\n{tool_declaration}" if system_text else tool_declaration
-
-    return system_text
+    return await render_system_prompt_full(agent_doc)
 
 
 async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
@@ -306,22 +295,51 @@ async def _build_workflow_tool_declaration(workflow_ids: list[str]) -> str:
                 if start_node:
                     output_vars = start_node.get("config", {}).get("output_variables", [])
                     if isinstance(output_vars, list):
-                        param_vars = [
-                            {
+                        param_vars = []
+                        for v in output_vars:
+                            if not isinstance(v, dict) or not v.get("name"):
+                                continue
+                            # Frontend (VariableListEditor) stores `required` and `default_value`
+                            # inside `constraints`. Fall back to top-level keys for legacy data
+                            # (some tests / older docs used top-level `required` / `default`).
+                            constraints = v.get("constraints") if isinstance(v.get("constraints"), dict) else {}
+                            required = constraints.get("required", v.get("required"))
+                            # Required 默认 false（与前端 variable-types.ts 的 defaultValue: false 对齐）
+                            required = bool(required) if required is not None else False
+
+                            default_val = constraints.get("default_value", v.get("default"))
+
+                            param_vars.append({
                                 "name": v.get("name", ""),
                                 "type": v.get("type", "string"),
                                 "label": v.get("label", ""),
                                 "description": v.get("description", ""),
-                            }
-                            for v in output_vars
-                            if isinstance(v, dict) and v.get("name")
-                        ]
+                                "required": required,
+                                "default": default_val,
+                            })
 
         if param_vars:
-            param_desc = ", ".join(
-                f"{p['name']} ({p['type']}{' - ' + p['label'] if p.get('label') else ''})"
-                for p in param_vars
-            )
+            parts_list = []
+            for p in param_vars:
+                # Build type+required+default annotation, e.g. "(string, required)" or "(text, optional, default='')".
+                attr_parts = [p["type"]]
+                if p["required"]:
+                    attr_parts.append("required")
+                else:
+                    attr_parts.append("optional")
+                    default_val = p.get("default")
+                    if default_val not in (None, ""):
+                        attr_parts.append(f"default={default_val!r}")
+                attr_str = ", ".join(attr_parts)
+
+                # Build the full param line: name (type, required): description
+                desc = p.get("description") or p.get("label") or ""
+                if desc:
+                    parts_list.append(f"{p['name']} ({attr_str}): {desc}")
+                else:
+                    parts_list.append(f"{p['name']} ({attr_str})")
+
+            param_desc = ", ".join(parts_list)
             lines.append(f"  - Input params: {param_desc}")
             lines.append(
                 "  - Map the user's request to the exact param name above. "
@@ -649,18 +667,10 @@ async def preview_agent(
     from langchain_core.messages import SystemMessage
     from langchain_core.tools import StructuredTool
 
-    # --- Resolve system prompt ---
-    system_text = agent.get("system_prompt", "")
-    # Backward compat: saved_system_prompts with is_active
-    saved_prompts = agent.get("saved_system_prompts", [])
-    active_prompt = next((p for p in saved_prompts if p.get("is_active")), None)
-    if active_prompt and active_prompt.get("content"):
-        system_text = active_prompt["content"]
+    # --- Resolve system prompt via slot renderer ---
+    from app.engine.agent.slot_renderer import render_system_prompt_full
 
-    # Tool declaration (Skills + MCP + Workflow + Builtin + Task)
-    tool_declaration = await build_tool_declaration(agent)
-    if tool_declaration:
-        system_text = f"{system_text}\n{tool_declaration}" if system_text else tool_declaration
+    system_text = await render_system_prompt_full(agent)
 
     # --- Assemble messages ---
     messages: list[dict] = []
@@ -733,8 +743,7 @@ async def preview_agent(
             })
 
     # --- LLM config preview ---
-    legacy_llm = agent.get("llm_config") or {}
-    model_ref = agent.get("default_model") or legacy_llm.get("default_model", "")
+    model_ref = agent.get("default_model") or (agent.get("llm_config") or {}).get("default_model", "")
 
     return {
         "system_prompt": system_text,

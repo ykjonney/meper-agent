@@ -100,7 +100,7 @@ def test_list_users_as_admin(client: TestClient, admin_token: str) -> None:
         mock_get_user.return_value = _make_admin_doc()
 
         resp = client.get(
-            "/api/v1/admin/users",
+            "/api/v1/users",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -129,7 +129,7 @@ def test_list_users_pagination(client: TestClient, admin_token: str) -> None:
         mock_get_user.return_value = _make_admin_doc()
 
         resp = client.get(
-            "/api/v1/admin/users?page=2&page_size=10",
+            "/api/v1/users?page=2&page_size=10",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -154,7 +154,7 @@ def test_list_users_forbidden_for_dev(client: TestClient, dev_token: str) -> Non
             "last_login_at": None,
         }
         resp = client.get(
-            "/api/v1/admin/users",
+            "/api/v1/users",
             headers={"Authorization": f"Bearer {dev_token}"},
         )
 
@@ -164,7 +164,7 @@ def test_list_users_forbidden_for_dev(client: TestClient, dev_token: str) -> Non
 
 def test_list_users_unauthorized(client: TestClient) -> None:
     """AC6: No token gets 401."""
-    resp = client.get("/api/v1/admin/users")
+    resp = client.get("/api/v1/users")
     assert resp.status_code == 401
 
 
@@ -181,7 +181,7 @@ def test_create_user_as_admin(client: TestClient, admin_token: str) -> None:
         mock_get_user.return_value = _make_admin_doc()
 
         resp = client.post(
-            "/api/v1/admin/users",
+            "/api/v1/users",
             json={
                 "username": "newuser",
                 "email": "new@example.com",
@@ -204,7 +204,7 @@ def test_create_user_weak_password(client: TestClient, admin_token: str) -> None
     with patch("app.services.user_service.UserService.get_user_by_id") as mock_get_user:
         mock_get_user.return_value = _make_admin_doc()
         resp = client.post(
-            "/api/v1/admin/users",
+            "/api/v1/users",
             json={
                 "username": "newuser",
                 "email": "new@example.com",
@@ -252,7 +252,7 @@ def test_update_user_as_admin(client: TestClient, admin_token: str) -> None:
         mock_col.return_value = col
 
         resp = client.patch(
-            "/api/v1/admin/users/user_01HUSER1",
+            "/api/v1/users/user_01HUSER1",
             json={"role": "operator"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -274,7 +274,7 @@ def test_update_user_not_found(client: TestClient, admin_token: str) -> None:
         side_effect=_side_effect,
     ):
         resp = client.patch(
-            "/api/v1/admin/users/user_nonexistent",
+            "/api/v1/users/user_nonexistent",
             json={"role": "operator"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -311,7 +311,7 @@ def test_delete_user_as_admin(client: TestClient, admin_token: str) -> None:
         mock_col.return_value = col
 
         resp = client.delete(
-            "/api/v1/admin/users/user_01HUSER1",
+            "/api/v1/users/user_01HUSER1",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -330,7 +330,7 @@ def test_delete_user_not_found(client: TestClient, admin_token: str) -> None:
         side_effect=_side_effect,
     ):
         resp = client.delete(
-            "/api/v1/admin/users/user_nonexistent",
+            "/api/v1/users/user_nonexistent",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -361,7 +361,7 @@ def test_reset_password_as_admin(client: TestClient, admin_token: str) -> None:
         mock_auth_user.return_value = _make_admin_doc()
 
         resp = client.post(
-            "/api/v1/admin/users/user_01HUSER1/reset-password",
+            "/api/v1/users/user_01HUSER1/reset-password",
             json={"new_password": "NewStrong5678"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -375,7 +375,7 @@ def test_reset_password_weak(client: TestClient, admin_token: str) -> None:
     with patch("app.services.user_service.UserService.get_user_by_id") as mock_auth_user:
         mock_auth_user.return_value = _make_admin_doc()
         resp = client.post(
-            "/api/v1/admin/users/user_01HUSER1/reset-password",
+            "/api/v1/users/user_01HUSER1/reset-password",
             json={"new_password": "weak"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -395,7 +395,7 @@ def test_reset_password_not_found(client: TestClient, admin_token: str) -> None:
         side_effect=_side_effect,
     ):
         resp = client.post(
-            "/api/v1/admin/users/user_nonexistent/reset-password",
+            "/api/v1/users/user_nonexistent/reset-password",
             json={"new_password": "NewStrong5678"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )

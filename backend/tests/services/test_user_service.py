@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.core.errors import ForbiddenError, ValidationError
-from app.models.user import UserRole
 from app.services.user_service import UserService
 
 
@@ -49,7 +48,7 @@ class TestCreateAdminUser:
         assert inserted_doc["username"] == "admin"
         assert inserted_doc["email"] == "admin@example.com"
         assert inserted_doc["password_hash"] != "Strong1234"  # hashed, not plaintext
-        assert inserted_doc["role"] == UserRole.ADMIN
+        assert inserted_doc["role"] == "admin"
         assert "created_at" in inserted_doc
         assert "updated_at" in inserted_doc
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.models.user import UserRole, UserStatus
+from app.models.user import UserStatus
 
 
 class UserCreate(BaseModel):
@@ -12,7 +12,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=1, max_length=50, description="Unique username")
     email: str = Field(..., max_length=255, pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", description="Unique email address")
     password: str = Field(..., min_length=8, max_length=128, description="Plaintext password")
-    role: UserRole = Field(default=UserRole.VIEWER, description="User role")
+    role: str = Field(default="viewer", description="User role (system or custom role name)")
 
 
 class UserResponse(BaseModel):
@@ -21,11 +21,12 @@ class UserResponse(BaseModel):
     id: str
     username: str
     email: str
-    role: UserRole
+    role: str
     status: UserStatus
     created_at: str
     updated_at: str
     last_login_at: str | None = None
+    permissions: list[str] = Field(default_factory=list, description="Resolved permission keys")
 
 
 class UserInDB(BaseModel):
@@ -35,7 +36,7 @@ class UserInDB(BaseModel):
     username: str
     email: str
     password_hash: str = Field(exclude=True)  # Never serialize (AC6)
-    role: UserRole
+    role: str
     status: UserStatus
     created_at: str
     updated_at: str
@@ -47,7 +48,7 @@ class UserInDB(BaseModel):
 class UserUpdate(BaseModel):
     """Schema for updating an existing user (partial update — PATCH)."""
 
-    role: UserRole | None = Field(default=None, description="New role")
+    role: str | None = Field(default=None, description="New role name")
     status: UserStatus | None = Field(default=None, description="New status")
 
 

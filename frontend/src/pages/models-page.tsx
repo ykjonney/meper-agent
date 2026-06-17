@@ -22,6 +22,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
+import { parseBackendDate } from '../lib/format'
 import {
   modelApi,
   modelKeys,
@@ -335,7 +336,7 @@ export default function ModelsPage() {
   /* ─── Format relative time ─── */
   function formatTime(iso: string) {
     if (!iso) return '-'
-    const diff = Date.now() - new Date(iso).getTime()
+    const diff = Date.now() - parseBackendDate(iso).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return '刚刚'
     if (mins < 60) return `${mins} 分钟前`
@@ -552,7 +553,7 @@ export default function ModelsPage() {
                 <div>
                   <div className="text-sm font-medium text-emerald-700">连接成功</div>
                   <div className="text-xs text-emerald-600">
-                    延迟 {testResult.latency_ms}ms · {testResult.tested_at ? new Date(testResult.tested_at).toLocaleTimeString() : ''}
+                    延迟 {testResult.latency_ms}ms · {testResult.tested_at ? parseBackendDate(testResult.tested_at).toLocaleTimeString() : ''}
                   </div>
                 </div>
               </div>

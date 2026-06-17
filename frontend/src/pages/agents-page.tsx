@@ -4,8 +4,11 @@
  * Powered by TanStack Query + agent-api.ts service.
  * Backend contract: snake_case fields, paginated list.
  *
+ * Design: DESIGN.md aligned — table layout, surface ladder,
+ * semantic tokens, 4px/8px radius, strict type scale.
+ *
  * Features:
- * - Agent list with search, status filter, and stats
+ * - Agent table with search, status filter, and inline stats
  * - Create agent → auto-redirect to detail page
  * - Publish / Archive lifecycle management
  * - Duplicate with automatic naming
@@ -13,16 +16,16 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Tag, Select, Tooltip, message, Spin, Modal, Input } from 'antd'
+import { Select, Tooltip, message, Spin, Modal, Input } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
-  RobotOutlined,
   CopyOutlined,
   DeleteOutlined,
   InboxOutlined,
   CloudUploadOutlined,
   StopOutlined,
+  FilterOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -44,6 +47,18 @@ function useDebouncedValue<T>(value: T, delay = 300): T {
     return () => clearTimeout(timer)
   }, [value, delay])
   return debounced
+}
+
+/* ─── Format relative time ─── */
+function formatTime(iso: string) {
+  if (!iso) return '-'
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
 }
 
 export default function AgentsPage() {
@@ -215,206 +230,286 @@ export default function AgentsPage() {
     })
   }
 
-  /* ─── Helper: model display ─── */
-  const getModelDisplay = (agent: Agent): string => {
-    const modelRef = agent.default_model
-    if (!modelRef) return '未配置'
-    return modelRef
-  }
+  /* ─── Computed stats ─── */
+  const publishedCount = agents.filter(a => a.status === 'published').length
+  const draftCount = agents.filter(a => a.status === 'draft').length
+  const archivedCount = agents.filter(a => a.status === 'archived').length
 
-  /* ─── Stats ─── */
-  const stats = [
-    { label: '全部 Agent', value: total.toString() },
-    { label: '已发布（当前页）', value: agents.filter(a => a.status === 'published').length.toString() },
-    { label: '草稿（当前页）', value: agents.filter(a => a.status === 'draft').length.toString() },
-    { label: '已归档（当前页）', value: agents.filter(a => a.status === 'archived').length.toString() },
-  ]
-
-  /* ─── Format relative time ─── */
-  function formatTime(iso: string) {
-    if (!iso) return '-'
-    const diff = Date.now() - new Date(iso).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return '刚刚'
-    if (mins < 60) return `${mins} 分钟前`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours} 小时前`
-    return `${Math.floor(hours / 24)} 天前`
-  }
+  /* ─── Pending state helper ─── */
+  const isPending = publishMutation.isPending || archiveMutation.isPending || duplicateMutation.isPending || deleteMutation.isPending
 
   return (
-    <div className="animate-[fadeIn_0.3s_ease-out]">
-      {/* Header actions */}
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
+    <div>
+      {/* ════════ Page header ════════ */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-txt" style={{ letterSpacing: '-0.02em' }}>
+            Agent 管理
+          </h1>
+          <p className="text-[13px] text-txt-3 mt-1">
+            创建、配置和部署 AI Agent
+          </p>
+        </div>
+        <button
+          onClick={handleCreate}
+          className="flex items-center gap-1.5 px-4 h-9 text-[13px] font-medium text-white border-0 cursor-pointer"
+          style={{ background: t.primary, borderRadius: 6 }}
+        >
+          <PlusOutlined style={{ fontSize: 12 }} />
+          新建 Agent
+        </button>
+      </div>
+
+      {/* ════════ Stats bar (inline, not cards) ════════ */}
+      <div className="flex items-center gap-6 mb-5">
+        {[
+          { label: '全部', value: total.toString() },
+          { label: '已发布', value: publishedCount.toString() },
+          { label: '草稿', value: draftCount.toString() },
+          { label: '已归档', value: archivedCount.toString() },
+        ].map((s, i) => (
+          <div key={s.label} className="flex items-center gap-5">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-semibold text-txt" style={{ letterSpacing: '-0.01em' }}>
+                {isLoading ? <Spin size="small" /> : s.value}
+              </span>
+              <span className="text-[13px] text-txt-3">{s.label}</span>
+            </div>
+            {i < 3 && <div className="w-px h-4 bg-line" />}
+          </div>
+        ))}
+      </div>
+
+      {/* ════════ Action bar ════════ */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          {/* Search */}
           <div className="relative">
-            <SearchOutlined className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8] text-sm" />
+            <SearchOutlined className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-[13px]" />
             <input
               type="text"
               placeholder="搜索 Agent..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 w-64"
-              style={{ '--tw-ring-color': t.bg } as React.CSSProperties}
+              className="pl-8 pr-3 py-[6px] text-[13px] border border-line bg-canvas text-txt placeholder:text-muted focus:outline-none focus:border-primary w-56"
+              style={{ borderRadius: 6, '--tw-ring-color': t.primary } as React.CSSProperties}
             />
           </div>
+          {/* Filter */}
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
             className="w-28"
+            suffixIcon={<FilterOutlined style={{ fontSize: 11 }} />}
             options={[
-              { value: 'all', label: '全部' },
+              { value: 'all', label: '全部状态' },
               { value: 'published', label: '已发布' },
               { value: 'draft', label: '草稿' },
               { value: 'archived', label: '已归档' },
             ]}
           />
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建 Agent
-        </Button>
+        <span className="text-[12px] text-txt-muted">
+          {!isLoading && `共 ${total} 个 Agent`}
+        </span>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="text-2xl font-semibold text-[#0F172A] mb-0.5">
-              {isLoading ? <Spin size="small" /> : s.value}
-            </div>
-            <div className="text-xs text-[#64748B]">{s.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Loading state */}
+      {/* ════════ Loading state ════════ */}
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Spin size="large" tip="加载中..." />
+          <Spin size="large" />
         </div>
       )}
 
-      {/* Error state */}
+      {/* ════════ Error state ════════ */}
       {isError && !isLoading && (
-        <div className="flex flex-col items-center justify-center py-20 text-[#94A3B8]">
-          <InboxOutlined className="text-4xl mb-3" />
-          <p className="text-sm">
+        <div className="flex flex-col items-center justify-center py-20">
+          <InboxOutlined className="text-3xl text-muted mb-2" />
+          <p className="text-[13px] text-txt-3 mb-1">加载失败</p>
+          <p className="text-[12px] text-muted">
             {error && typeof error === 'object' && 'message' in error
               ? (error as { message: string }).message
-              : '加载失败，请稍后重试'}
+              : '请稍后重试'}
           </p>
         </div>
       )}
 
-      {/* Empty state */}
+      {/* ════════ Empty state ════════ */}
       {!isLoading && !isError && agents.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-[#94A3B8]">
-          <InboxOutlined className="text-4xl mb-3" />
-          <p className="text-sm">暂无 Agent，点击右上角「新建 Agent」开始创建</p>
+        <div
+          className="flex flex-col items-center justify-center py-20 bg-canvas border border-line"
+          style={{ borderRadius: 8 }}
+        >
+          <InboxOutlined className="text-3xl text-muted mb-2" />
+          <p className="text-[13px] text-txt-2 mb-3">暂无 Agent</p>
+          <button
+            onClick={handleCreate}
+            className="flex items-center gap-1.5 px-4 h-8 text-[13px] font-medium text-white border-0 cursor-pointer"
+            style={{ background: t.primary, borderRadius: 6 }}
+          >
+            <PlusOutlined style={{ fontSize: 12 }} />
+            创建第一个 Agent
+          </button>
         </div>
       )}
 
-      {/* Agent cards */}
+      {/* ════════ Agent table ════════ */}
       {!isLoading && !isError && agents.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
-          {agents.map((agent) => {
-            const ss = STATUS_STYLES[agent.status] ?? STATUS_STYLES.draft
-            const modelLabel = getModelDisplay(agent)
-            const canPublish = agent.status === 'draft' || agent.status === 'archived'
-            const canArchive = agent.status === 'published'
-            return (
-              <div
-                key={agent.id}
-                onClick={() => navigate(`/agents/${agent.id}`)}
-                className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-sm transition-all duration-200 cursor-pointer"
-              >
-                {/* Header row */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center text-base shrink-0" style={{ background: t.bg, color: t.primary }}>
-                      <RobotOutlined />
+        <div
+          className="bg-canvas border border-line overflow-hidden overflow-x-auto"
+          style={{ borderRadius: 8 }}
+        >
+          {/* min-width ensures horizontal scroll on narrow screens instead of column crush */}
+          <div style={{ minWidth: 780 }}>
+            {/* Table header */}
+            <div
+              className="grid items-center px-5 h-10 bg-surface-muted border-b border-line"
+              style={{ gridTemplateColumns: 'minmax(180px,2fr) minmax(110px,1.2fr) 72px minmax(90px,1fr) 80px 80px' }}
+            >
+              <span className="text-[12px] font-medium text-txt-3">名称</span>
+              <span className="text-[12px] font-medium text-txt-3">模型</span>
+              <span className="text-[12px] font-medium text-txt-3">状态</span>
+              <span className="text-[12px] font-medium text-txt-3">工具</span>
+              <span className="text-[12px] font-medium text-txt-3">更新</span>
+              <span className="text-[12px] font-medium text-txt-3 text-right">操作</span>
+            </div>
+
+            {/* Rows */}
+            {agents.map((agent, i) => {
+              const ss = STATUS_STYLES[agent.status] ?? STATUS_STYLES.draft
+              const modelLabel = agent.default_model || '未配置'
+              const canPublish = agent.status === 'draft' || agent.status === 'archived'
+              const canArchive = agent.status === 'published'
+              const skillCount = agent.skill_ids?.length ?? 0
+              const mcpCount = agent.mcp_connection_ids?.length ?? 0
+              const builtinCount = agent.builtin_config?.length ?? 0
+
+              return (
+                <div
+                  key={agent.id}
+                  onClick={() => navigate(`/agents/${agent.id}`)}
+                  className="grid items-center px-5 h-[52px] cursor-pointer transition-colors duration-150 hover:bg-surface"
+                  style={{
+                    gridTemplateColumns: 'minmax(180px,2fr) minmax(110px,1.2fr) 72px minmax(90px,1fr) 80px 80px',
+                    borderBottom: i < agents.length - 1 ? '1px solid rgb(var(--c-line-2))' : 'none',
+                  }}
+                >
+                  {/* Name + desc */}
+                  <div className="min-w-0 pr-3">
+                    <div className="text-[14px] font-medium text-txt truncate">
+                      {agent.name}
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-[#0F172A] truncate">{agent.name}</span>
-                      </div>
-                      <div className="text-xs text-[#64748B] truncate max-w-[200px]">{agent.description || '暂无描述'}</div>
+                    <div className="text-[12px] text-txt-3 truncate">
+                      {agent.description || '暂无描述'}
                     </div>
                   </div>
-                </div>
 
-                {/* Model & status tags */}
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  <Tag className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded" style={{ color: t.primary, background: t.bg, borderColor: 'transparent' }}>
+                  {/* Model (mono font) */}
+                  <span className="text-[13px] text-txt-2 font-mono truncate pr-2" title={modelLabel}>
                     {modelLabel}
-                  </Tag>
-                  <Tag className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded" style={{ color: ss.color, background: ss.bg, borderColor: 'transparent' }}>
-                    {ss.label}
-                  </Tag>
-                  {agent.skill_ids && agent.skill_ids.length > 0 && (
-                    <Tag className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded" style={{ color: '#3B82F6', background: '#EFF6FF', borderColor: 'transparent' }}>
-                      {agent.skill_ids.length} Skill
-                    </Tag>
-                  )}
-                  {agent.builtin_config && agent.builtin_config.length > 0 && (
-                    <Tag className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded" style={{ color: '#F59E0B', background: '#FFFBEB', borderColor: 'transparent' }}>
-                      {agent.builtin_config.length} Built-in
-                    </Tag>
-                  )}
-                  {agent.mcp_connection_ids && agent.mcp_connection_ids.length > 0 && (
-                    <Tag className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded" style={{ color: '#10B981', background: '#ECFDF5', borderColor: 'transparent' }}>
-                      {agent.mcp_connection_ids.length} MCP
-                    </Tag>
-                  )}
-                </div>
+                  </span>
 
-                {/* Footer: time + actions */}
-                <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                  <span className="text-[11px] text-[#94A3B8]">{formatTime(agent.updated_at)}</span>
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  {/* Status badge */}
+                  <span
+                    className="inline-flex items-center text-[12px] font-medium w-fit px-2 py-[1px]"
+                    style={{ color: ss.color, background: ss.bg, borderRadius: 4 }}
+                  >
+                    {ss.label}
+                  </span>
+
+                  {/* Tool tags */}
+                  <div className="flex items-center gap-1 min-w-0 flex-wrap">
+                    {skillCount > 0 && (
+                      <span
+                        className="text-[11px] px-1.5 py-[1px] shrink-0"
+                        style={{ color: t.primary, background: t.bg, borderRadius: 4 }}
+                      >
+                        {skillCount} Skill
+                      </span>
+                    )}
+                    {builtinCount > 0 && (
+                      <span
+                        className="text-[11px] px-1.5 py-[1px] shrink-0"
+                        style={{ color: '#F59E0B', background: '#FFFBEB', borderRadius: 4 }}
+                      >
+                        {builtinCount} Built-in
+                      </span>
+                    )}
+                    {mcpCount > 0 && (
+                      <span
+                        className="text-[11px] px-1.5 py-[1px] shrink-0"
+                        style={{ color: '#10B981', background: '#ECFDF5', borderRadius: 4 }}
+                      >
+                        {mcpCount} MCP
+                      </span>
+                    )}
+                    {skillCount === 0 && builtinCount === 0 && mcpCount === 0 && (
+                      <span className="text-[12px] text-muted">-</span>
+                    )}
+                  </div>
+
+                  {/* Time */}
+                  <span className="text-[12px] text-txt-muted whitespace-nowrap">
+                    {formatTime(agent.updated_at)}
+                  </span>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-0.5 justify-end" onClick={(e) => e.stopPropagation()}>
                     {canPublish && (
                       <Tooltip title="发布">
                         <button
                           onClick={() => handlePublish(agent)}
-                          disabled={publishMutation.isPending}
-                          className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#10B981] hover:bg-[#D1FAE5] transition-colors duration-150 text-xs"
-                        ><CloudUploadOutlined /></button>
+                          disabled={isPending}
+                          className="border-0 bg-transparent w-7 h-7 flex items-center justify-center text-[#10B981] hover:bg-[#D1FAE5] transition-colors duration-150 text-[13px] disabled:opacity-40"
+                          style={{ borderRadius: 4 }}
+                        >
+                          <CloudUploadOutlined />
+                        </button>
                       </Tooltip>
                     )}
                     {canArchive && (
                       <Tooltip title="下架">
                         <button
                           onClick={() => handleArchive(agent)}
-                          disabled={archiveMutation.isPending}
-                          className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#F59E0B] hover:bg-[#FEF3C7] transition-colors duration-150 text-xs"
-                        ><StopOutlined /></button>
+                          disabled={isPending}
+                          className="border-0 bg-transparent w-7 h-7 flex items-center justify-center text-[#F59E0B] hover:bg-[#FEF3C7] transition-colors duration-150 text-[13px] disabled:opacity-40"
+                          style={{ borderRadius: 4 }}
+                        >
+                          <StopOutlined />
+                        </button>
                       </Tooltip>
                     )}
                     <Tooltip title="复制">
                       <button
                         onClick={() => handleDuplicate(agent)}
-                        disabled={duplicateMutation.isPending}
-                        className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#94A3B8] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150 text-xs"
-                      ><CopyOutlined /></button>
+                        disabled={isPending}
+                        className="border-0 bg-transparent w-7 h-7 flex items-center justify-center text-txt-muted hover:text-txt hover:bg-surface-muted transition-colors duration-150 text-[13px] disabled:opacity-40"
+                        style={{ borderRadius: 4 }}
+                      >
+                        <CopyOutlined />
+                      </button>
                     </Tooltip>
                     <Tooltip title="删除">
                       <button
                         onClick={() => handleDelete(agent)}
-                        disabled={deleteMutation.isPending}
-                        className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#94A3B8] hover:text-[#EF4444] hover:bg-gray-50 transition-colors duration-150 text-xs"
-                      ><DeleteOutlined /></button>
+                        disabled={isPending}
+                        className="border-0 bg-transparent w-7 h-7 flex items-center justify-center text-txt-muted hover:text-error hover:bg-error/10 transition-colors duration-150 text-[13px] disabled:opacity-40"
+                        style={{ borderRadius: 4 }}
+                      >
+                        <DeleteOutlined />
+                      </button>
                     </Tooltip>
                   </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       )}
 
-      {/* Create Agent Modal */}
+      {/* ════════ Create Agent Modal ════════ */}
       <Modal
-        title="新建 Agent"
+        title={<span className="text-base font-semibold">新建 Agent</span>}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={handleCreateSubmit}
@@ -422,13 +517,13 @@ export default function AgentsPage() {
         cancelText="取消"
         confirmLoading={creating}
         okButtonProps={{ disabled: !createName.trim() }}
-        destroyOnClose
+        destroyOnHidden
         width={480}
       >
         <div className="flex flex-col gap-4 py-2">
           <div>
-            <label className="block text-sm text-[#0F172A] mb-1.5">
-              名称 <span className="text-[#EF4444]">*</span>
+            <label className="block text-[13px] text-txt mb-1.5">
+              名称 <span className="text-error">*</span>
             </label>
             <Input
               value={createName}
@@ -440,7 +535,7 @@ export default function AgentsPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-[#0F172A] mb-1.5">
+            <label className="block text-[13px] text-txt mb-1.5">
               描述
             </label>
             <Input.TextArea

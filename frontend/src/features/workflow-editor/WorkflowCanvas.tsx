@@ -7,6 +7,7 @@
  * - Minimap + Controls
  * - 选中事件回调
  * - 拖线操作 → 更新 source 节点的 config.next_nodes
+ * - 点击边高亮 + Delete/Backspace 删除
  *
  * 注意：边不再作为独立状态管理，而是从节点的 next_nodes 推导而来。
  */
@@ -20,11 +21,13 @@ import {
   applyNodeChanges,
   useOnSelectionChange,
   type OnNodesChange,
+  type OnEdgesChange,
   type OnConnect,
   type Node,
   type Edge,
   type Connection,
   type NodeChange,
+  type EdgeChange,
   type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -36,17 +39,16 @@ import { generateNodeId, getDefaultNodeConfig } from './utils/node-defaults'
 import { NODE_TYPE_CONFIGS } from './utils/node-type-configs'
 import type { WorkflowNode } from '../../services/workflows-api'
 
-/* ─── 内部组件：在 ReactFlow 内部监听选中事件 ─── */
+/* ─── 内部组件：在 ReactFlow 内部监听节点选中事件 ── */
 function SelectionHandler({ workflowNodes, onSelectNode }: {
   workflowNodes: WorkflowNode[]
   onSelectNode: (node: WorkflowNode | null) => void
 }) {
-  // 追踪上次选中，避免 sync effect 替换节点引用后 React Flow 清空选中
-  // 触发误报 onSelectNode(null) 导致配置面板消失
   const prevSelectedRef = useRef<string | null>(null)
 
   useOnSelectionChange({
     onChange: ({ nodes: selectedNodes }) => {
+      // 节点选中
       if (selectedNodes.length > 0) {
         const xyNode = selectedNodes[0]
         prevSelectedRef.current = xyNode.id
@@ -55,8 +57,6 @@ function SelectionHandler({ workflowNodes, onSelectNode }: {
           onSelectNode(found)
         }
       } else {
-        // React Flow 在节点引用被替换（sync effect）时会短暂清空选中，
-        // 如果 workflowNodes 中仍存在上次选中的节点，说明是同步引起的，忽略
         const stillExists = prevSelectedRef.current
           ? workflowNodes.some((n) => n.node_id === prevSelectedRef.current)
           : false
@@ -70,7 +70,7 @@ function SelectionHandler({ workflowNodes, onSelectNode }: {
   return null
 }
 
-/* ─── 自定义节点类型注册表 ─── */
+/* ─── 自定义节点类型注册表 ── */
 const nodeTypes = {
   workflow: WorkflowBaseNode,
 }
@@ -97,8 +97,6 @@ export default function WorkflowCanvas({
   )
 
   // 同步外部 workflowNodes 到内部 xyflowNodes
-  // 使用 config 内容 hash 而非节点数量，确保配置变更（如添加 output_variables）后画布同步更新
-  // 注意：保留现有 xyflow 节点的拖拽位置，不覆盖
   const prevSyncHashRef = useRef('')
   useEffect(() => {
     const hash = workflowNodes
@@ -110,28 +108,61 @@ export default function WorkflowCanvas({
       setXyflowNodes((prev) =>
         newNodes.map((nn) => {
           const existing = prev.find((p) => p.id === nn.id)
-          // 保留 xyflow 中的拖拽位置，仅更新数据
           return existing ? { ...nn, position: existing.position } : nn
         }),
       )
     }
   }, [workflowNodes, selectedNodeId])
 
-  /* ─── xyflow edges: 从 workflowNodes 的 config 推导 ─── */
-  const xyflowEdges = useMemo<Edge[]>(
-    () => deriveXyflowEdgesFromNodes(workflowNodes),
-    [workflowNodes],
-  )
+  /* ─── 追踪选中的边（受控模式下 React Flow 不会回写 selected 属性） ─── */
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())
 
-  /* ─── 内部节点位置变更（包括拖拽） ─── */
-  const handleNodesChange: OnNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      setXyflowNodes((prev) => applyNodeChanges(changes, prev) as Node[])
+  /* ─── 边点击 → 手动追踪选中状态 ─── */
+  const handleEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      setSelectedEdgeIds(new Set([edge.id]))
     },
     [],
   )
 
-  /* ─── 拖拽结束 → 同步位置回 workflowNodes ─── */
+  /* ─── 面板/节点点击 → 清除边选中 ─── */
+  const handlePaneClick = useCallback(() => {
+    onSelectNode(null)
+    setSelectedEdgeIds(new Set())
+  }, [onSelectNode])
+
+  /* ─── xyflow edges: 从 workflowNodes 的 config 推导，注入 selected 样式 ─── */
+  const xyflowEdges = useMemo<Edge[]>(
+    () =>
+      deriveXyflowEdgesFromNodes(workflowNodes).map((e) => {
+        const isSelected = selectedEdgeIds.has(e.id)
+        const isCondition = e.className?.includes('workflow-edge--condition')
+        return {
+          ...e,
+          selected: isSelected,
+          style: isSelected
+            ? { stroke: '#3B82F6', strokeWidth: 2.5 }
+            : isCondition
+              ? { stroke: '#8B5CF6', strokeWidth: 2 }
+              : { stroke: '#94A3B8', strokeWidth: 1.5 },
+        }
+      }),
+    [workflowNodes, selectedEdgeIds],
+  )
+
+  /* ─── 内部节点位置变更（包括拖拽） ─── */
+  // 忽略 remove 类型：节点删除只通过配置面板的「删除节点」按钮（带确认弹窗）
+  const handleNodesChange: OnNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const safeChanges = changes.filter((c) => c.type !== 'remove')
+      if (safeChanges.length > 0) {
+        setXyflowNodes((prev) => applyNodeChanges(safeChanges, prev) as Node[])
+      }
+    },
+    [],
+  )
+
+  /* ── 拖拽结束 → 同步位置回 workflowNodes ─── */
   const handleNodeDragStop = useCallback(
     (_: React.MouseEvent | React.TouchEvent, node: Node) => {
       const updatedNodes = workflowNodes.map((n) =>
@@ -148,7 +179,6 @@ export default function WorkflowCanvas({
   const handleConnect: OnConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return
-      // 通过 syncEdgeChangesToNodes 更新 source 节点
       const updatedNodes = syncEdgeChangesToNodes(
         'add',
         workflowNodes,
@@ -167,15 +197,13 @@ export default function WorkflowCanvas({
       if (foundNode) {
         onSelectNode(foundNode)
       }
+      // 点击节点时清除边选中
+      setSelectedEdgeIds(new Set())
     },
     [workflowNodes, onSelectNode],
   )
 
-  const handlePaneClick = useCallback(() => {
-    onSelectNode(null)
-  }, [onSelectNode])
-
-  /* ─── 拖拽添加节点 ─── */
+  /* ── 拖拽添加节点 ─── */
   const handleInit = useCallback((instance: ReactFlowInstance) => {
     rfInstance.current = instance
   }, [])
@@ -194,7 +222,6 @@ export default function WorkflowCanvas({
       const instance = rfInstance.current
       if (!instance) return
 
-      // 用 screenToFlowPosition 精确转换屏幕坐标 → 画布坐标
       const position = instance.screenToFlowPosition({
         x: e.clientX,
         y: e.clientY,
@@ -216,8 +243,51 @@ export default function WorkflowCanvas({
   )
 
   /* ─── 删除边 → 从 source 节点的 next_nodes 中移除 ─── */
-  // 这里不使用 onEdgesChange，而是在 xyflow edges 的删除操作中拦截
-  // 删除边的操作通过节点配置面板完成
+  // 选中边后按 Delete/Backspace → 同步回 source 节点
+  const handleEdgesChange: OnEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      let updatedNodes = workflowNodes
+      let changed = false
+      for (const change of changes) {
+        if (change.type === 'remove') {
+          const edge = xyflowEdges.find((e) => e.id === change.id)
+          if (edge?.source && edge?.target) {
+            updatedNodes = syncEdgeChangesToNodes('remove', updatedNodes, edge.source, edge.target)
+            changed = true
+          }
+        }
+      }
+      if (changed) {
+        onWorkflowNodesChange(updatedNodes)
+      }
+    },
+    [workflowNodes, xyflowEdges, onWorkflowNodesChange],
+  )
+
+  /* ─── 键盘删除边（受控模式下 deleteKeyCode 不可靠，手动监听） ─── */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      // 如果焦点在输入框内，不拦截
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+      if (selectedEdgeIds.size === 0) return
+
+      e.preventDefault()
+      let updatedNodes = workflowNodes
+      for (const edgeId of selectedEdgeIds) {
+        const edge = xyflowEdges.find((e) => e.id === edgeId)
+        if (edge?.source && edge?.target) {
+          updatedNodes = syncEdgeChangesToNodes('remove', updatedNodes, edge.source, edge.target)
+        }
+      }
+      onWorkflowNodesChange(updatedNodes)
+      setSelectedEdgeIds(new Set())
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedEdgeIds, workflowNodes, xyflowEdges, onWorkflowNodesChange])
 
   return (
     <div className="w-full h-full">
@@ -225,8 +295,10 @@ export default function WorkflowCanvas({
         nodes={xyflowNodes}
         edges={xyflowEdges}
         onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
         onNodeDragStop={handleNodeDragStop}
         onInit={handleInit}

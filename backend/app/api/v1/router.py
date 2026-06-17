@@ -7,6 +7,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
 from app.api.v1.mcp import router as mcp_router
 from app.api.v1.models import router as models_router
+from app.api.v1.roles import router as roles_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.tools import router as tools_router
@@ -23,5 +24,6 @@ api_v1_router.include_router(sessions_router)
 api_v1_router.include_router(tasks_router)
 api_v1_router.include_router(tools_router)
 api_v1_router.include_router(mcp_router)
+api_v1_router.include_router(roles_router)
 api_v1_router.include_router(workflow_registry_router)
 api_v1_router.include_router(workflows_router)

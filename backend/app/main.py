@@ -26,6 +26,11 @@ async def lifespan(app: FastAPI):
     scheduler = get_scheduler()
     await scheduler.start()
 
+    # Initialize system roles (idempotent — only inserts missing roles)
+    from app.services.role_service import RoleService
+    await RoleService.ensure_indexes()
+    await RoleService.init_system_roles()
+
     # Recover waiting_human tasks from previous server instance
     from app.services.task_recovery import recover_waiting_human_tasks
     await recover_waiting_human_tasks()

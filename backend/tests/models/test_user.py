@@ -32,12 +32,12 @@ class TestUserModel:
             username="admin",
             email="admin@example.com",
             password_hash="$2b$12$somehash",
-            role=UserRole.ADMIN,
+            role="admin",
             status=UserStatus.ACTIVE,
         )
         assert user.username == "admin"
         assert user.email == "admin@example.com"
-        assert user.role == UserRole.ADMIN
+        assert user.role == "admin"
         assert user.status == UserStatus.ACTIVE
         assert user.last_login_at is None
 

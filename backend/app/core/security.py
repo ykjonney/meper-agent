@@ -197,15 +197,20 @@ async def get_current_user(
             message="Account is disabled",
         )
 
+    # Resolve permissions for this user's role (Redis-cached)
+    role_name = user_doc.get("role", "")
+    perms = await get_role_permissions(role_name)
+
     return UserResponse(
         id=user_doc.get("_id", ""),
         username=user_doc.get("username", ""),
         email=user_doc.get("email", ""),
-        role=user_doc.get("role", ""),
+        role=role_name,
         status=user_doc.get("status", ""),
         created_at=user_doc.get("created_at", ""),
         updated_at=user_doc.get("updated_at", ""),
         last_login_at=user_doc.get("last_login_at"),
+        permissions=sorted(perms),
     )
 
 
@@ -226,8 +231,8 @@ async def get_current_user_optional(
 # RBAC — Role-based access control (Decision 2.3: hand-written Depends)
 # ---------------------------------------------------------------------------
 
-# Permission matrix: maps permission keys to allowed roles (AC7)
-ROLE_PERMISSIONS: dict[str, set[str]] = {
+# Permission matrix: maps permission keys to allowed roles (fallback defaults)
+DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
     "user:read": {"admin"},
     "user:write": {"admin"},
     "agent:read": {"admin", "developer", "operator", "viewer"},
@@ -247,9 +252,12 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "model:write": {"admin"},
 }
 
+# Backward-compatible alias
+ROLE_PERMISSIONS = DEFAULT_ROLE_PERMISSIONS
+
 
 def has_permission(user_role: str, permission: str) -> bool:
-    """Check if a role has a specific permission.
+    """Check if a role has a specific permission using the static fallback matrix.
 
     Args:
         user_role: The user's role string (e.g. "admin", "developer").
@@ -258,8 +266,41 @@ def has_permission(user_role: str, permission: str) -> bool:
     Returns:
         True if the role is allowed, False otherwise.
     """
-    allowed = ROLE_PERMISSIONS.get(permission, set())
+    allowed = DEFAULT_ROLE_PERMISSIONS.get(permission, set())
     return user_role in allowed
+
+
+async def get_role_permissions(role_name: str) -> set[str]:
+    """Dynamically resolve a role's permission set.
+
+    Lookup order: Redis cache → MongoDB → hardcoded defaults.
+    """
+    from app.services.role_service import RoleService
+    return await RoleService.get_role_permissions(role_name)
+
+
+def require_permission(perm: str):
+    """Factory: return a FastAPI Depends that checks for a specific permission.
+
+    Usage:
+        @router.get("/agents")
+        async def list_agents(
+            _: UserResponse = Depends(require_permission("agent:read")),
+        ): ...
+    """
+
+    async def _check(
+        current_user: UserResponse = Depends(get_current_user),
+    ) -> UserResponse:
+        perms = await get_role_permissions(current_user.role)
+        if perm not in perms:
+            raise ForbiddenError(
+                code="FORBIDDEN",
+                message=f"权限不足，需要 {perm} 权限",
+            )
+        return current_user
+
+    return _check
 
 
 def require_role(required_role):

@@ -189,13 +189,19 @@ function makeDerivedEdge(
     target,
     label: label || undefined,
     animated: hasCondition,
-    style: hasCondition ? { stroke: '#8B5CF6' } : { stroke: '#94A3B8' },
+    selectable: true,
+    deletable: true,
+    className: hasCondition ? 'workflow-edge--condition' : undefined,
     labelStyle: hasCondition ? { fill: '#8B5CF6' } : undefined,
   }
 }
 
 /**
- * 拖线/删线时同步更新 source 节点的 config.next_nodes。
+ * 拖线/删线时同步更新 source 节点的 config。
+ *
+ * - 普通节点：操作 config.next_nodes
+ * - gateway 节点：remove 时操作 config.conditions[]（匹配 target）
+ * - parallel 节点：remove 时操作 config.branches[]（匹配 start_node）
  *
  * @param action 'add' | 'remove'
  * @param nodes 当前所有节点（会被浅拷贝后修改其中一个）
@@ -216,6 +222,28 @@ export function syncEdgeChangesToNodes(
   return nodes.map((n) => {
     if (n.node_id !== source) return n
     const config = { ...(n.config ?? {}) } as Record<string, unknown>
+
+    if (action === 'remove') {
+      // gateway: 从 conditions 中移除匹配 target 的条目
+      if (n.type === 'gateway') {
+        const conditions = [...((config.conditions as Array<{ target?: string; expression?: string; label?: string }>) ?? [])]
+        config.conditions = conditions.filter((c) => c.target !== target)
+        // 如果删除的是 default_branch 指向的节点，也清除
+        if (config.default_branch === target) {
+          config.default_branch = ''
+        }
+        return { ...n, config }
+      }
+
+      // parallel: 从 branches 中移除匹配 start_node 的分支
+      if (n.type === 'parallel') {
+        const branches = [...((config.branches as Array<{ start_node?: string; label?: string }>) ?? [])]
+        config.branches = branches.filter((b) => b.start_node !== target)
+        return { ...n, config }
+      }
+    }
+
+    // 普通节点（含 add 和 remove）：操作 next_nodes
     const nextNodes = [...((config.next_nodes as NextNodeRef[]) ?? [])]
 
     if (action === 'add') {

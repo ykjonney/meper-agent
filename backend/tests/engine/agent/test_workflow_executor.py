@@ -306,6 +306,48 @@ class TestProposeWorkflow:
             assert data["type"] == "workflow_proposal"
             assert data["input_preview"] == {}
 
+    @pytest.mark.asyncio
+    async def test_propose_params_as_json_string(self):
+        """LLM 有时会把 params 作为 JSON 字符串传入，应自动解析。"""
+        fake_entry = {
+            "_id": "reg_002",
+            "name": "ui-designer",
+            "description": "UI 设计工作流",
+            "has_human_node": False,
+        }
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=fake_entry,
+        ):
+            result = await propose_workflow.ainvoke({
+                "workflow_name": "ui-designer",
+                "params": '{"input": "设计一个现代简约的个人博客主题"}',
+            })
+            import json
+            data = json.loads(result)
+            assert data["type"] == "workflow_proposal"
+            assert data["input_preview"] == {"input": "设计一个现代简约的个人博客主题"}
+
+    @pytest.mark.asyncio
+    async def test_propose_params_invalid_json_string(self):
+        """非法 JSON 字符串应报 ValidationError，不应被吞掉。"""
+        from pydantic import ValidationError
+        fake_entry = {
+            "_id": "reg_003",
+            "name": "ui-designer",
+            "description": "UI 设计工作流",
+            "has_human_node": False,
+        }
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=fake_entry,
+        ):
+            with pytest.raises(ValidationError):
+                await propose_workflow.ainvoke({
+                    "workflow_name": "ui-designer",
+                    "params": "{not valid json}",
+                })
+
 
 # ---------------------------------------------------------------------------
 # dispatch_workflow — creates a Task
@@ -408,3 +450,25 @@ class TestDispatchWorkflow:
             data = json.loads(result)
             assert "has_human_node" in data
             assert data["has_human_node"] is True
+
+    @pytest.mark.asyncio
+    async def test_dispatch_params_as_json_string(self):
+        """LLM 把 params 作为 JSON 字符串传入时，应自动解析后传给 TaskService。"""
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=_FAKE_WORKFLOW_ENTRY,
+        ), patch(
+            "app.engine.agent.workflow_executor.TaskService.create_task",
+            AsyncMock(return_value=_FAKE_TASK),
+        ) as mock_create:
+            result = await dispatch_workflow.ainvoke({
+                "workflow_name": "数据拉取",
+                "params": '{"source": "mysql_db"}',
+            })
+            import json
+            data = json.loads(result)
+            assert "task_id" in data
+            # 验证传给 TaskService 的 input_data 是已解析的 dict
+            mock_create.assert_awaited_once()
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["input_data"] == {"source": "mysql_db"}

@@ -291,12 +291,12 @@ class ModelService:
         if existing_doc is None:
             return False
 
-        # Check Agent references (both flat field and legacy nested llm_config)
+        # Check Agent references
         agents_col = get_database()["agents"]
         referencing_agent = await agents_col.find_one(
             {"$or": [
                 {"default_model": model_id},
-                {"llm_config.default_model": model_id},
+                {"llm_config.default_model": model_id},  # backward compat
             ]}
         )
         if referencing_agent is not None:

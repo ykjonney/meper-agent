@@ -35,6 +35,7 @@ dist/
 .next/
 .cache/
 .parcel-cache/
+.vite/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -87,3 +88,14 @@ logs/
 .serena/
 .spec-workflow/
 .claude/
+.agents/
+.impeccable/
+.codegraph/
+_bmad/
+.claude/
+
+
+# Artifacts & temp files
+*.zip
+architecture-overview.html
+前端代码*

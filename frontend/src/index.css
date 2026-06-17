@@ -93,3 +93,16 @@ code, pre, .mono {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── Workflow edge styling ─── */
+/* 默认边颜色（覆盖 React Flow 默认的 #B1B1B7） */
+.react-flow__edge-path {
+  stroke: #94A3B8;
+  stroke-width: 1.5;
+}
+
+/* 条件边（gateway 分支）紫色 */
+.react-flow__edge.workflow-edge--condition .react-flow__edge-path {
+  stroke: #8B5CF6;
+  stroke-width: 2;
+}

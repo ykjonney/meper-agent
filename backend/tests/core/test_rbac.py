@@ -12,11 +12,12 @@ def _make_admin() -> UserResponse:
         id="user_01HADMIN",
         username="admin",
         email="admin@example.com",
-        role=UserRole.ADMIN,
+        role="admin",
         status="active",
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
         last_login_at=None,
+        permissions=[],
     )
 
 
@@ -25,11 +26,12 @@ def _make_developer() -> UserResponse:
         id="user_01HDEV",
         username="dev",
         email="dev@example.com",
-        role=UserRole.DEVELOPER,
+        role="developer",
         status="active",
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
         last_login_at=None,
+        permissions=[],
     )
 
 
@@ -38,11 +40,12 @@ def _make_operator() -> UserResponse:
         id="user_01HOP",
         username="op",
         email="op@example.com",
-        role=UserRole.OPERATOR,
+        role="operator",
         status="active",
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
         last_login_at=None,
+        permissions=[],
     )
 
 
@@ -51,11 +54,12 @@ def _make_viewer() -> UserResponse:
         id="user_01HVIEW",
         username="viewer",
         email="viewer@example.com",
-        role=UserRole.VIEWER,
+        role="viewer",
         status="active",
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
         last_login_at=None,
+        permissions=[],
     )
 
 
@@ -66,7 +70,7 @@ class TestRequireRole:
         """Admin user passes require_role(admin)."""
         check = require_role(UserRole.ADMIN)
         result = await check(_make_admin())
-        assert result.role == UserRole.ADMIN
+        assert result.role == "admin"
 
     async def test_developer_rejected_by_admin_guard(self) -> None:
         """Developer fails require_role(admin) with ForbiddenError."""
@@ -91,13 +95,13 @@ class TestRequireRole:
         """Developer passes require_role(developer)."""
         check = require_role(UserRole.DEVELOPER)
         result = await check(_make_developer())
-        assert result.role == UserRole.DEVELOPER
+        assert result.role == "developer"
 
     async def test_string_role_works(self) -> None:
         """require_role accepts string role name."""
         check = require_role("admin")
         result = await check(_make_admin())
-        assert result.role == UserRole.ADMIN
+        assert result.role == "admin"
 
 
 class TestRequireAnyRole:
@@ -107,13 +111,13 @@ class TestRequireAnyRole:
         """Admin passes require_any_role(admin, developer)."""
         check = require_any_role(UserRole.ADMIN, UserRole.DEVELOPER)
         result = await check(_make_admin())
-        assert result.role == UserRole.ADMIN
+        assert result.role == "admin"
 
     async def test_developer_allowed_with_admin_or_dev(self) -> None:
         """Developer passes require_any_role(admin, developer)."""
         check = require_any_role(UserRole.ADMIN, UserRole.DEVELOPER)
         result = await check(_make_developer())
-        assert result.role == UserRole.DEVELOPER
+        assert result.role == "developer"
 
     async def test_operator_rejected_by_admin_or_dev(self) -> None:
         """Operator fails require_any_role(admin, developer)."""

@@ -6,7 +6,7 @@ from app.core.errors import UnauthorizedError, ValidationError
 from app.core.security import get_current_user
 from app.main import app
 from app.schemas.auth import TokenResponse
-from app.schemas.user import UserResponse, UserRole, UserStatus
+from app.schemas.user import UserResponse, UserStatus
 from fastapi.testclient import TestClient
 
 
@@ -22,10 +22,11 @@ def override_auth():
         id="user_01HTEST",
         username="admin",
         email="admin@example.com",
-        role=UserRole.ADMIN,
+        role="admin",
         status=UserStatus.ACTIVE,
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
+        permissions=[],
     )
     app.dependency_overrides[get_current_user] = lambda: user
     yield
