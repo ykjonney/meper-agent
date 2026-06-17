@@ -51,6 +51,9 @@ async def run(
     # Normalise tools into a name-keyed map
     tool_map = _build_tool_map(tools)
 
+    # Bind tools to LLM so the model can generate tool_calls
+    llm_with_tools = llm.bind_tools(list(tool_map.values())) if tool_map else llm
+
     current_messages = list(messages)
     request_id = state.get("request_id")
     model_name = extract_model_name(llm)
@@ -104,7 +107,7 @@ async def run(
                 after=len(current_messages),
             )
 
-        response = await llm.ainvoke(current_messages)
+        response = await llm_with_tools.ainvoke(current_messages)
         step_count += 1
 
         # No tool calls → final answer
@@ -165,15 +168,7 @@ async def run(
 
 def _build_tool_map(tools: list[Callable]) -> dict[str, StructuredTool]:
     """Convert a list of callables into a name -> StructuredTool map."""
-    tool_map: dict[str, StructuredTool] = {}
-    for fn in tools:
-        if isinstance(fn, StructuredTool):
-            tool_map[fn.name] = fn
-        else:
-            desc = getattr(fn, "__doc__", None) or f"Tool: {fn.__name__}"
-            t = StructuredTool.from_function(fn, description=desc)
-            tool_map[t.name] = t
-    return tool_map
+    return {fn.name: fn for fn in tools if isinstance(fn, StructuredTool)}
 
 
 def _has_tool_calls(response: AIMessage) -> bool:
@@ -182,12 +177,41 @@ def _has_tool_calls(response: AIMessage) -> bool:
 
 
 async def _execute_tool(tool_fn: StructuredTool, args: dict) -> str:
-    """Invoke *tool_fn* with *args*; supports sync and async tools."""
+    """Invoke *tool_fn* with *args*; supports sync and async tools.
+
+    Handles ``response_format="content_and_artifact"`` tools (used by
+    ``langchain_mcp_adapters``) which return ``(content_list, artifact)``
+    tuples instead of plain strings.
+    """
     if hasattr(tool_fn, "ainvoke"):
         result = await tool_fn.ainvoke(args)
     else:
         result = tool_fn.invoke(args)
+
+    # langchain_mcp_adapters returns (content_list, artifact) tuple
+    if getattr(tool_fn, "response_format", "") == "content_and_artifact":
+        return _extract_content_artifact_text(result)
+
     return str(result)
+
+
+def _extract_content_artifact_text(result: Any) -> str:
+    """Extract text from a ``(content_list, artifact)`` tuple.
+
+    ``content_list`` is a list of content blocks, each either a dict
+    with ``{"type": "text", "text": "..."}`` or a plain string.
+    """
+    content, _ = result
+    if not isinstance(content, list):
+        return str(content)
+
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+        else:
+            parts.append(str(block))
+    return "\n".join(parts)
 
 
 def _build_result(
@@ -236,6 +260,10 @@ async def run_streaming(
     messages = state.get("messages", [])
     step_count = state.get("step_count", 0)
     tool_map = _build_tool_map(tools)
+
+    # Bind tools to LLM so the model can generate tool_calls
+    llm_with_tools = llm.bind_tools(list(tool_map.values())) if tool_map else llm
+
     current_messages = list(messages)
     request_id = state.get("request_id")
     model_name = extract_model_name(llm)
@@ -276,7 +304,16 @@ async def run_streaming(
         streaming_text_parts: list[str] = []
         streaming_thinking_parts: list[str] = []
 
-        async for chunk in llm.astream(current_messages):
+        logger.info(
+            "react_stream_llm_start",
+            request_id=request_id,
+            iteration=iteration,
+            model=model_name,
+            msg_count=len(current_messages),
+            tool_map_keys=list(tool_map.keys()),
+        )
+
+        async for chunk in llm_with_tools.astream(current_messages):
             collected_chunks.append(chunk)
             # Emit thinking deltas when enabled
             if enable_thinking:
@@ -312,6 +349,20 @@ async def run_streaming(
             )
         else:
             response = AIMessage(content="")
+
+        # ── DEBUG: inspect merged response ──
+        logger.info(
+            "react_stream_merged",
+            request_id=request_id,
+            iteration=iteration,
+            chunks=len(collected_chunks),
+            has_tool_calls=_has_tool_calls(response),
+            tool_calls=response.tool_calls,
+            additional_kwargs_keys=list((response.additional_kwargs or {}).keys()),
+            content_preview=str(response.content)[:300] if response.content else "",
+            text_parts=len(streaming_text_parts),
+            thinking_parts=len(streaming_thinking_parts),
+        )
 
         # Emit a consolidated thinking event if we captured any
         if enable_thinking and streaming_thinking_parts:

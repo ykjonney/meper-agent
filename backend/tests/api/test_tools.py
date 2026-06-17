@@ -60,7 +60,6 @@ def _fake_doc(tool_id: str = "tool_01HTEST", name: str = "Test Tool") -> dict:
         "instructions": "## Usage\nTest.",
         "source": "markdown",
         "source_file": "test.md",
-        "status": "draft",
         "version": 1,
         "tags": [],
         "created_at": "2026-01-01T00:00:00",
@@ -87,7 +86,10 @@ class TestListTools:
 
     def test_list_returns_tools(self, client: TestClient, auth_admin):
         items = [_fake_doc(), _fake_doc("tool_02", "Another")]
-        with patch.object(ToolService, "list_tools", new_callable=AsyncMock) as mock_list:
+        with (
+            patch.object(ToolService, "list_tools", new_callable=AsyncMock) as mock_list,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
+        ):
             mock_list.return_value = (items, 2)
             resp = client.get("/api/v1/tools")
 
@@ -125,7 +127,10 @@ class TestGetTool:
     """GET /api/v1/tools/{tool_id}."""
 
     def test_get_existing(self, client: TestClient, auth_admin):
-        with patch.object(ToolService, "get_tool", new_callable=AsyncMock) as mock_get:
+        with (
+            patch.object(ToolService, "get_tool", new_callable=AsyncMock) as mock_get,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
+        ):
             mock_get.return_value = _fake_doc()
             resp = client.get("/api/v1/tools/tool_01HTEST")
 
@@ -167,6 +172,7 @@ class TestUploadTools:
             patch.object(
                 ToolService, "create_tool_from_parsed", new_callable=AsyncMock
             ) as mock_create,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
         ):
             mock_create.return_value = _fake_doc(name="query-device")
             resp = client.post(
@@ -198,6 +204,7 @@ class TestUploadTools:
             patch.object(
                 ToolService, "create_tool_from_parsed", new_callable=AsyncMock
             ) as mock_create,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
         ):
             mock_create.return_value = _fake_doc(name="good-tool")
             resp = client.post(
@@ -237,16 +244,18 @@ class TestUploadTools:
 class TestUpdateTool:
     """PUT /api/v1/tools/{tool_id}."""
 
-    def test_update_status(self, client: TestClient, auth_admin):
-        with patch.object(ToolService, "update_tool", new_callable=AsyncMock) as mock_update:
-            mock_update.return_value = {**_fake_doc(), "status": "active", "version": 2}
+    def test_update_tags(self, client: TestClient, auth_admin):
+        with (
+            patch.object(ToolService, "update_tool", new_callable=AsyncMock) as mock_update,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
+        ):
+            mock_update.return_value = {**_fake_doc(), "version": 2, "tags": ["mes"]}
             resp = client.put(
                 "/api/v1/tools/tool_01HTEST",
-                json={"status": "active", "tags": ["mes"]},
+                json={"tags": ["mes"]},
             )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "active"
         assert resp.json()["version"] == 2
 
     def test_update_not_found(self, client: TestClient, auth_admin):
@@ -254,7 +263,7 @@ class TestUpdateTool:
             mock_update.return_value = None
             resp = client.put(
                 "/api/v1/tools/tool_missing",
-                json={"status": "active"},
+                json={"tags": []},
             )
 
         assert resp.status_code == 404
@@ -308,7 +317,7 @@ class TestServiceContracts:
         assert "page" in params
         assert "page_size" in params
         assert "name" in params
-        assert "status" in params
+        assert "source" in params
 
     def test_create_tool_from_parsed_signature(self) -> None:
         sig = signature(ToolService.create_tool_from_parsed)
@@ -320,5 +329,4 @@ class TestServiceContracts:
         sig = signature(ToolService.update_tool)
         params = sig.parameters
         assert "tool_id" in params
-        assert "status" in params
         assert "tags" in params

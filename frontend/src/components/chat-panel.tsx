@@ -42,19 +42,28 @@ import {
   type TimelineEntryData,
   type Session,
 } from '../services/session-api'
+import WorkflowProposalCard from './workflow-proposal-card'
+import TaskCreatedCard from './task-created-card'
+import TaskResultCard from './task-result-card'
 
 /* ─── Types ─── */
 
-export type TimelineEntryType = 'thinking' | 'tool_call' | 'tool_result' | 'final_answer' | 'error'
+export type TimelineEntryType = 'thinking' | 'tool' | 'final_answer' | 'error'
+
+export type ToolStatus = 'running' | 'success' | 'error'
 
 export interface TimelineEntry {
   id: string
   type: TimelineEntryType
   content: string
-  /** For tool_call: the tool name */
+  /** For tool: the tool name */
   toolName?: string
-  /** For tool_call: the args */
+  /** For tool: the args */
   args?: Record<string, unknown>
+  /** For tool: the result text */
+  result?: string
+  /** For tool: execution status */
+  toolStatus?: ToolStatus
   /** Whether this entry is expanded (for collapsible items) */
   expanded?: boolean
 }
@@ -101,22 +110,73 @@ function parseSseLines(buffer: string): { lines: string[]; remainder: string } {
   return { lines, remainder }
 }
 
-/** Convert persisted timeline_entries back to TimelineEntry[] for UI rendering */
+/** Convert persisted timeline_entries back to TimelineEntry[] for UI rendering.
+ *  Merges adjacent tool_call + tool_result into a single tool entry. */
 function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
-  return entries.map((e, i) => {
-    switch (e.type) {
-      case 'thinking':
-        return { id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' }
-      case 'tool_call':
-        return { id: `h-tc-${i}`, type: 'tool_call', content: '', toolName: e.tool_name, args: e.args }
-      case 'tool_result':
-        return { id: `h-tr-${i}`, type: 'tool_result', content: e.content ?? '', toolName: e.tool_name }
-      case 'final_answer':
-        return { id: `h-fa-${i}`, type: 'final_answer', content: e.content ?? '' }
-      default:
-        return { id: `h-unk-${i}`, type: 'error', content: JSON.stringify(e) }
+  const result: TimelineEntry[] = []
+  const pendingToolCalls = new Map<string, { idx: number; entry: TimelineEntry }>()
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+
+    if (e.type === 'tool_call') {
+      // Create a running tool entry — will be updated when matching tool_result appears
+      const entry: TimelineEntry = {
+        id: `h-tc-${i}`,
+        type: 'tool',
+        content: '',
+        toolName: e.tool_name,
+        args: e.args,
+        toolStatus: 'running',
+      }
+      const idx = result.length
+      result.push(entry)
+      // Track by tool_name to match with later tool_result
+      pendingToolCalls.set(e.tool_name, { idx, entry })
+    } else if (e.type === 'tool_result') {
+      // Find the last pending tool_call with matching name
+      const pending = pendingToolCalls.get(e.tool_name)
+      if (pending) {
+        const isError = e.content?.startsWith('Error')
+        result[pending.idx] = {
+          ...pending.entry,
+          result: e.content,
+          toolStatus: isError ? 'error' : 'success',
+        }
+        pendingToolCalls.delete(e.tool_name)
+      } else {
+        // Standalone tool_result (shouldn't happen, but handle gracefully)
+        result.push({
+          id: `h-tr-${i}`,
+          type: 'tool',
+          content: '',
+          toolName: e.tool_name,
+          result: e.content,
+          toolStatus: 'success',
+        })
+      }
+    } else if (e.type === 'tool') {
+      // Already merged tool entry from backend
+      result.push({
+        id: `h-tool-${i}`,
+        type: 'tool',
+        content: '',
+        toolName: e.tool_name,
+        args: e.args,
+        result: e.content,
+        toolStatus: 'success',
+      })
+    } else if (e.type === 'thinking') {
+      result.push({ id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' })
+    } else if (e.type === 'final_answer') {
+      result.push({ id: `h-fa-${i}`, type: 'final_answer', content: e.content ?? '' })
+    } else {
+      result.push({ id: `h-unk-${i}`, type: 'error', content: JSON.stringify(e) })
     }
-  })
+  }
+
+  // Any remaining pending tool_calls stay as "running" (shouldn't happen in history)
+  return result
 }
 
 /** Convert backend MessageRecord[] to frontend Message[] */
@@ -161,6 +221,37 @@ export default function ChatPanel({
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
+
+  /* ─── RAF-based delta flush for smooth streaming ─── */
+
+  const deltaBufferRef = useRef<{ agentMsgId: string; delta: string } | null>(null)
+  const rafIdRef = useRef<number | null>(null)
+
+  const flushDelta = useCallback(() => {
+    rafIdRef.current = null
+    const buf = deltaBufferRef.current
+    if (!buf) return
+    deltaBufferRef.current = null
+    const { agentMsgId, delta } = buf
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === agentMsgId ? { ...m, content: m.content + delta } : m,
+      ),
+    )
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  const appendDelta = useCallback((agentMsgId: string, delta: string) => {
+    const prev = deltaBufferRef.current
+    if (prev && prev.agentMsgId === agentMsgId) {
+      prev.delta += delta
+    } else {
+      deltaBufferRef.current = { agentMsgId, delta }
+    }
+    if (!rafIdRef.current) {
+      rafIdRef.current = requestAnimationFrame(flushDelta)
+    }
+  }, [flushDelta])
 
   /* ─── Session list management ─── */
 
@@ -217,13 +308,14 @@ export default function ChatPanel({
 
   /* ─── SSE stream handler ─── */
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isStreaming) return
+  const handleSend = useCallback(async (text?: string) => {
+    const content = text ?? input.trim()
+    if (!content || isStreaming) return
 
     const userMsg: Message = {
       id: generateId(),
       role: 'user',
-      content: input.trim(),
+      content,
       time: nowTime(),
     }
     const agentMsgId = generateId()
@@ -236,7 +328,7 @@ export default function ChatPanel({
     }
 
     setMessages((prev) => [...prev, userMsg, agentMsg])
-    setInput('')
+    if (!text) setInput('')
     setIsStreaming(true)
     scrollToBottom()
 
@@ -300,16 +392,10 @@ export default function ChatPanel({
             } else if ('type' in event) {
               const eventType = (event as { type: string }).type
 
-              // Token-level streaming: append delta text to content directly
+              // Token-level streaming: batch delta text via RAF
               if (eventType === 'final_answer_delta') {
                 const delta = (event as { content: string }).content
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === agentMsgId
-                      ? { ...m, content: m.content + delta }
-                      : m,
-                  ),
-                )
+                appendDelta(agentMsgId, delta)
               } else if (eventType === 'error') {
                 const errorContent = (event as { content: string }).content
                 setMessages((prev) =>
@@ -325,21 +411,55 @@ export default function ChatPanel({
                       : m,
                   ),
                 )
-              } else {
-                // Consolidated events: thinking, tool_call, tool_result, final_answer
+              } else if (eventType === 'tool_call') {
+                // Create a new tool entry with "running" status
+                const e = event as ToolCallEvent
+                const toolEntry: TimelineEntry = {
+                  id: generateId(),
+                  type: 'tool',
+                  content: '',
+                  toolName: e.tool_name,
+                  args: e.args,
+                  toolStatus: 'running',
+                }
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === agentMsgId
+                      ? { ...m, timeline: [...(m.timeline ?? []), toolEntry] }
+                      : m,
+                  ),
+                )
+                scrollToBottom()
+              } else if (eventType === 'tool_result') {
+                // Find the last matching tool entry and update it with the result
+                const e = event as ToolResultEvent
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== agentMsgId || !m.timeline) return m
+                    const tl = [...m.timeline]
+                    // Find the last tool entry with matching name that's still running
+                    for (let i = tl.length - 1; i >= 0; i--) {
+                      const entry = tl[i]
+                      if (entry.type === 'tool' && entry.toolName === e.tool_name && entry.toolStatus === 'running') {
+                        const isError = e.content?.startsWith('Error')
+                        tl[i] = { ...entry, result: e.content, toolStatus: isError ? 'error' : 'success' }
+                        break
+                      }
+                    }
+                    return { ...m, timeline: tl }
+                  }),
+                )
+              } else if (eventType === 'thinking') {
                 const entry = _sseEventToTimeline(event)
                 if (entry) {
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === agentMsgId
-                        ? {
-                            ...m,
-                            timeline: [...(m.timeline ?? []), entry],
-                            content: entry.type === 'final_answer' ? entry.content : m.content,
-                          }
+                        ? { ...m, timeline: [...(m.timeline ?? []), entry] }
                         : m,
                     ),
                   )
+                  scrollToBottom()
                 }
               }
             }
@@ -348,7 +468,8 @@ export default function ChatPanel({
           }
         }
 
-        scrollToBottom()
+        // Only scroll for non-delta events (tool_call, tool_result, etc.)
+        // Delta scrolling is handled by flushDelta via RAF
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -376,6 +497,14 @@ export default function ChatPanel({
         )
       }
     } finally {
+      // Flush any remaining buffered deltas
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      if (deltaBufferRef.current) {
+        flushDelta()
+      }
       setIsStreaming(false)
       abortRef.current = null
     }
@@ -542,7 +671,7 @@ export default function ChatPanel({
                   </div>
                 )}
 
-                {/* Agent message — streaming text or timeline entries */}
+                {/* Agent message — always show when there is content or timeline */}
                 {msg.role === 'agent' && (msg.content || (msg.timeline && msg.timeline.length > 0)) && (
                   <div className="flex items-start gap-3">
                     <Avatar
@@ -552,8 +681,18 @@ export default function ChatPanel({
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-2">
-                        {/* Show streaming text content when available */}
-                        {msg.content && (!msg.timeline || msg.timeline.length === 0) && (
+                        {/* Show timeline entries first (tool calls, thinking, etc.) */}
+                        {msg.timeline && msg.timeline.length > 0 && msg.timeline.map((entry) => (
+                          <TimelineEntryCard
+                            key={entry.id}
+                            entry={entry}
+                            msgId={msg.id}
+                            onToggle={toggleTimelineEntry}
+                            onSendMessage={(text) => handleSend(text)}
+                          />
+                        ))}
+                        {/* Show streaming text content after tools */}
+                        {msg.content && (
                           <div className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
                             <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
                               {msg.content}
@@ -564,15 +703,6 @@ export default function ChatPanel({
                             </div>
                           </div>
                         )}
-                        {/* Show timeline entries (tool calls, consolidated events) */}
-                        {msg.timeline && msg.timeline.length > 0 && msg.timeline.map((entry) => (
-                          <TimelineEntryCard
-                            key={entry.id}
-                            entry={entry}
-                            msgId={msg.id}
-                            onToggle={toggleTimelineEntry}
-                          />
-                        ))}
                       </div>
                       <div className="text-[10px] text-[#94A3B8] mt-2">{msg.time}</div>
                     </div>
@@ -758,14 +888,22 @@ export default function ChatPanel({
 
 /* ─── Timeline entry card ─── */
 
+const TOOL_STATUS_STYLE: Record<ToolStatus, { color: string; bg: string; border: string; icon: typeof ToolOutlined }> = {
+  running: { color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: ToolOutlined },
+  success: { color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', icon: CheckCircleOutlined },
+  error:   { color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', icon: ExclamationCircleOutlined },
+}
+
 function TimelineEntryCard({
   entry,
   msgId,
   onToggle,
+  onSendMessage,
 }: {
   entry: TimelineEntry
   msgId: string
   onToggle: (msgId: string, entryId: string) => void
+  onSendMessage?: (text: string) => void
 }) {
   switch (entry.type) {
     case 'thinking':
@@ -789,52 +927,66 @@ function TimelineEntryCard({
         </div>
       )
 
-    case 'tool_call':
-      return (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100">
-          <ToolOutlined className="text-amber-500 text-xs" />
-          <span className="text-xs font-medium text-amber-700">
-            {entry.toolName || 'unknown_tool'}
-          </span>
-          {entry.args && Object.keys(entry.args).length > 0 && (
-            <span className="text-[10px] text-amber-400 truncate max-w-[200px]">
-              {JSON.stringify(entry.args)}
-            </span>
-          )}
-        </div>
-      )
+    case 'tool': {
+      const status = entry.toolStatus ?? 'running'
+      const style = TOOL_STATUS_STYLE[status]
+      const StatusIcon = style.icon
+      const hasDetail = (entry.args && Object.keys(entry.args).length > 0) || entry.result
 
-    case 'tool_result':
       return (
-        <div className="rounded-lg border border-gray-100 bg-gray-50 overflow-hidden">
+        <div className="rounded-lg overflow-hidden" style={{ background: style.bg, borderColor: style.border, borderWidth: 1 }}>
           <button
-            onClick={() => onToggle(msgId, entry.id)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 border-0 bg-transparent cursor-pointer text-left hover:bg-gray-100 transition-colors"
+            onClick={hasDetail ? () => onToggle(msgId, entry.id) : undefined}
+            className={`w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent text-left transition-colors ${hasDetail ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
           >
-            <CheckCircleOutlined className="text-gray-400 text-xs" />
-            <span className="text-xs text-gray-500">
-              {entry.toolName ? `${entry.toolName} → ` : ''}工具结果
+            {status === 'running' ? (
+              <Spin size="small" indicator={<StatusIcon style={{ color: style.color, fontSize: 12 }} spin />} />
+            ) : (
+              <StatusIcon style={{ color: style.color, fontSize: 12 }} />
+            )}
+            <span className="text-xs font-medium" style={{ color: style.color }}>
+              {entry.toolName || 'unknown_tool'}
             </span>
-            <span className="text-[10px] text-gray-300 ml-auto">
-              {entry.expanded ? '收起' : '展开'}
-            </span>
+            {status === 'running' && (
+              <span className="text-[10px] opacity-60" style={{ color: style.color }}>执行中...</span>
+            )}
+            {hasDetail && (
+              <span className="text-[10px] opacity-50 ml-auto" style={{ color: style.color }}>
+                {entry.expanded ? '收起' : '详情'}
+              </span>
+            )}
           </button>
-          {entry.expanded && (
-            <div className="px-3 pb-2 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed border-t border-gray-100 pt-2 max-h-48 overflow-y-auto">
-              {entry.content}
+          {/* Structured card for known tool result types */}
+          {entry.result && status !== 'running' && (
+            <ToolResultCardRenderer
+              toolName={entry.toolName}
+              result={entry.result}
+              onSendMessage={onSendMessage}
+            />
+          )}
+          {entry.expanded && hasDetail && (
+            <div className="border-t px-3 pb-2 pt-2" style={{ borderColor: style.border }}>
+              {entry.args && Object.keys(entry.args).length > 0 && (
+                <div className="mb-2">
+                  <div className="text-[10px] font-medium mb-1 opacity-60" style={{ color: style.color }}>请求参数</div>
+                  <pre className="text-[11px] whitespace-pre-wrap break-all leading-relaxed rounded p-2 bg-white/60" style={{ color: '#334155' }}>
+                    {JSON.stringify(entry.args, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {entry.result && (
+                <div>
+                  <div className="text-[10px] font-medium mb-1 opacity-60" style={{ color: style.color }}>返回结果</div>
+                  <pre className="text-[11px] whitespace-pre-wrap break-all leading-relaxed rounded p-2 bg-white/60 max-h-48 overflow-y-auto" style={{ color: '#334155' }}>
+                    {entry.result}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
       )
-
-    case 'final_answer':
-      return (
-        <div className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
-          <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
-            {entry.content}
-          </div>
-        </div>
-      )
+    }
 
     case 'error':
       return (
@@ -848,34 +1000,74 @@ function TimelineEntryCard({
   }
 }
 
+/* ─── Tool result card renderer ─── */
+
+function ToolResultCardRenderer({
+  toolName,
+  result,
+  onSendMessage,
+}: {
+  toolName?: string
+  result: string
+  onSendMessage?: (text: string) => void
+}) {
+  let parsed: Record<string, unknown> | null = null
+  try {
+    parsed = JSON.parse(result)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const type = parsed.type as string | undefined
+
+  // propose_workflow → WorkflowProposalCard
+  if (type === 'workflow_proposal' || type === 'propose_workflow') {
+    return (
+      <div className="px-3 pb-2">
+        <WorkflowProposalCard
+          proposal={parsed as any}
+          onConfirm={(workflowName) => {
+            onSendMessage?.(`确认执行 ${workflowName}`)
+          }}
+        />
+      </div>
+    )
+  }
+
+  // dispatch_workflow → TaskCreatedCard
+  if (type === 'task_created') {
+    return (
+      <div className="px-3 pb-2">
+        <TaskCreatedCard data={parsed as any} />
+      </div>
+    )
+  }
+
+  // task_query → TaskResultCard
+  if (type === 'task_result') {
+    return (
+      <div className="px-3 pb-2">
+        <TaskResultCard data={parsed as any} />
+      </div>
+    )
+  }
+
+  return null
+}
+
 /* ─── SSE event to timeline entry converter ─── */
 
 function _sseEventToTimeline(event: StreamEvent): TimelineEntry | null {
-  // Defensive: ensure content is always a string (backend may send objects)
-  const safeStr = (v: unknown): string => {
-    if (typeof v === 'string') return v
-    if (v == null) return ''
-    if (typeof v === 'object') {
-      try { return JSON.stringify(v) } catch { return String(v) }
-    }
-    return String(v)
-  }
-
   if ('type' in event && event.type === 'thinking') {
     const e = event as ThinkingEvent
+    const safeStr = (v: unknown): string => {
+      if (typeof v === 'string') return v
+      if (v == null) return ''
+      try { return JSON.stringify(v) } catch { return String(v) }
+    }
     return { id: generateId(), type: 'thinking', content: safeStr(e.content) }
-  }
-  if ('type' in event && event.type === 'tool_call') {
-    const e = event as ToolCallEvent
-    return { id: generateId(), type: 'tool_call', content: '', toolName: e.tool_name, args: e.args }
-  }
-  if ('type' in event && event.type === 'tool_result') {
-    const e = event as ToolResultEvent
-    return { id: generateId(), type: 'tool_result', content: e.content, toolName: e.tool_name }
-  }
-  if ('type' in event && event.type === 'final_answer') {
-    const e = event as FinalAnswerEvent
-    return { id: generateId(), type: 'final_answer', content: e.content }
   }
   return null
 }

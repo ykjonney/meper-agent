@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.mongodb import close_mongodb_client
 from app.db.redis import close_redis_client
+from app.services.task_scheduler_service import get_scheduler
 
 # Initialize structured logging before app creation
 setup_logging()
@@ -21,8 +22,18 @@ setup_logging()
 async def lifespan(app: FastAPI):
     """Manage startup/shutdown lifecycle for external connections."""
     # Startup: connections are lazy-initialized on first use
+    # Start the Task scheduler for timed/scheduled workflow execution
+    scheduler = get_scheduler()
+    await scheduler.start()
+
+    # Recover waiting_human tasks from previous server instance
+    from app.services.task_recovery import recover_waiting_human_tasks
+    await recover_waiting_human_tasks()
+
     yield
+
     # Shutdown: gracefully close connections
+    await scheduler.stop()
     await close_mongodb_client()
     await close_redis_client()
 

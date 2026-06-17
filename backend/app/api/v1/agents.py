@@ -3,14 +3,14 @@ from fastapi import APIRouter, Depends, Header, Query
 
 from app.core.security import get_current_user, require_any_role
 from app.models.agent import AgentStatus
+from app.models.compat import resolve_skill_ids
 from app.schemas.agent import (
     AgentCreate,
     AgentListResponse,
     AgentResponse,
     AgentUpdate,
-    ModelConfigUpdate,
 )
-from app.schemas.execution import ExecutionRequest, ExecutionResponse
+from app.schemas.execution import ExecutionRequest, ExecutionResponse, PreviewRequest, PreviewResponse
 from app.schemas.user import UserResponse
 from app.services.agent_service import AgentService
 
@@ -21,27 +21,84 @@ router = APIRouter(
 )
 
 
+from app.engine.agent.builder import build_system_prompt
+
+
+def _history_to_langchain_messages(records: list[dict]) -> list:
+    """Convert persisted session messages to LangChain message objects.
+
+    Reconstructs tool_call → tool_result → final_answer sequences from
+    ``timeline_entries`` so the LLM sees full multi-turn context including
+    previous tool invocations and workflow previews.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    result: list = []
+    call_idx = 0
+
+    for record in records:
+        role = record.get("role", "")
+        content = record.get("content", "")
+        timeline = record.get("timeline_entries", [])
+
+        if role == "user":
+            if content:
+                result.append(HumanMessage(content=content))
+        elif role == "agent":
+            if not timeline:
+                # Plain text-only response (before timeline support)
+                if content:
+                    result.append(AIMessage(content=content))
+                continue
+
+            # Reconstruct from timeline entries in order
+            for entry in timeline:
+                etype = entry.get("type", "")
+                if etype == "tool_call":
+                    call_idx += 1
+                    tid = f"history_call_{call_idx}"
+                    result.append(
+                        AIMessage(
+                            content="",
+                            tool_calls=[{
+                                "name": entry.get("tool_name", ""),
+                                "args": entry.get("args", {}),
+                                "id": tid,
+                            }],
+                        )
+                    )
+                elif etype == "tool_result":
+                    tid = f"history_call_{call_idx}"
+                    result.append(
+                        ToolMessage(
+                            content=entry.get("content", ""),
+                            tool_call_id=tid,
+                        )
+                    )
+                elif etype == "final_answer":
+                    result.append(
+                        AIMessage(content=entry.get("content", ""))
+                    )
+                # thinking entries are skipped — they're informational only
+
+    return result
+
+
 def _doc_to_response(doc: dict) -> AgentResponse:
     """Convert a raw MongoDB document to AgentResponse."""
-    # Backward compat: old docs have tool_ids but not skill_ids
-    skill_ids = doc.get("skill_ids", [])
-    if not skill_ids:
-        skill_ids = doc.get("tool_ids", [])
     return AgentResponse(
         id=doc["_id"],
         name=doc["name"],
         description=doc.get("description", ""),
         system_prompt=doc.get("system_prompt", ""),
         saved_system_prompts=doc.get("saved_system_prompts", []),
-        tool_ids=doc.get("tool_ids", []),
-        skill_ids=skill_ids,
+        skill_ids=resolve_skill_ids(doc),
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
         builtin_config=doc.get("builtin_config", []),
         workflow_ids=doc.get("workflow_ids", []),
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
         llm_config=doc.get("llm_config", {}),
         status=AgentStatus(doc["status"]),
-        version=doc.get("version", 1),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
@@ -62,7 +119,7 @@ async def list_agents(
     status: AgentStatus | None = Query(None, description="Filter by status"),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> AgentListResponse:
-    """List all Agents with pagination and optional filtering. (AC2)"""
+    """List all Agents with pagination and optional filtering."""
     items, total = await AgentService.list_agents(
         page=page,
         page_size=page_size,
@@ -89,21 +146,11 @@ async def create_agent(
     body: AgentCreate,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    """Create a new Agent in draft status. (AC1)"""
-    # Backward compat: use tool_ids when skill_ids is empty
-    skill_ids = body.skill_ids if body.skill_ids or not body.tool_ids else body.tool_ids
+    """Create a new Agent in draft status."""
     doc = await AgentService.create_agent(
         name=body.name,
         description=body.description,
         system_prompt=body.system_prompt,
-        saved_system_prompts=[p.model_dump() for p in body.saved_system_prompts],
-        tool_ids=body.tool_ids,
-        skill_ids=skill_ids,
-        mcp_connection_ids=body.mcp_connection_ids,
-        builtin_config=body.builtin_config,
-        workflow_ids=body.workflow_ids,
-        knowledge_base_ids=body.knowledge_base_ids,
-        llm_config=body.llm_config,
     )
     return _doc_to_response(doc)
 
@@ -121,7 +168,7 @@ async def get_agent(
     agent_id: str,
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> AgentResponse:
-    """Get an Agent by its ID. (AC3)"""
+    """Get an Agent by its ID."""
     from app.core.errors import NotFoundError
 
     doc = await AgentService.get_agent(agent_id)
@@ -141,7 +188,7 @@ async def get_agent(
     responses={
         403: {"description": "Forbidden — developer+ role required"},
         404: {"description": "Agent not found"},
-        409: {"description": "Agent name conflict"},
+        409: {"description": "Name conflict or agent is published (immutable)"},
         422: {"description": "Validation error"},
     },
 )
@@ -150,62 +197,25 @@ async def update_agent(
     body: AgentUpdate,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    """Update an Agent's configuration. Auto-increments version. (AC4)"""
+    """Update an Agent's configuration.
+
+    **Published agents are immutable** — returns 409 if the agent
+    status is ``published``. Use duplicate or archive first.
+    """
     from app.core.errors import NotFoundError
 
-    # Backward compat: use tool_ids when skill_ids is empty
-    skill_ids = body.skill_ids if body.skill_ids or not body.tool_ids else body.tool_ids
     doc = await AgentService.update_agent(
         agent_id=agent_id,
         name=body.name,
         description=body.description,
         system_prompt=body.system_prompt,
         saved_system_prompts=[p.model_dump() for p in body.saved_system_prompts],
-        tool_ids=body.tool_ids,
-        skill_ids=skill_ids,
+        skill_ids=body.skill_ids,
         mcp_connection_ids=body.mcp_connection_ids,
         builtin_config=body.builtin_config,
         workflow_ids=body.workflow_ids,
         knowledge_base_ids=body.knowledge_base_ids,
         llm_config=body.llm_config,
-        status=body.status.value if body.status else None,
-    )
-    if doc is None:
-        raise NotFoundError(
-            code="AGENT_NOT_FOUND",
-            message=f"Agent {agent_id} 不存在",
-        )
-
-    return _doc_to_response(doc)
-
-
-@router.patch(
-    "/{agent_id}/model-config",
-    response_model=AgentResponse,
-    summary="Update Agent model configuration",
-    responses={
-        403: {"description": "Forbidden — developer+ role required"},
-        404: {"description": "Agent not found"},
-        422: {"description": "Validation error"},
-    },
-)
-async def update_agent_model_config(
-    agent_id: str,
-    body: ModelConfigUpdate,
-    _: UserResponse = Depends(require_any_role("admin", "developer")),
-) -> AgentResponse:
-    """Update only the Agent's model configuration. (AC4)
-
-    Only modifies ``llm_config``; auto-increments version so new
-    conversations use the new config (AC5).
-    """
-    from app.core.errors import NotFoundError
-
-    doc = await AgentService.update_model_config(
-        agent_id=agent_id,
-        default_model=body.default_model,
-        temperature=body.temperature,
-        max_retry=body.max_retry,
     )
     if doc is None:
         raise NotFoundError(
@@ -229,7 +239,7 @@ async def publish_agent(
     agent_id: str,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    """Publish an Agent (draft/archived → published). Auto-increments version."""
+    """Publish an Agent (draft/archived → published)."""
     from app.core.errors import NotFoundError
 
     doc = await AgentService.publish_agent(agent_id)
@@ -255,7 +265,7 @@ async def archive_agent(
     agent_id: str,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    """Archive an Agent (published → archived). Auto-increments version."""
+    """Archive an Agent (published → archived)."""
     from app.core.errors import NotFoundError
 
     doc = await AgentService.archive_agent(agent_id)
@@ -283,9 +293,62 @@ async def duplicate_agent(
     agent_id: str,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    """Duplicate an Agent. New Agent is always draft with version 1."""
+    """Duplicate an Agent. New Agent is always draft."""
     doc = await AgentService.duplicate_agent(agent_id)
     return _doc_to_response(doc)
+
+
+@router.post(
+    "/{agent_id}/preview",
+    response_model=PreviewResponse,
+    summary="Preview Agent prompt & tools (dry-run)",
+    responses={
+        403: {"description": "Forbidden — developer+ role required"},
+        404: {"description": "Agent not found"},
+    },
+)
+async def preview_agent(
+    agent_id: str,
+    body: PreviewRequest | None = None,
+    _: UserResponse = Depends(require_any_role("admin", "developer")),
+) -> PreviewResponse:
+    """Preview the fully assembled prompt and tools for an Agent.
+
+    Does **not** invoke the LLM. Returns the exact system prompt,
+    message list, and resolved tool definitions that would be sent
+    to the model — useful for debugging Agent configuration.
+    """
+    from app.core.errors import NotFoundError
+    from app.engine.agent.builder import preview_agent as _preview_agent
+    from app.schemas.execution import ToolPreview
+
+    if body is None:
+        body = PreviewRequest()
+
+    doc = await AgentService.get_agent(agent_id)
+    if doc is None:
+        raise NotFoundError(
+            code="AGENT_NOT_FOUND",
+            message=f"Agent {agent_id} 不存在",
+        )
+
+    result = await _preview_agent(
+        agent=doc,
+        user_input=body.input,
+        enable_thinking=body.enable_thinking,
+    )
+
+    tools = [ToolPreview(**t) for t in result["tools"]]
+
+    return PreviewResponse(
+        agent_id=agent_id,
+        agent_name=doc.get("name", ""),
+        model=result["model"],
+        system_prompt=result["system_prompt"],
+        messages=result["messages"],
+        tools=tools,
+        tool_summary=result["tool_summary"],
+    )
 
 
 @router.post(
@@ -293,7 +356,7 @@ async def duplicate_agent(
     response_model=ExecutionResponse,
     summary="Invoke an Agent (sync)",
     responses={
-        403: {"description": "Forbidden — viewer+ role required"},
+        332: {"description": "Forbidden — viewer+ role required"},
         404: {"description": "Agent not found"},
         504: {"description": "Execution timeout (>30s)"},
     },
@@ -304,21 +367,16 @@ async def invoke_agent(
     x_call_chain: str | None = Header(None, alias="X-Call-Chain"),
     user: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> ExecutionResponse:
-    """Invoke an Agent synchronously.
-
-    Builds the Agent's StateGraph, runs path evaluation, executes the
-    selected path, and returns the result. Persists user/agent messages
-    to a session (creating one if no ``session_id`` was provided).
-    """
+    """Invoke an Agent synchronously."""
     import json
     import uuid
 
     from app.core.errors import NotFoundError
-    from app.engine.agent.builder import build_agent_graph, build_skill_declaration
+    from app.engine.agent.builder import build_agent_graph
     from app.services.session_service import SessionService
 
-    doc = await AgentService.get_agent(agent_id)
-    if doc is None:
+    exec_doc = await AgentService.get_agent(agent_id)
+    if exec_doc is None:
         raise NotFoundError(
             code="AGENT_NOT_FOUND",
             message=f"Agent {agent_id} 不存在",
@@ -355,18 +413,13 @@ async def invoke_agent(
     )
 
     request_id = str(uuid.uuid4())
-    graph = await build_agent_graph(doc, enable_thinking=body.enable_thinking)
+    graph = await build_agent_graph(exec_doc, enable_thinking=body.enable_thinking)
     config = {"configurable": {"thread_id": session_id}}
 
-    # Build system prompt with optional Skill declaration
+    # Build system prompt with tool declarations
     from langchain_core.messages import SystemMessage
 
-    system_text = doc.get("system_prompt", "")
-    # Backward compat: read from skill_ids, fall back to tool_ids
-    skill_ids = doc.get("skill_ids") or doc.get("tool_ids") or []
-    skill_declaration = await build_skill_declaration(skill_ids)
-    if skill_declaration:
-        system_text = f"{system_text}\n{skill_declaration}" if system_text else skill_declaration
+    system_text = await build_system_prompt(exec_doc)
 
     initial_messages: list = []
     if system_text:
@@ -425,24 +478,18 @@ async def stream_agent(
     x_call_chain: str | None = Header(None, alias="X-Call-Chain"),
     user: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ):
-    """Invoke an Agent and stream results via Server-Sent Events.
-
-    Emits structured events for each step in the execution chain:
-    ``thinking``, ``tool_call``, ``tool_result``, ``final_answer``,
-    followed by a ``done`` event.  Persists user/agent messages to a
-    session (creating one if no ``session_id`` was provided).
-    """
+    """Invoke an Agent and stream results via Server-Sent Events."""
     import json
     import uuid
 
     from fastapi.responses import StreamingResponse
 
     from app.core.errors import NotFoundError
-    from app.engine.agent.builder import run_agent_streaming, build_skill_declaration
+    from app.engine.agent.builder import run_agent_streaming
     from app.services.session_service import MessageService, SessionService
 
-    doc = await AgentService.get_agent(agent_id)
-    if doc is None:
+    exec_doc = await AgentService.get_agent(agent_id)
+    if exec_doc is None:
         raise NotFoundError(
             code="AGENT_NOT_FOUND",
             message=f"Agent {agent_id} 不存在",
@@ -478,15 +525,10 @@ async def stream_agent(
 
     request_id = str(uuid.uuid4())
 
-    # Build system prompt with optional Skill declaration
+    # Build system prompt with tool declarations (Skills + MCP + Builtin + Workflow)
     from langchain_core.messages import SystemMessage
 
-    system_text = doc.get("system_prompt", "")
-    # Backward compat: read from skill_ids, fall back to tool_ids
-    skill_ids = doc.get("skill_ids") or doc.get("tool_ids") or []
-    skill_decl = await build_skill_declaration(skill_ids)
-    if skill_decl:
-        system_text = f"{system_text}\n{skill_decl}" if system_text else skill_decl
+    system_text = await build_system_prompt(exec_doc)
 
     # Queues for SSE events and final state
     import asyncio
@@ -502,10 +544,12 @@ async def stream_agent(
     async def _on_event(event: dict) -> None:
         """Callback: push REACT executor events to the SSE queue."""
         collected_timeline.append(event)
-        if event.get("type") == "final_answer":
+        if event.get("type") == "final_answer_delta":
             collected_text_parts.append(event.get("content", ""))
-        elif event.get("type") == "final_answer_delta":
-            collected_text_parts.append(event.get("content", ""))
+        elif event.get("type") == "final_answer":
+            # Final answer not collected as text (already in deltas) but
+            # kept in timeline for non-streaming clients / history replay
+            pass
         await event_queue.put(f"data: {_safe_json(event)}\n\n")
 
     async def _run_agent():
@@ -513,6 +557,21 @@ async def stream_agent(
         initial_messages_stream: list = []
         if system_text:
             initial_messages_stream.append(SystemMessage(content=system_text))
+
+        # Load session history so the LLM sees previous turns
+        if session_id:
+            try:
+                history_records = await MessageService.list_messages(session_id)
+                # Filter out the message we just added (current user input)
+                history_records = [
+                    r for r in history_records
+                    if r.get("content") != body.input or r.get("role") != "user"
+                ]
+                history_msgs = _history_to_langchain_messages(history_records)
+                initial_messages_stream.extend(history_msgs)
+            except Exception:
+                pass  # History loading is best-effort
+
         initial_messages_stream.append({"role": "user", "content": body.input})
 
         initial_state = {
@@ -528,7 +587,7 @@ async def stream_agent(
         }
         try:
             result = await run_agent_streaming(
-                doc, initial_state,
+                exec_doc, initial_state,
                 on_event=_on_event,
                 enable_thinking=body.enable_thinking,
             )
@@ -626,12 +685,7 @@ def _messages_to_timeline_entries(
     messages: list,
     enable_thinking: bool = False,
 ) -> list[dict]:
-    """Build structured timeline entries for message persistence.
-
-    Thin wrapper over :func:`_messages_to_sse_events` that produces the
-    same structured events used for SSE streaming so the persisted agent
-    message can later be replayed identically in the UI.
-    """
+    """Build structured timeline entries for message persistence."""
     return _messages_to_sse_events(messages, enable_thinking=enable_thinking)
 
 
@@ -639,20 +693,7 @@ def _messages_to_sse_events(
     messages: list,
     enable_thinking: bool = False,
 ) -> list[dict]:
-    """Convert a list of LangChain messages into structured SSE event dicts.
-
-    Handles multiple ``content`` shapes emitted by different providers:
-
-    - Plain string (most models): ``"Hello!"``
-    - Content blocks list (Claude): ``[{"type": "thinking", ...}, {"type": "text", ...}]``
-    - Mixed dict list (some versions): ``[{"type": "text", "text": "..."}]``
-
-    Emits, in order, per message:
-    - ``thinking`` event for each thinking block (only when ``enable_thinking``)
-    - ``tool_call`` events for each ``msg.tool_calls`` entry
-    - ``final_answer`` event for the text content
-    - ``tool_result`` event for ToolMessage
-    """
+    """Convert a list of LangChain messages into structured SSE event dicts."""
     from langchain_core.messages import AIMessage, ToolMessage
 
     events: list[dict] = []
@@ -661,7 +702,6 @@ def _messages_to_sse_events(
             thinking_parts: list[str] = []
             text_parts: list[str] = []
 
-            # Walk through content blocks / text — supports str, list, dict
             for piece in _iter_content_blocks(msg):
                 ptype = piece.get("type")
                 if ptype == "thinking" and enable_thinking:
@@ -673,11 +713,9 @@ def _messages_to_sse_events(
                     if t:
                         text_parts.append(_safe_str(t))
 
-            # Emit thinking events first (time order)
             for t in thinking_parts:
                 events.append({"type": "thinking", "content": t})
 
-            # Tool calls
             if msg.tool_calls:
                 for tc in msg.tool_calls:
                     events.append({
@@ -686,9 +724,7 @@ def _messages_to_sse_events(
                         "args": tc.get("args", {}),
                     })
 
-            # Final answer: text blocks, or plain string content when no tool calls
             if msg.tool_calls:
-                # Tool-calling step shouldn't emit a final_answer
                 pass
             elif text_parts:
                 events.append({
@@ -712,14 +748,7 @@ def _messages_to_sse_events(
 
 
 def _iter_content_blocks(msg) -> list[dict]:
-    """Yield content pieces as dicts with a ``type`` key.
-
-    Normalizes:
-    - ``msg.content`` as a plain string → ``[{"type": "text", "text": "..."}]``
-    - ``msg.content`` as a list of dicts → returned as-is
-    - ``msg.content`` as a list of content block objects → converted to dicts
-    - ``msg.content_blocks`` attribute (when available) → merged in
-    """
+    """Yield content pieces as dicts with a ``type`` key."""
     blocks: list[dict] = []
 
     content = getattr(msg, "content", None)
@@ -734,7 +763,6 @@ def _iter_content_blocks(msg) -> list[dict]:
             elif isinstance(item, str) and item.strip():
                 blocks.append({"type": "text", "text": item})
             else:
-                # ContentBlock object (langchain_anthropic)
                 btype = getattr(item, "type", None)
                 if btype == "thinking":
                     blocks.append({
@@ -748,13 +776,11 @@ def _iter_content_blocks(msg) -> list[dict]:
                         "text": getattr(item, "text", ""),
                     })
                 elif btype:
-                    # Unknown block type — capture text fields generically
                     blocks.append({"type": btype, **{
                         k: getattr(item, k) for k in ("text", "thinking", "content")
                         if hasattr(item, k)
                     }})
 
-    # Fallback: also check content_blocks attribute if content missed them
     cb = getattr(msg, "content_blocks", None)
     if cb and not any(b.get("type") == "thinking" for b in blocks):
         for item in cb:
@@ -774,11 +800,7 @@ def _iter_content_blocks(msg) -> list[dict]:
 
 
 def _safe_str(value) -> str:
-    """Coerce any LangChain scalar/value into a plain string.
-
-    Handles str, bytes, dict (serialized to JSON), list (joined),
-    and arbitrary objects (repr fallback).
-    """
+    """Coerce any LangChain scalar/value into a plain string."""
     if value is None:
         return ""
     if isinstance(value, str):
@@ -794,7 +816,6 @@ def _safe_str(value) -> str:
             return json.dumps(value, ensure_ascii=False, default=str)
         except (TypeError, ValueError):
             return str(value)
-    # Pydantic models or arbitrary objects → try common text fields first
     for field in ("text", "content", "thinking", "value"):
         v = getattr(value, field, None)
         if isinstance(v, str):
@@ -815,7 +836,7 @@ async def delete_agent(
     agent_id: str,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> None:
-    """Delete an Agent by ID. Checks for active references. (AC5)"""
+    """Delete an Agent by ID. Checks for active references."""
     from app.core.errors import NotFoundError
 
     deleted = await AgentService.delete_agent(agent_id)

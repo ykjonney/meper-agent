@@ -8,9 +8,9 @@ from loguru import logger
 from app.core.errors import ConflictError, NotFoundError
 from app.db.mongodb import get_database
 from app.engine.tool import mcp_client
+from app.engine.tool.mcp_tool_cache import invalidate_cache as _invalidate_mcp_cache
 from app.models.base import generate_id, utc_now
 from app.models.mcp_connection import ConnectionStatus
-from app.models.tool import ToolStatus
 
 
 class McpConnectionService:
@@ -59,6 +59,7 @@ class McpConnectionService:
             "auth_type": data.get("auth_type", "none"),
             "auth_config": data.get("auth_config", {}),
             "timeout": data.get("timeout", 30),
+            "default_params": data.get("default_params", {}),
             "status": ConnectionStatus.DISCONNECTED.value,
             "status_message": "",
             "last_connected_at": "",
@@ -156,12 +157,14 @@ class McpConnectionService:
             "auth_type": data.get("auth_type", existing.get("auth_type", "none")),
             "auth_config": data.get("auth_config", existing.get("auth_config", {})),
             "timeout": data.get("timeout", existing.get("timeout", 30)),
+            "default_params": data.get("default_params", existing.get("default_params", {})),
             "updated_at": now_iso,
         }
 
         await col.update_one({"_id": connection_id}, {"$set": set_fields})
 
         logger.info("mcp_connection_updated", connection_id=connection_id)
+        _invalidate_mcp_cache(connection_id)
         return await McpConnectionService.get_connection(connection_id)
 
     @staticmethod
@@ -189,6 +192,7 @@ class McpConnectionService:
             connection_id=connection_id,
             cascaded_tools=removed_tools,
         )
+        _invalidate_mcp_cache(connection_id)
         return True
 
     # ------------------------------------------------------------------
@@ -312,7 +316,6 @@ class McpConnectionService:
                         "input_schema": tool_info["input_schema"],
                         "output_schema": tool_info["output_schema"],
                         "instructions": tool_info["instructions"],
-                        "status": ToolStatus.ACTIVE.value if existing.get("status") != ToolStatus.DRAFT.value else ToolStatus.DRAFT.value,
                         "updated_at": now_iso,
                     }},
                 )
@@ -329,7 +332,6 @@ class McpConnectionService:
                     "source": "mcp",
                     "source_file": "",
                     "mcp_connection_id": connection_id,
-                    "status": ToolStatus.DRAFT.value,
                     "version": 1,
                     "tags": [],
                     "files": [],
@@ -339,20 +341,14 @@ class McpConnectionService:
                 await tools_col.insert_one(tool_doc)
                 created_count += 1
 
-        # Mark tools that no longer exist on the server as INACTIVE
+        # Remove tools that no longer exist on the server
         deactivate_count = 0
         async for existing_tool in tools_col.find({
             "mcp_connection_id": connection_id,
             "source": "mcp",
         }):
             if existing_tool["name"] not in discovered_names:
-                await tools_col.update_one(
-                    {"_id": existing_tool["_id"]},
-                    {"$set": {
-                        "status": ToolStatus.INACTIVE.value,
-                        "updated_at": now_iso,
-                    }},
-                )
+                await tools_col.delete_one({"_id": existing_tool["_id"]})
                 deactivate_count += 1
 
         # Update connection status
@@ -374,6 +370,8 @@ class McpConnectionService:
             updated=updated_count,
             deactivated=deactivate_count,
         )
+
+        _invalidate_mcp_cache(connection_id)
 
         return {
             "connection_id": connection_id,

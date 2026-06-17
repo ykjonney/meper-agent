@@ -1,17 +1,74 @@
-"""MCP client — connection testing, tool discovery, and health checks.
+"""MCP client — connection testing and tool discovery.
 
-Uses the ``mcp`` Python SDK to connect to MCP servers via SSE or
-Streamable HTTP transports.  Discovered tools are registered into
-the ``tools`` MongoDB collection with ``source="mcp"``.
+Uses ``langchain_mcp_adapters.MultiServerMCPClient`` to connect to MCP
+servers via SSE or Streamable HTTP transports.  Discovered tools are
+registered into the ``tools`` MongoDB collection with ``source="mcp"``.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 
-from app.models.base import generate_id, utc_now
-from app.models.tool import ToolStatus
+
+# ---------------------------------------------------------------------------
+# Connection config builder
+# ---------------------------------------------------------------------------
+
+
+def _build_connection_config(
+    url: str,
+    protocol: str = "streamable-http",
+    auth_type: str = "none",
+    auth_config: dict | None = None,
+    timeout: int = 30,
+) -> dict:
+    """Build a connection config dict for ``MultiServerMCPClient``.
+
+    Maps the MongoDB connection document fields to the adapter's expected
+    ``Connection`` TypedDict format.
+
+    Args:
+        url: MCP server endpoint URL.
+        protocol: Transport protocol — ``"streamable-http"`` or ``"sse"``.
+        auth_type: Authentication type — ``"none"``, ``"api_key"``,
+            ``"bearer_token"``, or ``"basic"``.
+        auth_config: Auth configuration dict (keys depend on auth_type).
+        timeout: Connection timeout in seconds.
+
+    Returns:
+        A dict compatible with ``MultiServerMCPClient`` connections.
+    """
+    headers = _build_headers(auth_type, auth_config or {})
+
+    if protocol == "sse":
+        config: dict = {
+            "transport": "sse",
+            "url": url,
+        }
+        if headers:
+            config["headers"] = headers
+        if timeout:
+            config["timeout"] = float(timeout)
+        return config
+
+    # Default to streamable-http (also accepts "http")
+    config = {
+        "transport": "http",
+        "url": url,
+    }
+    if headers:
+        config["headers"] = headers
+    if timeout:
+        config["timeout"] = timedelta(seconds=timeout)
+    return config
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 async def test_connection(
@@ -27,26 +84,22 @@ async def test_connection(
         dict with keys: success, server_info, tool_count, error
     """
     try:
-        transport_ctx = _get_transport(url, protocol, auth_type, auth_config, timeout)
-        async with transport_ctx as streams:
-            read, write = streams[:2]
-            from mcp import ClientSession
+        config = _build_connection_config(url, protocol, auth_type, auth_config, timeout)
+        client = MultiServerMCPClient({"_test": config})
+        async with client.session("_test") as session:
+            server_info = {
+                "name": getattr(session, "server_name", "") or "",
+                "version": getattr(session, "server_version", "") or "",
+            }
+            tools_result = await session.list_tools()
+            tool_count = len(tools_result.tools) if tools_result.tools else 0
 
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                server_info = {
-                    "name": getattr(session, "server_name", "") or "",
-                    "version": getattr(session, "server_version", "") or "",
-                }
-                tools_result = await session.list_tools()
-                tool_count = len(tools_result.tools) if tools_result.tools else 0
-
-                return {
-                    "success": True,
-                    "server_info": server_info,
-                    "tool_count": tool_count,
-                    "error": "",
-                }
+            return {
+                "success": True,
+                "server_info": server_info,
+                "tool_count": tool_count,
+                "error": "",
+            }
     except Exception as exc:
         logger.warning("mcp_connection_test_failed", url=url, error=str(exc))
         return {
@@ -75,31 +128,27 @@ async def discover_tools(
     timeout = connection_doc.get("timeout", 30)
 
     try:
-        transport_ctx = _get_transport(url, protocol, auth_type, auth_config, timeout)
-        async with transport_ctx as streams:
-            read, write = streams[:2]
-            from mcp import ClientSession
+        config = _build_connection_config(url, protocol, auth_type, auth_config, timeout)
+        client = MultiServerMCPClient({"_discover": config})
+        async with client.session("_discover") as session:
+            tools_result = await session.list_tools()
 
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools_result = await session.list_tools()
+            discovered = []
+            for t in tools_result.tools or []:
+                discovered.append({
+                    "name": t.name,
+                    "description": t.description or "",
+                    "input_schema": t.inputSchema or {},
+                    "output_schema": {},
+                    "instructions": t.description or "",
+                })
 
-                discovered = []
-                for t in tools_result.tools or []:
-                    discovered.append({
-                        "name": t.name,
-                        "description": t.description or "",
-                        "input_schema": t.inputSchema or {},
-                        "output_schema": {},
-                        "instructions": t.description or "",
-                    })
-
-                logger.info(
-                    "mcp_tools_discovered",
-                    connection_id=connection_doc["_id"],
-                    tool_count=len(discovered),
-                )
-                return discovered
+            logger.info(
+                "mcp_tools_discovered",
+                connection_id=connection_doc["_id"],
+                tool_count=len(discovered),
+            )
+            return discovered
     except Exception as exc:
         logger.error(
             "mcp_tool_discovery_failed",
@@ -109,59 +158,9 @@ async def discover_tools(
         raise
 
 
-async def check_health(
-    url: str,
-    protocol: str = "streamable-http",
-    auth_type: str = "none",
-    auth_config: dict | None = None,
-    timeout: int = 30,
-) -> bool:
-    """Check if an MCP server is reachable.
-
-    Returns True if the server responds to initialize(), False otherwise.
-    """
-    try:
-        transport_ctx = _get_transport(url, protocol, auth_type, auth_config, timeout)
-        async with transport_ctx as streams:
-            read, write = streams[:2]
-            from mcp import ClientSession
-
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                return True
-    except Exception:
-        return False
-
-
 # ---------------------------------------------------------------------------
-# Transport helpers
+# Auth helpers (retained — used by _build_connection_config)
 # ---------------------------------------------------------------------------
-
-def _get_transport(
-    url: str,
-    protocol: str,
-    auth_type: str,
-    auth_config: dict | None,
-    timeout: int,
-):
-    """Return the appropriate MCP transport context manager.
-
-    Supports:
-    - ``streamable-http`` (default): Uses ``streamable_http_client``
-    - ``sse``: Uses ``sse_client``
-    """
-    headers = _build_headers(auth_type, auth_config or {})
-
-    if protocol == "sse":
-        from mcp.client.sse import sse_client
-
-        return sse_client(url=url, headers=headers, timeout=timeout)
-    else:
-        # Default to streamable-http
-        from mcp.client.streamable_http import streamable_http_client
-
-        return streamable_http_client(url=url, headers=headers, timeout=timeout)
-
 
 def _build_headers(auth_type: str, auth_config: dict) -> dict[str, str]:
     """Build HTTP headers based on auth type."""

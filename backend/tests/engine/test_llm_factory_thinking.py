@@ -12,7 +12,7 @@ class TestBuildThinkingKwargs:
 
     def test_thinking_disabled_returns_empty(self):
         result = _build_thinking_kwargs("gpt-4o", "openai", False, None)
-        assert result == {}
+        assert result == {"extra_body": {"thinking": {"type": "disabled"}}}
 
     def test_anthropic_thinking_enabled(self):
         result = _build_thinking_kwargs("claude-sonnet-4", "anthropic", True, None)

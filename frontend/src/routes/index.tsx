@@ -13,6 +13,7 @@ import SkillsPage from '../pages/skills-page'
 import McpPage from '../pages/mcp-page'
 import TasksPage from '../pages/tasks-page'
 import WorkflowsPage from '../pages/workflows-page'
+import WorkflowDetailPage from '../pages/workflow-detail-page'
 import ToolsPage from '../pages/tools-page'
 import SkillDetailPage from '../pages/skill-detail-page'
 import ExecutionLogsPage from '../pages/execution-logs-page'
@@ -38,8 +39,9 @@ export const routes = [
           { path: '/mcp', element: <McpPage /> },
           { path: '/tasks', element: <TasksPage /> },
           { path: '/workflows', element: <WorkflowsPage /> },
+          { path: '/workflows/:id', element: <WorkflowDetailPage /> },
           { path: '/tools', element: <ToolsPage /> },
-          { path: '/tools/:id', element: <SkillDetailPage /> },
+          { path: '/skills/:id', element: <SkillDetailPage /> },
           { path: '/execution-logs', element: <ExecutionLogsPage /> },
           { path: '/api-keys', element: <ApiKeysPage /> },
           { path: '/users', element: <UsersPage /> },

@@ -5,8 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.tool import ToolStatus
-
 
 class SkillFileResponse(BaseModel):
     """A single file in a Skill directory package."""
@@ -51,7 +49,6 @@ class ToolResponse(BaseModel):
     source: str = "markdown"
     source_file: str = ""
     mcp_connection_id: str = ""
-    status: ToolStatus
     version: int
     tags: list[str] = Field(default_factory=list)
     files: list[SkillFileResponse] = Field(default_factory=list)
@@ -71,16 +68,22 @@ class ToolListResponse(BaseModel):
 class ToolUpdate(BaseModel):
     """Schema for updating an existing Tool (PUT).
 
-    Only ``status`` and ``tags`` are user-editable — the schemas and
-    instructions come from the uploaded Markdown file and can be
-    re-uploaded if changes are needed.
+    Only ``tags`` is user-editable — the schemas and instructions come
+    from the uploaded Markdown file and can be re-uploaded if needed.
     """
 
-    status: ToolStatus | None = Field(
-        default=None, description="New status. None preserves existing."
-    )
     tags: list[str] | None = Field(
         default=None, description="New tags. None preserves existing."
+    )
+
+
+class BuiltinToolResponse(BaseModel):
+    """A single built-in tool's metadata."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any] = Field(
+        default_factory=dict, description="JSON Schema of the tool's parameters"
     )
 
 

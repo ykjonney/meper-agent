@@ -64,12 +64,14 @@ def _fake_doc(agent_id: str = "agent_01HTEST", name: str = "Test Agent") -> dict
         "name": name,
         "description": "A test agent",
         "system_prompt": "You are a helpful assistant.",
-        "tool_ids": [],
+        "saved_system_prompts": [],
+        "skill_ids": [],
+        "mcp_connection_ids": [],
+        "builtin_config": [],
         "workflow_ids": [],
         "knowledge_base_ids": [],
         "llm_config": {"default_model": "gpt-4", "temperature": 0.7, "max_retry": 3},
         "status": "draft",
-        "version": 1,
         "created_at": "2026-01-01T00:00:00",
         "updated_at": "2026-01-01T00:00:00",
     }
@@ -109,7 +111,6 @@ class TestListAgents:
             resp = client.get("/api/v1/agents?name=Filtered&status=draft")
         assert resp.status_code == 200
         assert resp.json()["items"][0]["name"] == "Filtered"
-        # Verify filters passed to service
         _, kwargs = mock_list.call_args
         assert kwargs["name"] == "Filtered"
         assert kwargs["status"] == "draft"
@@ -237,7 +238,7 @@ class TestUpdateAgent:
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "AGENT_NOT_FOUND"
 
-    def test_update_agent_409(self, client, auth_admin) -> None:
+    def test_update_agent_409_conflict(self, client, auth_admin) -> None:
         with patch(
             "app.api.v1.agents.AgentService.update_agent",
             new=AsyncMock(
@@ -253,6 +254,24 @@ class TestUpdateAgent:
             )
         assert resp.status_code == 409
 
+    def test_update_published_409(self, client, auth_admin) -> None:
+        """Published agent should return 409."""
+        with patch(
+            "app.api.v1.agents.AgentService.update_agent",
+            new=AsyncMock(
+                side_effect=ConflictError(
+                    code="AGENT_PUBLISHED_IMMUTABLE",
+                    message="Agent 'Published' 已发布，不可直接编辑。",
+                )
+            ),
+        ):
+            resp = client.put(
+                "/api/v1/agents/agent_01HTEST",
+                json={"name": "Published", "description": ""},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "AGENT_PUBLISHED_IMMUTABLE"
+
     def test_update_agent_viewer_forbidden(self, client, auth_viewer) -> None:
         resp = client.put(
             "/api/v1/agents/agent_01HTEST",
@@ -261,79 +280,12 @@ class TestUpdateAgent:
         assert resp.status_code == 403
 
 
-class TestUpdateModelConfig:
-    """PATCH /api/v1/agents/{agent_id}/model-config"""
-
-    def test_update_model_config_200(self, client, auth_admin) -> None:
-        updated = _fake_doc()
-        updated["llm_config"] = {
-            "default_model": "gpt-4-turbo",
-            "temperature": 0.3,
-            "max_retry": 5,
-        }
-        with patch(
-            "app.api.v1.agents.AgentService.update_model_config",
-            new=AsyncMock(return_value=updated),
-        ):
-            resp = client.patch(
-                "/api/v1/agents/agent_01HTEST/model-config",
-                json={
-                    "default_model": "gpt-4-turbo",
-                    "temperature": 0.3,
-                    "max_retry": 5,
-                },
-            )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["llm_config"]["default_model"] == "gpt-4-turbo"
-        assert data["llm_config"]["temperature"] == 0.3
-
-    def test_update_model_config_empty_rules(self, client, auth_admin) -> None:
-        updated = _fake_doc()
-        with patch(
-            "app.api.v1.agents.AgentService.update_model_config",
-            new=AsyncMock(return_value=updated),
-        ):
-            resp = client.patch(
-                "/api/v1/agents/agent_01HTEST/model-config",
-                json={},
-            )
-        assert resp.status_code == 200
-
-    def test_update_model_config_404(self, client, auth_admin) -> None:
-        with patch(
-            "app.api.v1.agents.AgentService.update_model_config",
-            new=AsyncMock(return_value=None),
-        ):
-            resp = client.patch(
-                "/api/v1/agents/agent_NONEXIST/model-config",
-                json={"default_model": "gpt-4"},
-            )
-        assert resp.status_code == 404
-        assert resp.json()["error"]["code"] == "AGENT_NOT_FOUND"
-
-    def test_update_model_config_viewer_forbidden(self, client, auth_viewer) -> None:
-        resp = client.patch(
-            "/api/v1/agents/agent_01HTEST/model-config",
-            json={"default_model": "gpt-4"},
-        )
-        assert resp.status_code == 403
-
-    def test_update_model_config_422_invalid_temperature(self, client, auth_admin) -> None:
-        resp = client.patch(
-            "/api/v1/agents/agent_01HTEST/model-config",
-            json={"temperature": 99.9},
-        )
-        assert resp.status_code == 422
-
-
 class TestPublishAgent:
     """POST /api/v1/agents/{agent_id}/publish"""
 
     def test_publish_agent_200(self, client, auth_admin) -> None:
         published = _fake_doc()
         published["status"] = "published"
-        published["version"] = 2
         with patch(
             "app.api.v1.agents.AgentService.publish_agent",
             new=AsyncMock(return_value=published),
@@ -342,7 +294,6 @@ class TestPublishAgent:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "published"
-        assert data["version"] == 2
 
     def test_publish_agent_404(self, client, auth_admin) -> None:
         with patch(
@@ -368,7 +319,6 @@ class TestArchiveAgent:
     def test_archive_agent_200(self, client, auth_admin) -> None:
         archived = _fake_doc()
         archived["status"] = "archived"
-        archived["version"] = 3
         with patch(
             "app.api.v1.agents.AgentService.archive_agent",
             new=AsyncMock(return_value=archived),
@@ -377,7 +327,6 @@ class TestArchiveAgent:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "archived"
-        assert data["version"] == 3
 
     def test_archive_agent_404(self, client, auth_admin) -> None:
         with patch(
@@ -399,7 +348,6 @@ class TestDuplicateAgent:
     def test_duplicate_agent_201(self, client, auth_admin) -> None:
         dup_doc = _fake_doc(agent_id="agent_02HDUP", name="Test Agent_copy")
         dup_doc["status"] = "draft"
-        dup_doc["version"] = 1
         with patch(
             "app.api.v1.agents.AgentService.duplicate_agent",
             new=AsyncMock(return_value=dup_doc),
@@ -409,7 +357,6 @@ class TestDuplicateAgent:
         data = resp.json()
         assert data["name"] == "Test Agent_copy"
         assert data["status"] == "draft"
-        assert data["version"] == 1
 
     def test_duplicate_agent_404(self, client, auth_admin) -> None:
         with patch(
@@ -439,32 +386,6 @@ class TestDuplicateAgent:
         assert resp.status_code == 403
 
 
-class TestUpdateAgentPreservesStatus:
-    """Verify that updating a published Agent preserves its status (AC7)."""
-
-    def test_update_published_agent_keeps_status(self, client, auth_admin) -> None:
-        """PUT /agents/{id} with status=None should keep 'published'."""
-        published_doc = _fake_doc()
-        published_doc["status"] = "published"
-        published_doc["name"] = "Updated Name"
-        published_doc["version"] = 2
-        with patch(
-            "app.api.v1.agents.AgentService.update_agent",
-            new=AsyncMock(return_value=published_doc),
-        ) as mock_update:
-            resp = client.put(
-                "/api/v1/agents/agent_01HTEST",
-                json={"name": "Updated Name", "description": "Updated"},
-            )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "published"
-        assert data["name"] == "Updated Name"
-        # Verify status=None passed to service (preserves existing)
-        _, kwargs = mock_update.call_args
-        assert kwargs.get("status") is None
-
-
 class TestDeleteAgent:
     """DELETE /api/v1/agents/{agent_id}"""
 
@@ -489,32 +410,33 @@ class TestDeleteAgent:
         assert resp.status_code == 403
 
 
+class TestVersionEndpointsRemoved:
+    """Version endpoints should return 404 (removed)."""
+
+    def test_list_versions_not_found(self, client, auth_admin) -> None:
+        resp = client.get("/api/v1/agents/agent_01HTEST/versions")
+        assert resp.status_code == 404
+
+    def test_get_version_not_found(self, client, auth_admin) -> None:
+        resp = client.get("/api/v1/agents/agent_01HTEST/versions/1")
+        assert resp.status_code == 404
+
+
 # =========================================================================
 # Contract tests — verify API→Service parameter name alignment
-#
-# Mock tests patch out the entire service method, so they cannot detect
-# keyword-argument name mismatches between the API handler and the service.
-# These tests explicitly verify that every kwarg the API passes to a
-# service method is a valid parameter of that method.
 # =========================================================================
 
 
 class TestAgentApiServiceContract:
-    """Verify API handlers call service methods with correct kwarg names.
-
-    Each test captures the specific kwargs the API handler passes to a
-    service call, then checks each name against the service method's
-    actual parameter list.
-    """
+    """Verify API handlers call service methods with correct kwarg names."""
 
     def test_create_agent_kwargs_match_service(self) -> None:
-        """API create_agent → AgentService.create_agent kwarg names."""
         sig = inspect.signature(AgentService.create_agent)
         valid_params = set(sig.parameters.keys())
-        # These are the kwargs passed by the API handler (line ~84-92)
         api_kwargs = {
             "name", "description", "system_prompt",
-            "tool_ids", "workflow_ids", "knowledge_base_ids",
+            "skill_ids", "mcp_connection_ids", "builtin_config",
+            "workflow_ids", "knowledge_base_ids",
             "llm_config",
         }
         unknown = api_kwargs - valid_params
@@ -524,12 +446,12 @@ class TestAgentApiServiceContract:
         )
 
     def test_update_agent_kwargs_match_service(self) -> None:
-        """API update_agent → AgentService.update_agent kwarg names."""
         sig = inspect.signature(AgentService.update_agent)
         valid_params = set(sig.parameters.keys())
         api_kwargs = {
             "agent_id", "name", "description", "system_prompt",
-            "tool_ids", "workflow_ids", "knowledge_base_ids",
+            "skill_ids", "mcp_connection_ids", "builtin_config",
+            "workflow_ids", "knowledge_base_ids",
             "llm_config",
         }
         unknown = api_kwargs - valid_params
@@ -538,16 +460,9 @@ class TestAgentApiServiceContract:
             f"{unknown}. Valid params: {valid_params}"
         )
 
-    def test_update_model_config_kwargs_match_service(self) -> None:
-        """API update_agent_model_config → AgentService.update_model_config kwarg names."""
-        sig = inspect.signature(AgentService.update_model_config)
-        valid_params = set(sig.parameters.keys())
-        api_kwargs = {
-            "agent_id", "default_model", "temperature",
-            "max_retry",
-        }
-        unknown = api_kwargs - valid_params
-        assert not unknown, (
-            f"API passes unknown kwarg(s) to AgentService.update_model_config: "
-            f"{unknown}. Valid params: {valid_params}"
+    def test_update_agent_no_status_param(self) -> None:
+        sig = inspect.signature(AgentService.update_agent)
+        assert "status" not in sig.parameters, (
+            "AgentService.update_agent should not accept 'status' parameter. "
+            "Status changes must go through publish_agent / archive_agent."
         )

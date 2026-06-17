@@ -64,7 +64,6 @@ class Agent(BaseModel):
         description="Model configuration",
     )
     status: AgentStatus = Field(default=AgentStatus.DRAFT)
-    version: int = Field(default=1, ge=1)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 

@@ -356,6 +356,12 @@ def _build_thinking_kwargs(
         thinking is disabled or unsupported.
     """
     if not enable_thinking:
+        # Explicitly disable thinking for providers that default to
+        # returning reasoning content (e.g. DeepSeek).
+        if provider_or_compatibility == "openai":
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        if provider_or_compatibility == "anthropic":
+            return {"thinking": {"type": "disabled"}}
         return {}
 
     # Anthropic path

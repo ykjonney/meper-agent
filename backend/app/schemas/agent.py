@@ -16,61 +16,87 @@ class SavedPromptItem(BaseModel):
 
 
 class AgentCreate(BaseModel):
-    """Schema for creating a new Agent."""
+    """Schema for creating a new Agent.
 
-    name: str = Field(..., min_length=1, max_length=100, description="Agent name")
-    description: str = Field(default="", max_length=500, description="Agent description")
-    system_prompt: str = Field(default="", max_length=10000, description="Active system prompt")
-    saved_system_prompts: list[SavedPromptItem] = Field(default_factory=list, description="Saved prompt templates")
-    # --- Deprecated: use skill_ids instead ---
-    tool_ids: list[str] = Field(default_factory=list, description="Deprecated: use skill_ids")
-    # --- New categorized fields ---
-    skill_ids: list[str] = Field(default_factory=list, description="Bound Skill tool IDs (source=markdown)")
-    mcp_connection_ids: list[str] = Field(default_factory=list, description="Bound MCP connection IDs")
-    builtin_config: list[str] = Field(default_factory=list, description="Enabled built-in tool names (whitelist)")
-    workflow_ids: list[str] = Field(default_factory=list, description="Bound workflow IDs")
-    knowledge_base_ids: list[str] = Field(default_factory=list, description="Bound knowledge base IDs")
-    llm_config: dict = Field(
-        default_factory=lambda: {
-            "default_model": "",
-            "temperature": 0.7,
-            "max_retry": 3,
-        },
-        description="Model configuration",
+    Only essential fields at creation time. Bind tools/workflows/knowledge
+    via the update endpoint after creation.
+    """
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Agent 名称（唯一必填字段）",
+        examples=["我的助手"],
+    )
+    description: str = Field(
+        default="",
+        max_length=500,
+        description="Agent 简要描述",
+        examples=["负责客户问答的智能助手"],
+    )
+    system_prompt: str = Field(
+        default="",
+        max_length=10000,
+        description="系统提示词（初始版本）",
     )
 
 
 class AgentUpdate(BaseModel):
     """Schema for updating an existing Agent (full replacement via PUT).
 
-    ``status`` is optional — when omitted (None), the service layer
-    preserves the existing status so editing a published Agent does
-    not reset it to draft.
+    All fields optional except ``name``. Status is **not** settable —
+    use the dedicated publish / archive endpoints instead.
     """
 
-    name: str = Field(..., min_length=1, max_length=100, description="Agent name")
-    description: str = Field(default="", max_length=500, description="Agent description")
-    system_prompt: str = Field(default="", max_length=10000, description="Active system prompt")
-    saved_system_prompts: list[SavedPromptItem] = Field(default_factory=list, description="Saved prompt templates")
-    # --- Deprecated: use skill_ids instead ---
-    tool_ids: list[str] = Field(default_factory=list, description="Deprecated: use skill_ids")
-    # --- New categorized fields ---
-    skill_ids: list[str] = Field(default_factory=list, description="Bound Skill tool IDs (source=markdown)")
-    mcp_connection_ids: list[str] = Field(default_factory=list, description="Bound MCP connection IDs")
-    builtin_config: list[str] = Field(default_factory=list, description="Enabled built-in tool names (whitelist)")
-    workflow_ids: list[str] = Field(default_factory=list, description="Bound workflow IDs")
-    knowledge_base_ids: list[str] = Field(default_factory=list, description="Bound knowledge base IDs")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Agent 名称",
+    )
+    description: str = Field(
+        default="",
+        max_length=500,
+        description="Agent 简要描述",
+    )
+    system_prompt: str = Field(
+        default="",
+        max_length=10000,
+        description="当前生效的系统提示词",
+    )
+    saved_system_prompts: list[SavedPromptItem] = Field(
+        default_factory=list,
+        description="已保存的提示词模板列表",
+    )
+    # --- Categorized tool fields ---
+    skill_ids: list[str] = Field(
+        default_factory=list,
+        description="绑定的 Skill 工具 ID（source=markdown）",
+    )
+    mcp_connection_ids: list[str] = Field(
+        default_factory=list,
+        description="绑定的 MCP 连接 ID",
+    )
+    builtin_config: list[str] = Field(
+        default_factory=list,
+        description="内置工具白名单（如 bash / read / write）",
+    )
+    workflow_ids: list[str] = Field(
+        default_factory=list,
+        description="绑定的工作流 ID",
+    )
+    knowledge_base_ids: list[str] = Field(
+        default_factory=list,
+        description="绑定的知识库 ID",
+    )
     llm_config: dict = Field(
         default_factory=lambda: {
             "default_model": "",
             "temperature": 0.7,
             "max_retry": 3,
         },
-        description="Model configuration",
-    )
-    status: AgentStatus | None = Field(
-        default=None,
-        description="Optional new status. None preserves existing status.",
+        description="模型配置（default_model / temperature / max_retry）",
     )
 
 
@@ -82,7 +108,6 @@ class AgentResponse(BaseModel):
     description: str
     system_prompt: str
     saved_system_prompts: list[SavedPromptItem] = Field(default_factory=list)
-    tool_ids: list[str]
     skill_ids: list[str]
     mcp_connection_ids: list[str]
     builtin_config: list[str]
@@ -97,20 +122,8 @@ class AgentResponse(BaseModel):
         description="Model configuration",
     )
     status: AgentStatus
-    version: int
     created_at: str
     updated_at: str
-
-
-class ModelConfigUpdate(BaseModel):
-    """Schema for updating only the Agent's model configuration (PATCH)."""
-
-    default_model: str = Field(
-        default="",
-        description="Model reference (_id) or legacy model name string",
-    )
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Model temperature")
-    max_retry: int = Field(default=3, ge=0, le=10, description="Max retry count")
 
 
 class AgentListResponse(BaseModel):

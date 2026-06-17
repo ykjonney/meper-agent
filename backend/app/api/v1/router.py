@@ -8,7 +8,10 @@ from app.api.v1.health import router as health_router
 from app.api.v1.mcp import router as mcp_router
 from app.api.v1.models import router as models_router
 from app.api.v1.sessions import router as sessions_router
+from app.api.v1.tasks import router as tasks_router
 from app.api.v1.tools import router as tools_router
+from app.api.v1.workflow_registry import router as workflow_registry_router
+from app.api.v1.workflows import router as workflows_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
@@ -17,5 +20,8 @@ api_v1_router.include_router(admin_router)
 api_v1_router.include_router(agents_router)
 api_v1_router.include_router(models_router)
 api_v1_router.include_router(sessions_router)
+api_v1_router.include_router(tasks_router)
 api_v1_router.include_router(tools_router)
 api_v1_router.include_router(mcp_router)
+api_v1_router.include_router(workflow_registry_router)
+api_v1_router.include_router(workflows_router)

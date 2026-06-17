@@ -20,6 +20,7 @@ export interface McpConnection {
   auth_type: McpAuthType
   auth_config: Record<string, string>
   timeout: number
+  default_params: Record<string, unknown>
   status: ConnectionStatus
   status_message: string
   last_connected_at: string
@@ -36,6 +37,7 @@ export interface McpConnectionCreateInput {
   auth_type?: McpAuthType
   auth_config?: Record<string, string>
   timeout?: number
+  default_params?: Record<string, unknown>
 }
 
 export type McpConnectionUpdateInput = McpConnectionCreateInput

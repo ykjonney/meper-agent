@@ -1,4 +1,4 @@
-"""Agent business logic — CRUD operations and version management."""
+"""Agent business logic — CRUD operations and lifecycle management."""
 from __future__ import annotations
 
 import re
@@ -29,7 +29,6 @@ class AgentService:
         description: str = "",
         system_prompt: str = "",
         saved_system_prompts: list[dict] | None = None,
-        tool_ids: list[str] | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
@@ -37,14 +36,13 @@ class AgentService:
         knowledge_base_ids: list[str] | None = None,
         llm_config: dict | None = None,
     ) -> dict:
-        """Create a new Agent in draft status. (AC1)
+        """Create a new Agent in draft status.
 
         Args:
             name: Agent name.
             description: Optional description.
             system_prompt: Optional active system prompt.
             saved_system_prompts: Optional list of saved prompt templates.
-            tool_ids: Deprecated — use skill_ids instead.
             skill_ids: Optional list of bound Skill tool IDs.
             mcp_connection_ids: Optional list of bound MCP connection IDs.
             builtin_config: Optional list of enabled built-in tool names.
@@ -56,7 +54,8 @@ class AgentService:
             Created Agent MongoDB document.
 
         Raises:
-            ValidationError: If name is empty or duplicates detected.
+            ConflictError: If name duplicates an existing Agent.
+            ValidationError: If creation fails unexpectedly.
         """
         # Name uniqueness check
         existing = await AgentService._collection().find_one({"name": name})
@@ -67,8 +66,8 @@ class AgentService:
                 details={"field": "name"},
             )
 
-        # Backward compat: use tool_ids as fallback for skill_ids
-        resolved_skill_ids = skill_ids if skill_ids is not None else (tool_ids or [])
+        # Resolve skill IDs
+        resolved_skill_ids = skill_ids or []
         from app.models.agent import SavedPrompt
 
         resolved_prompts = []
@@ -85,7 +84,6 @@ class AgentService:
             description=description,
             system_prompt=system_prompt,
             saved_system_prompts=resolved_prompts,
-            tool_ids=resolved_skill_ids,
             skill_ids=resolved_skill_ids,
             mcp_connection_ids=mcp_connection_ids or [],
             builtin_config=builtin_config or [],
@@ -105,7 +103,6 @@ class AgentService:
             "description": agent.description,
             "system_prompt": agent.system_prompt,
             "saved_system_prompts": [p.model_dump() for p in agent.saved_system_prompts],
-            "tool_ids": agent.tool_ids,
             "skill_ids": agent.skill_ids,
             "mcp_connection_ids": agent.mcp_connection_ids,
             "builtin_config": agent.builtin_config,
@@ -113,7 +110,6 @@ class AgentService:
             "knowledge_base_ids": agent.knowledge_base_ids,
             "llm_config": agent.llm_config,
             "status": agent.status.value,
-            "version": agent.version,
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
         }
@@ -142,7 +138,7 @@ class AgentService:
 
     @staticmethod
     async def get_agent(agent_id: str) -> dict | None:
-        """Get an Agent by ID. (AC3)
+        """Get an Agent by ID.
 
         Args:
             agent_id: The Agent's ID.
@@ -159,7 +155,7 @@ class AgentService:
         name: str | None = None,
         status: str | None = None,
     ) -> tuple[list[dict], int]:
-        """List Agents with pagination and optional filtering. (AC2)
+        """List Agents with pagination and optional filtering.
 
         Args:
             page: Page number (1-based).
@@ -194,18 +190,16 @@ class AgentService:
         description: str = "",
         system_prompt: str = "",
         saved_system_prompts: list[dict] | None = None,
-        tool_ids: list[str] | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
         workflow_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         llm_config: dict | None = None,
-        status: str | None = None,
     ) -> dict | None:
-        """Update an existing Agent. (AC4)
+        """Update an existing Agent's configuration.
 
-        Performs full replacement update. Auto-increments version only when published.
+        Published agents are immutable — raises ConflictError.
 
         Args:
             agent_id: The Agent's ID.
@@ -213,26 +207,31 @@ class AgentService:
             description: New description.
             system_prompt: New active system prompt.
             saved_system_prompts: New saved prompt templates list.
-            tool_ids: Deprecated — use skill_ids instead.
             skill_ids: New Skill tool IDs.
             mcp_connection_ids: New MCP connection IDs.
             builtin_config: New built-in tool whitelist.
             workflow_ids: New workflow IDs.
             knowledge_base_ids: New knowledge base IDs.
             llm_config: New model config.
-            status: Optional new status. None preserves existing status.
 
         Returns:
             Updated Agent document, or None if not found.
 
         Raises:
-            ValidationError: If name conflicts with another Agent.
+            ConflictError: If name conflicts or agent is published.
         """
         col = AgentService._collection()
 
         existing_doc = await col.find_one({"_id": agent_id})
         if existing_doc is None:
             return None
+
+        # Published agents are immutable — must archive or duplicate to make changes
+        if existing_doc.get("status") == AgentStatus.PUBLISHED.value:
+            raise ConflictError(
+                code="AGENT_PUBLISHED_IMMUTABLE",
+                message=f"Agent '{existing_doc.get('name')}' 已发布，不可直接编辑。请先将其下架或复制为新 Agent。",
+            )
 
         # Check name uniqueness (exclude self)
         name_conflict = await col.find_one(
@@ -246,30 +245,15 @@ class AgentService:
             )
 
         from app.models.base import utc_now
-        from app.models.agent import AgentStatus
 
         now_iso = utc_now().isoformat()
-
-        # Only increment version when the agent is published.
-        # Draft/archived edits should not bump version since they
-        # are not used in active conversations.
-        existing_status = existing_doc.get("status")
-        is_published = existing_status == AgentStatus.PUBLISHED.value
-        new_version = existing_doc.get("version", 1) + (1 if is_published else 0)
-
-        # Preserve existing status when not explicitly provided
-        status_value = status if status is not None else existing_status
-
-        # Backward compat: use tool_ids as fallback for skill_ids
-        resolved_skill_ids = skill_ids if skill_ids is not None else (tool_ids or [])
 
         set_fields: dict = {
             "name": name,
             "description": description,
             "system_prompt": system_prompt,
             "saved_system_prompts": saved_system_prompts or [],
-            "tool_ids": resolved_skill_ids,
-            "skill_ids": resolved_skill_ids,
+            "skill_ids": skill_ids or [],
             "mcp_connection_ids": mcp_connection_ids or [],
             "builtin_config": builtin_config or [],
             "workflow_ids": workflow_ids or [],
@@ -279,29 +263,24 @@ class AgentService:
                 "temperature": 0.7,
                 "max_retry": 3,
             },
-            "status": status_value,
-            "version": new_version,
             "updated_at": now_iso,
         }
 
-        await col.update_one({"_id": agent_id}, {"$set": set_fields})
-
-        logger.info(
-            "agent_updated",
-            agent_id=agent_id,
-            new_version=new_version,
+        await col.update_one(
+            {"_id": agent_id},
+            {"$set": set_fields},
         )
 
         updated = await AgentService.get_agent(agent_id)
+        logger.info(
+            "agent_updated",
+            agent_id=agent_id,
+        )
         return updated
 
     @staticmethod
     async def delete_agent(agent_id: str) -> bool:
-        """Delete an Agent by ID. (AC5)
-
-        Checks that the Agent is not referenced by active tasks.
-        Since Task data model does not exist yet, this is a placeholder
-        check that logs a warning.
+        """Delete an Agent by ID.
 
         Args:
             agent_id: The Agent's ID.
@@ -318,8 +297,6 @@ class AgentService:
         # TODO(Story 6.x): Add active Task reference check when
         # Task data model is implemented. For now, only warn.
         if existing_doc.get("status") == AgentStatus.PUBLISHED.value:
-            # Placeholder: in the future, check Task collection
-            # for any Task referencing this Agent
             logger.warning(
                 "agent_delete_published",
                 agent_id=agent_id,
@@ -337,79 +314,12 @@ class AgentService:
         return False
 
     # ------------------------------------------------------------------
-    # Model config operations
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def update_model_config(
-        agent_id: str,
-        default_model: str = "",
-        temperature: float = 0.7,
-        max_retry: int = 3,
-    ) -> dict | None:
-        """Update only the Agent's model configuration. (AC4)
-
-        Only touches the ``llm_config`` field; other fields are untouched.
-        Auto-increments ``version`` so new conversations use the new config
-        while existing conversations keep the old one (AC5).
-
-        Args:
-            agent_id: The Agent's ID.
-            default_model: Default LLM model ID.
-            temperature: Model temperature (0.0-2.0).
-            max_retry: Max retry count.
-
-        Returns:
-            Updated Agent document, or None if not found.
-        """
-        col = AgentService._collection()
-
-        existing_doc = await col.find_one({"_id": agent_id})
-        if existing_doc is None:
-            return None
-
-        from app.models.base import utc_now
-        from app.models.agent import AgentStatus
-
-        now_iso = utc_now().isoformat()
-
-        existing_status = existing_doc.get("status")
-        is_published = existing_status == AgentStatus.PUBLISHED.value
-        new_version = existing_doc.get("version", 1) + (1 if is_published else 0)
-
-        new_llm_config = {
-            "default_model": default_model,
-            "temperature": temperature,
-            "max_retry": max_retry,
-        }
-
-        await col.update_one(
-            {"_id": agent_id},
-            {
-                "$set": {
-                    "llm_config": new_llm_config,
-                    "version": new_version,
-                    "updated_at": now_iso,
-                }
-            },
-        )
-
-        logger.info(
-            "agent_model_config_updated",
-            agent_id=agent_id,
-            new_version=new_version,
-        )
-
-        updated = await AgentService.get_agent(agent_id)
-        return updated
-
-    # ------------------------------------------------------------------
     # Lifecycle operations (publish / archive / duplicate)
     # ------------------------------------------------------------------
 
     @staticmethod
     async def publish_agent(agent_id: str) -> dict | None:
-        """Publish an Agent (draft/archived → published). Auto-increments version.
+        """Publish an Agent (draft/archived → published).
 
         Args:
             agent_id: The Agent's ID.
@@ -426,30 +336,29 @@ class AgentService:
         from app.models.base import utc_now
 
         now_iso = utc_now().isoformat()
-        new_version = existing_doc.get("version", 1) + 1
 
         await col.update_one(
             {"_id": agent_id},
             {
                 "$set": {
                     "status": AgentStatus.PUBLISHED.value,
-                    "version": new_version,
                     "updated_at": now_iso,
-                }
+                },
             },
         )
+
+        updated = await AgentService.get_agent(agent_id)
 
         logger.info(
             "agent_published",
             agent_id=agent_id,
-            new_version=new_version,
         )
 
-        return await AgentService.get_agent(agent_id)
+        return updated
 
     @staticmethod
     async def archive_agent(agent_id: str) -> dict | None:
-        """Archive an Agent (published → archived). Auto-increments version.
+        """Archive an Agent (published → archived).
 
         Args:
             agent_id: The Agent's ID.
@@ -466,34 +375,29 @@ class AgentService:
         from app.models.base import utc_now
 
         now_iso = utc_now().isoformat()
-        new_version = existing_doc.get("version", 1) + 1
 
         await col.update_one(
             {"_id": agent_id},
             {
                 "$set": {
                     "status": AgentStatus.ARCHIVED.value,
-                    "version": new_version,
                     "updated_at": now_iso,
-                }
+                },
             },
         )
+
+        updated = await AgentService.get_agent(agent_id)
 
         logger.info(
             "agent_archived",
             agent_id=agent_id,
-            new_version=new_version,
         )
 
-        return await AgentService.get_agent(agent_id)
+        return updated
 
     @staticmethod
     async def duplicate_agent(agent_id: str) -> dict:
         """Duplicate an Agent with a unique name. New Agent is always draft.
-
-        Copies all configuration fields (system_prompt, tool_ids,
-        workflow_ids, knowledge_base_ids, llm_config) but resets
-        status to draft and version to 1.
 
         Args:
             agent_id: The source Agent's ID.
@@ -529,13 +433,14 @@ class AgentService:
                     message="无法生成唯一名称，请手动创建",
                 )
 
+        from app.models.compat import resolve_skill_ids
+
         return await AgentService.create_agent(
             name=new_name,
             description=source.get("description", ""),
             system_prompt=source.get("system_prompt", ""),
             saved_system_prompts=source.get("saved_system_prompts", None),
-            tool_ids=source.get("tool_ids", []),
-            skill_ids=source.get("skill_ids", None),
+            skill_ids=resolve_skill_ids(source),
             mcp_connection_ids=source.get("mcp_connection_ids", []),
             builtin_config=source.get("builtin_config", []),
             workflow_ids=source.get("workflow_ids", []),

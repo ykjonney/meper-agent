@@ -9,24 +9,20 @@
  * - Create agent → auto-redirect to detail page
  * - Publish / Archive lifecycle management
  * - Duplicate with automatic naming
- * - Version history view
  */
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Tag, Select, Tooltip, message, Spin, Modal } from 'antd'
+import { Button, Tag, Select, Tooltip, message, Spin, Modal, Input } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
   RobotOutlined,
   CopyOutlined,
-  HistoryOutlined,
   DeleteOutlined,
   InboxOutlined,
   CloudUploadOutlined,
   StopOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -60,8 +56,11 @@ export default function AgentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const debouncedSearch = useDebouncedValue(searchInput, 300)
 
-  /* ─── Version history state ─── */
-  const [versionAgent, setVersionAgent] = useState<Agent | null>(null)
+  /* ─── Create modal state ─── */
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createDesc, setCreateDesc] = useState('')
+  const [creating, setCreating] = useState(false)
 
   /* ─── Query: agent list ─── */
   const queryParams = {
@@ -144,7 +143,34 @@ export default function AgentsPage() {
 
   /* ─── Actions ─── */
   const handleCreate = () => {
-    navigate('/agents/new')
+    setCreateName('')
+    setCreateDesc('')
+    setCreating(false)
+    setCreateOpen(true)
+  }
+
+  const handleCreateSubmit = async () => {
+    if (!createName.trim()) {
+      message.warning('请输入 Agent 名称')
+      return
+    }
+    setCreating(true)
+    try {
+      const newAgent = await agentApi.create({
+        name: createName.trim(),
+        description: createDesc.trim(),
+      })
+      message.success('Agent 创建成功')
+      queryClient.invalidateQueries({ queryKey: agentKeys.lists() })
+      setCreateOpen(false)
+      navigate(`/agents/${newAgent.id}`)
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message : '创建失败'
+      message.error(msg)
+    } finally {
+      setCreating(false)
+    }
   }
 
   const handleDelete = (agent: Agent) => {
@@ -189,10 +215,6 @@ export default function AgentsPage() {
     })
   }
 
-  const handleShowVersion = (agent: Agent) => {
-    setVersionAgent(agent)
-  }
-
   /* ─── Helper: model display ─── */
   const getModelDisplay = (agent: Agent): string => {
     const modelRef = agent.llm_config?.default_model
@@ -201,7 +223,6 @@ export default function AgentsPage() {
   }
 
   /* ─── Stats ─── */
-  // NOTE: Per-status counts reflect current page (max 50); "全部" is global total.
   const stats = [
     { label: '全部 Agent', value: total.toString() },
     { label: '已发布（当前页）', value: agents.filter(a => a.status === 'published').length.toString() },
@@ -316,11 +337,8 @@ export default function AgentsPage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-[#0F172A] truncate">{agent.name}</span>
-                        <Tooltip title={`v${agent.version}`}>
-                          <span className="text-[10px] font-mono text-[#94A3B8] border border-gray-200 rounded px-1 leading-none py-0.5">v{agent.version}</span>
-                        </Tooltip>
                       </div>
-                      <div className="text-xs text-[#64748B] truncate max-w-[160px]">{agent.description || '暂无描述'}</div>
+                      <div className="text-xs text-[#64748B] truncate max-w-[200px]">{agent.description || '暂无描述'}</div>
                     </div>
                   </div>
                 </div>
@@ -350,11 +368,10 @@ export default function AgentsPage() {
                   )}
                 </div>
 
-                {/* Footer: status + time + actions */}
+                {/* Footer: time + actions */}
                 <div className="flex items-center justify-between pt-3 border-t border-gray-50">
                   <span className="text-[11px] text-[#94A3B8]">{formatTime(agent.updated_at)}</span>
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    {/* Publish / Archive */}
                     {canPublish && (
                       <Tooltip title="发布">
                         <button
@@ -380,12 +397,6 @@ export default function AgentsPage() {
                         className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#94A3B8] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150 text-xs"
                       ><CopyOutlined /></button>
                     </Tooltip>
-                    <Tooltip title="版本历史">
-                      <button
-                        onClick={() => handleShowVersion(agent)}
-                        className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#94A3B8] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150 text-xs"
-                      ><HistoryOutlined /></button>
-                    </Tooltip>
                     <Tooltip title="删除">
                       <button
                         onClick={() => handleDelete(agent)}
@@ -401,76 +412,47 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {/* Version History Modal */}
+      {/* Create Agent Modal */}
       <Modal
-        title="版本信息"
-        open={versionAgent !== null}
-        onCancel={() => setVersionAgent(null)}
-        footer={<Button onClick={() => setVersionAgent(null)}>关闭</Button>}
-        width={420}
+        title="新建 Agent"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={handleCreateSubmit}
+        okText="创建"
+        cancelText="取消"
+        confirmLoading={creating}
+        okButtonProps={{ disabled: !createName.trim() }}
+        destroyOnClose
+        width={480}
       >
-        {versionAgent && (
-          <div className="flex flex-col gap-3 py-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">Agent 名称</span>
-              <span className="text-sm font-medium text-[#0F172A]">{versionAgent.name}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">当前版本</span>
-              <div className="flex items-center gap-2">
-                <Tag
-                  style={{
-                    color: '#1E5EFF',
-                    background: '#EBF0FF',
-                    borderColor: 'transparent',
-                  }}
-                  className="!m-0"
-                >
-                  <CheckCircleOutlined className="!mr-1" />
-                  v{versionAgent.version}（当前）
-                </Tag>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">状态</span>
-              <Tag
-                style={{
-                  color: STATUS_STYLES[versionAgent.status]?.color,
-                  background: STATUS_STYLES[versionAgent.status]?.bg,
-                  borderColor: 'transparent',
-                }}
-                className="!m-0"
-              >
-                {STATUS_STYLES[versionAgent.status]?.label ?? versionAgent.status}
-              </Tag>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">默认模型</span>
-              <span className="text-sm text-[#0F172A]">{versionAgent.llm_config?.default_model || '未配置'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">
-                <ClockCircleOutlined className="!mr-1" />
-                创建时间
-              </span>
-              <span className="text-xs text-[#94A3B8]">
-                {new Date(versionAgent.created_at).toLocaleString('zh-CN')}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[#64748B]">
-                <ClockCircleOutlined className="!mr-1" />
-                更新时间
-              </span>
-              <span className="text-xs text-[#94A3B8]">
-                {new Date(versionAgent.updated_at).toLocaleString('zh-CN')}
-              </span>
-            </div>
-            <div className="pt-2 border-t border-gray-100 text-[11px] text-[#94A3B8]">
-              历史版本快照功能尚未实现，当前仅展示最新版本信息。
-            </div>
+        <div className="flex flex-col gap-4 py-2">
+          <div>
+            <label className="block text-sm text-[#0F172A] mb-1.5">
+              名称 <span className="text-[#EF4444]">*</span>
+            </label>
+            <Input
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="如：客服助手"
+              maxLength={100}
+              showCount
+              autoFocus
+            />
           </div>
-        )}
+          <div>
+            <label className="block text-sm text-[#0F172A] mb-1.5">
+              描述
+            </label>
+            <Input.TextArea
+              value={createDesc}
+              onChange={(e) => setCreateDesc(e.target.value)}
+              placeholder="简要描述 Agent 的用途"
+              maxLength={500}
+              showCount
+              rows={3}
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   )

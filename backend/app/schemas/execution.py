@@ -25,3 +25,57 @@ class ExecutionResponse(BaseModel):
     agent_id: str = Field(..., description="Agent ID")
     session_id: str = Field(..., description="Associated session ID for this conversation")
     step_count: int = Field(default=0, description="Number of execution steps taken")
+
+
+# ---------------------------------------------------------------------------
+# Preview / Dry-run
+# ---------------------------------------------------------------------------
+
+
+class PreviewRequest(BaseModel):
+    """Request body for agent preview (dry-run) endpoint."""
+
+    input: str = Field(
+        default="Hello",
+        max_length=50000,
+        description="模拟用户输入（用于组装 messages，不实际调用 LLM）",
+    )
+    enable_thinking: bool = Field(
+        default=False,
+        description="是否启用 thinking 模式（影响 LLM 配置预览）",
+    )
+
+
+class ToolPreview(BaseModel):
+    """单个工具的预览信息。"""
+
+    name: str = Field(..., description="工具名称")
+    type: str = Field(..., description="工具类型: skill / mcp / builtin / workflow")
+    description: str = Field(default="", description="工具描述")
+    source: str = Field(default="", description="来源标识（skill 名称 / MCP 连接名 / builtin 名称）")
+    input_schema: dict = Field(default_factory=dict, description="输入参数 JSON Schema")
+
+
+class PreviewResponse(BaseModel):
+    """Agent 执行预览 — 组装完成的 prompt 和 tools 快照。
+
+    不实际调用 LLM，仅返回发送请求前的完整组装结果，
+    用于调试和验证 Agent 配置是否正确。
+    """
+
+    agent_id: str = Field(..., description="Agent ID")
+    agent_name: str = Field(..., description="Agent 名称")
+    model: str = Field(default="", description="LLM 模型标识")
+    system_prompt: str = Field(default="", description="组装完成的完整系统提示词")
+    messages: list[dict] = Field(
+        default_factory=list,
+        description="组装完成的消息列表（发送给 LLM 前的快照）",
+    )
+    tools: list[ToolPreview] = Field(
+        default_factory=list,
+        description="解析完成的所有工具列表",
+    )
+    tool_summary: dict = Field(
+        default_factory=dict,
+        description="工具统计摘要，如 {total: 3, skill: 1, mcp: 1, builtin: 1}",
+    )

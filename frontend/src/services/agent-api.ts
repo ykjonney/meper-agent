@@ -6,7 +6,8 @@
  */
 import { apiClient, type NormalizedApiError } from './api-client'
 import { ENV } from '../config/env'
-import { useAuthStore } from '../stores/auth-store'
+import { REFRESH_TOKEN_KEY, useAuthStore } from '../stores/auth-store'
+import { authApi } from './auth-api'
 
 /* ─── Types (snake_case, matches backend schemas) ─── */
 
@@ -31,8 +32,6 @@ export interface Agent {
   description: string
   system_prompt: string
   saved_system_prompts: SavedPrompt[]
-  /** Legacy field — kept for backward compatibility with old agents */
-  tool_ids: string[]
   /** Skill tool IDs (source=markdown) */
   skill_ids: string[]
   /** MCP connection IDs (tools loaded from remote MCP servers) */
@@ -43,27 +42,17 @@ export interface Agent {
   knowledge_base_ids: string[]
   llm_config: LlmConfig
   status: AgentStatus
-  version: number
   created_at: string
   updated_at: string
 }
 
 export interface AgentCreateInput {
+  /** Agent 名称（唯一必填） */
   name: string
+  /** Agent 简要描述 */
   description?: string
+  /** 系统提示词（初始版本） */
   system_prompt?: string
-  saved_system_prompts?: SavedPrompt[]
-  /** @deprecated Use skill_ids instead */
-  tool_ids?: string[]
-  /** Skill tool IDs (source=markdown) */
-  skill_ids?: string[]
-  /** MCP connection IDs */
-  mcp_connection_ids?: string[]
-  /** Built-in tool whitelist (bash/read/write) */
-  builtin_config?: string[]
-  workflow_ids?: string[]
-  knowledge_base_ids?: string[]
-  llm_config?: Partial<LlmConfig>
 }
 
 export interface AgentUpdateInput {
@@ -71,8 +60,6 @@ export interface AgentUpdateInput {
   description?: string
   system_prompt?: string
   saved_system_prompts?: SavedPrompt[]
-  /** @deprecated Use skill_ids instead */
-  tool_ids?: string[]
   /** Skill tool IDs (source=markdown) */
   skill_ids?: string[]
   /** MCP connection IDs */
@@ -82,7 +69,6 @@ export interface AgentUpdateInput {
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
   llm_config?: Partial<LlmConfig>
-  status?: AgentStatus
 }
 
 /** Model config update payload for PATCH /agents/{id}/model-config */
@@ -121,6 +107,37 @@ export interface ExecutionResponse {
   agent_id: string
   session_id: string
   step_count: number
+}
+
+/* ─── Preview / Dry-run types ─── */
+
+export interface PreviewRequest {
+  input?: string
+  enable_thinking?: boolean
+}
+
+export interface ToolPreview {
+  name: string
+  type: 'skill' | 'mcp' | 'builtin' | 'workflow'
+  description: string
+  source: string
+  input_schema: Record<string, unknown>
+}
+
+export interface PreviewResponse {
+  agent_id: string
+  agent_name: string
+  model: string
+  system_prompt: string
+  messages: { role: string; content: string }[]
+  tools: ToolPreview[]
+  tool_summary: {
+    total: number
+    skill: number
+    mcp: number
+    builtin: number
+    workflow: number
+  }
 }
 
 /* ─── SSE structured event types ─── */
@@ -225,7 +242,8 @@ export const agentApi = {
   },
 
   /**
-   * Update an agent (full PUT, version auto-increments).
+   * Update an agent (full PUT).
+   * Published agents are immutable — returns 409 if agent is published.
    * PUT /api/v1/agents/{id}
    */
   async update(agentId: string, input: AgentUpdateInput): Promise<Agent> {
@@ -299,6 +317,18 @@ export const agentApi = {
   },
 
   /**
+   * Preview assembled prompt & tools without invoking LLM (dry-run).
+   * POST /api/v1/agents/{id}/preview
+   */
+  async preview(agentId: string, body: PreviewRequest = {}): Promise<PreviewResponse> {
+    const res = await apiClient.post<PreviewResponse>(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/preview`,
+      body,
+    )
+    return res.data
+  },
+
+  /**
    * Stream an agent execution via SSE (POST + ReadableStream).
    *
    * Uses raw fetch instead of axios because axios does not support
@@ -306,10 +336,22 @@ export const agentApi = {
    * can read the body as a ReadableStream and parse SSE events.
    */
   async stream(agentId: string, body: ExecutionRequest): Promise<Response> {
-    const accessToken = useAuthStore.getState().accessToken
     const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/stream`
 
-    return fetch(url, {
+    return this._streamWithRetry(url, body)
+  },
+
+  /**
+   * Internal: POST to SSE stream URL with fetch().  If the response is 401
+   * TOKEN_EXPIRED, attempt a silent refresh once and retry.
+   *
+   * NOTE: standard Axios interceptors do NOT apply to fetch(), so this
+   * method duplicates the minimal refresh logic seen in api-client.ts.
+   */
+  async _streamWithRetry(url: string, body: ExecutionRequest, _retried = false): Promise<Response> {
+    const accessToken = useAuthStore.getState().accessToken
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -317,7 +359,48 @@ export const agentApi = {
       },
       body: JSON.stringify(body),
     })
+
+    // 401 + token expired → refresh once and retry
+    if (res.status === 401 && !_retried) {
+      const errBody: { error?: { code?: string } } = {}
+      try { Object.assign(errBody, await res.clone().json()) } catch { /* ignore parse errors */ }
+
+      if (errBody.error?.code === 'TOKEN_EXPIRED') {
+        const newToken = await this._refreshToken()
+        if (newToken) {
+          useAuthStore.getState().setAccessToken(newToken)
+          return this._streamWithRetry(url, body, true)
+        }
+        // Refresh failed → redirect to login
+        useAuthStore.getState().clearAuth()
+        if (window.location.pathname !== '/login') {
+          const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+          window.location.href = `/login?redirect=${redirect}`
+        }
+      }
+    }
+
+    return res
   },
+
+  /**
+   * Attempt to refresh the JWT access token using the stored refresh token.
+   * Returns the new access token or null on failure.
+   */
+  async _refreshToken(): Promise<string | null> {
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+    if (!refreshToken) return null
+
+    try {
+      const res = await authApi.refresh(refreshToken)
+      const { access_token, refresh_token } = res.data
+      localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
+      return access_token
+    } catch {
+      return null
+    }
+  },
+
 }
 
 /* ─── Query key factory ─── */

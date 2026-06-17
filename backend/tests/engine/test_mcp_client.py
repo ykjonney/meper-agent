@@ -1,9 +1,15 @@
 """Tests for MCP client connection testing and tool discovery."""
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.engine.tool import mcp_client
+
+
+# ---------------------------------------------------------------------------
+# _build_headers tests (retained)
+# ---------------------------------------------------------------------------
 
 
 def test_build_headers_none():
@@ -54,30 +60,68 @@ def test_build_headers_bearer_token_empty():
     assert headers == {}
 
 
-def test_get_transport_streamable_http():
-    """Test transport selection for streamable-http."""
-    with patch("mcp.client.streamable_http.streamable_http_client") as mock:
-        mcp_client._get_transport(
-            url="http://localhost:8080/mcp",
-            protocol="streamable-http",
-            auth_type="none",
-            auth_config={},
-            timeout=30,
-        )
-        mock.assert_called_once()
+# ---------------------------------------------------------------------------
+# _build_connection_config tests (new)
+# ---------------------------------------------------------------------------
 
 
-def test_get_transport_sse():
-    """Test transport selection for SSE."""
-    with patch("mcp.client.sse.sse_client") as mock:
-        mcp_client._get_transport(
-            url="http://localhost:8080/mcp",
-            protocol="sse",
-            auth_type="none",
-            auth_config={},
-            timeout=30,
-        )
-        mock.assert_called_once()
+def test_build_connection_config_streamable_http():
+    """Test config for streamable-http (default) transport."""
+    config = mcp_client._build_connection_config(
+        url="http://localhost:8080/mcp",
+        protocol="streamable-http",
+        auth_type="none",
+        auth_config={},
+        timeout=30,
+    )
+    assert config["transport"] == "http"
+    assert config["url"] == "http://localhost:8080/mcp"
+    assert config["timeout"] == timedelta(seconds=30)
+    assert "headers" not in config
+
+
+def test_build_connection_config_sse():
+    """Test config for SSE transport."""
+    config = mcp_client._build_connection_config(
+        url="http://localhost:8080/sse",
+        protocol="sse",
+        auth_type="none",
+        auth_config={},
+        timeout=10,
+    )
+    assert config["transport"] == "sse"
+    assert config["url"] == "http://localhost:8080/sse"
+    assert config["timeout"] == 10.0
+    assert "headers" not in config
+
+
+def test_build_connection_config_with_bearer_auth():
+    """Test config includes auth headers."""
+    config = mcp_client._build_connection_config(
+        url="http://localhost:8080/mcp",
+        protocol="streamable-http",
+        auth_type="bearer_token",
+        auth_config={"token": "mytoken"},
+        timeout=30,
+    )
+    assert config["headers"] == {"Authorization": "Bearer mytoken"}
+
+
+def test_build_connection_config_with_api_key_auth():
+    """Test config includes API key header."""
+    config = mcp_client._build_connection_config(
+        url="http://localhost:8080/mcp",
+        protocol="sse",
+        auth_type="api_key",
+        auth_config={"api_key": "secret", "header_name": "X-Custom"},
+        timeout=5,
+    )
+    assert config["headers"] == {"X-Custom": "secret"}
+
+
+# ---------------------------------------------------------------------------
+# Integration-style tests (require real MCP server — expect failure)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -96,16 +140,3 @@ async def test_test_connection_success():
     assert result["success"] is False
     assert result["error"]
     assert result["tool_count"] == 0
-
-
-@pytest.mark.asyncio
-async def test_check_health_failure():
-    """Test health check returns False for unreachable server."""
-    result = await mcp_client.check_health(
-        url="http://nonexistent:9999/mcp",
-        protocol="streamable-http",
-        auth_type="none",
-        auth_config={},
-        timeout=1,
-    )
-    assert result is False

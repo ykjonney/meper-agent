@@ -22,7 +22,7 @@ class TestCreateAgent:
             name="Test Agent",
             description="A test agent",
             system_prompt="You are helpful.",
-            tool_ids=["tool_001"],
+            skill_ids=["tool_001"],
             workflow_ids=["wf_001"],
         )
         assert doc["_id"].startswith("agent_")
@@ -30,7 +30,7 @@ class TestCreateAgent:
         assert doc["status"] == "draft"
         assert doc["version"] == 1
         assert doc["description"] == "A test agent"
-        assert doc["tool_ids"] == ["tool_001"]
+        assert doc["skill_ids"] == ["tool_001"]
         assert doc["workflow_ids"] == ["wf_001"]
 
     async def test_create_agent_defaults(
@@ -40,7 +40,7 @@ class TestCreateAgent:
         """AC1: Minimal Agent creation uses sensible defaults."""
         doc = await AgentService.create_agent(name="Minimal Agent")
         assert doc["system_prompt"] == ""
-        assert doc["tool_ids"] == []
+        assert doc["skill_ids"] == []
         assert doc["workflow_ids"] == []
         assert doc["knowledge_base_ids"] == []
         assert doc["llm_config"]["default_model"] == ""
@@ -77,21 +77,8 @@ class TestCreateAgent:
             builtin_config=["bash", "read"],
         )
         assert doc["skill_ids"] == ["skill_001", "skill_002"]
-        assert doc["tool_ids"] == ["skill_001", "skill_002"]  # mirror
         assert doc["mcp_connection_ids"] == ["mcp_001"]
         assert doc["builtin_config"] == ["bash", "read"]
-
-    async def test_create_agent_backward_compat_tool_ids(
-        self,
-        mock_agent_collection: None,  # noqa: ARG002
-    ) -> None:
-        """AC1: Old-style tool_ids maps to skill_ids when skill_ids is None."""
-        doc = await AgentService.create_agent(
-            name="Legacy Agent",
-            tool_ids=["tool_001"],
-        )
-        assert doc["skill_ids"] == ["tool_001"]
-        assert doc["tool_ids"] == ["tool_001"]
 
 
 class TestGetAgent:
@@ -192,13 +179,13 @@ class TestUpdateAgent:
             name="Updated",
             description="New description",
             system_prompt="New prompt",
-            tool_ids=["tool_001"],
+            skill_ids=["tool_001"],
             workflow_ids=[],
         )
         assert updated is not None
         assert updated["name"] == "Updated"
         assert updated["description"] == "New description"
-        assert updated["version"] == 2  # Auto-incremented
+        assert updated["version"] == 1  # Draft — no version auto-increment
 
     async def test_update_agent_not_found(
         self,
@@ -235,7 +222,7 @@ class TestUpdateAgent:
             name="Original",
             description="Desc",
             system_prompt="Prompt",
-            tool_ids=["t1"],
+            skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
         )
@@ -244,13 +231,13 @@ class TestUpdateAgent:
             name="Original",
             description="Desc",
             system_prompt="Prompt",
-            tool_ids=["t1"],
+            skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
         )
         assert updated is not None
-        # Version still increments because update always does
-        assert updated["version"] == 2
+        # Version stays at 1 because agent is in draft status (no auto-increment)
+        assert updated["version"] == 1
 
     async def test_update_agent_categorized_fields(
         self,
@@ -278,7 +265,7 @@ class TestUpdateAgent:
         assert updated["skill_ids"] == ["skill_002", "skill_003"]
         assert updated["mcp_connection_ids"] == ["mcp_002"]
         assert updated["builtin_config"] == ["read", "write"]
-        assert updated["version"] == 2  # create(1) → update(2)
+        assert updated["version"] == 1  # create(1) → update(draft, no increment)
 
 
 class TestDuplicateAgent:
@@ -307,18 +294,35 @@ class TestDuplicateAgent:
         assert duplicate["status"] == "draft"
         assert duplicate["version"] == 1
 
-    async def test_duplicate_legacy_tool_ids(
+    async def test_duplicate_legacy_tool_ids_doc(
         self,
         mock_agent_collection: None,  # noqa: ARG002
     ) -> None:
-        """Duplicate of old Agent with only tool_ids copies correctly."""
-        original = await AgentService.create_agent(
-            name="Legacy Copy",
-            tool_ids=["t1", "t2"],
-        )
-        duplicate = await AgentService.duplicate_agent(original["_id"])
+        """Duplicate of old Agent doc (only tool_ids, no skill_ids) copies correctly."""
+        # Simulate a legacy document by directly inserting into the collection
+        legacy_doc = {
+            "_id": "agent_legacy_001",
+            "name": "Legacy Doc Agent",
+            "description": "",
+            "system_prompt": "",
+            "saved_system_prompts": [],
+            "tool_ids": ["t1", "t2"],
+            # No skill_ids field — simulates pre-migration doc
+            "mcp_connection_ids": [],
+            "builtin_config": [],
+            "workflow_ids": [],
+            "knowledge_base_ids": [],
+            "llm_config": {"default_model": "", "temperature": 0.7, "max_retry": 3},
+            "status": "draft",
+            "version": 1,
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+        }
+        await AgentService._collection().insert_one(legacy_doc)
+
+        duplicate = await AgentService.duplicate_agent("agent_legacy_001")
+        assert duplicate["name"] == "Legacy Doc Agent_copy"
         assert duplicate["skill_ids"] == ["t1", "t2"]
-        assert duplicate["tool_ids"] == ["t1", "t2"]
 
 
 class TestDeleteAgent:

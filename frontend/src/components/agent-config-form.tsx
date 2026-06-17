@@ -11,15 +11,19 @@ import { useState, useEffect, useImperativeHandle, forwardRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Input, InputNumber, Select, Slider, Button, Collapse, Tag, message, Modal,
+  Spin, Empty,
 } from 'antd'
 import {
   CloudUploadOutlined,
   StopOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import {
   agentApi,
   agentKeys,
   type Agent,
+  type PreviewResponse,
+  type ToolPreview,
 } from '../services/agent-api'
 import {
   modelApi,
@@ -67,6 +71,9 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     const [formMaxRetry, setFormMaxRetry] = useState(3)
     const [formPrompts, setFormPrompts] = useState<SavedPrompt[]>([])
     const [toolConfig, setToolConfig] = useState<ToolSelectorValue>(DEFAULT_TOOL_VALUE)
+    const [previewOpen, setPreviewOpen] = useState(false)
+    const [previewData, setPreviewData] = useState<PreviewResponse | null>(null)
+    const [previewLoading, setPreviewLoading] = useState(false)
 
     /* ─── Populate form when agent changes ─── */
     useEffect(() => {
@@ -80,10 +87,9 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         setFormMaxRetry(agent.llm_config?.max_retry ?? 3)
         setToolConfig({
           builtin_config: agent.builtin_config ?? [],
-          skill_ids: (agent.skill_ids && agent.skill_ids.length > 0)
-            ? agent.skill_ids
-            : (agent.tool_ids ?? []),
+          skill_ids: agent.skill_ids ?? [],
           mcp_connection_ids: agent.mcp_connection_ids ?? [],
+          workflow_ids: agent.workflow_ids ?? [],
         })
       } else {
         setFormName('')
@@ -122,7 +128,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             skill_ids: toolConfig.skill_ids,
             mcp_connection_ids: toolConfig.mcp_connection_ids,
             builtin_config: toolConfig.builtin_config,
-            workflow_ids: agent.workflow_ids,
+            workflow_ids: toolConfig.workflow_ids,
             knowledge_base_ids: agent.knowledge_base_ids,
             llm_config: llmConfig,
           })
@@ -135,11 +141,12 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             skill_ids: toolConfig.skill_ids,
             mcp_connection_ids: toolConfig.mcp_connection_ids,
             builtin_config: toolConfig.builtin_config,
+            workflow_ids: toolConfig.workflow_ids,
             llm_config: llmConfig,
           })
         }
       },
-      onSuccess: () => {
+      onSuccess: (data) => {
         message.success(isEdit ? 'Agent 更新成功' : 'Agent 创建成功')
         queryClient.invalidateQueries({ queryKey: agentKeys.lists() })
         if (agent) {
@@ -342,10 +349,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
                   </Tag>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#0F172A]">版本号</span>
-                  <span className="text-sm font-mono text-[#64748B]">v{agent?.version ?? 1}</span>
-                </div>
-                <div className="flex items-center justify-between">
                   <span className="text-sm text-[#0F172A]">创建时间</span>
                   <span className="text-xs text-[#94A3B8]">{agent?.created_at ? new Date(agent.created_at).toLocaleString('zh-CN') : '-'}</span>
                 </div>
@@ -405,13 +408,150 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         : []),
     ]
 
+    /* ─── Preview handler ─── */
+    const handlePreview = async () => {
+      if (!agent) {
+        message.warning('请先保存 Agent 后再预览')
+        return
+      }
+      setPreviewOpen(true)
+      setPreviewLoading(true)
+      setPreviewData(null)
+      try {
+        const data = await agentApi.preview(agent.id, {
+          input: formPrompt ? '测试消息' : 'Hello',
+          enable_thinking: false,
+        })
+        setPreviewData(data)
+      } catch (err: unknown) {
+        const msg = err && typeof err === 'object' && 'message' in err
+          ? (err as { message: string }).message
+          : '预览失败'
+        message.error(msg)
+        setPreviewOpen(false)
+      } finally {
+        setPreviewLoading(false)
+      }
+    }
+
+    /* ─── Tool type color & label ─── */
+    const TOOL_TYPE_STYLE: Record<string, { color: string; label: string }> = {
+      skill: { color: 'blue', label: 'Skill' },
+      mcp: { color: 'purple', label: 'MCP' },
+      builtin: { color: 'green', label: '内置' },
+      workflow: { color: 'orange', label: '工作流' },
+    }
+
     return (
-      <Collapse
-        defaultActiveKey={['basic', 'prompt', 'model', 'tools', ...(isEdit ? ['lifecycle'] : [])]}
-        items={collapseItems}
-        className="!bg-transparent"
-        expandIconPosition="end"
-      />
+      <>
+        <Collapse
+          defaultActiveKey={['basic', 'prompt', 'model', 'tools', ...(isEdit ? ['lifecycle'] : [])]}
+          items={collapseItems}
+          className="!bg-transparent"
+          expandIconPosition="end"
+        />
+        {isEdit && agent && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <Button
+              icon={<EyeOutlined />}
+              onClick={handlePreview}
+              className="w-full"
+            >
+              预览组装结果
+            </Button>
+          </div>
+        )}
+
+        {/* Preview Modal */}
+        <Modal
+          title="Agent 组装预览"
+          open={previewOpen}
+          onCancel={() => setPreviewOpen(false)}
+          footer={null}
+          width={720}
+          styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
+        >
+          {previewLoading ? (
+            <div className="flex justify-center py-12">
+              <Spin tip="正在组装..." />
+            </div>
+          ) : previewData ? (
+            <div className="flex flex-col gap-5">
+              {/* Summary */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <Tag color="blue">模型: {previewData.model || '未配置'}</Tag>
+                <Tag>工具总数: {previewData.tool_summary.total}</Tag>
+                {previewData.tool_summary.skill > 0 && <Tag color="blue">Skill: {previewData.tool_summary.skill}</Tag>}
+                {previewData.tool_summary.mcp > 0 && <Tag color="purple">MCP: {previewData.tool_summary.mcp}</Tag>}
+                {previewData.tool_summary.builtin > 0 && <Tag color="green">内置: {previewData.tool_summary.builtin}</Tag>}
+                {previewData.tool_summary.workflow > 0 && <Tag color="orange">工作流: {previewData.tool_summary.workflow}</Tag>}
+              </div>
+
+              {/* System Prompt */}
+              <div>
+                <div className="text-sm font-medium text-[#0F172A] mb-1.5">系统提示词 (System Prompt)</div>
+                <pre className="text-xs bg-[#F8FAFC] border border-gray-100 rounded-lg p-3 whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
+                  {previewData.system_prompt || '(空)'}
+                </pre>
+              </div>
+
+              {/* Messages */}
+              <div>
+                <div className="text-sm font-medium text-[#0F172A] mb-1.5">消息列表 (Messages)</div>
+                <div className="flex flex-col gap-1.5">
+                  {previewData.messages.map((msg, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <Tag color={msg.role === 'system' ? 'gold' : msg.role === 'user' ? 'blue' : 'default'}>
+                        {msg.role}
+                      </Tag>
+                      <span className="flex-1 text-[#475569] break-all line-clamp-3">
+                        {msg.content}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tools */}
+              <div>
+                <div className="text-sm font-medium text-[#0F172A] mb-1.5">
+                  工具列表 (Tools) — {previewData.tools.length} 个
+                </div>
+                {previewData.tools.length === 0 ? (
+                  <Empty description="无工具" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {previewData.tools.map((tool: ToolPreview) => {
+                      const style = TOOL_TYPE_STYLE[tool.type] ?? { color: 'default', label: tool.type }
+                      return (
+                        <div key={tool.name} className="border border-gray-100 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Tag color={style.color} className="text-[10px]">{style.label}</Tag>
+                            <span className="text-sm font-medium text-[#0F172A]">{tool.name}</span>
+                          </div>
+                          {tool.description && (
+                            <div className="text-xs text-[#64748B] mb-1.5">{tool.description}</div>
+                          )}
+                          {Object.keys(tool.input_schema).length > 0 && (
+                            <details className="text-[10px]">
+                              <summary className="cursor-pointer text-[#94A3B8] hover:text-[#64748B]">
+                                Input Schema
+                              </summary>
+                              <pre className="mt-1 bg-[#F8FAFC] rounded p-2 overflow-x-auto max-h-[120px]">
+                                {JSON.stringify(tool.input_schema, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </Modal>
+      </>
     )
   },
 )

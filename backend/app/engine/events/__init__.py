@@ -1,0 +1,308 @@
+"""Event Bus — in-process async pub/sub for workflow and task lifecycle events.
+
+Provides at-least-once delivery semantics with automatic retry and
+dead-letter queue for failed handlers.
+
+Usage::
+
+    from app.engine.events import event_bus
+
+    # Subscribe
+    async def on_task_completed(event: TaskEvent):
+        logger.info("task done", task_id=event.task_id)
+
+    event_bus.subscribe("task.completed", on_task_completed)
+
+    # Publish
+    await event_bus.publish(TaskEvent(
+        event_type="task.completed",
+        task_id="task_xxx",
+        data={"status": "completed"},
+    ))
+"""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Callable
+
+from loguru import logger
+
+
+# ---------------------------------------------------------------------------
+# Event types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Event:
+    """Base event with timestamp and type."""
+
+    event_type: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TaskEvent(Event):
+    """Event related to a Task lifecycle change."""
+
+    task_id: str = ""
+    from_status: str | None = None
+    to_status: str | None = None
+
+
+@dataclass
+class WorkflowEvent(Event):
+    """Event related to a Workflow execution."""
+
+    workflow_id: str = ""
+    task_id: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Handler wrapper with retry and dead-letter
+# ---------------------------------------------------------------------------
+
+
+class DeadLetterRecord:
+    """Record of a failed event delivery."""
+
+    def __init__(
+        self,
+        event: Event,
+        handler_name: str,
+        error: str,
+        attempts: int,
+    ) -> None:
+        self.event = event
+        self.handler_name = handler_name
+        self.error = error
+        self.attempts = attempts
+        self.timestamp = datetime.now(timezone.utc)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_type": self.event.event_type,
+            "handler": self.handler_name,
+            "error": self.error,
+            "attempts": self.attempts,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+EventHandler = Callable[[Event], Any]
+
+
+class _HandlerWrapper:
+    """Wraps a handler with retry logic and dead-letter tracking."""
+
+    MAX_RETRIES = 3
+    RETRY_DELAY_S = 1.0
+
+    def __init__(self, handler: EventHandler, handler_name: str | None = None):
+        self.handler = handler
+        self.name = handler_name or getattr(handler, "__name__", str(handler))
+
+    async def invoke(self, event: Event) -> Exception | None:
+        """Invoke the handler with retry.
+
+        Returns:
+            The last exception if all retries failed, ``None`` on success.
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                result = self.handler(event)
+                if result is not None and hasattr(result, "__await__"):
+                    await result
+                return None  # success
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "event_handler_retry",
+                    handler=self.name,
+                    event_type=event.event_type,
+                    attempt=attempt,
+                    max_retries=self.MAX_RETRIES,
+                    error=str(exc),
+                )
+                if attempt < self.MAX_RETRIES:
+                    await asyncio.sleep(self.RETRY_DELAY_S * attempt)
+
+        return last_error
+
+
+# ---------------------------------------------------------------------------
+# Event Bus
+# ---------------------------------------------------------------------------
+
+
+class EventBus:
+    """In-process async event bus with at-least-once delivery.
+
+    Thread-safe for subscribe (publish is asyncio-only).
+    """
+
+    def __init__(self) -> None:
+        self._subscribers: dict[str, list[_HandlerWrapper]] = {}
+        self._dead_letter_queue: list[DeadLetterRecord] = []
+        self._max_dead_letter = 1000
+
+    # ── Subscription ──
+
+    def subscribe(
+        self,
+        event_type: str,
+        handler: EventHandler,
+        handler_name: str | None = None,
+    ) -> None:
+        """Register a handler for *event_type*.
+
+        Supports wildcard ``*`` — subscribes to ALL events.
+
+        Args:
+            event_type: Event type string (e.g. ``"task.completed"``) or ``"*"``.
+            handler: Async or sync callable accepting an ``Event``.
+            handler_name: Optional name for logging (defaults to function name).
+        """
+        if event_type not in self._subscribers:
+            self._subscribers[event_type] = []
+        self._subscribers[event_type].append(
+            _HandlerWrapper(handler, handler_name=handler_name)
+        )
+        logger.debug(
+            "event_subscriber_added",
+            event_type=event_type,
+            handler=self._subscribers[event_type][-1].name,
+        )
+
+    def unsubscribe(self, event_type: str, handler: EventHandler) -> bool:
+        """Remove a handler from *event_type*.
+
+        Returns:
+            True if removed, False if not found.
+        """
+        wrappers = self._subscribers.get(event_type, [])
+        for i, w in enumerate(wrappers):
+            if w.handler is handler:
+                wrappers.pop(i)
+                logger.debug("event_subscriber_removed", event_type=event_type, handler=w.name)
+                return True
+        return False
+
+    # ── Publishing ──
+
+    async def publish(self, event: Event) -> list[DeadLetterRecord]:
+        """Publish an event to all matching subscribers.
+
+        Delivery semantics:
+        - All matching handlers are invoked concurrently (via ``asyncio.gather``).
+        - Each handler is retried up to MAX_RETRIES times.
+        - Handlers that exhaust retries go to the dead-letter queue.
+
+        Args:
+            event: The event to publish.
+
+        Returns:
+            List of dead-letter records for failed deliveries.
+        """
+        handlers: list[_HandlerWrapper] = []
+
+        # Direct match
+        handlers.extend(self._subscribers.get(event.event_type, []))
+
+        # Wildcard subscribers
+        handlers.extend(self._subscribers.get("*", []))
+
+        if not handlers:
+            logger.debug("event_no_subscribers", event_type=event.event_type)
+            return []
+
+        logger.debug(
+            "event_publishing",
+            event_type=event.event_type,
+            handler_count=len(handlers),
+        )
+
+        # Invoke all handlers concurrently
+        results = await asyncio.gather(
+            *[h.invoke(event) for h in handlers],
+            return_exceptions=True,
+        )
+
+        # Collect dead letters
+        dead_letters: list[DeadLetterRecord] = []
+        for handler_wrapper, exc in zip(handlers, results):
+            if isinstance(exc, Exception):
+                record = DeadLetterRecord(
+                    event=event,
+                    handler_name=handler_wrapper.name,
+                    error=str(exc),
+                    attempts=_HandlerWrapper.MAX_RETRIES,
+                )
+                dead_letters.append(record)
+
+        if dead_letters:
+            self._dead_letter_queue.extend(dead_letters)
+            # Trim dead letter queue
+            if len(self._dead_letter_queue) > self._max_dead_letter:
+                self._dead_letter_queue = self._dead_letter_queue[
+                    -self._max_dead_letter:
+                ]
+
+            logger.error(
+                "event_delivery_failed",
+                event_type=event.event_type,
+                failed_count=len(dead_letters),
+            )
+
+        return dead_letters
+
+    # ── Dead letter inspection ──
+
+    @property
+    def dead_letter_queue(self) -> list[DeadLetterRecord]:
+        """Immutable view of the dead-letter queue."""
+        return list(self._dead_letter_queue)
+
+    def clear_dead_letters(self) -> int:
+        """Clear the dead-letter queue.
+
+        Returns:
+            Number of records cleared.
+        """
+        count = len(self._dead_letter_queue)
+        self._dead_letter_queue.clear()
+        return count
+
+    # ── Stats ──
+
+    def stats(self) -> dict[str, Any]:
+        """Return event bus statistics."""
+        return {
+            "subscribers": {
+                event_type: len(handlers)
+                for event_type, handlers in self._subscribers.items()
+            },
+            "total_subscribers": sum(len(h) for h in self._subscribers.values()),
+            "dead_letter_count": len(self._dead_letter_queue),
+        }
+
+
+# Module-level singleton
+_bus: EventBus | None = None
+
+
+def get_event_bus() -> EventBus:
+    """Return the process-level EventBus singleton."""
+    global _bus
+    if _bus is None:
+        _bus = EventBus()
+    return _bus
+
+
+# Shorthand
+event_bus = get_event_bus()

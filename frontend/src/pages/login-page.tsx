@@ -7,7 +7,7 @@
  * - Redirect to ?redirect param or /dashboard on success
  * - Redirect to /dashboard if already authenticated
  */
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Form, Input, Button, Alert, Typography } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
@@ -15,6 +15,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useAuthStore, REFRESH_TOKEN_KEY } from '../stores/auth-store'
 import { authApi } from '../services/auth-api'
 import { decodeAccessToken } from '../lib/jwt'
+import { useTheme } from '../contexts/ThemeContext'
 import type { NormalizedApiError } from '../services/api-client'
 
 const ERROR_CODE_MAP: Record<string, string> = {
@@ -28,6 +29,7 @@ export function LoginPage() {
   const [searchParams] = useSearchParams()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const setAuth = useAuthStore((s) => s.setAuth)
+  const { t } = useTheme()
 
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -76,15 +78,15 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#FAFAFA]">
+    <div className="flex items-center justify-center min-h-screen bg-surface">
       <div className="w-full max-w-[400px] px-6">
-        <div className="bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.1)] p-8">
+        <div className="bg-canvas rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.1)] p-8">
           {/* Header */}
           <div className="text-center mb-8">
             <Typography.Title
               level={2}
-              className="!mb-1 !text-[#7C3AED]"
-              style={{ fontFamily: "'Work Sans', sans-serif" }}
+              className="!mb-1"
+              style={{ color: t.primary }}
             >
               Agent Flow
             </Typography.Title>

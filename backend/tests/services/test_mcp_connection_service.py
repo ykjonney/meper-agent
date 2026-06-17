@@ -221,6 +221,74 @@ async def test_test_connection_not_found(mock_database):
 
 
 @pytest.mark.asyncio
+async def test_create_connection_with_default_params(mock_database):
+    """Test creating a connection with default_params."""
+    mock_col = MagicMock()
+    mock_col.find_one = AsyncMock(return_value=None)
+    mock_col.insert_one = AsyncMock()
+    mock_database.__getitem__.return_value = mock_col
+
+    data = {
+        "name": "test-conn",
+        "url": "http://localhost:8080/mcp",
+        "default_params": {"token": "abc123", "api_key": "xyz"},
+    }
+    doc = await McpConnectionService.create_connection(data)
+
+    assert doc["default_params"] == {"token": "abc123", "api_key": "xyz"}
+    mock_col.insert_one.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_connection_default_params_defaults_to_empty(mock_database):
+    """Test creating a connection without default_params defaults to empty dict."""
+    mock_col = MagicMock()
+    mock_col.find_one = AsyncMock(return_value=None)
+    mock_col.insert_one = AsyncMock()
+    mock_database.__getitem__.return_value = mock_col
+
+    data = {
+        "name": "test-conn",
+        "url": "http://localhost:8080/mcp",
+    }
+    doc = await McpConnectionService.create_connection(data)
+
+    assert doc["default_params"] == {}
+
+
+@pytest.mark.asyncio
+async def test_update_connection_with_default_params(mock_database):
+    """Test updating default_params on a connection."""
+    existing = {
+        "_id": "mcp_123",
+        "name": "test",
+        "url": "http://test.com",
+        "protocol": "streamable-http",
+        "auth_type": "none",
+        "auth_config": {},
+        "timeout": 30,
+        "description": "",
+        "default_params": {"old_key": "old_val"},
+    }
+    updated = {**existing, "default_params": {"new_key": "new_val"}}
+
+    mock_col = MagicMock()
+    # find_one calls: 1) get existing, 2) get_connection after update
+    # (no name conflict check since data has no "name" field)
+    mock_col.find_one = AsyncMock(side_effect=[existing, updated])
+    mock_col.update_one = AsyncMock()
+    mock_database.__getitem__.return_value = mock_col
+
+    with patch("app.services.mcp_connection_service._invalidate_mcp_cache"):
+        result = await McpConnectionService.update_connection("mcp_123", {
+            "default_params": {"new_key": "new_val"},
+        })
+
+    assert result["default_params"] == {"new_key": "new_val"}
+    mock_col.update_one.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_discover_tools_not_found(mock_database):
     """Test discovering tools for a non-existent connection raises NotFoundError."""
     mock_col = MagicMock()

@@ -46,6 +46,10 @@ class McpConnection(BaseModel):
         description="认证配置（api_key/bearer_token/basic 等），敏感信息",
     )
     timeout: int = Field(default=30, ge=1, le=300, description="超时秒数")
+    default_params: dict = Field(
+        default_factory=dict,
+        description="工具调用时自动注入的默认参数（如 token, api_key），LLM 传入的同名参数会覆盖",
+    )
     status: ConnectionStatus = Field(default=ConnectionStatus.DISCONNECTED)
     status_message: str = Field(default="", description="状态详情/错误信息")
     last_connected_at: str = Field(default="")

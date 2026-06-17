@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET_KEY: str = "dev-only-not-for-production-replace-me"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Celery
@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     # Model API Key encryption (Base64-encoded 32-byte AES-256 key)
     # Generate: python -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"
     MODEL_ENCRYPTION_KEY: str = ""
+
+    # Task concurrency limits
+    TASK_GLOBAL_MAX_RUNNING: int = 50
+    TASK_USER_MAX_RUNNING: int = 5
+
+    # Task scheduler (poll interval in seconds; set to 0 to disable)
+    TASK_SCHEDULER_POLL_INTERVAL: int = 10
+
+    # Skill filesystem — root directory where Skill files are materialized.
+    # Each Skill lives under ``{SKILLS_DIR}/{skill_name}/``.
+    SKILLS_DIR: str = "~/.agent-flow/skills"
 
 
 settings = Settings()

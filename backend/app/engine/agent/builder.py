@@ -2,17 +2,21 @@
 
 The graph has a single execution path — the REACT loop.  The LLM
 inside the loop autonomously decides whether to answer directly,
-call tools, or create a Task via workflow tools.
+call tools, or dispatch a workflow Task via ``dispatch_workflow``.
 
-All tools (Agent-configured ``load_skill`` / ``load_skill_file``
-tools + built-in tools + workflow tools) are injected into the
-REACT loop at graph-build time.
+All tools are injected into the REACT loop at graph-build time:
+- **Skill tools** — on-demand loading via ``load_skill``
+- **MCP tools** — directly callable, from bound MCP connections
+- **Built-in tools** — bash, read, write (whitelisted via builtin_config)
+- **Task tools** — ``task_query``, ``task_list``, ``dispatch_workflow``,
+  etc. (always available)
 
 Skill injection follows the Claude Code pattern:
 - System prompt lists available Skills (name + description).
 - LLM calls ``load_skill`` on demand to load SKILL.md content.
-- ``load_skill_file`` loads individual auxiliary files.
-- Both tools fetch Skill data from MongoDB at call time.
+- The returned content includes an absolute base path hint so the
+  LLM can access auxiliary files via ``read`` / ``bash`` tools.
+- Files are stored on disk, MongoDB only keeps registration metadata.
 
 Graph topology::
 
@@ -22,7 +26,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Awaitable
+from dataclasses import dataclass
+from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import tool as lc_tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -36,10 +43,49 @@ from app.engine.agent.react_executor import (
     StreamCallback,
 )
 from app.engine.agent.builtin_tools import _BUILTIN_TOOLS, _BUILTIN_TOOL_REGISTRY
-from app.engine.agent.workflow_executor import _WORKFLOW_TOOLS
 from app.engine.checkpointer import get_checkpointer
 from app.engine.llm_factory import get_llm_client
 from app.engine.state import AgentState
+from app.models.compat import resolve_skill_ids
+
+
+# ---------------------------------------------------------------------------
+# Shared execution context — eliminates duplication between graph & streaming
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ExecutionContext:
+    """Resolved LLM client, tools, and context window for Agent execution."""
+
+    llm: BaseChatModel
+    tools: list
+    context_window: int | None
+
+
+async def _resolve_execution_context(
+    agent: dict,
+    enable_thinking: bool = False,
+) -> _ExecutionContext:
+    """Build the shared execution context for both graph and streaming paths.
+
+    Resolves the LLM client, agent tools, built-in tools (including
+    ``preview_workflow`` / ``confirm_workflow`` for workflow triggering),
+    and the model's context window in a single pass.
+    """
+    llm = await get_llm_client(agent.get("llm_config"), enable_thinking=enable_thinking)
+    agent_tools = await _resolve_tools(agent)
+    builtin_tools = _resolve_builtin_tools(agent)
+    all_tools = [*agent_tools, *builtin_tools]
+
+    model_ref = (agent.get("llm_config") or {}).get("default_model", "")
+    context_window = await get_context_window_async(model_ref)
+
+    return _ExecutionContext(
+        llm=llm,
+        tools=all_tools,
+        context_window=context_window,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +121,7 @@ async def build_skill_declaration(tool_ids: list[str]) -> str:
         "",
         "You have access to the following skills. When you need to use one, call the `load_skill` tool with the skill name.",
         "",
-        "After loading a skill, you can load individual auxiliary files with `load_skill_file(skill_name, file_path)`.",
+        "After loading a skill, you can access auxiliary files (scripts, templates, etc.) via the skill base path shown in the instructions, using your `read` or `bash` tools.",
         "",
     ]
     for doc in skill_docs:
@@ -83,6 +129,255 @@ async def build_skill_declaration(tool_ids: list[str]) -> str:
         desc = doc.get("description", "")
         lines.append(f"- **{name}**: {desc}")
 
+    return "\n".join(lines)
+
+
+async def build_tool_declaration(agent: dict) -> str:
+    """Build the complete tool declaration text for the system prompt.
+
+    Generates declaration sections for all tool categories:
+    - Skills (on-demand via load_skill)
+    - MCP tools (directly callable)
+    - Workflow list (listed for reference, triggered via preview_workflow)
+    - Built-in tools (directly callable)
+    - Task tools (always available, includes preview_workflow / confirm_workflow)
+
+    Args:
+        agent: The Agent document (from MongoDB).
+
+    Returns:
+        Declaration paragraph to append to the system prompt,
+        or ``""`` if no tools are configured.
+    """
+    sections: list[str] = []
+
+    # --- Skill declaration ---
+    skill_ids = resolve_skill_ids(agent)
+    if skill_ids:
+        skill_decl = await build_skill_declaration(skill_ids)
+        if skill_decl:
+            sections.append(skill_decl)
+
+    # --- MCP tool declaration ---
+    mcp_connection_ids = agent.get("mcp_connection_ids") or []
+    if mcp_connection_ids:
+        mcp_decl = await _build_mcp_tool_declaration(mcp_connection_ids)
+        if mcp_decl:
+            sections.append(mcp_decl)
+
+    # --- Workflow tool declaration ---
+    workflow_ids = agent.get("workflow_ids") or []
+    if workflow_ids:
+        workflow_decl = await _build_workflow_tool_declaration(workflow_ids)
+        if workflow_decl:
+            sections.append(workflow_decl)
+
+    # --- Built-in tool declaration ---
+    builtin_config = agent.get("builtin_config") or []
+    if builtin_config:
+        builtin_decl = _build_builtin_tool_declaration(builtin_config)
+        if builtin_decl:
+            sections.append(builtin_decl)
+
+    # --- Task tool declaration (always shown) ---
+    task_decl = _build_task_tool_declaration()
+    sections.append(task_decl)
+
+    return "\n".join(sections) if sections else ""
+
+
+async def build_system_prompt(agent_doc: dict) -> str:
+    """Build the fully assembled system prompt for an Agent.
+
+    Resolves the active saved prompt (if any), then appends the
+    tool declaration section (Skills + MCP + Builtin + Workflow).
+
+    Shared between Chat Agent (agents.py) and Workflow Agent (node_executor.py).
+    """
+    system_text = agent_doc.get("system_prompt", "")
+    saved_prompts = agent_doc.get("saved_system_prompts", [])
+    active_prompt = next((p for p in saved_prompts if p.get("is_active")), None)
+    if active_prompt and active_prompt.get("content"):
+        system_text = active_prompt["content"]
+
+    tool_declaration = await build_tool_declaration(agent_doc)
+    if tool_declaration:
+        system_text = f"{system_text}\n{tool_declaration}" if system_text else tool_declaration
+
+    return system_text
+
+
+async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
+    """Build MCP tool declaration section for the system prompt."""
+    from app.services.mcp_connection_service import McpConnectionService
+    from app.db.mongodb import get_database
+
+    lines = [
+        "",
+        "## MCP Tools",
+        "",
+        "You have access to the following MCP tools. Call them directly by name with the required arguments.",
+        "",
+    ]
+
+    total_tools = 0
+    for conn_id in mcp_connection_ids:
+        conn_doc = await McpConnectionService.get_connection(conn_id)
+        if conn_doc is None:
+            continue
+
+        conn_name = conn_doc.get("name", "Unknown")
+        col = get_database()["tools"]
+        cursor = col.find({
+            "mcp_connection_id": conn_id,
+            "source": "mcp",
+        })
+        tool_docs = await cursor.to_list(length=100)
+
+        if not tool_docs:
+            continue
+
+        lines.append(f"### {conn_name}")
+        lines.append("")
+        for doc in tool_docs:
+            name = doc.get("name", "unknown")
+            desc = doc.get("description", "")
+            lines.append(f"- **{name}**: {desc}")
+            total_tools += 1
+        lines.append("")
+
+    return "\n".join(lines) if total_tools > 0 else ""
+
+
+async def _build_workflow_tool_declaration(workflow_ids: list[str]) -> str:
+    """Build workflow declaration section for the system prompt.
+
+    Reads the **actual Workflow definition** (``workflows`` collection)
+    to extract the Start node's ``output_variables`` and show the
+    exact parameter names the LLM should pass to ``dispatch_workflow``.
+    """
+    from app.services.workflow_registry_service import WorkflowRegistryService
+    from app.services.workflow_service import WorkflowService
+
+    lines = [
+        "",
+        "## Available Workflows",
+        "",
+        "When a workflow matches the user's request:",
+        "",
+        "1. Call ``propose_workflow(workflow_name, params)`` — this shows a",
+        "   confirmation card to the user with workflow info and input params.",
+        "   After calling, just tell the user you found a suitable workflow.",
+        "   **Do NOT ask the user questions** — the card handles confirmation.",
+        "",
+        "2. When the user confirms (e.g. says '确认', '好的'), call",
+        "   ``dispatch_workflow(workflow_name, params)`` to create the Task.",
+        "",
+    ]
+
+    for wf_id in workflow_ids:
+        # Try by workflow_id first, then by registry _id
+        entry = await WorkflowRegistryService.get_by_workflow_id(wf_id)
+        if entry is None:
+            entry = await WorkflowRegistryService.get_by_id(wf_id)
+        if entry is None:
+            continue
+
+        wf_name = entry.get("name", "unknown")
+        wf_desc = entry.get("description", "") or wf_name
+        has_human = entry.get("has_human_node", False)
+        wf_ref = entry.get("workflow_id", "")
+
+        lines.append(f"- **{wf_name}**: {wf_desc}")
+        if has_human:
+            lines.append(f"  - ⚠️ Contains human approval nodes")
+
+        # Read the actual Workflow definition to extract the Start
+        # node's output_variables — these define the input params
+        # the LLM must pass to dispatch_workflow.
+        param_vars: list[dict] = []
+        if wf_ref:
+            wf_doc = await WorkflowService.get(wf_ref)
+            if wf_doc:
+                nodes = wf_doc.get("nodes", [])
+                start_node = next((n for n in nodes if n.get("type") == "start"), None)
+                if start_node:
+                    output_vars = start_node.get("config", {}).get("output_variables", [])
+                    if isinstance(output_vars, list):
+                        param_vars = [
+                            {
+                                "name": v.get("name", ""),
+                                "type": v.get("type", "string"),
+                                "label": v.get("label", ""),
+                                "description": v.get("description", ""),
+                            }
+                            for v in output_vars
+                            if isinstance(v, dict) and v.get("name")
+                        ]
+
+        if param_vars:
+            param_desc = ", ".join(
+                f"{p['name']} ({p['type']}{' - ' + p['label'] if p.get('label') else ''})"
+                for p in param_vars
+            )
+            lines.append(f"  - Input params: {param_desc}")
+            lines.append(
+                "  - Map the user's request to the exact param name above. "
+                "For example, if the param is ``request``, call "
+                "``dispatch_workflow(workflow_name, {'request': '<user request>'})``. "
+                "Use the EXACT param name from the list — do NOT invent new keys."
+            )
+        else:
+            lines.append(
+                "  - Input params: ``input`` (string). "
+                "Pass the user's request as ``{'input': '<user request>'}``."
+            )
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
+    """Build built-in tool declaration section for the system prompt."""
+    lines = [
+        "",
+        "## Built-in Tools",
+        "",
+        "You have access to the following built-in tools. Call them directly by name.",
+        "",
+    ]
+
+    tool_desc_map = {
+        "bash": "Execute shell commands (command: str)",
+        "read": "Read file contents (path: str)",
+        "write": "Write content to a file (path: str, content: str)",
+    }
+
+    for name in builtin_config:
+        desc = tool_desc_map.get(name, name)
+        lines.append(f"- **{name}**: {desc}")
+
+    return "\n".join(lines)
+
+
+def _build_task_tool_declaration() -> str:
+    """Build task management tool declaration section for the system prompt."""
+    lines = [
+        "",
+        "## Task Management Tools",
+        "",
+        "You have access to the following task management tools. Use them to query or manage workflow Tasks.",
+        "",
+        "- **propose_workflow(workflow_name, params)**: Propose a workflow to the user. Returns structured info that shows a confirmation card. Does NOT create a Task — just tell the user you found a workflow after calling.",
+        "- **dispatch_workflow(workflow_name, params)**: Create and dispatch a workflow Task. Only call this AFTER the user explicitly confirms. Pass the user's original request as params using the exact variable names from the Workflow declaration above.",
+        "- **task_query(task_id)**: Query task status and result. Returns status + output (completed) or error (failed). Only call this when the user asks about progress — do NOT poll or loop.",
+        "- **task_list**: List Tasks with optional filters (status, workflow_id)",
+        "- **task_intervene**: Intervene in a Task (approve, reject, cancel, resume, retry)",
+        "- **cancel_task**: Shortcut to cancel a Task",
+        "- **update_task_variables**: Update the variable pool of a running Task",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -159,22 +454,15 @@ async def _make_react_node(
 ) -> Callable:  # type: ignore[type-arg]
     """Return the REACT node closure (captures agent, LLM, and all tools).
 
-    Injects Agent-configured Skill tools (``load_skill`` /
-    ``load_skill_file``), built-in tools (``bash``, ``read``,
-    ``write``), and workflow tools so the LLM can autonomously
-    decide which to call.
+    Injects Agent-configured tools (Skill, MCP, Workflow), built-in
+    tools (bash, read, write), and task management tools so the LLM
+    can autonomously decide which to call.
     """
-    llm = await get_llm_client(agent.get("llm_config"), enable_thinking=enable_thinking)
-    agent_tools = await _resolve_tools(agent)
-    all_tools = [*agent_tools, *_resolve_builtin_tools(agent), *_WORKFLOW_TOOLS]
-
-    # Pre-resolve context window for the model
-    model_ref = (agent.get("llm_config") or {}).get("default_model", "")
-    context_window = await get_context_window_async(model_ref)
+    ctx = await _resolve_execution_context(agent, enable_thinking=enable_thinking)
 
     async def _react(state: AgentState) -> dict:
         return await react_run(
-            state, llm, all_tools, context_window=context_window
+            state, ctx.llm, ctx.tools, context_window=ctx.context_window
         )
 
     return _react
@@ -188,29 +476,60 @@ async def _make_react_node(
 async def _resolve_tools(agent: dict) -> list:
     """Resolve the Agent's tool configuration into callables (async).
 
-    Returns a list with ``load_skill`` (loads SKILL.md) and
-    ``load_skill_file`` (loads auxiliary files).  If the Agent has
-    no Skill tool IDs, returns an empty list.
-
-    Reads from ``skill_ids`` with fallback to ``tool_ids`` for
-    backward compatibility with old Agent documents.
+    Returns:
+        - ``load_skill`` + ``load_skill_file`` for Skill-based tools
+        - MCP tool callables for each bound MCP connection
     """
-    # Backward compat: read from skill_ids, fall back to tool_ids
-    tool_ids = agent.get("skill_ids") or agent.get("tool_ids") or []
-    if not tool_ids:
+    tools: list = []
+
+    # --- Skill tools ---
+    skill_tool_ids = resolve_skill_ids(agent)
+    logger.info(
+        "resolve_tools_skill_ids",
+        agent_id=agent.get("_id"),
+        skill_ids=skill_tool_ids,
+    )
+    if skill_tool_ids:
+        from app.services.tool_service import ToolService
+
+        skill_docs = await ToolService.get_tools_by_ids(skill_tool_ids)
+        logger.info(
+            "resolve_tools_skill_docs",
+            agent_id=agent.get("_id"),
+            found_docs=len(skill_docs),
+            doc_names=[d.get("name") for d in skill_docs],
+        )
+        if skill_docs:
+            allowed_names = {doc.get("name") for doc in skill_docs if doc.get("name")}
+            tools.append(_make_skill_loader(allowed_names))
+
+    # --- MCP tools ---
+    mcp_tools = await _resolve_mcp_tools(agent)
+    tools.extend(mcp_tools)
+
+    logger.info(
+        "resolve_tools_result",
+        agent_id=agent.get("_id"),
+        total_tools=len(tools),
+        tool_names=[getattr(t, "name", getattr(t, "__name__", "?")) for t in tools],
+    )
+
+    return tools
+
+
+async def _resolve_mcp_tools(agent: dict) -> list:
+    """Resolve MCP tools for Agent-bound MCP connections.
+
+    Uses ``get_mcp_tools_cached`` to avoid creating new connections on
+    every execution.  Tools are cached by connection IDs with a 5-minute TTL.
+    """
+    from app.engine.tool.mcp_tool_cache import get_mcp_tools_cached
+
+    mcp_connection_ids = agent.get("mcp_connection_ids") or []
+    if not mcp_connection_ids:
         return []
 
-    from app.services.tool_service import ToolService
-
-    skill_docs = await ToolService.get_tools_by_ids(tool_ids)
-    if not skill_docs:
-        return []  # No valid tools found — don't inject useless tools
-
-    allowed_names = {doc.get("name") for doc in skill_docs if doc.get("name")}
-    return [
-        _make_skill_loader(allowed_names),
-        _make_skill_file_loader(allowed_names),
-    ]
+    return await get_mcp_tools_cached(mcp_connection_ids)
 
 
 _MAX_SKILL_CONTENT = 50_000
@@ -219,18 +538,35 @@ _MAX_SKILL_CONTENT = 50_000
 def _resolve_builtin_tools(agent: dict) -> list:
     """Resolve built-in tools based on Agent's ``builtin_config`` whitelist.
 
-    When ``builtin_config`` is non-empty, returns only the tools whose
-    names are in the whitelist.  When empty, returns no built-in tools
-    (Agent must explicitly enable them).
+    When ``builtin_config`` is non-empty, returns only the base tools (bash,
+    read, write) whose names are in the whitelist.  Task management tools are
+    always included regardless of ``builtin_config``.
+
+    When ``builtin_config`` is empty, returns only the task management tools.
     """
+    from app.engine.agent.workflow_executor import _TASK_TOOLS
+
     builtin_config = agent.get("builtin_config") or []
-    if not builtin_config:
-        return []
-    return [
+
+    # Base tools (bash, read, write) — filtered by whitelist
+    base_tools = [
         _BUILTIN_TOOL_REGISTRY[name]
         for name in builtin_config
-        if name in _BUILTIN_TOOL_REGISTRY
+        if name in _BUILTIN_TOOL_REGISTRY and name in {"bash", "read", "write"}
     ]
+
+    # Task management tools — always available
+    return [*base_tools, *_TASK_TOOLS]
+
+
+async def _resolve_workflow_tools(agent: dict) -> list:
+    """Resolve workflow trigger tools — now returns empty list.
+
+    Workflow triggering is handled via ``preview_workflow`` /
+    ``confirm_workflow`` (injected as built-in task tools).  This
+    function is retained for backward compat but returns empty.
+    """
+    return []
 
 
 def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
@@ -240,74 +576,171 @@ def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
         """Load the SKILL.md content of a named skill.
 
         Returns the main instructions (SKILL.md) for the skill.
-        After loading, use ``load_skill_file`` to access individual
-        auxiliary files if available.
+        The returned content includes an absolute base path — use it
+        to access auxiliary files via your ``read`` or ``bash`` tools.
 
         Args:
             skill_name: The exact name of the skill to load.
         """
         if allowed_names is not None and skill_name not in allowed_names:
             avail = ", ".join(sorted(allowed_names))
+            logger.warning("load_skill_not_allowed", skill_name=skill_name, available=avail)
             return f"Skill '{skill_name}' is not available. Available: {avail}."
 
-        from app.services.tool_service import ToolService
+        from app.engine.tool.skill_fs import get_skill_base_path, read_skill_file
 
-        doc = await ToolService.find_by_name(skill_name)
-        if doc is None:
+        instructions = read_skill_file(skill_name, "SKILL.md")
+        if instructions is None:
+            logger.warning("load_skill_not_found_on_disk", skill_name=skill_name)
             return f"Skill '{skill_name}' not found."
 
-        instructions = doc.get("instructions", "")
         if not instructions:
+            logger.warning("load_skill_empty_on_disk", skill_name=skill_name)
             return f"Skill '{skill_name}' has no content."
 
-        if len(instructions) > _MAX_SKILL_CONTENT:
-            instructions = instructions[:_MAX_SKILL_CONTENT] + (
+        # Inject path hint so the LLM knows where to find auxiliary files
+        base_path = get_skill_base_path(skill_name)
+        path_hint = (
+            f"\n\n[Skill base path: {base_path}/ "
+            f"— use this absolute path for all file references in this skill]"
+        )
+
+        content = instructions + path_hint
+
+        logger.info(
+            "load_skill_success",
+            skill_name=skill_name,
+            content_len=len(content),
+        )
+        if len(content) > _MAX_SKILL_CONTENT:
+            content = content[:_MAX_SKILL_CONTENT] + (
                 f"\n\n... [truncated: exceeds {_MAX_SKILL_CONTENT:,} chars]"
             )
-        return instructions
+        return content
 
     return lc_tool(load_skill)
 
 
-def _make_skill_file_loader(allowed_names: set[str] | None = None) -> Callable:
-    """Create ``load_skill_file`` — loads a specific file from a skill."""
+# ---------------------------------------------------------------------------
+# Preview / Dry-run — inspect assembled prompt & tools without invoking LLM
+# ---------------------------------------------------------------------------
 
-    async def load_skill_file(skill_name: str, file_path: str) -> str:
-        """Load a specific auxiliary file from a named skill.
 
-        Use this after loading the main skill instructions with
-        ``load_skill``.  The file path is relative within the skill
-        directory (e.g. ``steps/step-01.md``).
+async def preview_agent(
+    agent: dict,
+    user_input: str = "Hello",
+    enable_thinking: bool = False,
+) -> dict:
+    """Assemble the Agent's prompt and tools without invoking the LLM.
 
-        Args:
-            skill_name: The exact name of the skill.
-            file_path: Relative path of the file within the skill.
-        """
-        if allowed_names is not None and skill_name not in allowed_names:
-            avail = ", ".join(sorted(allowed_names))
-            return f"Skill '{skill_name}' is not available. Available: {avail}."
+    Returns a dict with the fully composed system prompt, messages,
+    and a structured tool list suitable for debugging and inspection.
 
-        from app.services.tool_service import ToolService
+    Args:
+        agent: The Agent document (from MongoDB).
+        user_input: Simulated user message for message list assembly.
+        enable_thinking: Whether thinking mode would be enabled.
 
-        doc = await ToolService.find_by_name(skill_name)
-        if doc is None:
-            return f"Skill '{skill_name}' not found."
+    Returns:
+        Dict with keys: system_prompt, messages, tools, tool_summary.
+    """
+    from langchain_core.messages import SystemMessage
+    from langchain_core.tools import StructuredTool
 
-        files = doc.get("files", [])
-        for f in files:
-            if f.get("path") == file_path:
-                content = f.get("content", "")
-                if not content:
-                    return f"File '{file_path}' in skill '{skill_name}' is empty."
-                if len(content) > _MAX_SKILL_CONTENT:
-                    content = content[:_MAX_SKILL_CONTENT] + (
-                        f"\n\n... [truncated: exceeds {_MAX_SKILL_CONTENT:,} chars]"
-                    )
-                return content
+    # --- Resolve system prompt ---
+    system_text = agent.get("system_prompt", "")
+    # Backward compat: saved_system_prompts with is_active
+    saved_prompts = agent.get("saved_system_prompts", [])
+    active_prompt = next((p for p in saved_prompts if p.get("is_active")), None)
+    if active_prompt and active_prompt.get("content"):
+        system_text = active_prompt["content"]
 
-        return f"File '{file_path}' not found in skill '{skill_name}'."
+    # Tool declaration (Skills + MCP + Workflow + Builtin + Task)
+    tool_declaration = await build_tool_declaration(agent)
+    if tool_declaration:
+        system_text = f"{system_text}\n{tool_declaration}" if system_text else tool_declaration
 
-    return lc_tool(load_skill_file)
+    # --- Assemble messages ---
+    messages: list[dict] = []
+    if system_text:
+        messages.append({"role": "system", "content": system_text})
+    messages.append({"role": "user", "content": user_input})
+
+    # --- Resolve all tools ---
+    agent_tools = await _resolve_tools(agent)
+    builtin_tools = _resolve_builtin_tools(agent)
+    all_tools = [*agent_tools, *builtin_tools]
+
+    # --- Classify tools for preview ---
+    tool_previews: list[dict] = []
+    summary: dict[str, int] = {"total": len(all_tools), "skill": 0, "mcp": 0, "builtin": 0, "task": 0}
+
+    # Build lookup sets for classification
+    builtin_names_set = set(agent.get("builtin_config") or [])
+    task_tool_names = {
+        "task_query", "task_list", "task_intervene",
+        "cancel_task", "get_task_timeline", "update_task_variables",
+        "dispatch_workflow",
+    }
+
+    for t in all_tools:
+        if isinstance(t, StructuredTool):
+            t_name = t.name
+            t_desc = t.description or ""
+            t_schema = {}
+            if t.args_schema:
+                if isinstance(t.args_schema, dict):
+                    t_schema = t.args_schema
+                elif hasattr(t.args_schema, "model_json_schema"):
+                    t_schema = t.args_schema.model_json_schema()
+                else:
+                    t_schema = {}
+
+            # Classify by origin
+            if t_name == "load_skill":
+                t_type = "skill"
+                t_source = "skill_loader"
+            elif t_name in task_tool_names:
+                t_type = "task"
+                t_source = t_name
+            elif t_name in builtin_names_set:
+                t_type = "builtin"
+                t_source = t_name
+            else:
+                t_type = "mcp"
+                t_source = t_name
+
+            summary[t_type] = summary.get(t_type, 0) + 1
+            tool_previews.append({
+                "name": t_name,
+                "type": t_type,
+                "description": t_desc[:500],
+                "source": t_source,
+                "input_schema": t_schema,
+            })
+        else:
+            # Plain callable
+            fn_name = getattr(t, "__name__", str(t))
+            summary["builtin"] += 1
+            tool_previews.append({
+                "name": fn_name,
+                "type": "builtin",
+                "description": getattr(t, "__doc__", "") or "",
+                "source": fn_name,
+                "input_schema": {},
+            })
+
+    # --- LLM config preview ---
+    llm_config = agent.get("llm_config", {})
+    model_ref = llm_config.get("default_model", "")
+
+    return {
+        "system_prompt": system_text,
+        "messages": messages,
+        "tools": tool_previews,
+        "tool_summary": summary,
+        "model": model_ref,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -335,16 +768,11 @@ async def run_agent_streaming(
     Returns:
         Final AgentState after execution completes.
     """
-    llm = await get_llm_client(agent.get("llm_config"), enable_thinking=enable_thinking)
-    agent_tools = await _resolve_tools(agent)
-    all_tools = [*agent_tools, *_resolve_builtin_tools(agent), *_WORKFLOW_TOOLS]
-
-    model_ref = (agent.get("llm_config") or {}).get("default_model", "")
-    context_window = await get_context_window_async(model_ref)
+    ctx = await _resolve_execution_context(agent, enable_thinking=enable_thinking)
 
     return await react_run_streaming(
-        state, llm, all_tools,
+        state, ctx.llm, ctx.tools,
         on_event=on_event,
         enable_thinking=enable_thinking,
-        context_window=context_window,
+        context_window=ctx.context_window,
     )

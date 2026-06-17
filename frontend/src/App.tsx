@@ -1,10 +1,30 @@
+import { useState, useEffect } from 'react'
 import { useRoutes } from 'react-router-dom'
 import { ConfigProvider, App as AntApp, theme as antdTheme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 
+/* @xyflow/react 画布样式 — 确保在工作流编辑器中使用 */
+import '@xyflow/react/dist/style.css'
+
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { AuthInitializer } from './components/AuthInitializer'
 import { routes } from './routes'
+
+/** Hook: detect system prefers-color-scheme: dark */
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => setDark(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return dark
+}
 
 /**
  * Inner app — has access to ThemeContext so ConfigProvider can react to theme changes.
@@ -12,6 +32,7 @@ import { routes } from './routes'
 function AppInner() {
   const { t } = useTheme()
   const element = useRoutes(routes)
+  const isDark = usePrefersDark()
 
   return (
     <ConfigProvider
@@ -23,25 +44,13 @@ function AppInner() {
           colorPrimaryHover: t.hover,
           colorPrimaryActive: t.active,
           colorPrimaryBg: t.bg,
-          // Accent — Orange (for highlights)
-          colorInfo: '#F97316',
+          // Accent — follows theme primary
+          colorInfo: t.primary,
           // Semantic
           colorSuccess: '#10B981',
           colorWarning: '#F59E0B',
           colorError: '#EF4444',
           colorLink: t.primary,
-          // Surface — white ladder
-          colorBgLayout: '#FFFFFF',
-          colorBgContainer: '#FFFFFF',
-          colorBgElevated: '#F8FAFC',
-          // Border — subtle
-          colorBorder: '#E2E8F0',
-          colorBorderSecondary: '#F1F5F9',
-          // Text — slate
-          colorText: '#0F172A',
-          colorTextSecondary: '#475569',
-          colorTextTertiary: '#94A3B8',
-          colorTextQuaternary: '#CBD5E1',
           // Radius
           borderRadius: 8,
           borderRadiusLG: 10,
@@ -53,7 +62,7 @@ function AppInner() {
             "'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace",
           fontSize: 14,
         },
-        algorithm: antdTheme.defaultAlgorithm,
+        algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         components: {
           Button: {
             borderRadius: 8,
@@ -69,11 +78,7 @@ function AppInner() {
             borderRadiusLG: 12,
           },
           Table: {
-            headerBg: '#F8FAFC',
-            headerColor: '#475569',
             headerBorderRadius: 8,
-            rowHoverBg: '#EFF6FF',
-            borderColor: '#F1F5F9',
           },
           Tag: {
             borderRadius: 6,

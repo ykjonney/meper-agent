@@ -102,12 +102,14 @@ export default function AppLayout() {
   const { clearAuth } = useAuthStore()
 
   /* ─── Resolve active group & child ─── */
-  // Support dynamic routes like /agents/:id → group "agent"
-  const basePath = currentPath.startsWith('/agents/') ? '/agents' : currentPath
+  // Support dynamic routes like /agents/:id → group "agent", /workflows/:id → group "workflow"
+  const basePath = currentPath.startsWith('/agents/')
+    ? '/agents'
+    : currentPath.startsWith('/workflows/')
+      ? '/workflows'
+      : currentPath
   const activeGroupKey = PATH_TO_GROUP[basePath] || 'dashboard'
   const activeGroup = GROUPS.find((g) => g.key === activeGroupKey)
-  const activeChild = activeGroup?.children?.find((c) => c.path === basePath)
-  const pageTitle = activeChild?.label || activeGroup?.label || '仪表盘'
 
   const handleGroupClick = (group: NavGroup) => {
     if (group.single && group.path) {
@@ -141,15 +143,15 @@ export default function AppLayout() {
   ]
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-white text-[#0F172A]">
+    <div className="flex flex-col h-screen overflow-hidden bg-canvas text-txt">
       {/* ════════════ Top navigation bar ════════════ */}
-      <header className="h-14 shrink-0 flex items-center px-6 border-b border-gray-200 bg-white">
+      <header className="h-14 shrink-0 flex items-center px-6 border-b border-line bg-canvas">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-8 shrink-0">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: t.primary }}>
             <NodeIndexOutlined className="text-[11px]" />
           </div>
-          <span className="font-semibold text-sm text-[#0F172A] tracking-tight">Agent Flow</span>
+          <span className="font-semibold text-sm text-txt tracking-tight">Agent Flow</span>
         </div>
 
         {/* Group tabs */}
@@ -163,10 +165,9 @@ export default function AppLayout() {
                 className={`flex items-center gap-1.5 px-3.5 py-[6px] text-sm rounded-lg transition-all duration-150 cursor-pointer border-0 bg-transparent ${
                   isActive
                     ? 'font-medium shadow-sm'
-                    : 'text-[#64748B] hover:text-[#334155] hover:bg-gray-50'
+                    : 'text-txt-3 hover:text-txt-hover hover:bg-surface-muted'
                 }`}
                 style={isActive ? { color: t.primary, background: t.bg } : undefined}
-                onFocus={(e) => (e.currentTarget.style.outline = 'none')}
               >
                 <span className="text-sm leading-none">{group.icon}</span>
                 <span>{group.label}</span>
@@ -180,24 +181,24 @@ export default function AppLayout() {
 
         {/* User controls */}
         <div className="flex items-center gap-1">
-          <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-[#64748B] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150">
+          <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-txt-3 hover:text-txt hover:bg-surface-muted transition-colors duration-150">
             <SearchOutlined />
           </button>
-          <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-[#64748B] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150">
+          <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-txt-3 hover:text-txt hover:bg-surface-muted transition-colors duration-150">
             <QuestionCircleOutlined />
           </button>
           <Badge count={3} size="small" color={t.primary} offset={[-2, 2]}>
-            <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-[#64748B] hover:text-[#0F172A] hover:bg-gray-50 transition-colors duration-150">
+            <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-txt-3 hover:text-txt hover:bg-surface-muted transition-colors duration-150">
               <BellOutlined />
             </button>
           </Badge>
-          <div className="w-px h-6 mx-2 bg-gray-200" />
+          <div className="w-px h-6 mx-2 bg-line" />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors duration-150 cursor-pointer">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-muted transition-colors duration-150 cursor-pointer">
               <Avatar size={28} icon={<UserOutlined />} style={{ background: t.primary }} />
               <div className="hidden sm:block text-left leading-tight">
-                <div className="text-sm font-medium text-[#0F172A]">Admin</div>
-                <div className="text-[11px] text-[#94A3B8]">管理员</div>
+                <div className="text-sm font-medium text-txt">Admin</div>
+                <div className="text-[11px] text-txt-muted">管理员</div>
               </div>
             </div>
           </Dropdown>
@@ -206,9 +207,11 @@ export default function AppLayout() {
 
       {/* ════════ Sub-page tabs (grouped groups only) ════════ */}
       {activeGroup?.children && activeGroup.children.length > 0 && (
-        <div className="flex items-center h-10 bg-[#F8FAFC] border-b border-gray-100 px-6 gap-0.5">
+        <div className="flex items-center h-10 bg-surface border-b border-line-2 px-6 gap-0.5">
           {activeGroup.children.map((child) => {
-            const isChildActive = currentPath === child.path || (child.path === '/agents' && currentPath.startsWith('/agents/'))
+            const isChildActive = currentPath === child.path
+              || (child.path === '/agents' && currentPath.startsWith('/agents/'))
+              || (child.path === '/workflows' && currentPath.startsWith('/workflows/'))
             return (
               <button
                 key={child.key}
@@ -216,10 +219,9 @@ export default function AppLayout() {
                 className={`px-3 py-1 text-xs rounded-md transition-all duration-150 cursor-pointer border-0 ${
                   isChildActive
                     ? 'text-white font-medium shadow-sm'
-                    : 'text-[#64748B] hover:text-[#334155] hover:bg-gray-100'
+                    : 'text-txt-3 hover:text-txt-hover hover:bg-surface-muted'
                 }`}
                 style={isChildActive ? { background: t.primary } : undefined}
-                onFocus={(e) => (e.currentTarget.style.outline = 'none')}
               >
                 {child.label}
               </button>
@@ -228,20 +230,8 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* ════════ Page header (optional title + right actions) ════════ */}
-      {activeGroup?.children && activeGroup.children.length > 0 && (
-        <div className="flex items-center justify-between px-6 h-12 border-b border-gray-100 bg-white shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[#0F172A]">{pageTitle}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Page-level actions can be injected here */}
-          </div>
-        </div>
-      )}
-
       {/* ════════ Content area ════════ */}
-      <main className="flex-1 p-6 bg-[#F8FAFC] overflow-auto flex flex-col min-h-0">
+      <main className="flex-1 p-6 bg-surface overflow-auto flex flex-col min-h-0">
         <Outlet />
       </main>
     </div>

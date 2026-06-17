@@ -22,6 +22,10 @@ class McpConnectionBase(BaseModel):
         description="认证配置（如 api_key/bearer_token/username+password）",
     )
     timeout: int = Field(default=30, ge=1, le=300, description="超时秒数")
+    default_params: dict = Field(
+        default_factory=dict,
+        description="工具调用时自动注入的默认参数（如 token, api_key）",
+    )
 
 
 class McpConnectionCreate(McpConnectionBase):
@@ -47,6 +51,7 @@ class McpConnectionResponse(BaseModel):
     auth_type: AuthType
     auth_config: dict
     timeout: int
+    default_params: dict
     status: ConnectionStatus
     status_message: str
     last_connected_at: str

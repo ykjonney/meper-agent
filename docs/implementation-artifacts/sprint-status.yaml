@@ -39,7 +39,7 @@
 #       Revisit in post-MVP Sprint 2 to evaluate RAG requirement strength.
 
 generated: 2026-06-08
-last_updated: 2026-06-10
+last_updated: 2026-06-11
 # Story 5-3 MCP 连接管理实现完成，进入 review 状态（2026-06-10）
 # Story 5-3 创建于 2026-06-10：MCP 连接管理
 # Story 3-6 实现完成，进入 review 状态（2026-06-10）
@@ -89,15 +89,23 @@ development_status:
   3-9-execution-detail-page-ui-streaming-and-tool-viz: done
   epic-3-retrospective: optional
 
-  # ===== Epic 4: DAG 工作流编排 =====
-  epic-4: backlog
-  4-1-workflow-data-model-and-list-query: backlog
+  # ===== Epic 4: DAG 工作流编排 + Task 运行时 =====
+  epic-4: in-progress
+  4-1-workflow-data-model-and-list-query: review
   4-2-workflow-editor-canvas-xyflow-react-integration: done
-  4-3-five-core-node-types-configuration: backlog
-  4-4-conditional-edge-configuration: backlog
-  4-5-workflow-test-run-from-editor: backlog
-  4-6-workflow-version-management: backlog
+  4-3-five-core-node-types-configuration: review
+  4-4-conditional-edge-configuration: review
+  4-5-workflow-test-run-from-editor: review
+  4-6-workflow-version-management: review
   4-7-workflow-list-and-detail-page-ui: done
+  4-8-task-data-model-and-state-machine: done
+  4-9-workflow-engine-node-executor: done
+  4-10-human-in-the-loop: done
+  4-11-agent-task-management-tools: review
+  4-12-concurrency-control: review
+  4-13-scheduled-workflow: review
+  4-14-event-bus: review
+  4-15-task-creation-ui-panel: review
   epic-4-retrospective: optional
 
   # ===== Epic 5: 工具系统 =====

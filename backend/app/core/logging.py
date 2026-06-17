@@ -7,16 +7,16 @@ from app.core.config import settings
 
 
 def setup_logging() -> None:
-    """Configure loguru with stdout (colorized) and file (JSON) sinks."""
+    """Configure loguru with stdout (concise) and file (JSON, today-only) sinks."""
     logger.remove()
 
-    # Stdout sink - human-readable for dev, JSON for prod
+    # Stdout sink — concise but keeps request_id and source location
     logger.add(
         sys.stdout,
         level=settings.LOG_LEVEL,
         format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
+            "<green>{time:HH:mm:ss}</green> | "
+            "<level>{level: <5}</level> | "
             "<cyan>{extra[request_id]}</cyan> | "
             "<magenta>{name}:{function}:{line}</magenta> - "
             "<level>{message}</level>"
@@ -25,13 +25,13 @@ def setup_logging() -> None:
         filter=lambda record: "request_id" in record["extra"],
     )
 
-    # Stdout sink for non-request contexts (CLI, background tasks)
+    # Stdout sink for non-request contexts
     logger.add(
         sys.stdout,
         level=settings.LOG_LEVEL,
         format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
+            "<green>{time:HH:mm:ss}</green> | "
+            "<level>{level: <5}</level> | "
             "<magenta>{name}:{function}:{line}</magenta> - "
             "<level>{message}</level>"
         ),
@@ -39,13 +39,13 @@ def setup_logging() -> None:
         filter=lambda record: "request_id" not in record["extra"],
     )
 
-    # File sink - always JSON for log aggregation
+    # File sink — JSON, only keep today's logs
     logger.add(
         "logs/app.log",
         level=settings.LOG_LEVEL,
         serialize=True,
-        rotation="100 MB",
-        retention="30 days",
+        rotation="50 MB",
+        retention="1 day",
         compression="zip",
     )
 

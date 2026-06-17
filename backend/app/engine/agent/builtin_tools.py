@@ -2,8 +2,8 @@
 
 These tools provide the LLM with fundamental capabilities analogous
 to Claude Code's built-in tool set: shell execution, file reading,
-and file writing.  They are always available to every Agent alongside
-workflow tools and Agent-configured Skill tools.
+file writing, and task management.  They are always available to
+every Agent alongside Agent-configured Skill/MCP/Workflow tools.
 """
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ import os
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
 
+from app.engine.agent.workflow_executor import _TASK_TOOLS
+
 
 # ---------------------------------------------------------------------------
-# Built-in tools
+# Built-in tools (bash, read, write)
 # ---------------------------------------------------------------------------
 
 
@@ -130,5 +132,15 @@ def write(path: str, content: str) -> str:
         return f"Error writing file: {e}"
 
 
-_BUILTIN_TOOLS: list[BaseTool] = [bash, read, write]
+# ---------------------------------------------------------------------------
+# Tool registry — all built-in tools including task management
+# ---------------------------------------------------------------------------
+
+_BUILTIN_BASE_TOOLS: list[BaseTool] = [bash, read, write]
+
+# Task management tools — always available to all Agents
+_BUILTIN_TASK_TOOLS: list[BaseTool] = _TASK_TOOLS
+
+# Full list of built-in tools
+_BUILTIN_TOOLS: list[BaseTool] = _BUILTIN_BASE_TOOLS + _BUILTIN_TASK_TOOLS
 _BUILTIN_TOOL_REGISTRY: dict[str, BaseTool] = {t.name: t for t in _BUILTIN_TOOLS}

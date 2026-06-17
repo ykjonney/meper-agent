@@ -1,19 +1,10 @@
 """Tool data model for MongoDB — unified tool pool (Markdown Skill / MCP / etc.)."""
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 
 from app.models.base import generate_id, utc_now
-
-
-class ToolStatus(StrEnum):
-    """Tool lifecycle status."""
-
-    DRAFT = "draft"
-    ACTIVE = "active"
-    INACTIVE = "inactive"
 
 
 class SkillFile(BaseModel):
@@ -52,7 +43,6 @@ class Tool(BaseModel):
         default="",
         description="关联的 MCP 连接 ID（仅 source=mcp 时有效）",
     )
-    status: ToolStatus = Field(default=ToolStatus.DRAFT)
     version: int = Field(default=1, ge=1)
     tags: list[str] = Field(default_factory=list)
     files: list[SkillFile] = Field(

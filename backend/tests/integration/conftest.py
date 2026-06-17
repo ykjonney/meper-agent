@@ -50,24 +50,17 @@ async def mongo_client() -> AsyncGenerator[AsyncIOMotorClient, None]:
 async def users_collection(
     mongo_client: AsyncIOMotorClient,
 ) -> AsyncGenerator[AsyncIOMotorCollection, None]:
-    """Provide a clean users collection before each test.
-
-    Drops the collection both before and after the test so every
-    test starts with a known-empty state.
-    """
+    """Provide a clean users collection before each test."""
     db = mongo_client[INTEGRATION_DB]
     col = db["users"]
 
-    # Ensure indexes match production
     await col.create_index("username", unique=True, name="idx_users_username")
     await col.create_index("email", unique=True, name="idx_users_email")
 
-    # Clean before test
     await col.delete_many({})
 
     yield col
 
-    # Clean after test
     await col.delete_many({})
 
 
@@ -88,16 +81,13 @@ async def agents_collection(
     db = mongo_client[INTEGRATION_DB]
     col = db["agents"]
 
-    # Ensure indexes match production
     await col.create_index("name", unique=True, name="idx_agents_name")
     await col.create_index("status", name="idx_agents_status")
 
-    # Clean before test
     await col.delete_many({})
 
     yield col
 
-    # Clean after test
     await col.delete_many({})
 
 

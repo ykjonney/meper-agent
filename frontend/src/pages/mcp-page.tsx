@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Tag, Select, Tooltip, message, Spin, Modal,
+  Button, Tag, Select, Tooltip, message, Spin, Modal, Empty,
   Input, InputNumber,
 } from 'antd'
 import {
@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   ApiOutlined,
   InfoCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -31,6 +32,7 @@ import {
   type ConnectionStatus,
   type McpAuthType,
 } from '../services/mcp-api'
+import { toolsApi, type Tool } from '../services/tools-api'
 
 /* ─── Status mappings ─── */
 const STATUS_STYLES: Record<ConnectionStatus, { label: string; color: string; bg: string; dot: string }> = {
@@ -70,7 +72,15 @@ export default function McpPage() {
   const [searchInput, setSearchInput] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const debouncedSearch = useDebouncedValue(searchInput, 300)
-  const [viewingDetailId, setViewingDetailId] = useState<string | null>(null)
+
+  /* ─── Tool list modal state ─── */
+  const [toolListModalOpen, setToolListModalOpen] = useState(false)
+  const [toolListModalConn, setToolListModalConn] = useState<McpConnection | null>(null)
+  const [toolListModalTools, setToolListModalTools] = useState<Tool[]>([])
+  const [toolListModalLoading, setToolListModalLoading] = useState(false)
+
+  /* ─── Test connection state ─── */
+  const [testingConnId, setTestingConnId] = useState<string | null>(null)
 
   /* ─── Modal state ─── */
   const [modalOpen, setModalOpen] = useState(false)
@@ -82,6 +92,7 @@ export default function McpPage() {
   const [formProtocol, setFormProtocol] = useState('streamable-http')
   const [formAuthType, setFormAuthType] = useState('none')
   const [formAuthConfig, setFormAuthConfig] = useState('')
+  const [formDefaultParams, setFormDefaultParams] = useState('')
   const [formTimeout, setFormTimeout] = useState(30)
 
   /* ─── Query: connection list ─── */
@@ -106,9 +117,18 @@ export default function McpPage() {
 
   /* ─── Mutation: create ─── */
   const createMutation = useMutation({
-    mutationFn: (input: Parameters<typeof mcpApi.create>[0]) => mcpApi.create(input),
+    mutationFn: async (input: Parameters<typeof mcpApi.create>[0]) => {
+      const conn = await mcpApi.create(input)
+      // Auto discover tools after creation
+      try {
+        await mcpApi.discover(conn.id)
+      } catch {
+        // Non-blocking — discover failure should not block creation
+      }
+      return conn
+    },
     onSuccess: () => {
-      message.success('MCP 连接创建成功')
+      message.success('MCP 连接创建成功，工具已同步')
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
       setModalOpen(false)
     },
@@ -121,10 +141,18 @@ export default function McpPage() {
 
   /* ─── Mutation: update ─── */
   const updateMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof mcpApi.update>[1] }) =>
-      mcpApi.update(id, input),
+    mutationFn: async ({ id, input }: { id: string; input: Parameters<typeof mcpApi.update>[1] }) => {
+      const conn = await mcpApi.update(id, input)
+      // Auto re-discover tools after update
+      try {
+        await mcpApi.discover(conn.id)
+      } catch {
+        // Non-blocking — discover failure should not block update
+      }
+      return conn
+    },
     onSuccess: () => {
-      message.success('MCP 连接更新成功')
+      message.success('MCP 连接更新成功，工具已同步')
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
       setModalOpen(false)
     },
@@ -149,37 +177,6 @@ export default function McpPage() {
     },
   })
 
-  /* ─── Mutation: view tool details (test + discover) ─── */
-  const detailMutation = useMutation({
-    mutationFn: async (connId: string) => {
-      setViewingDetailId(connId)
-      const testResult = await mcpApi.test(connId)
-      if (!testResult.success) {
-        return { connId, testResult, discoverResult: null }
-      }
-      const discoverResult = await mcpApi.discover(connId)
-      return { connId, testResult, discoverResult }
-    },
-    onSuccess: (result) => {
-      setViewingDetailId(null)
-      const { testResult, discoverResult } = result
-      if (!testResult.success) {
-        message.error(`连接失败：${testResult.error}`)
-      } else if (discoverResult?.error) {
-        message.success(`连接成功 · ${testResult.tool_count} 个工具（同步失败：${discoverResult.error}）`)
-      } else if (discoverResult) {
-        message.success(`连接成功 · ${testResult.tool_count} 个工具（新增 ${discoverResult.created}，更新 ${discoverResult.updated}）`)
-      }
-      queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
-    },
-    onError: (err: unknown) => {
-      setViewingDetailId(null)
-      const msg = err && typeof err === 'object' && 'message' in err
-        ? (err as { message: string }).message : '操作失败'
-      message.error(msg)
-    },
-  })
-
   /* ─── Actions ─── */
   const openCreateModal = () => {
     setEditingConn(null)
@@ -190,6 +187,7 @@ export default function McpPage() {
     setFormProtocol('streamable-http')
     setFormAuthType('none')
     setFormAuthConfig('')
+    setFormDefaultParams('')
     setFormTimeout(30)
     setModalOpen(true)
   }
@@ -203,6 +201,7 @@ export default function McpPage() {
     setFormProtocol(conn.protocol)
     setFormAuthType(conn.auth_type)
     setFormAuthConfig(conn.auth_config ? JSON.stringify(conn.auth_config) : '')
+    setFormDefaultParams(conn.default_params && Object.keys(conn.default_params).length > 0 ? JSON.stringify(conn.default_params) : '')
     setFormTimeout(conn.timeout)
     setModalOpen(true)
   }
@@ -228,6 +227,16 @@ export default function McpPage() {
       }
     }
 
+    let defaultParams = {}
+    if (formDefaultParams.trim()) {
+      try {
+        defaultParams = JSON.parse(formDefaultParams)
+      } catch {
+        message.error('默认参数 JSON 格式错误')
+        return
+      }
+    }
+
     const input = {
       name: formName.trim(),
       description: formDescription.trim(),
@@ -235,6 +244,7 @@ export default function McpPage() {
       protocol: formProtocol || 'streamable-http',
       auth_type: (formAuthType || 'none') as McpAuthType,
       auth_config: authConfig,
+      default_params: defaultParams,
       timeout: formTimeout || 30,
     }
 
@@ -256,8 +266,49 @@ export default function McpPage() {
     })
   }
 
-  const handleViewDetail = (conn: McpConnection) => {
-    detailMutation.mutate(conn.id)
+  const handleTestConnection = async (conn: McpConnection) => {
+    setTestingConnId(conn.id)
+    try {
+      const testResult = await mcpApi.test(conn.id)
+      if (!testResult.success) {
+        message.error(`连接失败：${testResult.error}`)
+      } else {
+        message.success(`连接成功 · ${testResult.tool_count} 个工具`)
+        // Auto discover after successful test
+        const discoverResult = await mcpApi.discover(conn.id)
+        if (discoverResult.error) {
+          message.warning(`同步工具失败：${discoverResult.error}`)
+        } else {
+          message.success(`工具同步完成（新增 ${discoverResult.created}，更新 ${discoverResult.updated}）`)
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message : '测试连接失败'
+      message.error(msg)
+    } finally {
+      setTestingConnId(null)
+    }
+  }
+
+  const handleViewDetail = async (conn: McpConnection) => {
+    setToolListModalConn(conn)
+    setToolListModalTools([])
+    setToolListModalOpen(true)
+    setToolListModalLoading(true)
+
+    try {
+      const result = await toolsApi.list({
+        mcp_connection_id: conn.id,
+        page_size: 100,
+      })
+      setToolListModalTools(result.items)
+    } catch {
+      message.error('获取工具列表失败')
+    } finally {
+      setToolListModalLoading(false)
+    }
   }
 
   /* ─── Stats ─── */
@@ -344,7 +395,7 @@ export default function McpPage() {
       {!isLoading && !isError && connections.length > 0 && (
         <div className="rounded-xl border border-gray-200 bg-white">
           {/* Table header */}
-          <div className="grid grid-cols-[1.2fr_1.5fr_100px_110px_90px_70px_140px] gap-4 px-5 py-3 bg-[#F8FAFC] border-b border-gray-100 text-xs font-medium text-[#64748B] items-center">
+          <div className="grid grid-cols-[1.2fr_1.5fr_100px_110px_90px_70px_170px] gap-4 px-5 py-3 bg-[#F8FAFC] border-b border-gray-100 text-xs font-medium text-[#64748B] items-center">
             <span>连接名称</span>
             <span>URL</span>
             <span>协议</span>
@@ -360,7 +411,7 @@ export default function McpPage() {
             return (
               <div
                 key={conn.id}
-                className={`grid grid-cols-[1.2fr_1.5fr_100px_110px_90px_70px_140px] gap-4 px-5 py-3.5 items-center hover:bg-[#F8FAFC] transition-colors duration-150 ${i > 0 ? 'border-t border-gray-50' : ''}`}
+                className={`grid grid-cols-[1.2fr_1.5fr_100px_110px_90px_70px_170px] gap-4 px-5 py-3.5 items-center hover:bg-[#F8FAFC] transition-colors duration-150 ${i > 0 ? 'border-t border-gray-50' : ''}`}
               >
                 {/* Name */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -401,10 +452,19 @@ export default function McpPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-1">
-                  <Tooltip title="查看工具详情">
+                  <Tooltip title="测试连接">
+                    <button
+                      onClick={() => handleTestConnection(conn)}
+                      disabled={testingConnId === conn.id}
+                      className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#10B981] hover:bg-[#D1FAE5] transition-colors duration-150 text-xs disabled:opacity-40"
+                    >
+                      {testingConnId === conn.id ? <Spin size="small" /> : <ThunderboltOutlined />}
+                    </button>
+                  </Tooltip>
+                  <Tooltip title="查看工具">
                     <button
                       onClick={() => handleViewDetail(conn)}
-                      disabled={viewingDetailId === conn.id}
+                      disabled={toolListModalLoading && toolListModalConn?.id === conn.id}
                       className="border-0 bg-transparent w-7 h-7 flex items-center justify-center rounded text-[#3B82F6] hover:bg-[#DBEAFE] transition-colors duration-150 text-xs disabled:opacity-40"
                     >
                       <InfoCircleOutlined />
@@ -540,6 +600,21 @@ export default function McpPage() {
 
           <div>
             <label className="block text-sm text-[#0F172A] mb-1.5">
+              默认参数（JSON）
+            </label>
+            <Input.TextArea
+              value={formDefaultParams}
+              onChange={(e) => setFormDefaultParams(e.target.value)}
+              placeholder='如：{"token": "xxx", "api_key": "yyy"}'
+              rows={3}
+            />
+            <div className="text-[11px] text-[#94A3B8] mt-1">
+              该连接下的所有工具调用时自动注入的参数，LLM 传入的同名参数会覆盖默认值
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-[#0F172A] mb-1.5">
               超时（秒）
             </label>
             <InputNumber
@@ -551,6 +626,77 @@ export default function McpPage() {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* Tool list Modal */}
+      <Modal
+        title={`MCP 工具列表 — ${toolListModalConn?.name ?? ''}`}
+        open={toolListModalOpen}
+        onCancel={() => setToolListModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={640}
+      >
+        {toolListModalLoading ? (
+          <div className="flex justify-center py-8">
+            <Spin size="large" tip="加载工具列表..." />
+          </div>
+        ) : toolListModalTools.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="该连接暂无已发现的工具"
+            className="py-6"
+          />
+        ) : (
+          <div className="flex flex-col gap-3 max-h-[480px] overflow-y-auto">
+            {toolListModalTools.map((tool) => {
+              // Extract parameter info from input_schema
+              const props = (tool.input_schema?.properties as Record<string, { type?: string; description?: string }>) ?? {}
+              const paramEntries = Object.entries(props)
+              const required = (tool.input_schema?.required as string[]) ?? []
+
+              return (
+                <div key={tool.id} className="rounded-lg border border-gray-100 p-3 hover:border-gray-200 transition-colors duration-150">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs shrink-0 mt-0.5" style={{ background: '#DBEAFE', color: '#2563EB' }}>
+                      <ApiOutlined />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[#0F172A] mb-0.5">{tool.name}</div>
+                      {tool.description && (
+                        <div className="text-xs text-[#64748B] mb-2">{tool.description}</div>
+                      )}
+                      {paramEntries.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {paramEntries.map(([paramName, paramDef]) => (
+                            <Tag
+                              key={paramName}
+                              className="!m-0 !px-1.5 !py-0 !text-[11px] !rounded"
+                              style={{
+                                color: required.includes(paramName) ? '#2563EB' : '#64748B',
+                                background: required.includes(paramName) ? '#DBEAFE' : '#F1F5F9',
+                                borderColor: 'transparent',
+                              }}
+                            >
+                              {paramName}
+                              {paramDef.type && <span className="ml-1 opacity-60">({paramDef.type})</span>}
+                              {required.includes(paramName) && <span className="ml-0.5">*</span>}
+                            </Tag>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {toolListModalTools.length > 0 && (
+          <div className="text-xs text-[#94A3B8] text-center pt-3 border-t border-gray-100 mt-3">
+            共 {toolListModalTools.length} 个工具
+          </div>
+        )}
       </Modal>
     </div>
   )

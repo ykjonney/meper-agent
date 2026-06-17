@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from loguru import logger
 
 from app.core.security import get_current_user, require_any_role
-from app.models.tool import ToolStatus
+from app.engine.tool.skill_fs import list_skill_files
 from app.schemas.tool import (
+    BuiltinToolResponse,
     SkillFileResponse,
     SkillFileTreeResponse,
     SkillFileUpdate,
@@ -19,7 +20,7 @@ from app.schemas.tool import (
     ToolUploadResponse,
 )
 from app.schemas.user import UserResponse
-from app.services.tool_service import ToolService
+from app.services.tool_service import ToolService, MAX_FILE_SIZE, MAX_DIRECTORY_SIZE
 
 router = APIRouter(
     prefix="/tools",
@@ -27,15 +28,53 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-_MAX_FILE_SIZE = 1_000_000  # 1 MB
-_MAX_DIRECTORY_SIZE = 10_000_000  # 10 MB
+
+@router.get(
+    "/builtin",
+    response_model=list[BuiltinToolResponse],
+    summary="List built-in tools",
+    responses={403: {"description": "Forbidden — viewer+ role required"}},
+)
+async def list_builtin_tools(
+    _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+) -> list[BuiltinToolResponse]:
+    """Return the static list of built-in tools (bash / read / write).
+
+    These tools are always available to every Agent and are not stored
+    in the database.
+    """
+    from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
+
+    return [
+        BuiltinToolResponse(
+            name=name,
+            description=tool.description or "",
+            parameters=(
+                tool.args_schema.schema()
+                if hasattr(tool, "args_schema") and tool.args_schema
+                else {}
+            ),
+        )
+        for name, tool in _BUILTIN_TOOL_REGISTRY.items()
+    ]
 
 
 def _doc_to_response(doc: dict) -> ToolResponse:
-    """Convert a raw MongoDB document to ToolResponse."""
+    """Convert a raw MongoDB document to ToolResponse.
+
+    Files are read from disk (Skill filesystem) rather than the
+    ``files`` field which is no longer stored in MongoDB.
+    """
+    name = doc.get("name", "")
+    disk_files = list_skill_files(name) if name else []
+
     files = [
-        SkillFileResponse(path=f["path"], content=f["content"], size=f.get("size", 0))
-        for f in doc.get("files", [])
+        SkillFileResponse(
+            path=f["path"],
+            content="",  # Content not loaded for list views
+            size=f.get("size", 0),
+        )
+        for f in disk_files
     ]
     return ToolResponse(
         id=doc["_id"],
@@ -47,7 +86,6 @@ def _doc_to_response(doc: dict) -> ToolResponse:
         source=doc.get("source", "markdown"),
         source_file=doc.get("source_file", ""),
         mcp_connection_id=doc.get("mcp_connection_id", ""),
-        status=ToolStatus(doc.get("status", ToolStatus.DRAFT.value)),
         version=doc.get("version", 1),
         tags=doc.get("tags", []),
         files=files,
@@ -114,7 +152,7 @@ async def upload_tools(
             file_contents[filename] = f"__read_error__: {exc}"
             continue
 
-        if len(content_bytes) > _MAX_FILE_SIZE:
+        if len(content_bytes) > MAX_FILE_SIZE:
             file_contents[filename] = f"__size_error__: {len(content_bytes)}"
             continue
 
@@ -162,11 +200,11 @@ async def upload_tools(
 
         # Check total directory size
         total_bytes = sum(len(c.encode("utf-8")) for c in dir_files.values())
-        if total_bytes > _MAX_DIRECTORY_SIZE:
+        if total_bytes > MAX_DIRECTORY_SIZE:
             errors.append(
                 ToolUploadErrorItem(
                     filename=dir_name,
-                    error=f"目录总大小（{total_bytes} bytes）超过上限（{_MAX_DIRECTORY_SIZE} bytes）",
+                    error=f"目录总大小（{total_bytes} bytes）超过上限（{MAX_DIRECTORY_SIZE} bytes）",
                 )
             )
             processed_dirs.add(dir_name)
@@ -252,8 +290,8 @@ async def list_tools(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     name: str | None = Query(None, description="Filter by name (substring)"),
-    status: ToolStatus | None = Query(None, description="Filter by status"),
     source: str | None = Query(None, description="Filter by source (markdown / mcp / builtin)"),
+    mcp_connection_id: str | None = Query(None, description="Filter by MCP connection ID"),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> ToolListResponse:
     """List all tools with pagination and optional filtering. (AC4)"""
@@ -261,8 +299,8 @@ async def list_tools(
         page=page,
         page_size=page_size,
         name=name,
-        status=status.value if status else None,
         source=source,
+        mcp_connection_id=mcp_connection_id,
     )
 
     tools = [_doc_to_response(doc) for doc in items]
@@ -422,12 +460,11 @@ async def update_tool(
     body: ToolUpdate,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> ToolResponse:
-    """Update a Tool's editable fields (status, tags). Auto-increments version. (AC5)"""
+    """Update a Tool's editable fields (tags). Auto-increments version. (AC5)"""
     from app.core.errors import NotFoundError
 
     doc = await ToolService.update_tool(
         tool_id=tool_id,
-        status=body.status.value if body.status else None,
         tags=body.tags,
     )
     if doc is None:

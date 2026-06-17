@@ -30,19 +30,26 @@ class TestCreateTool:
         mock_col.find_one = AsyncMock(return_value=None)
         mock_col.insert_one = AsyncMock()
 
-        with patch("app.services.tool_service.ToolService._collection", return_value=mock_col):
+        with (
+            patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
+            patch("app.services.tool_service.materialize_skill") as mock_mat,
+        ):
             from app.services.tool_service import ToolService
 
             doc = await ToolService.create_tool_from_parsed(parsed, source_file="test.md")
 
         assert doc["name"] == "test-tool"
         assert doc["description"] == "A test tool"
-        assert doc["status"] == "draft"
         assert doc["version"] == 1
         assert doc["source"] == "markdown"
         assert doc["source_file"] == "test.md"
         assert doc["_id"].startswith("tool_")
+        # No files field stored in MongoDB
+        assert "files" not in doc
         mock_col.insert_one.assert_called_once()
+        # materialize_skill should be called with the skill name
+        mock_mat.assert_called_once()
+        assert mock_mat.call_args[0][0] == "test-tool"
 
     @pytest.mark.asyncio
     async def test_create_name_conflict(self) -> None:
@@ -89,9 +96,6 @@ class TestListTools:
 
     @pytest.mark.asyncio
     async def test_basic_list(self) -> None:
-        # Motor's find() returns a *synchronous* cursor; only count_documents
-        # and cursor.to_list() are awaitable. So mock the collection with
-        # MagicMock (sync) and attach AsyncMock only to the async methods.
         mock_col = MagicMock()
         mock_col.count_documents = AsyncMock(return_value=1)
         mock_cursor = MagicMock()
@@ -113,18 +117,18 @@ class TestUpdateTool:
     """ToolService.update_tool tests."""
 
     @pytest.mark.asyncio
-    async def test_update_status_and_tags(self) -> None:
-        existing = {"_id": "tool_1", "name": "test", "version": 1, "status": "draft", "tags": []}
+    async def test_update_tags(self) -> None:
+        existing = {"_id": "tool_1", "name": "test", "version": 1, "tags": []}
         mock_col = AsyncMock()
         mock_col.find_one = AsyncMock(
-            side_effect=[existing, {**existing, "status": "active", "version": 2, "tags": ["a"]}]
+            side_effect=[existing, {**existing, "version": 2, "tags": ["a"]}]
         )
         mock_col.update_one = AsyncMock()
 
         with patch("app.services.tool_service.ToolService._collection", return_value=mock_col):
             from app.services.tool_service import ToolService
 
-            result = await ToolService.update_tool("tool_1", status="active", tags=["a"])
+            result = await ToolService.update_tool("tool_1", tags=["a"])
         assert result is not None
         # version should be incremented in the update call
         update_call = mock_col.update_one.call_args
@@ -151,8 +155,6 @@ class TestDeleteTool:
         mock_col.find_one = AsyncMock(return_value={"_id": "tool_1", "name": "test"})
         mock_col.delete_one = AsyncMock(return_value=MagicMock(deleted_count=1))
 
-        # Mock agents collection — no references.
-        # find() returns a sync cursor; to_list() is awaitable.
         mock_agents = MagicMock()
         mock_agents_cursor = MagicMock()
         mock_agents_cursor.to_list = AsyncMock(return_value=[])
@@ -162,11 +164,14 @@ class TestDeleteTool:
         with (
             patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
             patch("app.services.tool_service.get_database", return_value=mock_db),
+            patch("app.services.tool_service.delete_skill_dir") as mock_del_dir,
         ):
             from app.services.tool_service import ToolService
 
             result = await ToolService.delete_tool("tool_1")
         assert result is True
+        # Disk cleanup should be called
+        mock_del_dir.assert_called_once_with("test")
 
     @pytest.mark.asyncio
     async def test_delete_not_found(self) -> None:
@@ -184,7 +189,6 @@ class TestDeleteTool:
         mock_col = AsyncMock()
         mock_col.find_one = AsyncMock(return_value={"_id": "tool_1", "name": "test"})
 
-        # find() is sync in Motor; only to_list() is awaitable
         mock_agents = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.to_list = AsyncMock(
@@ -227,3 +231,127 @@ class TestFindByName:
             from app.services.tool_service import ToolService
 
             assert await ToolService.find_by_name("missing") is None
+
+
+class TestGetToolFiles:
+    """ToolService.get_tool_files tests."""
+
+    @pytest.mark.asyncio
+    async def test_returns_file_tree_from_disk(self) -> None:
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(
+            return_value={"_id": "tool_1", "name": "my-skill"}
+        )
+
+        disk_files = [
+            {"path": "SKILL.md", "size": 100},
+            {"path": "scripts/search.py", "size": 200},
+        ]
+
+        with (
+            patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
+            patch("app.services.tool_service.list_skill_files", return_value=disk_files),
+        ):
+            from app.services.tool_service import ToolService
+
+            tree = await ToolService.get_tool_files("tool_1")
+
+        assert tree is not None
+        # Should have root-level nodes
+        assert len(tree) == 2  # SKILL.md + scripts/
+
+    @pytest.mark.asyncio
+    async def test_tool_not_found(self) -> None:
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(return_value=None)
+
+        with patch("app.services.tool_service.ToolService._collection", return_value=mock_col):
+            from app.services.tool_service import ToolService
+
+            result = await ToolService.get_tool_files("missing")
+        assert result is None
+
+
+class TestGetToolFileContent:
+    """ToolService.get_tool_file_content tests."""
+
+    @pytest.mark.asyncio
+    async def test_reads_from_disk(self) -> None:
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(
+            return_value={"_id": "tool_1", "name": "my-skill"}
+        )
+
+        with (
+            patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
+            patch("app.services.tool_service.read_skill_file", return_value="file content"),
+        ):
+            from app.services.tool_service import ToolService
+
+            result = await ToolService.get_tool_file_content("tool_1", "scripts/search.py")
+
+        assert result is not None
+        assert result["content"] == "file content"
+        assert result["path"] == "scripts/search.py"
+
+    @pytest.mark.asyncio
+    async def test_file_not_on_disk(self) -> None:
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(
+            return_value={"_id": "tool_1", "name": "my-skill"}
+        )
+
+        with (
+            patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
+            patch("app.services.tool_service.read_skill_file", return_value=None),
+        ):
+            from app.services.tool_service import ToolService
+
+            result = await ToolService.get_tool_file_content("tool_1", "nonexistent.py")
+        assert result is None
+
+
+class TestUpdateToolFile:
+    """ToolService.update_tool_file tests."""
+
+    @pytest.mark.asyncio
+    async def test_writes_to_disk(self) -> None:
+        doc = {"_id": "tool_1", "name": "my-skill"}
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(return_value=doc)
+        mock_col.update_one = AsyncMock()
+
+        # Create a mock Path that supports / operator
+        mock_file_path = MagicMock()
+        mock_file_path.parent = MagicMock()
+
+        mock_base_path = MagicMock()
+        mock_base_path.__truediv__ = MagicMock(return_value=mock_file_path)
+
+        with (
+            patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
+            patch("app.services.tool_service.read_skill_file", return_value="old content"),
+            patch("app.services.tool_service.get_skill_base_path", return_value=mock_base_path),
+        ):
+            from app.services.tool_service import ToolService
+
+            result = await ToolService.update_tool_file(
+                "tool_1", "scripts/search.py", "new content"
+            )
+
+        assert result is not None
+        assert result["content"] == "new content"
+        assert result["path"] == "scripts/search.py"
+        # Disk write should happen
+        mock_file_path.write_text.assert_called_once_with("new content", encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_tool_not_found(self) -> None:
+        mock_col = AsyncMock()
+        mock_col.find_one = AsyncMock(return_value=None)
+
+        with patch("app.services.tool_service.ToolService._collection", return_value=mock_col):
+            from app.services.tool_service import ToolService
+
+            result = await ToolService.update_tool_file("missing", "SKILL.md", "content")
+        assert result is None

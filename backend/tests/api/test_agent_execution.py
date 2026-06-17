@@ -57,7 +57,10 @@ def _fake_agent_doc() -> dict:
         "name": "Test Agent",
         "description": "A test agent",
         "system_prompt": "You are a helpful assistant.",
-        "tool_ids": [],
+        "saved_system_prompts": [],
+        "skill_ids": [],
+        "mcp_connection_ids": [],
+        "builtin_config": [],
         "workflow_ids": [],
         "knowledge_base_ids": [],
         "llm_config": {"default_model": "gpt-4o-mini", "temperature": 0.7, "max_retry": 3},
@@ -107,6 +110,7 @@ class TestInvokeAgent:
 
         with (
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
+            patch("app.engine.agent.builder.build_tool_declaration", new_callable=AsyncMock, return_value=""),
             patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
         ):
             resp = client.post(
@@ -146,6 +150,9 @@ class TestInvokeAgent:
         with (
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
             patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
+            patch("app.engine.agent.builder.build_tool_declaration", new_callable=AsyncMock, return_value=""),
+            patch("app.services.session_service.SessionService.create_session", new_callable=AsyncMock, return_value={"_id": "session_mock"}),
+            patch("app.services.session_service.MessageService.add_message", new_callable=AsyncMock),
         ):
             resp = client.post(
                 "/api/v1/agents/agent_01HTEST/invoke",
@@ -176,6 +183,8 @@ class TestInvokeAgent:
         with (
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
             patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
+            patch("app.engine.agent.builder.build_tool_declaration", new_callable=AsyncMock, return_value=""),
+            patch("app.services.session_service.MessageService.add_message", new_callable=AsyncMock),
         ):
             resp = client.post(
                 "/api/v1/agents/agent_01HTEST/invoke",
@@ -194,17 +203,18 @@ class TestStreamAgent:
         from langchain_core.messages import AIMessage
 
         fake_doc = _fake_agent_doc()
-        mock_graph = MagicMock()
 
-        async def _astream(*args, **kwargs):
-            yield {"evaluate": {"execution_path": "react"}}
-            yield {"react": {"messages": [AIMessage(content="Hello!")]}}
-
-        mock_graph.astream = _astream
+        # Mock run_agent_streaming to push simulated events to the on_event callback
+        async def _mock_run_agent_streaming(doc, state, on_event, enable_thinking=False, context_window=None):
+            # Simulate REACT executor events
+            await on_event({"type": "final_answer", "content": "Hello!"})
+            return {"messages": [AIMessage(content="Hello!")], "step_count": 1}
 
         with (
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
-            patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
+            patch("app.engine.agent.builder.run_agent_streaming", side_effect=_mock_run_agent_streaming),
+            patch("app.services.session_service.SessionService.create_session", new_callable=AsyncMock, return_value={"_id": "session_mock"}),
+            patch("app.services.session_service.MessageService.add_message", new_callable=AsyncMock),
         ):
             resp = client.post(
                 "/api/v1/agents/agent_01HTEST/stream",
@@ -247,6 +257,9 @@ class TestStreamAgent:
         with (
             patch("app.api.v1.agents.AgentService.get_agent", return_value=fake_doc),
             patch("app.engine.agent.builder.build_agent_graph", return_value=mock_graph),
+            patch("app.engine.agent.builder.build_tool_declaration", new_callable=AsyncMock, return_value=""),
+            patch("app.services.session_service.SessionService.create_session", new_callable=AsyncMock, return_value={"_id": "session_mock"}),
+            patch("app.services.session_service.MessageService.add_message", new_callable=AsyncMock),
         ):
             resp = client.post(
                 "/api/v1/agents/agent_01HTEST/stream",

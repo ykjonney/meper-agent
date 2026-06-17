@@ -1,10 +1,11 @@
 /**
- * ToolSelector — 三段式工具选择器组件。
+ * ToolSelector — 四段式工具选择器组件。
  *
- * 将 Agent 工具配置拆分为三个分类：
+ * 将 Agent 工具配置拆分为四个分类：
  *  1. Built-in 工具（bash / read / write）— Checkbox 组
  *  2. Skill 工具（source=markdown 的上传技能）— Switch 开关列表
  *  3. MCP 连接（远程工具服务器）— Switch 开关列表
+ *  4. 工作流（Workflow 模板）— Switch 开关列表
  *
  * 作为受控组件使用，value/onChange 接收/返回统一的 ToolSelectorValue。
  */
@@ -14,18 +15,14 @@ import {
   CodeOutlined,
   ApiOutlined,
   ThunderboltOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons'
 import { toolsApi, toolKeys } from '../services/tools-api'
 import { mcpApi, mcpKeys } from '../services/mcp-api'
+import { workflowsApi, workflowKeys } from '../services/workflows-api'
+import { BUILTIN_TOOLS } from '../constants/builtin-tools'
 
 const { Text } = Typography
-
-/* ─── Built-in 工具常量 ─── */
-const BUILTIN_TOOLS = [
-  { name: 'bash', label: 'Bash', description: '执行 Shell 命令' },
-  { name: 'read', label: 'Read', description: '读取文件内容' },
-  { name: 'write', label: 'Write', description: '写入文件内容' },
-] as const
 
 /** MCP 连接状态中文映射 */
 const MCP_STATUS_LABELS: Record<string, string> = {
@@ -40,12 +37,14 @@ export interface ToolSelectorValue {
   builtin_config: string[]
   skill_ids: string[]
   mcp_connection_ids: string[]
+  workflow_ids: string[]
 }
 
 export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
   builtin_config: [],
   skill_ids: [],
   mcp_connection_ids: [],
+  workflow_ids: [],
 }
 
 /* ─── Props ─── */
@@ -82,8 +81,14 @@ export default function ToolSelector({
     queryFn: () => mcpApi.list({ page: 1, page_size: 100 }),
   })
 
+  const { data: wfData, isLoading: wfLoading, isError: wfError } = useQuery({
+    queryKey: workflowKeys.list({ page: 1, page_size: 100, status: 'published' }),
+    queryFn: () => workflowsApi.list({ page: 1, page_size: 100, status: 'published' }),
+  })
+
   const availableSkills = skillsData?.items ?? []
   const availableMcpConnections = mcpData?.items ?? []
+  const availableWorkflows = wfData?.items ?? []
 
   /* ─── Handlers ─── */
   const handleBuiltinChange = (checked: string[]) => {
@@ -238,6 +243,59 @@ export default function ToolSelector({
                         ? [...value.mcp_connection_ids, c.id]
                         : value.mcp_connection_ids.filter((id) => id !== c.id)
                       onChange?.(mergeValue(value, { mcp_connection_ids: next }))
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ────────── Workflow ────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <ApartmentOutlined className="text-[#F97316] text-base" />
+          <Text strong className="text-sm">
+            工作流
+          </Text>
+          <Text className="text-[11px] text-[#94A3B8]">
+            （{value.workflow_ids.length}/{availableWorkflows.length} 已启用）
+          </Text>
+        </div>
+        {wfError ? (
+          <Alert message="加载工作流列表失败" type="error" showIcon className="!rounded-lg" />
+        ) : wfLoading ? (
+          <Skeleton active paragraph={{ rows: 2 }} />
+        ) : (
+          <div className="max-h-[180px] overflow-y-auto border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
+            {availableWorkflows.length === 0 ? (
+              <div className="px-3 py-3 text-center text-[11px] text-[#94A3B8]">
+                暂无已发布的工作流，请先在工作流页面创建并发布
+              </div>
+            ) : availableWorkflows.map((wf) => {
+              const enabled = value.workflow_ids.includes(wf.id)
+              return (
+                <div
+                  key={wf.id}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0 pr-2">
+                    <span className="text-sm text-[#0F172A] truncate">{wf.name}</span>
+                    {wf.description && (
+                      <span className="text-[11px] text-[#94A3B8] truncate max-w-[200px]">
+                        {wf.description}
+                      </span>
+                    )}
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={enabled}
+                    onChange={(checked) => {
+                      const next = checked
+                        ? [...value.workflow_ids, wf.id]
+                        : value.workflow_ids.filter((id) => id !== wf.id)
+                      onChange?.(mergeValue(value, { workflow_ids: next }))
                     }}
                   />
                 </div>

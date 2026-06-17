@@ -37,6 +37,16 @@ def _mask_auth_config(auth_config: dict) -> dict:
     }
 
 
+def _mask_default_params(default_params: dict) -> dict:
+    """Mask sensitive values in default_params for API responses."""
+    if not default_params:
+        return default_params
+    return {
+        k: ("***" if k in _SENSITIVE_KEYS and v else v)
+        for k, v in default_params.items()
+    }
+
+
 def _doc_to_response(doc: dict) -> McpConnectionResponse:
     """Convert a raw MongoDB document to McpConnectionResponse."""
     return McpConnectionResponse(
@@ -48,6 +58,7 @@ def _doc_to_response(doc: dict) -> McpConnectionResponse:
         auth_type=doc.get("auth_type", "none"),
         auth_config=_mask_auth_config(doc.get("auth_config", {})),
         timeout=doc.get("timeout", 30),
+        default_params=_mask_default_params(doc.get("default_params", {})),
         status=ConnectionStatus(doc.get("status", ConnectionStatus.DISCONNECTED.value)),
         status_message=doc.get("status_message", ""),
         last_connected_at=doc.get("last_connected_at", ""),

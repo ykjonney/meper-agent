@@ -1,18 +1,38 @@
 import type { Config } from 'tailwindcss'
 
 /**
- * Tailwind CSS — Blue + White minimal theme
+ * Tailwind CSS — Semantic token architecture
  *
- * Primary: #2563EB (Blue) — trust, professional, stable
- * Surface: Pure white + slate gray ladder
- * Font:    DM Sans
- * Style:   Linear / Vercel / Notion inspired minimalism
+ * Light/dark neutral tokens live as CSS variables in index.css.
+ * Tailwind references them via rgb(var(--c-*) / <alpha-value>).
+ * Semantic brand colors (primary, accent, success, etc.) are static.
+ * Dark mode: prefers-color-scheme: dark (automatic).
  */
 const config: Config = {
+  darkMode: 'media',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
+        /* ── Neutral tokens (CSS variables, auto light/dark) ── */
+        txt: {
+          DEFAULT:    'rgb(var(--c-txt) / <alpha-value>)',
+          2:          'rgb(var(--c-txt-2) / <alpha-value>)',
+          3:          'rgb(var(--c-txt-3) / <alpha-value>)',
+          muted:      'rgb(var(--c-muted) / <alpha-value>)',
+          hover:      'rgb(var(--c-hover) / <alpha-value>)',
+        },
+        canvas:       'rgb(var(--c-canvas) / <alpha-value>)',
+        surface: {
+          DEFAULT:    'rgb(var(--c-surface) / <alpha-value>)',
+          muted:      'rgb(var(--c-muted-bg) / <alpha-value>)',
+        },
+        line: {
+          DEFAULT:    'rgb(var(--c-line) / <alpha-value>)',
+          2:          'rgb(var(--c-line-2) / <alpha-value>)',
+        },
+
+        /* ── Brand / semantic (static across modes) ── */
         primary: {
           DEFAULT: '#2563EB',
           hover: '#1D4ED8',
@@ -26,15 +46,10 @@ const config: Config = {
           hover: '#EA580C',
           bg: '#FFF7ED',
         },
-        surface: {
-          canvas: '#FFFFFF',
-          secondary: '#F8FAFC',
-          muted: '#F1F5F9',
-        },
         success: { DEFAULT: '#10B981', bg: '#D1FAE5' },
         warning: { DEFAULT: '#F59E0B', bg: '#FEF3C7' },
-        error: { DEFAULT: '#EF4444', bg: '#FEE2E2' },
-        info: { DEFAULT: '#3B82F6', bg: '#DBEAFE' },
+        error:   { DEFAULT: '#EF4444', bg: '#FEE2E2' },
+        info:    { DEFAULT: '#3B82F6', bg: '#DBEAFE' },
       },
       fontFamily: {
         sans: ['"DM Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', '"PingFang SC"', '"Microsoft YaHei"', 'sans-serif'],

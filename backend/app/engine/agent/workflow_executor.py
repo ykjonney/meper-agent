@@ -1,125 +1,443 @@
-"""Workflow tools — Agent invokes workflows via Task tools.
+"""Task management tools — injected as built-in tools for all Agents.
 
-These tools are injected into every Agent's REACT loop as system-level
-tools so the LLM can autonomously decide to search for workflow
-templates, create Task instances, and query execution progress.
+These tools allow the Agent to query, create, and manage workflow
+Tasks.  They are always available to every Agent alongside built-in
+tools (bash, read, write).
 
-MVP stub implementations return realistic-looking data so the agent
-can function end-to-end in development.  Real implementations that
-connect to the Workflow Engine and Task Manager will be added in
-Epics 4 and 9.
+All tools are async functions decorated with ``@tool`` so LangChain
+calls them via ``ainvoke`` inside the REACT loop.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime, timezone
+import json
+from datetime import datetime
+from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
 
+from app.models.task import TaskStatus
+from app.services.task_service import TaskService
+
 
 # ---------------------------------------------------------------------------
-# Workflow tools (MVP stubs)
+# Serialisation helpers
+# ---------------------------------------------------------------------------
+
+_SERIALISER_KWARGS: dict[str, Any] = {
+    "ensure_ascii": False,
+    "default": str,
+}
+
+
+def _to_json(obj: Any) -> str:
+    """Serialize *obj* to a JSON string safe for LLM consumption."""
+    return json.dumps(obj, **_SERIALISER_KWARGS)
+
+
+def _from_json(s: str) -> Any:
+    """Parse a JSON string, returning the raw string on failure."""
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, TypeError):
+        return s
+
+
+def _serialise_dt(dt: Any) -> str:
+    """Serialize a datetime-like value to ISO string."""
+    if dt is None:
+        return ""
+    if isinstance(dt, datetime):
+        return dt.isoformat()
+    return str(dt)
+
+
+def _sanitise_task(doc: dict) -> dict:
+    """Strip internal fields from a Task document."""
+    result: dict[str, Any] = {
+        "task_id": doc["_id"],
+        "workflow_id": doc.get("workflow_id", ""),
+        "status": doc.get("status", ""),
+        "created_by": doc.get("created_by", ""),
+        "created_at": _serialise_dt(doc.get("created_at")),
+        "updated_at": _serialise_dt(doc.get("updated_at")),
+    }
+    # Add output for completed tasks, error for failed tasks
+    if doc.get("output"):
+        result["output"] = doc["output"]
+    if doc.get("error"):
+        err = doc["error"]
+        result["error"] = (
+            err.get("error_message", str(err)) if isinstance(err, dict) else str(err)
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Task query / management tools
 # ---------------------------------------------------------------------------
 
 
 @tool
-def search_workflow(query: str) -> str:
-    """Search for published workflow templates matching *query*.
-
-    Returns a JSON list of matching workflows with their IDs,
-    descriptions, and input schemas.
+async def task_query(task_id: str) -> str:
+    """Query the current execution status and output of a Task.
 
     Args:
-        query: Natural-language search terms describing the
-            desired workflow (e.g. "quality report", "device
-            inspection").
+        task_id: ID of the task to query (returned by workflow tools).
     """
-    results = _match_workflows(query)
-    return _format_workflow_results(results)
+    try:
+        doc = await TaskService.get_task(task_id)
+        if doc is None:
+            return _to_json({"error": f"Task {task_id} 不存在"})
+        data = _sanitise_task(doc)
+        data["type"] = "task_result"
+        return _to_json(data)
+    except Exception as exc:
+        logger.error("task_query_error", task_id=task_id, error=str(exc))
+        return _to_json({"error": f"查询 Task 失败: {exc}"})
 
 
 @tool
-def create_task(workflow_id: str, params: str) -> str:
-    """Create a Task instance from a published workflow template.
+async def task_list(
+    status: str = "",
+    workflow_id: str = "",
+    page: int = 1,
+    page_size: int = 20,
+) -> str:
+    """List Tasks with optional filters.
 
     Args:
-        workflow_id: ID of the workflow template to instantiate
-            (must be a published workflow).
-        params: JSON string of input parameters matching the
-            workflow's ``input_schema``.
+        status: Filter by status (pending, running, waiting_human,
+            completed, failed, cancelled).  Empty string means all.
+        workflow_id: Optional workflow template ID filter.
+        page: Page number (1-based).
+        page_size: Items per page (max 100).
     """
-    task_id = f"task_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
-    logger.info("workflow_task_created", workflow_id=workflow_id, task_id=task_id)
-    return (
-        f'{{"task_id": "{task_id}", '
-        f'"workflow_id": "{workflow_id}", '
-        f'"status": "running", '
-        f'"created_at": "{datetime.now(timezone.utc).isoformat()}"}}'
+    try:
+        status_enum = None
+        if status:
+            try:
+                status_enum = TaskStatus(status)
+            except ValueError:
+                return _to_json({"error": f"无效的状态: {status}"})
+
+        docs, total = await TaskService.list_tasks(
+            page=page,
+            page_size=min(page_size, 100),
+            status=status_enum,
+            workflow_id=workflow_id or None,
+        )
+
+        return _to_json({
+            "items": [_sanitise_task(d) for d in docs],
+            "total": total,
+            "page": page,
+            "page_size": min(page_size, 100),
+        })
+    except Exception as exc:
+        logger.error("task_list_error", error=str(exc))
+        return _to_json({"error": f"查询 Task 列表失败: {exc}"})
+
+
+async def _intervene(
+    task_id: str,
+    action: str,
+    reason: str = "",
+    version: int = 0,
+) -> str:
+    """Core intervene logic (shared by task_intervene and cancel_task)."""
+    try:
+        if version <= 0:
+            doc = await TaskService.get_task(task_id)
+            if doc is None:
+                return _to_json({"error": f"Task {task_id} 不存在"})
+            version = doc.get("version", 1)
+
+        action_map: dict[str, TaskStatus] = {
+            "approve": TaskStatus.RUNNING,
+            "reject": TaskStatus.FAILED,
+            "cancel": TaskStatus.CANCELLED,
+            "resume": TaskStatus.RUNNING,
+            "retry": TaskStatus.PENDING,
+        }
+
+        target_status = action_map.get(action)
+        if target_status is None:
+            return _to_json({
+                "error": f"无效的 intervention action: {action}",
+                "valid_actions": list(action_map.keys()),
+            })
+
+        updated = await TaskService.transition_task(
+            task_id=task_id,
+            to_status=target_status,
+            triggered_by="agent",
+            triggered_by_type="agent",
+            timeline_event_type=f"intervene_{action}",
+            timeline_data={"action": action, "reason": reason},
+        )
+
+        logger.info("task_intervened", task_id=task_id, action=action)
+        return _to_json({
+            "task_id": updated["_id"],
+            "status": updated["status"],
+            "version": updated.get("version", 0),
+            "action": action,
+            "message": f"Task {task_id} 已执行 {action} 操作，当前状态: {updated['status']}",
+        })
+    except Exception as exc:
+        logger.error("task_intervene_error", task_id=task_id, action=action, error=str(exc))
+        return _to_json({"error": f"干预 Task 失败: {exc}"})
+
+
+@tool
+async def task_intervene(
+    task_id: str,
+    action: str,
+    reason: str = "",
+    version: int = 0,
+) -> str:
+    """Intervene in a running or waiting_human Task.
+
+    Actions:
+    - ``approve`` — Approve a waiting_human task (resumes execution)
+    - ``reject`` — Reject and fail a waiting_human task
+    - ``cancel`` — Cancel a pending/running/waiting_human task
+    - ``resume`` — Resume execution (from waiting_human)
+    - ``retry`` — Retry a failed task (resets to pending)
+
+    Args:
+        task_id: The task to intervene on.
+        action: One of: approve, reject, cancel, resume, retry.
+        reason: Human-readable reason for the intervention.
+        version: Expected version for optimistic locking (0 = auto-detect).
+    """
+    return await _intervene(
+        task_id=task_id, action=action, reason=reason, version=version
     )
 
 
 @tool
-def task_query(task_id: str) -> str:
-    """Query the current execution status of a Task.
+async def cancel_task(task_id: str, reason: str = "") -> str:
+    """Cancel a pending, running, or waiting_human Task.
+
+    Shortcut for ``task_intervene(task_id, "cancel", reason)``.
 
     Args:
-        task_id: ID of the task to query (returned by ``create_task``).
+        task_id: The task to cancel.
+        reason: Optional reason for cancellation.
     """
-    logger.info("workflow_task_queried", task_id=task_id)
-    return (
-        f'{{"task_id": "{task_id}", '
-        f'"status": "completed", '
-        f'"progress": 100, '
-        f'"result": "Task completed successfully.", '
-        f'"completed_at": "{datetime.now(timezone.utc).isoformat()}"}}'
-    )
+    return await _intervene(task_id=task_id, action="cancel", reason=reason)
 
 
-_WORKFLOW_TOOLS: list[BaseTool] = [search_workflow, create_task, task_query]
+async def get_task_timeline(task_id: str) -> str:
+    """Get the full timeline of events for a Task.
+
+    The timeline records every state transition, node execution start/
+    completion/failure, and human intervention.  Useful for diagnosing
+    what happened during workflow execution.
+
+    Args:
+        task_id: ID of the task to inspect.
+    """
+    try:
+        doc = await TaskService.get_task(task_id)
+        if doc is None:
+            return _to_json({"error": f"Task {task_id} 不存在"})
+
+        timeline = doc.get("timeline", [])
+        sanitised = [
+            {
+                "timestamp": _serialise_dt(e.get("timestamp")),
+                "event_type": e.get("event_type", ""),
+                "data": e.get("data", {}),
+                "actor": e.get("actor", ""),
+            }
+            for e in timeline
+        ]
+
+        return _to_json({
+            "task_id": task_id,
+            "current_status": doc.get("status", ""),
+            "events": sanitised,
+            "event_count": len(sanitised),
+        })
+    except Exception as exc:
+        logger.error("get_task_timeline_error", task_id=task_id, error=str(exc))
+        return _to_json({"error": f"获取 Task 时间线失败: {exc}"})
+
+
+@tool
+async def update_task_variables(task_id: str, variables: str, version: int = 0) -> str:
+    """Update the variable pool of a running Task.
+
+    Use this to inject intermediate results or modify execution context
+    while a workflow is running.
+
+    Args:
+        task_id: The task whose variables to update.
+        variables: JSON string of key-value pairs to merge into the
+            task's variable pool (e.g. ``'{"checked_by": "Alice"}'``).
+        version: Expected version for optimistic locking (0 = auto-detect).
+    """
+    try:
+        parsed = _from_json(variables)
+        if not isinstance(parsed, dict):
+            return _to_json({"error": "variables 必须是 JSON 对象"})
+
+        if version <= 0:
+            doc = await TaskService.get_task(task_id)
+            if doc is None:
+                return _to_json({"error": f"Task {task_id} 不存在"})
+            version = doc.get("version", 1)
+
+        updated = await TaskService.update_variables(
+            task_id=task_id,
+            variables=parsed,
+            version=version,
+            triggered_by="agent",
+        )
+
+        return _to_json({
+            "task_id": updated["_id"],
+            "version": updated.get("version", 0),
+            "message": f"Task {task_id} 变量已更新",
+        })
+    except Exception as exc:
+        logger.error("update_task_variables_error", task_id=task_id, error=str(exc))
+        return _to_json({"error": f"更新 Task 变量失败: {exc}"})
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Workflow proposal tool — shows a confirmation card to the user
 # ---------------------------------------------------------------------------
 
 
-def _match_workflows(query: str) -> list[dict]:
-    """Mock workflow search — returns canned results based on keywords.
+@tool
+async def propose_workflow(
+    workflow_name: str,
+    params: dict[str, Any] | None = None,
+) -> str:
+    """Propose a workflow to the user by showing a confirmation card.
 
-    Real implementation will query the Workflow Registry (Epic 4).
+    Looks up the workflow by name and returns structured info for the
+    frontend to render as a confirmation card.  Does NOT create a Task.
+
+    After calling this, just tell the user you found a suitable workflow
+    — the system will handle the rest.
+
+    Only call ``dispatch_workflow`` when the user explicitly confirms
+    (e.g. says '确认', '好的', '是的').
+
+    Args:
+        workflow_name: The name or ID of the workflow to propose.
+        params: Input parameters to show in the proposal (optional).
     """
-    _ = query  # MVP ignores the query and returns canned data
-    return [
-        {
-            "id": "wf_quality_report",
-            "name": "质检报告生成",
-            "description": "根据检测数据生成标准质检报告，包含数据汇总、异常标记和结论建议。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "product_name": {"type": "string"},
-                    "test_data": {"type": "string"},
-                },
-            },
-        },
-        {
-            "id": "wf_device_inspection",
-            "name": "设备巡检流程",
-            "description": "按标准流程完成设备巡检，记录检查项结果并生成巡检报告。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "device_id": {"type": "string"},
-                    "inspector": {"type": "string"},
-                },
-            },
-        },
-    ]
+    from app.services.workflow_registry_service import WorkflowRegistryService
+
+    try:
+        entry = await WorkflowRegistryService.get_by_name(workflow_name)
+        if entry is None:
+            entry = await WorkflowRegistryService.get_by_workflow_id(workflow_name)
+        if entry is None:
+            return _to_json({
+                "error": f"工作流 '{workflow_name}' 不存在",
+                "available_workflows": [],
+            })
+
+        return _to_json({
+            "type": "workflow_proposal",
+            "workflow_name": entry.get("name", workflow_name),
+            "workflow_description": entry.get("description", ""),
+            "input_preview": dict(params) if params else {},
+            "has_human_node": entry.get("has_human_node", False),
+        })
+    except Exception as exc:
+        logger.error(
+            "propose_workflow_error",
+            workflow_name=workflow_name,
+            error=str(exc),
+        )
+        return _to_json({"error": f"提议工作流失败: {exc}"})
 
 
-def _format_workflow_results(workflows: list[dict]) -> str:
-    """Format workflow list as a JSON string for the LLM to consume."""
-    import json
+# ---------------------------------------------------------------------------
+# Workflow dispatch — creates a Task after user confirms
+# ---------------------------------------------------------------------------
 
-    return json.dumps(workflows, ensure_ascii=False)
+
+@tool
+async def dispatch_workflow(
+    workflow_name: str,
+    params: dict[str, Any] | None = None,
+) -> str:
+    """Create and dispatch a workflow Task.
+
+    IMPORTANT: Only call this AFTER the user has explicitly confirmed
+    they want to proceed (e.g. said '好的', '是的', '确认').
+
+    Looks up the workflow by name, creates a Task, and returns the
+    ``task_id``.  After creating the Task, just inform the user and
+    stop — do NOT call ``task_query`` unless the user asks about
+    progress.
+
+    Args:
+        workflow_name: The name of the workflow to dispatch.
+        params: Input parameters for the workflow as a dict (optional).
+    """
+    from app.services.workflow_registry_service import WorkflowRegistryService
+
+    try:
+        entry = await WorkflowRegistryService.get_by_name(workflow_name)
+        if entry is None:
+            entry = await WorkflowRegistryService.get_by_workflow_id(workflow_name)
+        if entry is None:
+            return _to_json({
+                "error": f"工作流 '{workflow_name}' 不存在",
+                "available_workflows": [],
+            })
+
+        input_data = dict(params) if params else {}
+        doc = await TaskService.create_task(
+            workflow_id=entry.get("workflow_id") or entry.get("_id", ""),
+            input_data=input_data,
+            created_by="agent",
+            created_by_type="agent",
+        )
+
+        result: dict[str, Any] = {
+            "type": "task_created",
+            "task_id": doc["_id"],
+            "workflow_id": doc.get("workflow_id", ""),
+            "workflow_name": entry.get("name", workflow_name),
+            "workflow_description": entry.get("description", ""),
+            "status": doc.get("status", "pending"),
+            "has_human_node": entry.get("has_human_node", False),
+            "message": (
+                f"工作流 '{entry.get('name', workflow_name)}' 已触发，"
+                f"Task {doc['_id']} 已创建。"
+            ),
+        }
+        return _to_json(result)
+    except Exception as exc:
+        logger.error(
+            "dispatch_workflow_error",
+            workflow_name=workflow_name,
+            error=str(exc),
+        )
+        return _to_json({"error": f"触发工作流失败: {exc}"})
+
+
+# ---------------------------------------------------------------------------
+# Tool list — exported for builder.py injection as built-in tools
+# ---------------------------------------------------------------------------
+
+_TASK_TOOLS: list[BaseTool] = [
+    propose_workflow,
+    dispatch_workflow,
+    task_query,
+    task_list,
+    task_intervene,
+    cancel_task,
+    update_task_variables,
+]

@@ -8,8 +8,6 @@ import { apiClient } from './api-client'
 
 /* ─── Types (snake_case, matches backend schemas) ─── */
 
-export type ToolStatus = 'draft' | 'active' | 'inactive'
-
 export interface SkillFile {
   path: string
   content: string
@@ -26,7 +24,6 @@ export interface Tool {
   source: string
   source_file: string
   mcp_connection_id: string
-  status: ToolStatus
   version: number
   tags: string[]
   files: SkillFile[]
@@ -38,9 +35,10 @@ export interface ToolListParams {
   page?: number
   page_size?: number
   name?: string
-  status?: ToolStatus
   /** Filter by source: markdown / mcp / builtin */
   source?: string
+  /** Filter by MCP connection ID */
+  mcp_connection_id?: string
 }
 
 export interface ToolListResponse {
@@ -77,11 +75,17 @@ export interface SkillFileUpdatePayload {
   content: string
 }
 
+export interface BuiltinTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
 /* ─── API methods ─── */
 
 export const toolsApi = {
   /**
-   * List tools with optional pagination, name search, status filter.
+   * List tools with optional pagination, name search, source filter.
    * GET /api/v1/tools
    */
   async list(params: ToolListParams = {}): Promise<ToolListResponse> {
@@ -90,10 +94,19 @@ export const toolsApi = {
         page: params.page ?? 1,
         page_size: params.page_size ?? 20,
         ...(params.name ? { name: params.name } : {}),
-        ...(params.status ? { status: params.status } : {}),
         ...(params.source ? { source: params.source } : {}),
+        ...(params.mcp_connection_id ? { mcp_connection_id: params.mcp_connection_id } : {}),
       },
     })
+    return res.data
+  },
+
+  /**
+   * List built-in tools (bash / read / write).
+   * GET /api/v1/tools/builtin
+   */
+  async listBuiltins(): Promise<BuiltinTool[]> {
+    const res = await apiClient.get<BuiltinTool[]>('/api/v1/tools/builtin')
     return res.data
   },
 
@@ -120,10 +133,10 @@ export const toolsApi = {
   },
 
   /**
-   * Update a tool's status or tags.
+   * Update a tool's tags.
    * PUT /api/v1/tools/{id}
    */
-  async update(toolId: string, data: { status?: ToolStatus; tags?: string[] }): Promise<Tool> {
+  async update(toolId: string, data: { tags?: string[] }): Promise<Tool> {
     const res = await apiClient.put<Tool>(`/api/v1/tools/${encodeURIComponent(toolId)}`, data)
     return res.data
   },

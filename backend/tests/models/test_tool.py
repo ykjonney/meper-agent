@@ -1,14 +1,5 @@
 """Tests for the Tool data model."""
-from app.models.tool import SkillFile, Tool, ToolStatus
-
-
-class TestToolStatus:
-    """ToolStatus enum tests."""
-
-    def test_values(self) -> None:
-        assert ToolStatus.DRAFT == "draft"
-        assert ToolStatus.ACTIVE == "active"
-        assert ToolStatus.INACTIVE == "inactive"
+from app.models.tool import SkillFile, Tool
 
 
 class TestToolModel:
@@ -23,7 +14,6 @@ class TestToolModel:
         assert tool.instructions == ""
         assert tool.source == "markdown"
         assert tool.source_file == ""
-        assert tool.status == ToolStatus.DRAFT
         assert tool.version == 1
         assert tool.tags == []
         assert tool.created_at != ""
@@ -60,11 +50,9 @@ class TestToolModel:
             instructions="## Usage\nQuery device status by ID.",
             source="markdown",
             source_file="query-device.md",
-            status=ToolStatus.ACTIVE,
             tags=["mes", "device"],
         )
         assert tool.name == "query-device"
-        assert tool.status == ToolStatus.ACTIVE
         assert tool.tags == ["mes", "device"]
         assert "id" in tool.input_schema["properties"]
 

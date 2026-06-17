@@ -1,0 +1,220 @@
+"""Tests for AgentService — CRUD operations and lifecycle management."""
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.core.errors import ConflictError
+from app.services.agent_service import AgentService
+
+
+@pytest.fixture(autouse=True)
+def mock_database():
+    """Mock the MongoDB database."""
+    mock_db = MagicMock()
+    with patch("app.services.agent_service.get_database", return_value=mock_db):
+        yield mock_db
+
+
+def _fake_doc(agent_id: str = "agent_01HTEST", status: str = "draft") -> dict:
+    return {
+        "_id": agent_id,
+        "name": "Test Agent",
+        "description": "A test agent",
+        "system_prompt": "You are a helpful assistant.",
+        "saved_system_prompts": [],
+        "skill_ids": [],
+        "mcp_connection_ids": [],
+        "builtin_config": [],
+        "workflow_ids": [],
+        "knowledge_base_ids": [],
+        "llm_config": {"default_model": "gpt-4", "temperature": 0.7, "max_retry": 3},
+        "status": status,
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
+    }
+
+
+# ── update_agent ──────────────────────────────────────────────────────────────
+
+
+class TestUpdateAgent:
+    """update_agent: basic update and guard rails."""
+
+    @pytest.mark.asyncio
+    async def test_update_draft_agent(self, mock_database):
+        """Draft agent can be updated normally."""
+        updated_doc = _fake_doc(status="draft")
+        updated_doc["name"] = "Updated Name"
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="draft"),  # existing agent
+                None,  # no name conflict
+                updated_doc,  # after update
+            ]
+        )
+        mock_col.update_one = AsyncMock()
+        mock_database.__getitem__.return_value = mock_col
+
+        doc = await AgentService.update_agent(
+            agent_id="agent_01HTEST",
+            name="Updated Name",
+        )
+
+        assert doc is not None
+        assert doc["name"] == "Updated Name"
+        # No $inc — no version bump
+        args, _kwargs = mock_col.update_one.call_args
+        assert "$inc" not in args[1]
+        assert "$set" in args[1]
+
+    @pytest.mark.asyncio
+    async def test_update_published_agent_raises_conflict(self, mock_database):
+        """Published agents are immutable."""
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(return_value=_fake_doc(status="published"))
+        mock_database.__getitem__.return_value = mock_col
+
+        with pytest.raises(ConflictError) as exc_info:
+            await AgentService.update_agent(
+                agent_id="agent_01HTEST",
+                name="Should Fail",
+            )
+        assert exc_info.value.code == "AGENT_PUBLISHED_IMMUTABLE"
+
+    @pytest.mark.asyncio
+    async def test_update_archived_agent(self, mock_database):
+        """Archived agent can be updated."""
+        updated_doc = _fake_doc(status="archived")
+        updated_doc["name"] = "Revived from archive"
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="archived"),  # existing agent
+                None,  # no name conflict
+                updated_doc,  # after update
+            ]
+        )
+        mock_col.update_one = AsyncMock()
+        mock_database.__getitem__.return_value = mock_col
+
+        doc = await AgentService.update_agent(
+            agent_id="agent_01HTEST",
+            name="Revived from archive",
+        )
+
+        assert doc is not None
+        assert doc["name"] == "Revived from archive"
+
+
+class TestUpdateAgentNameConflict:
+    """Name conflict should raise before any update."""
+
+    @pytest.mark.asyncio
+    async def test_name_conflict_raises(self, mock_database):
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(),
+                {"_id": "agent_other", "name": "Test Agent"},
+            ]
+        )
+        mock_database.__getitem__.return_value = mock_col
+
+        with pytest.raises(ConflictError) as exc_info:
+            await AgentService.update_agent(
+                agent_id="agent_01HTEST",
+                name="Test Agent",
+            )
+        assert exc_info.value.code == "AGENT_NAME_CONFLICT"
+
+
+# ── publish_agent ─────────────────────────────────────────────────────────────
+
+
+class TestPublishAgent:
+    """Publishing transitions status to published."""
+
+    @pytest.mark.asyncio
+    async def test_publish_draft_agent(self, mock_database):
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="draft"),  # existing agent
+                _fake_doc(status="published"),  # updated agent
+            ]
+        )
+        mock_col.update_one = AsyncMock()
+        mock_database.__getitem__.return_value = mock_col
+
+        doc = await AgentService.publish_agent("agent_01HTEST")
+
+        assert doc is not None
+        assert doc["status"] == "published"
+        args, _kwargs = mock_col.update_one.call_args
+        assert args[1]["$set"]["status"] == "published"
+
+
+# ── archive_agent ─────────────────────────────────────────────────────────────
+
+
+class TestArchiveAgent:
+    """Archiving transitions status to archived."""
+
+    @pytest.mark.asyncio
+    async def test_archive_published_agent(self, mock_database):
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="published"),
+                _fake_doc(status="archived"),
+            ]
+        )
+        mock_col.update_one = AsyncMock()
+        mock_database.__getitem__.return_value = mock_col
+
+        doc = await AgentService.archive_agent("agent_01HTEST")
+
+        assert doc is not None
+        assert doc["status"] == "archived"
+        args, _kwargs = mock_col.update_one.call_args
+        assert args[1]["$set"]["status"] == "archived"
+
+    @pytest.mark.asyncio
+    async def test_archive_draft_agent(self, mock_database):
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="draft"),
+                _fake_doc(status="archived"),
+            ]
+        )
+        mock_col.update_one = AsyncMock()
+        mock_database.__getitem__.return_value = mock_col
+
+        doc = await AgentService.archive_agent("agent_01HTEST")
+
+        assert doc is not None
+        assert doc["status"] == "archived"
+
+
+# ── delete_agent ──────────────────────────────────────────────────────────────
+
+
+class TestDeleteAgent:
+    """delete_agent removes the agent document."""
+
+    @pytest.mark.asyncio
+    async def test_delete_agent(self, mock_database):
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(
+            return_value={"_id": "agent_01HTEST", "name": "Test Agent"}
+        )
+        mock_result = MagicMock()
+        mock_result.deleted_count = 1
+        mock_col.delete_one = AsyncMock(return_value=mock_result)
+        mock_database.__getitem__.return_value = mock_col
+
+        result = await AgentService.delete_agent("agent_01HTEST")
+
+        assert result is True

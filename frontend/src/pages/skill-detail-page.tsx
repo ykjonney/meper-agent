@@ -3,19 +3,13 @@
  */
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Breadcrumb, Spin, Empty, Tag } from 'antd'
+import { Breadcrumb, Spin, Empty } from 'antd'
 import { HomeOutlined, LeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toolsApi, toolKeys } from '../services/tools-api'
 import SkillFileTree from '../components/skill-file-tree'
 import SkillFileEditor from '../components/skill-file-editor'
-
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  draft: { label: '草稿', color: '#64748B' },
-  active: { label: '已启用', color: '#10B981' },
-  inactive: { label: '已停用', color: '#F43F5E' },
-}
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -54,7 +48,7 @@ export default function SkillDetailPage() {
         <button
           type="button"
           className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm"
-          onClick={() => navigate('/tools')}
+          onClick={() => navigate('/skills')}
         >
           返回列表
         </button>
@@ -62,7 +56,6 @@ export default function SkillDetailPage() {
     )
   }
 
-  const st = STATUS_MAP[tool.status] ?? STATUS_MAP.draft
   const isDirectory = tool.files.length > 0
 
   return (
@@ -74,7 +67,7 @@ export default function SkillDetailPage() {
           <Breadcrumb
             items={[
               { title: <HomeOutlined className="text-gray-400" /> },
-              { title: <span onClick={() => navigate('/tools')} className="cursor-pointer hover:text-blue-500">工具管理</span> },
+              { title: <span onClick={() => navigate('/skills')} className="cursor-pointer hover:text-blue-500">Skill 管理</span> },
               { title: tool.name },
             ]}
             className="mb-3"
@@ -86,9 +79,6 @@ export default function SkillDetailPage() {
               <h1 className="text-2xl font-bold text-[#0F172A] mb-2">{tool.name}</h1>
               <p className="text-sm text-[#64748B] mb-3">{tool.description}</p>
               <div className="flex items-center gap-3">
-                <Tag className="!m-0" style={{ color: st.color, borderColor: 'transparent' }}>
-                  {st.label}
-                </Tag>
                 <span className="text-xs text-[#94A3B8]">v{tool.version}</span>
                 {isDirectory && (
                   <span className="text-xs text-[#94A3B8]">{tool.files.length} 文件</span>
@@ -98,7 +88,7 @@ export default function SkillDetailPage() {
             <button
               type="button"
               className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm flex items-center gap-2"
-              onClick={() => navigate('/tools')}
+              onClick={() => navigate('/skills')}
             >
               <LeftOutlined />
               返回列表
