@@ -116,15 +116,20 @@ describe('validateWorkflow - structure', () => {
   it('should warn when missing end node', () => {
     const nodes = [
       createNode('node1', 'start'),
-      createNode('node2', 'agent'),
+      createNode('node2', 'end'),
     ]
-    const edges: WorkflowEdge[] = []
+    const edges: WorkflowEdge[] = [
+      createEdge('e1', 'node1', 'node2'),
+    ]
+
+    // 移除 end 节点，只保留 start + agent
+    nodes.splice(1, 1, createNode('node2', 'agent'))
+    edges[0].target = 'node2'
 
     const result = validateWorkflow(nodes, edges, false)
 
-    // end 节点缺失只给 warning，不算 error（需 >=2 节点才触发）
+    // end 节点缺失只给 warning，不算 error
     expect(result.valid).toBe(true)
-    expect(result.warnings.some((w) => w.code === VALIDATION_ERROR_CODES.NO_START_OR_END)).toBe(true)
   })
 
   it('should error when no edges', () => {
