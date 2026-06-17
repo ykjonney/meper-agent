@@ -113,7 +113,7 @@ describe('validateWorkflow - structure', () => {
     expect(result.errors.some((e) => e.code === VALIDATION_ERROR_CODES.NO_START_OR_END)).toBe(true)
   })
 
-  it('should error when missing end node', () => {
+  it('should warn when missing end node', () => {
     const nodes = [
       createNode('node1', 'start'),
     ]
@@ -121,8 +121,9 @@ describe('validateWorkflow - structure', () => {
 
     const result = validateWorkflow(nodes, edges, false)
 
-    expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.code === VALIDATION_ERROR_CODES.NO_START_OR_END)).toBe(true)
+    // end 节点缺失只给 warning，不算 error
+    expect(result.valid).toBe(true)
+    expect(result.warnings.some((w) => w.code === VALIDATION_ERROR_CODES.NO_START_OR_END)).toBe(true)
   })
 
   it('should error when no edges', () => {
