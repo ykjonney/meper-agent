@@ -27,8 +27,7 @@ class AgentService:
     async def create_agent(
         name: str,
         description: str = "",
-        system_prompt: str = "",
-        saved_system_prompts: list[dict] | None = None,
+        prompt_slots: dict[str, str] | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
@@ -42,8 +41,7 @@ class AgentService:
         Args:
             name: Agent name.
             description: Optional description.
-            system_prompt: Optional active system prompt.
-            saved_system_prompts: Optional list of saved prompt templates.
+            prompt_slots: Prompt slot content (role/task/constraints/context/output_format).
             skill_ids: Optional list of bound Skill tool IDs.
             mcp_connection_ids: Optional list of bound MCP connection IDs.
             builtin_config: Optional list of enabled built-in tool names.
@@ -68,25 +66,11 @@ class AgentService:
                 details={"field": "name"},
             )
 
-        # Resolve skill IDs
-        resolved_skill_ids = skill_ids or []
-        from app.models.agent import SavedPrompt
-
-        resolved_prompts = []
-        if saved_system_prompts:
-            for p in saved_system_prompts:
-                resolved_prompts.append(SavedPrompt(**p))
-        elif system_prompt:
-            resolved_prompts.append(
-                SavedPrompt(content=system_prompt, is_active=True)
-            )
-
         agent = Agent(
             name=name,
             description=description,
-            system_prompt=system_prompt,
-            saved_system_prompts=resolved_prompts,
-            skill_ids=resolved_skill_ids,
+            prompt_slots=prompt_slots or {},
+            skill_ids=skill_ids or [],
             mcp_connection_ids=mcp_connection_ids or [],
             builtin_config=builtin_config or [],
             workflow_ids=workflow_ids or [],
@@ -100,8 +84,7 @@ class AgentService:
             "_id": agent.id,
             "name": agent.name,
             "description": agent.description,
-            "system_prompt": agent.system_prompt,
-            "saved_system_prompts": [p.model_dump() for p in agent.saved_system_prompts],
+            "prompt_slots": agent.prompt_slots,
             "skill_ids": agent.skill_ids,
             "mcp_connection_ids": agent.mcp_connection_ids,
             "builtin_config": agent.builtin_config,
@@ -188,8 +171,7 @@ class AgentService:
         agent_id: str,
         name: str,
         description: str = "",
-        system_prompt: str = "",
-        saved_system_prompts: list[dict] | None = None,
+        prompt_slots: dict[str, str] | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
@@ -206,8 +188,7 @@ class AgentService:
             agent_id: The Agent's ID.
             name: New name.
             description: New description.
-            system_prompt: New active system prompt.
-            saved_system_prompts: New saved prompt templates list.
+            prompt_slots: New prompt slot content.
             skill_ids: New Skill tool IDs.
             mcp_connection_ids: New MCP connection IDs.
             builtin_config: New built-in tool whitelist.
@@ -253,8 +234,7 @@ class AgentService:
         set_fields: dict = {
             "name": name,
             "description": description,
-            "system_prompt": system_prompt,
-            "saved_system_prompts": saved_system_prompts or [],
+            "prompt_slots": prompt_slots or {},
             "skill_ids": skill_ids or [],
             "mcp_connection_ids": mcp_connection_ids or [],
             "builtin_config": builtin_config or [],
@@ -437,8 +417,7 @@ class AgentService:
         return await AgentService.create_agent(
             name=new_name,
             description=source.get("description", ""),
-            system_prompt=source.get("system_prompt", ""),
-            saved_system_prompts=source.get("saved_system_prompts", None),
+            prompt_slots=source.get("prompt_slots", {}),
             skill_ids=resolve_skill_ids(source),
             mcp_connection_ids=source.get("mcp_connection_ids", []),
             builtin_config=source.get("builtin_config", []),
