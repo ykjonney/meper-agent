@@ -229,11 +229,11 @@ mkdir -p data/mongodb data/redis
 docker compose up -d
 
 # 创建管理员账户（首次部署需要）
-docker compose run --rm create-admin
+docker compose run --rm --profile init create-admin
 ```
 
 此命令将启动：
-- **Caddy**（端口 80/443）— 统一入口，服务前端静态文件 + 反向代理 API
+- **Caddy**（端口 80/443）— 统一入口，构建并服务前端静态文件 + 反向代理 API（`deploy/Dockerfile.caddy`）
 - **Backend**（端口 8000）— FastAPI 服务
 - **Celery Worker** — 异步任务处理
 - **MongoDB**（端口 27017）— 数据库
@@ -250,12 +250,12 @@ docker compose run --rm create-admin
 ```bash
 cd deploy
 
-# 重新构建镜像并重启
+# 重新构建所有镜像并重启
 docker compose up -d --build
 
 # 或只重建特定服务
 docker compose up -d --build backend
-docker compose up -d --build frontend
+docker compose up -d --build caddy
 ```
 
 ### 开发模式
