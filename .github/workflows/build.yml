@@ -58,6 +58,7 @@ jobs:
       - name: Build and push frontend
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
+          context: .
+          file: deploy/Dockerfile.caddy
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:latest
