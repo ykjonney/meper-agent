@@ -773,27 +773,53 @@ export default function TasksPage() {
                     取消任务
                   </Button>
                 )}
-                {taskDetail.status === 'waiting_human' && (
-                  <>
-                    <Button
-                      type="primary"
-                      icon={<CheckOutlined />}
-                      onClick={() => handleApprove(taskDetail)}
-                      loading={interveneMutation.isPending}
-                      style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
-                    >
-                      批准
-                    </Button>
-                    <Button
-                      danger
-                      icon={<CloseCircleOutlined />}
-                      onClick={() => handleReject(taskDetail)}
-                      loading={interveneMutation.isPending}
-                    >
-                      驳回
-                    </Button>
-                  </>
-                )}
+                {taskDetail.status === 'waiting_human' && (() => {
+                  const humanOptions: string[] = Array.isArray(taskDetail.checkpoint?.human_context?.options)
+                    ? taskDetail.checkpoint.human_context.options.filter(Boolean)
+                    : []
+
+                  if (humanOptions.length === 0) {
+                    // 无选项 → 显示通用"继续"按钮
+                    return (
+                      <Button
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        onClick={() => interveneMutation.mutate({
+                          taskId: taskDetail.id,
+                          action: 'resume',
+                          version: taskDetail.version,
+                          reason: '',
+                        })}
+                        loading={interveneMutation.isPending}
+                      >
+                        继续
+                      </Button>
+                    )
+                  }
+
+                  // 有选项 → 显示批准/驳回按钮
+                  return (
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        onClick={() => handleApprove(taskDetail)}
+                        loading={interveneMutation.isPending}
+                        style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
+                      >
+                        批准
+                      </Button>
+                      <Button
+                        danger
+                        icon={<CloseCircleOutlined />}
+                        onClick={() => handleReject(taskDetail)}
+                        loading={interveneMutation.isPending}
+                      >
+                        驳回
+                      </Button>
+                    </>
+                  )
+                })()}
                 {taskDetail.status === 'failed' && (
                   <Button
                     type="primary"

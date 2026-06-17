@@ -40,7 +40,7 @@ const DEFAULT_CONFIGS: Record<string, Record<string, unknown>> = {
   human: {
     title: '',
     description: '',
-    options: ['approve', 'reject'] as string[],
+    options: [] as string[],
     timeout_minutes: 60,
     timeout_action: 'fail',
     next_nodes: [] as NextNodeRef[],
