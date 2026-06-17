@@ -39,7 +39,7 @@ class TestCreateAdminUser:
         assert result.tokens.access_token
         assert result.tokens.refresh_token
         assert result.tokens.token_type == "bearer"
-        assert result.tokens.expires_in == 900  # 15 * 60
+        assert result.tokens.expires_in == 3600  # 60 * 60
 
         # Verify insert was called with _id (not id)
         mock_collection.insert_one.assert_called_once()
