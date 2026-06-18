@@ -163,7 +163,7 @@ export const sessionApi = {
   async previewFile(sessionId: string, filePath: string): Promise<{ blob: Blob; contentType: string }> {
     const url = `/api/v1/sessions/${encodeURIComponent(sessionId)}/files/${filePath}`
     const res = await apiClient.get(url, { responseType: 'blob' })
-    const contentType = res.headers['content-type'] || 'application/octet-stream'
+    const contentType = (res.headers['content-type'] as string) || 'application/octet-stream'
     return { blob: res.data as Blob, contentType }
   },
 

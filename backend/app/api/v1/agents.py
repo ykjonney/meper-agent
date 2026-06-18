@@ -177,7 +177,6 @@ async def get_agent(
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> AgentResponse:
     """Get an Agent by its ID."""
-    from app.core.errors import NotFoundError
 
     doc = await AgentService.get_agent(agent_id)
     if doc is None:
@@ -210,7 +209,6 @@ async def update_agent(
     **Published agents are immutable** — returns 409 if the agent
     status is ``published``. Use duplicate or archive first.
     """
-    from app.core.errors import NotFoundError
 
     doc = await AgentService.update_agent(
         agent_id=agent_id,
@@ -248,7 +246,6 @@ async def publish_agent(
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
     """Publish an Agent (draft/archived → published)."""
-    from app.core.errors import NotFoundError
 
     doc = await AgentService.publish_agent(agent_id)
     if doc is None:
@@ -274,7 +271,6 @@ async def archive_agent(
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
     """Archive an Agent (published → archived)."""
-    from app.core.errors import NotFoundError
 
     doc = await AgentService.archive_agent(agent_id)
     if doc is None:
@@ -326,7 +322,6 @@ async def preview_agent(
     message list, and resolved tool definitions that would be sent
     to the model — useful for debugging Agent configuration.
     """
-    from app.core.errors import NotFoundError
     from app.engine.agent.builder import preview_agent as _preview_agent
     from app.schemas.execution import ToolPreview
 
@@ -379,7 +374,6 @@ async def invoke_agent(
     import json
     import uuid
 
-    from app.core.errors import NotFoundError
     from app.engine.agent.builder import build_agent_graph
     from app.services.session_service import SessionService
 
@@ -494,7 +488,6 @@ async def stream_agent(
 
     from fastapi.responses import StreamingResponse
 
-    from app.core.errors import NotFoundError
     from app.engine.agent.builder import run_agent_streaming
     from app.services.session_service import MessageService, SessionService
 
@@ -855,7 +848,6 @@ async def delete_agent(
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> None:
     """Delete an Agent by ID. Checks for active references."""
-    from app.core.errors import NotFoundError
 
     deleted = await AgentService.delete_agent(agent_id)
     if not deleted:
