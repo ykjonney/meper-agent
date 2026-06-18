@@ -56,7 +56,7 @@ class WorkspaceManager:
     @staticmethod
     def _workspaces_root() -> Path:
         """Return the configured workspaces root directory (expanded)."""
-        return Path(settings.WORKSPACES_DIR).expanduser()
+        return Path(settings.WORKSPACES_CONTAINER_DIR).expanduser()
 
     @staticmethod
     def get_workspace(user_id: str, session_id: str) -> Workspace:
@@ -153,7 +153,7 @@ class WorkspaceManager:
 
         # Optionally allow read access to Skill files
         if allow_skills_read:
-            skills_root = Path(settings.SKILLS_DIR).expanduser()
+            skills_root = Path(settings.SKILLS_CONTAINER_DIR).expanduser()
             resolved = WorkspaceManager.safe_resolve_path(skills_root, user_path)
             if resolved is not None:
                 return resolved

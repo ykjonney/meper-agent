@@ -29,6 +29,15 @@ from app.core.config import settings
 from app.engine.tool.workspace import Workspace
 
 
+def _get_host_dir(container_dir: str, host_dir: str) -> str:
+    """Return the host-side path for a container-internal directory.
+
+    If *host_dir* is explicitly configured, use it.
+    Otherwise return *container_dir* unchanged (local dev — same paths).
+    """
+    return host_dir if host_dir else container_dir
+
+
 @dataclass
 class SandboxResult:
     """Result of a sandbox command execution."""
@@ -109,28 +118,20 @@ class SandboxExecutor:
         """Translate a container-internal path to the corresponding host path.
 
         When the backend runs inside a Docker container, the Docker daemon
-        (on the host) needs **host-side** paths for bind mounts, not the
-        paths the backend sees internally.
+        (on the host) needs **host-side** paths for bind mounts.
 
-        Example:
-            container_path = "/data/workspaces/uid/sid/tmp"
-            SANDBOX_HOST_WORKSPACES_DIR = "/home/user/project/deploy/data/workspaces"
-            WORKSPACES_DIR (container) = "/data/workspaces"
-            → returns "/home/user/project/deploy/data/workspaces/uid/sid/tmp"
-
-        When SANDBOX_HOST_WORKSPACES_DIR is empty (local dev), returns the
-        path unchanged.
+        Uses ``WORKSPACES_HOST_DIR`` / ``SKILLS_HOST_DIR`` env vars to
+        map container paths to host paths. When empty (local dev), paths
+        are returned unchanged.
         """
-        # Workspace path translation
-        host_ws = settings.SANDBOX_HOST_WORKSPACES_DIR
-        container_ws = os.path.expanduser(settings.WORKSPACES_DIR)
-        if host_ws and container_path.startswith(container_ws):
+        container_ws = os.path.expanduser(settings.WORKSPACES_CONTAINER_DIR)
+        if container_path.startswith(container_ws):
+            host_ws = _get_host_dir(container_ws, settings.WORKSPACES_HOST_DIR)
             return container_path.replace(container_ws, host_ws, 1)
 
-        # Skills path translation
-        host_sk = settings.SANDBOX_HOST_SKILLS_DIR
-        container_sk = os.path.expanduser(settings.SKILLS_DIR)
-        if host_sk and container_path.startswith(container_sk):
+        container_sk = os.path.expanduser(settings.SKILLS_CONTAINER_DIR)
+        if container_path.startswith(container_sk):
+            host_sk = _get_host_dir(container_sk, settings.SKILLS_HOST_DIR)
             return container_path.replace(container_sk, host_sk, 1)
 
         return container_path
@@ -158,8 +159,7 @@ class SandboxExecutor:
         workspace.output_dir.mkdir(parents=True, exist_ok=True)
         workspace.input_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build volume mounts — translate container paths to host paths
-        # when running inside a container (SANDBOX_HOST_*_DIR configured).
+        # Build volume mounts — translate container paths to host paths.
         ws_dir = settings.SANDBOX_CONTAINER_WORKSPACE_DIR
         sk_dir = settings.SANDBOX_CONTAINER_SKILLS_DIR
         volumes = {
@@ -169,7 +169,7 @@ class SandboxExecutor:
         }
 
         # Mount SKILLS_DIR read-only if it exists
-        skills_dir = Path(os.path.expanduser(settings.SKILLS_DIR))
+        skills_dir = Path(os.path.expanduser(settings.SKILLS_CONTAINER_DIR))
         if skills_dir.exists():
             volumes[self._host_path(str(skills_dir))] = {"bind": sk_dir, "mode": "ro"}
 

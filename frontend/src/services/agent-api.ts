@@ -146,6 +146,11 @@ export interface ToolCallEvent {
   args: Record<string, unknown>
 }
 
+/** AI started generating a tool call (args not yet complete) */
+export interface ToolCallStartEvent {
+  type: 'tool_call_start'
+}
+
 /** Tool returned a result */
 export interface ToolResultEvent {
   type: 'tool_result'
@@ -182,6 +187,7 @@ export interface StreamDoneEvent {
 export type StreamEvent =
   | ThinkingEvent
   | ThinkingDeltaEvent
+  | ToolCallStartEvent
   | ToolCallEvent
   | ToolResultEvent
   | FinalAnswerDeltaEvent

@@ -1,4 +1,5 @@
 """Application configuration via Pydantic Settings."""
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,18 +59,43 @@ class Settings(BaseSettings):
     TASK_SCHEDULER_POLL_INTERVAL: int = 10
 
     # Skill filesystem — root directory where Skill files are materialized.
-    # Each Skill lives under ``{SKILLS_DIR}/{skill_name}/``.
-    SKILLS_DIR: str = "~/.agent-flow/skills"
+    # Each Skill lives under ``{SKILLS_CONTAINER_DIR}/{skill_name}/``.
+    # None = derive from SKILLS_HOST_DIR (local dev).
+    # Docker: set explicitly by docker-compose (e.g. /data/skills).
+    SKILLS_CONTAINER_DIR: str | None = None
+    # Host-side path for Skills (the one users configure in .env).
+    SKILLS_HOST_DIR: str = "~/.agent-flow/skills"
 
     # Workspace filesystem — root directory for per-Session workspaces.
-    # Layout: ``{WORKSPACES_DIR}/{user_id}/{session_id}/{input,output,tmp}``.
-    WORKSPACES_DIR: str = "~/.agent-flow/workspaces"
+    # Layout: ``{WORKSPACES_CONTAINER_DIR}/{user_id}/{session_id}/{input,output,tmp}``.
+    # None = derive from WORKSPACES_HOST_DIR (local dev).
+    # Docker: set explicitly by docker-compose (e.g. /data/workspaces).
+    WORKSPACES_CONTAINER_DIR: str | None = None
+    # Host-side path for Workspaces (the one users configure in .env).
+    WORKSPACES_HOST_DIR: str = "~/.agent-flow/workspaces"
 
     # Workspace retention — days to keep workspace files after Session deletion.
     WORKSPACE_RETENTION_DAYS: int = 30
 
     # Workspace quota — max bytes per workspace (default 500 MB).
     WORKSPACE_MAX_BYTES: int = 500 * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _default_internal_dirs_from_host(self) -> "Settings":
+        """Default container-internal dirs to host dirs when not explicitly set.
+
+        - Local dev: user sets only ``*_HOST_DIR``; ``*_CONTAINER_DIR`` is None → derive from host.
+        - Docker: docker-compose injects ``WORKSPACES_CONTAINER_DIR``/``SKILLS_CONTAINER_DIR`` explicitly.
+        """
+        import os
+        # Expand ~ in host dirs so Docker can use them directly
+        self.WORKSPACES_HOST_DIR = os.path.expanduser(self.WORKSPACES_HOST_DIR)
+        self.SKILLS_HOST_DIR = os.path.expanduser(self.SKILLS_HOST_DIR)
+        if self.WORKSPACES_CONTAINER_DIR is None:
+            self.WORKSPACES_CONTAINER_DIR = self.WORKSPACES_HOST_DIR
+        if self.SKILLS_CONTAINER_DIR is None:
+            self.SKILLS_CONTAINER_DIR = self.SKILLS_HOST_DIR
+        return self
 
     # ── Sandbox ──────────────────────────────────────────────────────────
     # Docker image used for bash tool sandbox execution.
@@ -90,14 +116,6 @@ class Settings(BaseSettings):
     # "bridge" = standard Docker bridge network (allows outbound internet)
     # "host" = use host network stack (least isolation)
     SANDBOX_NETWORK_MODE: str = "none"
-
-    # Host-side path prefix for volume mounts.
-    # When backend runs inside a container, the Docker daemon (on the host)
-    # needs HOST paths for bind mounts, not container-internal paths.
-    # Set these to the host-side equivalents of WORKSPACES_DIR / SKILLS_DIR.
-    # Leave empty when backend runs directly on the host (local dev).
-    SANDBOX_HOST_WORKSPACES_DIR: str = ""
-    SANDBOX_HOST_SKILLS_DIR: str = ""
 
     # Container-internal mount points for sandbox containers.
     # These are the paths *inside* the sandbox container where workspace

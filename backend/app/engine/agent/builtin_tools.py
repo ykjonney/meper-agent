@@ -103,8 +103,8 @@ def _safe_path_for_read(user_path: str) -> tuple[str | None, str]:
     if resolved is not None:
         return str(resolved), ""
 
-    # Also allow reading SKILLS_DIR files by absolute path
-    skills_root = str(Path(settings.SKILLS_DIR).expanduser())
+    # Also allow reading SKILLS_CONTAINER_DIR files by absolute path
+    skills_root = str(Path(settings.SKILLS_CONTAINER_DIR).expanduser())
     if os.path.isabs(user_path) and os.path.realpath(user_path).startswith(skills_root):
         return user_path, ""
 

@@ -222,6 +222,19 @@ def _has_tool_calls(response: AIMessage) -> bool:
     return bool(hasattr(response, "tool_calls") and response.tool_calls)
 
 
+def _chunk_has_tool_call(chunk: AIMessageChunk) -> bool:
+    """Return True when the chunk contains tool call data (partial or complete)."""
+    # LangChain's AIMessageChunk has tool_call_chunks for streaming tool calls
+    if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+        return True
+    # Some providers put tool calls in additional_kwargs
+    if hasattr(chunk, "additional_kwargs"):
+        kwargs = chunk.additional_kwargs or {}
+        if "tool_calls" in kwargs and kwargs["tool_calls"]:
+            return True
+    return False
+
+
 async def _execute_tool(tool_fn: StructuredTool, args: dict) -> str:
     """Invoke *tool_fn* with *args*; supports sync and async tools.
 
@@ -374,6 +387,7 @@ async def _run_streaming_inner(
         collected_chunks: list[AIMessageChunk] = []
         streaming_text_parts: list[str] = []
         streaming_thinking_parts: list[str] = []
+        tool_call_started = False  # Track if we've emitted tool_call_start
 
         logger.info(
             "react_stream_llm_start",
@@ -386,6 +400,12 @@ async def _run_streaming_inner(
 
         async for chunk in llm_with_tools.astream(current_messages):
             collected_chunks.append(chunk)
+
+            # Detect tool call start — emit event immediately so frontend shows feedback
+            if not tool_call_started and _chunk_has_tool_call(chunk):
+                tool_call_started = True
+                await on_event({"type": "tool_call_start"})
+
             # Emit thinking deltas when enabled
             if enable_thinking:
                 for piece in _iter_chunk_blocks(chunk):
@@ -457,7 +477,14 @@ async def _run_streaming_inner(
             )
             return _build_result(state, current_messages, step_count)
 
-        # Tool call round
+        # Tool call round — persist intermediate text so it survives history reload
+        intermediate_text = "".join(streaming_text_parts)
+        if intermediate_text:
+            await on_event({
+                "type": "final_answer",
+                "content": intermediate_text,
+            })
+
         current_messages.append(response)
 
         # Emit tool_call events for each call

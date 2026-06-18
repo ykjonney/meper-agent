@@ -29,6 +29,7 @@ import {
   FileTextOutlined,
   DownloadOutlined,
   EyeOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import { parseBackendDate } from '../lib/format'
@@ -54,7 +55,7 @@ import TaskResultCard, { type TaskResult } from './task-result-card'
 
 export type TimelineEntryType = 'thinking' | 'tool' | 'final_answer' | 'error'
 
-export type ToolStatus = 'running' | 'success' | 'error'
+export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
 
 export interface TimelineEntry {
   id: string
@@ -241,6 +242,13 @@ export default function ChatPanel({
 
   const deltaBufferRef = useRef<{ agentMsgId: string; delta: string } | null>(null)
   const rafIdRef = useRef<number | null>(null)
+  /** Tracks the timeline entry ID for the current streaming text block.
+   *  Reset when a tool_call interrupts the text stream. */
+  const textEntryIdRef = useRef<string | null>(null)
+  /** True while a contiguous text stream is being flushed (no tool_call in between).
+   *  Allows merging split entries within the same LLM output phase.
+   *  Reset to false by tool_call events and handleSend. */
+  const textStartedRef = useRef(false)
 
   const flushDelta = useCallback(() => {
     rafIdRef.current = null
@@ -249,9 +257,27 @@ export default function ChatPanel({
     deltaBufferRef.current = null
     const { agentMsgId, delta } = buf
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === agentMsgId ? { ...m, content: m.content + delta } : m,
-      ),
+      prev.map((m) => {
+        if (m.id !== agentMsgId) return m
+        const tl = [...(m.timeline ?? [])]
+        const existingId = textEntryIdRef.current
+        if (existingId && tl.length > 0 && tl[tl.length - 1].id === existingId && tl[tl.length - 1].type === 'final_answer') {
+          // Fast path: ref matches last entry — append directly
+          tl[tl.length - 1] = { ...tl[tl.length - 1], content: tl[tl.length - 1].content + delta }
+        } else if (textStartedRef.current && tl.length > 0 && tl[tl.length - 1].type === 'final_answer') {
+          // Same LLM output phase (no tool_call in between) — merge into last text entry
+          const lastIdx = tl.length - 1
+          tl[lastIdx] = { ...tl[lastIdx], content: tl[lastIdx].content + delta }
+          textEntryIdRef.current = tl[lastIdx].id
+        } else {
+          // Genuinely new text block (first delta, or after tool_call)
+          const newId = generateId()
+          tl.push({ id: newId, type: 'final_answer', content: delta })
+          textEntryIdRef.current = newId
+          textStartedRef.current = true
+        }
+        return { ...m, timeline: tl }
+      }),
     )
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
@@ -396,6 +422,8 @@ export default function ChatPanel({
       time: nowTime(),
     }
     const agentMsgId = generateId()
+    textEntryIdRef.current = null
+    textStartedRef.current = false
     const agentMsg: Message = {
       id: agentMsgId,
       role: 'agent',
@@ -461,6 +489,8 @@ export default function ChatPanel({
                 onSessionChange?.(event.session_id)
                 refreshSessionList()
               }
+              // Refresh file list after every stream completion (new or existing session)
+              refreshSessionFiles()
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === agentMsgId ? { ...m, requestId: event.request_id } : m,
@@ -488,23 +518,69 @@ export default function ChatPanel({
                       : m,
                   ),
                 )
-              } else if (eventType === 'tool_call') {
-                // Create a new tool entry with "running" status
-                const e = event as ToolCallEvent
-                const toolEntry: TimelineEntry = {
+              } else if (eventType === 'tool_call_start') {
+                // AI started generating a tool call — show loading indicator
+                // Flush any pending text first
+                if (rafIdRef.current) {
+                  cancelAnimationFrame(rafIdRef.current)
+                  flushDelta()
+                }
+                textEntryIdRef.current = null
+                textStartedRef.current = false
+                // Create a pending tool entry (tool name not yet known)
+                const pendingEntry: TimelineEntry = {
                   id: generateId(),
                   type: 'tool',
                   content: '',
-                  toolName: e.tool_name,
-                  args: e.args,
-                  toolStatus: 'running',
+                  toolName: '',
+                  args: {},
+                  toolStatus: 'pending',
                 }
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === agentMsgId
-                      ? { ...m, timeline: [...(m.timeline ?? []), toolEntry] }
+                      ? { ...m, timeline: [...(m.timeline ?? []), pendingEntry] }
                       : m,
                   ),
+                )
+                scrollToBottom()
+              } else if (eventType === 'tool_call') {
+                // AI finished generating tool call args — update pending entry or create new
+                if (rafIdRef.current) {
+                  cancelAnimationFrame(rafIdRef.current)
+                  flushDelta()
+                }
+                textEntryIdRef.current = null
+                textStartedRef.current = false
+                const e = event as ToolCallEvent
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== agentMsgId) return m
+                    const tl = [...(m.timeline ?? [])]
+                    // Find and update the pending entry
+                    const pendingIdx = tl.findIndex(
+                      (entry) => entry.type === 'tool' && entry.toolStatus === 'pending',
+                    )
+                    if (pendingIdx >= 0) {
+                      tl[pendingIdx] = {
+                        ...tl[pendingIdx],
+                        toolName: e.tool_name,
+                        args: e.args,
+                        toolStatus: 'running',
+                      }
+                    } else {
+                      // No pending entry — create new
+                      tl.push({
+                        id: generateId(),
+                        type: 'tool',
+                        content: '',
+                        toolName: e.tool_name,
+                        args: e.args,
+                        toolStatus: 'running',
+                      })
+                    }
+                    return { ...m, timeline: tl }
+                  }),
                 )
                 scrollToBottom()
               } else if (eventType === 'tool_result') {
@@ -585,7 +661,7 @@ export default function ChatPanel({
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [input, isStreaming, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, appendDelta, flushDelta])
+  }, [input, isStreaming, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, refreshSessionFiles, appendDelta, flushDelta])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -758,25 +834,37 @@ export default function ChatPanel({
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col gap-2">
-                        {/* Show timeline entries first (tool calls, thinking, etc.) */}
-                        {msg.timeline && msg.timeline.length > 0 && msg.timeline.map((entry) => (
-                          <TimelineEntryCard
-                            key={entry.id}
-                            entry={entry}
-                            msgId={msg.id}
-                            onToggle={toggleTimelineEntry}
-                            onSendMessage={(text) => handleSend(text)}
-                          />
-                        ))}
-                        {/* Show streaming text content after tools */}
-                        {msg.content && (
+                        {/* Render ALL entries (text, tools, thinking) in chronological order */}
+                        {msg.timeline && msg.timeline.length > 0 && msg.timeline.map((entry, idx) => {
+                          const isLast = idx === msg.timeline!.length - 1
+                          if (entry.type === 'final_answer') {
+                            return (
+                              <div key={entry.id} className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
+                                <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
+                                  {entry.content}
+                                  {/* Blinking cursor on the last entry during streaming */}
+                                  {isStreaming && isLast && (
+                                    <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse" style={{ background: t.primary }} />
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
+                            <TimelineEntryCard
+                              key={entry.id}
+                              entry={entry}
+                              msgId={msg.id}
+                              onToggle={toggleTimelineEntry}
+                              onSendMessage={(text) => handleSend(text)}
+                            />
+                          )
+                        })}
+                        {/* Backward compat: render msg.content for old messages without final_answer in timeline */}
+                        {msg.content && (!msg.timeline || !msg.timeline.some((e) => e.type === 'final_answer')) && (
                           <div className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
                             <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
                               {msg.content}
-                              {/* Blinking cursor during streaming */}
-                              {isStreaming && (
-                                <span className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom animate-pulse" style={{ background: t.primary }} />
-                              )}
                             </div>
                           </div>
                         )}
@@ -1089,6 +1177,7 @@ export default function ChatPanel({
 /* ─── Timeline entry card ─── */
 
 const TOOL_STATUS_STYLE: Record<ToolStatus, { color: string; bg: string; border: string; icon: typeof ToolOutlined }> = {
+  pending: { color: '#6366F1', bg: '#EEF2FF', border: '#C7D2FE', icon: LoadingOutlined },
   running: { color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', icon: ToolOutlined },
   success: { color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', icon: CheckCircleOutlined },
   error:   { color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', icon: ExclamationCircleOutlined },
@@ -1141,12 +1230,17 @@ function TimelineEntryCard({
           >
             {status === 'running' ? (
               <Spin size="small" indicator={<StatusIcon style={{ color: style.color, fontSize: 12 }} spin />} />
+            ) : status === 'pending' ? (
+              <Spin size="small" indicator={<LoadingOutlined style={{ color: style.color, fontSize: 12 }} spin />} />
             ) : (
               <StatusIcon style={{ color: style.color, fontSize: 12 }} />
             )}
             <span className="text-xs font-medium" style={{ color: style.color }}>
-              {entry.toolName || 'unknown_tool'}
+              {status === 'pending' ? '正在生成参数' : (entry.toolName || 'unknown_tool')}
             </span>
+            {status === 'pending' && (
+              <span className="text-[10px] opacity-60" style={{ color: style.color }}>请稍候...</span>
+            )}
             {status === 'running' && (
               <span className="text-[10px] opacity-60" style={{ color: style.color }}>执行中...</span>
             )}

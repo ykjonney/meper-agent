@@ -203,6 +203,22 @@ npm run dev
 | `CORS_ORIGINS` | 允许的跨域来源（逗号分隔） | `http://localhost:5173,http://localhost:3000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `MODEL_ENCRYPTION_KEY` | API Key 加密密钥 | — |
+| **工作空间路径** | | |
+| `WORKSPACES_HOST_DIR` | 宿主机工作空间根目录，按 `{user_id}/{session_id}/` 分子目录 | `~/.agent-flow/workspaces` |
+| `WORKSPACES_CONTAINER_DIR` | 容器内工作空间路径。**本地开发无需设置**，自动推导为 `WORKSPACES_HOST_DIR`；Docker 部署时由 `docker-compose.yml` 注入 | 自动推导 |
+| `SKILLS_HOST_DIR` | 宿主机 Skill 文件存储目录 | `~/.agent-flow/skills` |
+| `SKILLS_CONTAINER_DIR` | 容器内 Skill 路径。规则同 `WORKSPACES_CONTAINER_DIR` | 自动推导 |
+| `WORKSPACE_MAX_BYTES` | 单个工作空间最大字节数（0 = 不限） | `524288000`（500 MB） |
+| **沙盒执行（Sandbox）** | | |
+| `SANDBOX_ENABLED` | 是否使用 Docker 容器隔离执行 bash 命令。`false` 时降级为宿主机 subprocess | `false` |
+| `SANDBOX_IMAGE` | 沙盒 Docker 镜像名称 | `agent-sandbox:latest` |
+| `SANDBOX_MEM_LIMIT` | 沙盒容器内存上限 | `512m` |
+| `SANDBOX_CPU_QUOTA` | CPU 配额（微秒/秒，100000 = 1 核） | `100000` |
+| `SANDBOX_TIMEOUT` | 单条命令超时秒数 | `120` |
+| `SANDBOX_MAX_OUTPUT_BYTES` | 命令输出最大字节数 | `51200`（50 KB） |
+| `SANDBOX_NETWORK_MODE` | 网络模式：`none`（无网络，最安全）/ `bridge`（可访问外网）/ `host`（共享宿主机网络，隔离最弱） | `none` |
+| `SANDBOX_CONTAINER_WORKSPACE_DIR` | 沙盒容器内工作区挂载点（一般无需修改） | `/workspace` |
+| `SANDBOX_CONTAINER_SKILLS_DIR` | 沙盒容器内 Skill 目录挂载点（一般无需修改） | `/data/skills` |
 
 ### 前端（`frontend/.env`）
 
@@ -221,9 +237,13 @@ cd deploy
 # 复制并编辑环境变量
 cp .env.example .env
 # 按需修改 .env 中的配置（特别是 JWT_SECRET_KEY、MONGO_ROOT_PASSWORD、ADMIN_PASSWORD 等）
+# 数据目录（WORKSPACES_HOST_DIR 等）使用 ${PWD}/data/... 默认值即可；如需自定义请改为绝对路径
 
 # 创建数据目录
-mkdir -p data/mongodb data/redis
+mkdir -p data/mongodb data/redis data/workspaces data/skills
+
+# 构建 sandbox 镜像（重要，见下方说明）
+make build-sandbox
 
 # 启动所有服务
 docker compose up -d
@@ -231,6 +251,17 @@ docker compose up -d
 # 创建管理员账户（首次部署需要）
 docker compose run --rm --profile init create-admin
 ```
+
+`deploy/.env` 中的关键数据目录变量（均使用 `${PWD}` 自动解析为绝对路径）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `WORKSPACES_HOST_DIR` | `${PWD}/data/workspaces` | 宿主机工作空间目录 |
+| `SKILLS_HOST_DIR` | `${PWD}/data/skills` | 宿主机 Skill 目录 |
+| `MONGODB_DATA_DIR` | `${PWD}/data/mongodb` | MongoDB 数据持久化目录 |
+| `REDIS_DATA_DIR` | `${PWD}/data/redis` | Redis 数据持久化目录 |
+| `WORKSPACES_CONTAINER_DIR` | `/data/workspaces` | 容器内工作空间挂载点（一般无需修改） |
+| `SKILLS_CONTAINER_DIR` | `/data/skills` | 容器内 Skill 挂载点（一般无需修改） |
 
 此命令将启动：
 - **Caddy**（端口 80/443）— 统一入口，构建并服务前端静态文件 + 反向代理 API（`deploy/Dockerfile.caddy`）
@@ -313,6 +344,25 @@ make deploy-check
 | Node.js | 22.x（含 npm） |
 | Python 数据科学栈 | pandas, numpy, scipy, matplotlib, openpyxl |
 
+## 路径变量说明（HOST_DIR vs CONTAINER_DIR）
+
+系统涉及两类路径变量，理解其区别对正确配置至关重要：
+
+| 变量后缀 | 含义 | 使用场景 |
+|----------|------|---------|
+| `*_HOST_DIR` | **宿主机**（或 Docker 宿主机）上的绝对路径 | Docker 挂载、沙盒容器 bind mount 的源路径 |
+| `*_CONTAINER_DIR` | **容器内部**的路径（backend 或 sandbox 容器内） | backend 代码读写文件时使用的路径 |
+
+**本地开发：** 只需设置 `*_HOST_DIR`（如 `WORKSPACES_HOST_DIR=~/.agent-flow/workspaces`）。`*_CONTAINER_DIR` 在 `backend/.env` 中留空即可，启动时会自动推导为对应的 `*_HOST_DIR`。
+
+**Docker 部署：** `docker-compose.yml` 通过环境变量同时注入两者：`*_HOST_DIR` 用于 bind mount 源路径，`*_CONTAINER_DIR`（如 `/data/workspaces`）用于容器内挂载目标路径。backend 代码始终通过 `*_CONTAINER_DIR` 访问文件，在生成沙盒容器时再转换为宿主机路径用于 bind mount。
+
+```
+宿主机                          backend 容器                    sandbox 容器
+~/.agent-flow/workspaces ──mount──▶ /data/workspaces ──mount──▶ /workspace
+  (WORKSPACES_HOST_DIR)         (WORKSPACES_CONTAINER_DIR)    (SANDBOX_CONTAINER_WORKSPACE_DIR)
+```
+
 ## 本地开发启用 Sandbox
 
 默认本地开发 `SANDBOX_ENABLED=false`（bash 命令直接通过 subprocess 执行，方便调试）。如需在本地测试沙盒隔离执行：
@@ -329,9 +379,7 @@ make build-sandbox
 # 在 backend/.env 末尾追加
 SANDBOX_ENABLED=true
 SANDBOX_IMAGE=agent-sandbox:latest
-# 以下两项本地开发必须留空（路径转换仅在 backend 容器化时需要）
-SANDBOX_HOST_WORKSPACES_DIR=
-SANDBOX_HOST_SKILLS_DIR=
+# HOST_DIR 已在 .env 中配置，CONTAINER_DIR 留空会自动推导，无需额外配置
 ```
 
 ### 3. 验证生效

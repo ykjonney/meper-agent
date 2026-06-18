@@ -30,10 +30,10 @@ from app.engine.tool.skill_parser import SkillFileEntry
 def _skills_dir() -> Path:
     """Return the configured Skill root directory.
 
-    Reads ``SKILLS_DIR`` from application settings (``.env`` /
+    Reads ``SKILLS_CONTAINER_DIR`` from application settings (``.env`` /
     environment variable); defaults to ``~/.agent-flow/skills/``.
     """
-    return Path(settings.SKILLS_DIR).expanduser()
+    return Path(settings.SKILLS_CONTAINER_DIR).expanduser()
 
 
 def get_skill_base_path(name: str) -> Path:
