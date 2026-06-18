@@ -624,7 +624,7 @@ async def stream_agent(
             # Deduplicate timeline: keep only consolidated events (not deltas)
             persistence_timeline = [
                 e for e in collected_timeline
-                if e.get("type") not in ("final_answer_delta", "thinking_delta")
+                if e.get("type") not in ("final_answer_delta", "thinking_delta", "tool_call_start")
             ]
             if agent_text or persistence_timeline:
                 try:

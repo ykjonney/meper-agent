@@ -183,6 +183,8 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       result.push({ id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' })
     } else if (e.type === 'final_answer') {
       result.push({ id: `h-fa-${i}`, type: 'final_answer', content: e.content ?? '' })
+    } else if (e.type === 'tool_call_start') {
+      // Transient streaming event — skip in history (no UI representation needed)
     } else {
       result.push({ id: `h-unk-${i}`, type: 'error', content: JSON.stringify(e) })
     }
