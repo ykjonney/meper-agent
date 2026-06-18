@@ -12,7 +12,7 @@
  * - Loads history from backend when `sessionId` prop is provided
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Input, Avatar, Tooltip, Empty, Switch, Tag, Spin, Popconfirm } from 'antd'
+import { Input, Avatar, Tooltip, Empty, Switch, Tag, Spin, Popconfirm, Modal } from 'antd'
 import {
   SendOutlined,
   UserOutlined,
@@ -28,6 +28,7 @@ import {
   ReloadOutlined,
   FileTextOutlined,
   DownloadOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import { parseBackendDate } from '../lib/format'
@@ -227,6 +228,7 @@ export default function ChatPanel({
   const [isLoadingSessions, setIsLoadingSessions] = useState(false)
   const [sessionFiles, setSessionFiles] = useState<SessionFileEntry[]>([])
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
+  const [previewFile, setPreviewFile] = useState<{ path: string; content: string; type: 'text' | 'image' } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sseBufferRef = useRef('')
@@ -308,6 +310,42 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshSessionFiles()
   }, [refreshSessionFiles])
+
+  /* ─── File preview / delete handlers ─── */
+
+  const handleFilePreview = useCallback(async (filePath: string) => {
+    if (!currentSessionId) return
+    try {
+      const { blob, contentType } = await sessionApi.previewFile(currentSessionId, filePath)
+
+      if (contentType.startsWith('text/') || contentType === 'application/json') {
+        const text = await blob.text()
+        setPreviewFile({ path: filePath, content: text, type: 'text' })
+      } else if (contentType.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = () => {
+          setPreviewFile({ path: filePath, content: reader.result as string, type: 'image' })
+        }
+        reader.readAsDataURL(blob)
+      } else {
+        // Non-previewable → download directly
+        await sessionApi.downloadFile(currentSessionId, filePath)
+      }
+    } catch {
+      // Fallback to download on error
+      await sessionApi.downloadFile(currentSessionId, filePath)
+    }
+  }, [currentSessionId])
+
+  const handleFileDelete = useCallback(async (filePath: string) => {
+    if (!currentSessionId) return
+    try {
+      const updatedFiles = await sessionApi.deleteFile(currentSessionId, filePath)
+      setSessionFiles(updatedFiles)
+    } catch {
+      // Silently ignore delete errors
+    }
+  }, [currentSessionId])
 
   /* ─── Load history when sessionId prop changes ─── */
 
@@ -933,12 +971,13 @@ export default function ChatPanel({
                 </div>
                 {sessionFiles.length > 0 && (
                   <Tooltip title="下载全部 (ZIP)">
-                    <a
-                      href={sessionApi.getZipDownloadUrl(currentSessionId)}
+                    <button
+                      type="button"
+                      onClick={() => sessionApi.downloadZip(currentSessionId)}
                       className="border-0 bg-transparent p-0.5 text-[#64748B] hover:text-blue-500 cursor-pointer transition-colors"
                     >
                       <DownloadOutlined className="text-xs" />
-                    </a>
+                    </button>
                   </Tooltip>
                 )}
               </div>
@@ -956,18 +995,53 @@ export default function ChatPanel({
               {!isLoadingFiles && sessionFiles.length > 0 && (
                 <div className="flex flex-col gap-1 overflow-y-auto min-h-0">
                   {sessionFiles.map((file) => (
-                    <a
+                    <div
                       key={file.path}
-                      href={sessionApi.getDownloadUrl(currentSessionId, file.path)}
-                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-[#0F172A] hover:bg-blue-50 hover:text-blue-600 transition-colors no-underline group"
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-[#0F172A] hover:bg-blue-50 transition-colors group"
                       title={file.path}
                     >
-                      <FileTextOutlined className="text-[10px] text-[#94A3B8] group-hover:text-blue-400 shrink-0" />
-                      <span className="truncate flex-1">{file.path.split('/').pop()}</span>
+                      <FileTextOutlined className="text-[10px] text-[#94A3B8] shrink-0" />
+                      <button
+                        type="button"
+                        onClick={() => handleFilePreview(file.path)}
+                        className="truncate flex-1 text-left border-0 bg-transparent p-0 cursor-pointer hover:text-blue-600 transition-colors text-[11px] text-[#0F172A]"
+                      >
+                        {file.path.split('/').pop()}
+                      </button>
                       <span className="text-[10px] text-[#94A3B8] shrink-0">
                         {formatFileSize(file.size)}
                       </span>
-                    </a>
+                      <Tooltip title="预览">
+                        <button
+                          type="button"
+                          onClick={() => handleFilePreview(file.path)}
+                          className="border-0 bg-transparent p-0.5 text-[#94A3B8] hover:text-blue-500 cursor-pointer transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                        >
+                          <EyeOutlined className="text-[10px]" />
+                        </button>
+                      </Tooltip>
+                      <Popconfirm
+                        title="确认删除"
+                        description={`确定删除 ${file.path.split('/').pop()}？`}
+                        onConfirm={(e) => {
+                          e?.stopPropagation()
+                          handleFileDelete(file.path)
+                        }}
+                        onCancel={(e) => e?.stopPropagation()}
+                        okText="删除"
+                        cancelText="取消"
+                      >
+                        <Tooltip title="删除">
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            className="border-0 bg-transparent p-0.5 text-[#94A3B8] hover:text-red-500 cursor-pointer transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                          >
+                            <DeleteOutlined className="text-[10px]" />
+                          </button>
+                        </Tooltip>
+                      </Popconfirm>
+                    </div>
                   ))}
                 </div>
               )}
@@ -975,6 +1049,39 @@ export default function ChatPanel({
           )}
         </div>
       )}
+
+      {/* File preview modal */}
+      <Modal
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        width={800}
+        title={previewFile?.path.split('/').pop()}
+        footer={
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[#94A3B8] truncate mr-4">{previewFile?.path}</span>
+            {currentSessionId && previewFile && (
+              <button
+                type="button"
+                onClick={() => sessionApi.downloadFile(currentSessionId, previewFile.path)}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-1 text-xs text-[#0F172A] hover:bg-gray-50 cursor-pointer"
+              >
+                <DownloadOutlined /> 下载
+              </button>
+            )}
+          </div>
+        }
+      >
+        {previewFile?.type === 'text' && (
+          <pre className="max-h-[60vh] overflow-auto rounded-lg bg-[#F8FAFC] p-4 text-xs text-[#334155] font-mono whitespace-pre-wrap break-all">
+            {previewFile.content}
+          </pre>
+        )}
+        {previewFile?.type === 'image' && (
+          <div className="flex items-center justify-center max-h-[60vh] overflow-auto">
+            <img src={previewFile.content} alt={previewFile.path} className="max-w-full max-h-[60vh] object-contain" />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

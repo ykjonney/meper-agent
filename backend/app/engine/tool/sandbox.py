@@ -4,11 +4,12 @@ Each ``execute()`` call spins up a short-lived container, runs the command,
 captures stdout/stderr, and tears the container down.  Containers have no
 network access, a read-only root filesystem, and strict resource limits.
 
-Workspace directories are mounted into the container:
-  - ``tmp/``    → ``/workspace/tmp``    (rw)
-  - ``input/``  → ``/workspace/input``  (ro)
-  - ``output/`` → ``/workspace/output`` (rw)
-  - ``SKILLS_DIR`` → ``/data/skills``  (ro)
+Workspace directories are mounted into the container at configurable paths
+(defaults shown):
+  - ``tmp/``    → ``{SANDBOX_CONTAINER_WORKSPACE_DIR}/tmp``    (rw)
+  - ``input/``  → ``{SANDBOX_CONTAINER_WORKSPACE_DIR}/input``  (ro)
+  - ``output/`` → ``{SANDBOX_CONTAINER_WORKSPACE_DIR}/output`` (rw)
+  - ``SKILLS_DIR`` → ``{SANDBOX_CONTAINER_SKILLS_DIR}``        (ro)
 
 When ``SANDBOX_ENABLED`` is False (default for local dev), the executor
 falls back to ``subprocess.run()`` so development works without Docker.
@@ -159,16 +160,18 @@ class SandboxExecutor:
 
         # Build volume mounts — translate container paths to host paths
         # when running inside a container (SANDBOX_HOST_*_DIR configured).
+        ws_dir = settings.SANDBOX_CONTAINER_WORKSPACE_DIR
+        sk_dir = settings.SANDBOX_CONTAINER_SKILLS_DIR
         volumes = {
-            self._host_path(str(workspace.tmp_dir)): {"bind": "/workspace/tmp", "mode": "rw"},
-            self._host_path(str(workspace.output_dir)): {"bind": "/workspace/output", "mode": "rw"},
-            self._host_path(str(workspace.input_dir)): {"bind": "/workspace/input", "mode": "ro"},
+            self._host_path(str(workspace.tmp_dir)): {"bind": f"{ws_dir}/tmp", "mode": "rw"},
+            self._host_path(str(workspace.output_dir)): {"bind": f"{ws_dir}/output", "mode": "rw"},
+            self._host_path(str(workspace.input_dir)): {"bind": f"{ws_dir}/input", "mode": "ro"},
         }
 
         # Mount SKILLS_DIR read-only if it exists
         skills_dir = Path(os.path.expanduser(settings.SKILLS_DIR))
         if skills_dir.exists():
-            volumes[self._host_path(str(skills_dir))] = {"bind": "/data/skills", "mode": "ro"}
+            volumes[self._host_path(str(skills_dir))] = {"bind": sk_dir, "mode": "ro"}
 
         # Build environment
         env = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}
@@ -184,10 +187,10 @@ class SandboxExecutor:
                 command=["bash", "-c", command],
                 volumes=volumes,
                 environment=env,
-                working_dir="/workspace/tmp",
+                working_dir=f"{settings.SANDBOX_CONTAINER_WORKSPACE_DIR}/tmp",
                 user="sandbox",
                 # Security
-                network_mode="none",
+                network_mode=settings.SANDBOX_NETWORK_MODE,
                 read_only=True,
                 security_opt=["no-new-privileges"],
                 # Resources
@@ -220,10 +223,12 @@ class SandboxExecutor:
 
         duration = time.monotonic() - start
 
-        # Collect logs
+        # Collect logs — container.logs() (high-level API) already handles
+        # Docker's multiplexed stream format internally, returning clean bytes.
         try:
-            stdout_raw = container.logs(stdout=True, stderr=False)
-            stderr_raw = container.logs(stdout=False, stderr=True)
+            logs = container.logs(stdout=True, stderr=True)
+            stdout_raw = logs if isinstance(logs, bytes) else b""
+            stderr_raw = b""
         except Exception:
             stdout_raw = b""
             stderr_raw = b""

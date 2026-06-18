@@ -135,6 +135,64 @@ export const sessionApi = {
     const base = apiClient.defaults.baseURL ?? ''
     return `${base}/api/v1/sessions/${encodeURIComponent(sessionId)}/files.zip`
   },
+
+  /**
+   * Download a single file with auth token.
+   * Uses fetch + blob to properly include Authorization header.
+   */
+  async downloadFile(sessionId: string, filePath: string): Promise<void> {
+    const url = `/api/v1/sessions/${encodeURIComponent(sessionId)}/files/${filePath}`
+    const res = await apiClient.get(url, { responseType: 'blob' })
+    const blob = new Blob([res.data])
+    const downloadUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    // Extract filename from path
+    const filename = filePath.split('/').pop() || 'download'
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(downloadUrl)
+  },
+
+  /**
+   * Preview a file — returns blob + content-type for rendering in modal.
+   * GET /api/v1/sessions/{id}/files/{path} with blob response.
+   */
+  async previewFile(sessionId: string, filePath: string): Promise<{ blob: Blob; contentType: string }> {
+    const url = `/api/v1/sessions/${encodeURIComponent(sessionId)}/files/${filePath}`
+    const res = await apiClient.get(url, { responseType: 'blob' })
+    const contentType = res.headers['content-type'] || 'application/octet-stream'
+    return { blob: res.data as Blob, contentType }
+  },
+
+  /**
+   * Delete a single file and return the updated file list.
+   * DELETE /api/v1/sessions/{id}/files/{path}
+   */
+  async deleteFile(sessionId: string, filePath: string): Promise<SessionFileEntry[]> {
+    const url = `/api/v1/sessions/${encodeURIComponent(sessionId)}/files/${filePath}`
+    const res = await apiClient.delete<SessionFileEntry[]>(url)
+    return res.data
+  },
+
+  /**
+   * Download all files as ZIP with auth token.
+   */
+  async downloadZip(sessionId: string): Promise<void> {
+    const url = `/api/v1/sessions/${encodeURIComponent(sessionId)}/files.zip`
+    const res = await apiClient.get(url, { responseType: 'blob' })
+    const blob = new Blob([res.data])
+    const downloadUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = `${sessionId}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(downloadUrl)
+  },
 }
 
 /* ─── Query key factory ─── */

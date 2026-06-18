@@ -266,3 +266,28 @@ async def download_session_file(
             "Content-Length": str(resolved.stat().st_size),
         },
     )
+
+
+@router.delete(
+    "/{session_id}/files/{file_path:path}",
+    summary="Delete a single output file",
+)
+async def delete_session_file(
+    session_id: str,
+    file_path: str,
+    user: UserResponse = Depends(get_current_user),
+) -> list[dict]:
+    """Delete a single file from the session's output/ directory."""
+    ws = await _verify_session_ownership(session_id, user.id)
+
+    from app.engine.tool.workspace import WorkspaceManager
+
+    resolved = WorkspaceManager.safe_resolve_path(ws.output_dir, file_path)
+    if resolved is None or not resolved.exists() or not resolved.is_file():
+        raise NotFoundError(
+            code="FILE_NOT_FOUND",
+            message=f"File '{file_path}' not found in session output",
+        )
+
+    resolved.unlink()
+    return WorkspaceManager.list_output_files(ws)

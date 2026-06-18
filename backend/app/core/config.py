@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     # When False (default for local dev), bash runs via subprocess.
     SANDBOX_ENABLED: bool = False
 
+    # Network mode for sandbox containers.
+    # "none" = no network access (most secure, default)
+    # "bridge" = standard Docker bridge network (allows outbound internet)
+    # "host" = use host network stack (least isolation)
+    SANDBOX_NETWORK_MODE: str = "none"
+
     # Host-side path prefix for volume mounts.
     # When backend runs inside a container, the Docker daemon (on the host)
     # needs HOST paths for bind mounts, not container-internal paths.
@@ -92,6 +98,12 @@ class Settings(BaseSettings):
     # Leave empty when backend runs directly on the host (local dev).
     SANDBOX_HOST_WORKSPACES_DIR: str = ""
     SANDBOX_HOST_SKILLS_DIR: str = ""
+
+    # Container-internal mount points for sandbox containers.
+    # These are the paths *inside* the sandbox container where workspace
+    # and skill directories are mounted.
+    SANDBOX_CONTAINER_WORKSPACE_DIR: str = "/workspace"
+    SANDBOX_CONTAINER_SKILLS_DIR: str = "/data/skills"
 
 
 settings = Settings()

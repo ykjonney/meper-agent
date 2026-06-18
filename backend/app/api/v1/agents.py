@@ -1,6 +1,7 @@
 """Agent API endpoints — CRUD operations for Agent lifecycle management."""
 from fastapi import APIRouter, Depends, Header, Query
 
+from app.core.errors import NotFoundError, ValidationError
 from app.core.security import get_current_user, require_any_role
 from app.engine.agent.builder import build_system_prompt
 from app.models.agent import AgentStatus
@@ -537,7 +538,13 @@ async def stream_agent(
     # Build system prompt with tool declarations (Skills + MCP + Builtin + Workflow)
     from langchain_core.messages import SystemMessage
 
-    system_text = await build_system_prompt(exec_doc)
+    try:
+        system_text = await build_system_prompt(exec_doc)
+    except ValueError as exc:
+        raise ValidationError(
+            code="AGENT_PROMPT_SLOT_MISSING",
+            message=str(exc),
+        ) from exc
 
     # Queues for SSE events and final state
     import asyncio

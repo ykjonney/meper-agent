@@ -277,6 +277,72 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 - 前端界面：http://localhost:5173
 - API 文档：http://localhost:8000/docs
 
+### ⚠️ 关于 Sandbox 镜像（重要）
+
+项目使用沙盒容器来安全隔离执行 Agent 生成的 shell 命令。**默认的 `docker compose up` 不会自动构建 sandbox 镜像**，因为它使用了 `profiles: [tools]` 进行配置隔离。
+
+**如果未构建 sandbox 镜像：**
+- 所有 Agent 的 bash 命令会**静默降级**为宿主机 subprocess 执行
+- 程序不会报错，但会**完全失去安全隔离**
+- 日志中会出现警告：`sandbox_docker_unavailable, falling back to subprocess`
+
+**构建 sandbox 镜像（推荐在部署前执行）：**
+
+```bash
+# 方式一：使用 Makefile
+make build-sandbox
+
+# 方式二：使用 docker compose
+docker compose -f deploy/docker-compose.yml build sandbox
+```
+
+**验证镜像是否已构建：**
+
+```bash
+make deploy-check
+# 输出 "✅ agent-sandbox:latest image found" 表示已就绪
+```
+
+**镜像包含的工具：**
+
+| 类别 | 内容 |
+|------|------|
+| 系统命令 | curl, git, jq, wget, unzip, tree |
+| 编译环境 | gcc, libxml2-dev, libxslt1-dev |
+| 图像处理 | libjpeg-dev, zlib1g-dev, Pillow |
+| Node.js | 22.x（含 npm） |
+| Python 数据科学栈 | pandas, numpy, scipy, matplotlib, openpyxl |
+
+## 本地开发启用 Sandbox
+
+默认本地开发 `SANDBOX_ENABLED=false`（bash 命令直接通过 subprocess 执行，方便调试）。如需在本地测试沙盒隔离执行：
+
+### 1. 构建 sandbox 镜像
+
+```bash
+make build-sandbox
+```
+
+### 2. 在 `backend/.env` 中启用沙盒
+
+```bash
+# 在 backend/.env 末尾追加
+SANDBOX_ENABLED=true
+SANDBOX_IMAGE=agent-sandbox:latest
+# 以下两项本地开发必须留空（路径转换仅在 backend 容器化时需要）
+SANDBOX_HOST_WORKSPACES_DIR=
+SANDBOX_HOST_SKILLS_DIR=
+```
+
+### 3. 验证生效
+
+启动 backend 后，Agent 调用 bash 工具时日志应显示：
+```
+sandbox_docker_executed exit_code=0 duration="0.5s"
+```
+
+若看到 `sandbox_subprocess_executed` 则说明未成功启用沙盒，仍在使用降级的 subprocess 执行。
+
 ## 默认角色与权限
 
 系统内置 4 个角色：

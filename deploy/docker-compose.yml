@@ -30,6 +30,7 @@ services:
       - SKILLS_DIR=/data/skills
       - SANDBOX_HOST_WORKSPACES_DIR=${SANDBOX_HOST_WORKSPACES_DIR:-}
       - SANDBOX_HOST_SKILLS_DIR=${SANDBOX_HOST_SKILLS_DIR:-}
+      
     volumes:
       # Docker socket — backend spawns sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock

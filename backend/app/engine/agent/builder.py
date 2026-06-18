@@ -634,8 +634,16 @@ def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
             logger.warning("load_skill_empty_on_disk", skill_name=skill_name)
             return f"Skill '{skill_name}' has no content."
 
-        # Inject path hint so the LLM knows where to find auxiliary files
-        base_path = get_skill_base_path(skill_name)
+        # Inject path hint so the LLM knows where to find auxiliary files.
+        # When running in sandbox mode, the LLM sees the container-internal
+        # path rather than the host path.
+        from app.core.config import settings
+
+        if settings.SANDBOX_ENABLED:
+            base_path = f"{settings.SANDBOX_CONTAINER_SKILLS_DIR}/{skill_name}"
+        else:
+            base_path = str(get_skill_base_path(skill_name))
+
         path_hint = (
             f"\n\n[Skill base path: {base_path}/ "
             f"— use this absolute path for all file references in this skill]"

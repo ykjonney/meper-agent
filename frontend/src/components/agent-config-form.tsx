@@ -31,6 +31,7 @@ import {
   type Model,
 } from '../services/model-api'
 import { AGENT_STATUS_STYLES } from '../constants/agent-status'
+import { FIXED_SLOTS } from '../constants/prompt-slots'
 import ToolSelector, {
   DEFAULT_TOOL_VALUE,
   type ToolSelectorValue,
@@ -185,10 +186,18 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           message.warning('请输入 Agent 名称')
           return
         }
+        // Validate required prompt slots
+        const missingRequired = FIXED_SLOTS
+          .filter((slot) => slot.required && !formPromptSlots[slot.name]?.trim())
+          .map((slot) => slot.label)
+        if (missingRequired.length > 0) {
+          message.warning(`请填写必填项：${missingRequired.join('、')}`)
+          return
+        }
         saveMutation.mutate()
       },
       isSaving: () => saveMutation.isPending,
-    }), [formName, saveMutation])
+    }), [formName, formPromptSlots, saveMutation])
 
     /* ─── Notify parent when saving state changes ─── */
     useEffect(() => {
