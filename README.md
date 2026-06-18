@@ -358,10 +358,15 @@ make deploy-check
 **Docker 部署：** `docker-compose.yml` 通过环境变量同时注入两者：`*_HOST_DIR` 用于 bind mount 源路径，`*_CONTAINER_DIR`（如 `/data/workspaces`）用于容器内挂载目标路径。backend 代码始终通过 `*_CONTAINER_DIR` 访问文件，在生成沙盒容器时再转换为宿主机路径用于 bind mount。
 
 ```
-宿主机                          backend 容器                    sandbox 容器
-~/.agent-flow/workspaces ──mount──▶ /data/workspaces ──mount──▶ /workspace
-  (WORKSPACES_HOST_DIR)         (WORKSPACES_CONTAINER_DIR)    (SANDBOX_CONTAINER_WORKSPACE_DIR)
+宿主机                              backend 容器                     sandbox 容器
+~/.agent-flow/workspaces ─compose mount─▶ /data/workspaces            /workspace
+  (WORKSPACES_HOST_DIR)              (WORKSPACES_CONTAINER_DIR)    (SANDBOX_CONTAINER_WORKSPACE_DIR)
+        │                                  │ backend 代码读写此路径
+        │                                  │
+        └─── sandbox.py _host_path() 将容器路径翻译为 HOST_DIR ─docker API mount─▶
 ```
+
+> **注意**：sandbox 的 bind mount 源路径始终是 **HOST_DIR**（宿主机视角），因为 Docker daemon 运行在宿主机上，无法识别容器内路径。`sandbox.py` 中的 `_host_path()` 负责做这个翻译。
 
 ## 本地开发启用 Sandbox
 
