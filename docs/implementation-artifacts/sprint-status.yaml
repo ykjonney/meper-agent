@@ -1,10 +1,13 @@
 # generated: 2026-06-08
-# last_updated: 2026-06-09
+# last_updated: 2026-06-22
 # Story 3-5 实现于 2026-06-09：上下文压缩模块 + REACT 循环集成
 # project: agent-flow
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: {project-root}/docs/implementation-artifacts
+# 2026-06-22: 新增 Epic 10（文件管理）、Epic 4-16（定时任务文件输入）
+# 文件删除策略：仅手动删除，暂不做自动清理（TTL/孤儿回收）
+# 备注：invoke_workflow 工具已在 3-4 完成，10-4 仅需扩展文件相关能力
 
 # STATUS DEFINITIONS:
 # ==================
@@ -39,7 +42,8 @@
 #       Revisit in post-MVP Sprint 2 to evaluate RAG requirement strength.
 
 generated: 2026-06-08
-last_updated: 2026-06-11
+last_updated: 2026-06-22
+# Story 10-1 创建于 2026-06-22：File 领域模型与存储抽象
 # Story 5-3 MCP 连接管理实现完成，进入 review 状态（2026-06-10）
 # Story 5-3 创建于 2026-06-10：MCP 连接管理
 # Story 3-6 实现完成，进入 review 状态（2026-06-10）
@@ -106,6 +110,7 @@ development_status:
   4-13-scheduled-workflow: review
   4-14-event-bus: review
   4-15-task-creation-ui-panel: review
+  4-16-scheduled-workflow-file-input: backlog
   epic-4-retrospective: optional
 
   # ===== Epic 5: 工具系统 =====
@@ -148,3 +153,17 @@ development_status:
   9-3-execution-log-query-and-filter-api: backlog
   9-4-execution-log-list-and-detail-page-ui-minimal-viable: done
   epic-9-retrospective: optional
+
+  # ===== Epic 10: 文件管理 =====
+  # 核心设计：File 是独立一等公民，不绑定 session/workflow/cron
+  # 所有使用方通过 FileUsage 引用，file_id 跨场景传递
+  # 删除策略：仅手动删除，不做 TTL/孤儿自动清理（后续可演进）
+  epic-10: in-progress
+  10-1-file-ref-file-usage-data-model-and-storage-abstraction: in-progress
+  10-2-file-upload-download-delete-api: backlog
+  10-3-chat-upload-integration: backlog
+  10-4-agent-file-tools-extend-existing-workflow-with-file-support: backlog
+  10-5-workflow-start-node-file-type-support: backlog
+  10-6-frontend-file-upload-component: backlog
+  10-7-file-deletion-and-usage-lifecycle: backlog
+  epic-10-retrospective: optional

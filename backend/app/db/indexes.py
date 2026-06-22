@@ -42,6 +42,37 @@ async def create_indexes() -> None:
     await db.mcp_connections.create_index("status", name="idx_mcp_conn_status")
     logger.info("Created indexes: idx_mcp_conn_name, idx_mcp_conn_status")
 
+    # File refs collection (Story 10.1 — File management)
+    await db.file_refs.create_index(
+        [("owner_user_id", 1), ("created_at", -1)],
+        name="idx_file_refs_owner_created",
+    )
+    await db.file_refs.create_index(
+        [("sha256", 1)],
+        name="idx_file_refs_sha256",
+    )
+    await db.file_refs.create_index(
+        [("status", 1)],
+        name="idx_file_refs_status",
+    )
+    logger.info("Created indexes: idx_file_refs_owner_created, idx_file_refs_sha256, idx_file_refs_status")
+
+    # File usages collection (Story 10.1 — File management)
+    await db.file_usages.create_index(
+        [("file_id", 1)],
+        name="idx_file_usages_file_id",
+    )
+    await db.file_usages.create_index(
+        [("consumer_kind", 1), ("consumer_id", 1)],
+        name="idx_file_usages_consumer",
+    )
+    await db.file_usages.create_index(
+        [("file_id", 1), ("consumer_kind", 1), ("consumer_id", 1)],
+        name="uq_file_usages_unique",
+        unique=True,
+    )
+    logger.info("Created indexes: idx_file_usages_file_id, idx_file_usages_consumer, uq_file_usages_unique")
+
 
 if __name__ == "__main__":
     import asyncio
