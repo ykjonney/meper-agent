@@ -153,31 +153,29 @@ class FileService:
     async def delete(self, file_id: str, force: bool = False) -> bool:
         """删除文件。
 
-        force=False 时标记为 trashed；force=True 时检查 FileUsage 数量，
-        有引用返回 False，无引用则删除物理文件 + MongoDB 记录。
+        force=False 时执行软删除（status → trashed）；
+        force=True 时级联删除所有 usage + 物理文件 + DB 记录。
 
         Args:
             file_id: 文件 ID
             force: 是否强制删除（级联删除所有 usage）
 
         Returns:
-            True 如果删除成功，False 如果文件不存在或有引用
+            True 如果删除成功，False 如果文件不存在
         """
         file_ref = await self.get(file_id)
         if file_ref is None:
             return False
 
-        # 检查是否有引用
+        if not force:
+            # 软删除：仅标记状态为 trashed
+            await self.update_status(file_id, "trashed")
+            logger.info("file_soft_deleted", file_id=file_id)
+            return True
+
+        # force=True：级联删除所有 usage
         usage_count = await self._file_usages().count_documents({"file_id": file_id})
         if usage_count > 0:
-            if not force:
-                logger.warning(
-                    "file_delete_refused",
-                    file_id=file_id,
-                    usage_count=usage_count,
-                )
-                return False
-            # force=True 时级联删除所有 usage
             await self._file_usages().delete_many({"file_id": file_id})
             logger.info(
                 "file_usages_cascade_deleted",
@@ -191,7 +189,7 @@ class FileService:
         # 删除 MongoDB 记录
         await self._file_refs().delete_one({"_id": file_id})
 
-        logger.info("file_deleted", file_id=file_id)
+        logger.info("file_hard_deleted", file_id=file_id)
         return True
 
     async def update_status(self, file_id: str, status: str) -> bool:
@@ -324,3 +322,70 @@ class FileService:
         """
         count = await self._file_usages().count_documents({"file_id": file_id})
         return count > 0
+
+    async def cleanup_expired_usages(self) -> int:
+        """清理过期的 FileUsage 记录，并删除无引用且已 trashed 的文件。
+
+        Returns:
+            清理的 expired usage 数量
+        """
+        now = utc_now().isoformat()
+
+        # 删除所有已过期的 usage
+        result = await self._file_usages().delete_many(
+            {"expires_at": {"$ne": None, "$lt": now}}
+        )
+        deleted_count = result.deleted_count
+
+        if deleted_count > 0:
+            logger.info("expired_usages_cleaned", count=deleted_count)
+
+        # 清理后，查找无引用且 status=trashed 的文件，硬删除
+        trashed_files = await self._file_refs().find(
+            {"status": "trashed"}
+        ).to_list()
+
+        hard_deleted = 0
+        for doc in trashed_files:
+            file_id = doc["_id"]
+            remaining = await self._file_usages().count_documents({"file_id": file_id})
+            if remaining == 0:
+                storage_key = doc.get("storage_key", "")
+                if storage_key:
+                    await self._storage.delete(storage_key)
+                await self._file_refs().delete_one({"_id": file_id})
+                hard_deleted += 1
+
+        if hard_deleted > 0:
+            logger.info("trashed_files_hard_deleted", count=hard_deleted)
+
+        return deleted_count
+
+    async def remove_usages_by_consumer(
+        self, consumer_kind: FileConsumerKind, consumer_id: str,
+    ) -> int:
+        """按消费者删除所有 FileUsage 记录。
+
+        当 Session/Workflow/CronJob 被删除时调用，清理对应消费者的引用。
+
+        Args:
+            consumer_kind: 消费者类型
+            consumer_id: 消费者 ID
+
+        Returns:
+            删除的 usage 数量
+        """
+        result = await self._file_usages().delete_many(
+            {"consumer_kind": consumer_kind, "consumer_id": consumer_id}
+        )
+        deleted_count = result.deleted_count
+
+        if deleted_count > 0:
+            logger.info(
+                "consumer_usages_removed",
+                consumer_kind=consumer_kind.value,
+                consumer_id=consumer_id,
+                count=deleted_count,
+            )
+
+        return deleted_count

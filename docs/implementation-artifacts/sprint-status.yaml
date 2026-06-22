@@ -1,5 +1,5 @@
 # generated: 2026-06-08
-# last_updated: 2026-06-22
+# last_updated: 2026-06-23
 # Story 10-2 创建于 2026-06-22：文件上传/下载/删除 API
 # Story 3-5 实现于 2026-06-09：上下文压缩模块 + REACT 循环集成
 # project: agent-flow
@@ -44,6 +44,7 @@
 
 generated: 2026-06-08
 last_updated: 2026-06-22
+# 2026-06-22: 5-2 完成，5-4 取消（工具池能力已在 5-1/5-2/5-3 中整合）
 # Story 10-1 创建于 2026-06-22：File 领域模型与存储抽象
 # Story 5-3 MCP 连接管理实现完成，进入 review 状态（2026-06-10）
 # Story 5-3 创建于 2026-06-10：MCP 连接管理
@@ -72,7 +73,7 @@ development_status:
   epic-1-retrospective: optional
 
   # ===== Epic 2: Agent 生命周期管理 =====
-  epic-2: in-progress
+  epic-2: done
   2-1-agent-data-model-and-list-query: done
   2-2-agent-create-wizard-step-1-2-basic-info-and-capability: done
   2-3-agent-create-wizard-step-3-4-prompt-and-test-publish: done
@@ -82,44 +83,44 @@ development_status:
   epic-2-retrospective: optional
 
   # ===== Epic 3: Agent 自主执行引擎 =====
-  epic-3: in-progress
+  epic-3: done
   3-1-task-evaluator-and-execution-path-selection: done
   3-2-direct-execution-mode-react-reasoning: done
   3-3-plan-execution-mode-plan-execute-verify: done
   3-4-workflow-execution-mode-agent-invokes-workflow: done
   3-5-conversation-context-management-compression: done
-  3-6-call-depth-and-loop-protection-nested-2: review
-  3-7-workflow-data-flow-inter-node-data: backlog
-  3-8-async-execution-and-state-persistence: backlog
+  3-6-call-depth-and-loop-protection-nested-2: done
+  3-7-workflow-data-flow-inter-node-data: done
+  3-8-async-execution-and-state-persistence: done
   3-9-execution-detail-page-ui-streaming-and-tool-viz: done
   epic-3-retrospective: optional
 
   # ===== Epic 4: DAG 工作流编排 + Task 运行时 =====
   epic-4: in-progress
-  4-1-workflow-data-model-and-list-query: review
+  4-1-workflow-data-model-and-list-query: done
   4-2-workflow-editor-canvas-xyflow-react-integration: done
-  4-3-five-core-node-types-configuration: review
-  4-4-conditional-edge-configuration: review
-  4-5-workflow-test-run-from-editor: review
-  4-6-workflow-version-management: review
+  4-3-five-core-node-types-configuration: done
+  4-4-conditional-edge-configuration: done
+  4-5-workflow-test-run-from-editor: done
+  4-6-workflow-version-management: done
   4-7-workflow-list-and-detail-page-ui: done
   4-8-task-data-model-and-state-machine: done
   4-9-workflow-engine-node-executor: done
   4-10-human-in-the-loop: done
-  4-11-agent-task-management-tools: review
-  4-12-concurrency-control: review
-  4-13-scheduled-workflow: review
-  4-14-event-bus: review
-  4-15-task-creation-ui-panel: review
+  4-11-agent-task-management-tools: done
+  4-12-concurrency-control: done
+  4-13-scheduled-workflow: done
+  4-14-event-bus: done
+  4-15-task-creation-ui-panel: done
   4-16-scheduled-workflow-file-input: backlog
   epic-4-retrospective: optional
 
   # ===== Epic 5: 工具系统 =====
-  epic-5: in-progress
-  5-1-skill-data-model-and-three-source-integration: review
-  5-2-skill-execution-and-security-sandbox: backlog
-  5-3-mcp-connection-management: review
-  5-4-tool-pool-and-unified-interface: backlog
+  epic-5: done
+  5-1-skill-data-model-and-three-source-integration: done
+  5-2-skill-execution-and-security-sandbox: done
+  5-3-mcp-connection-management: done
+  # 5-4 已取消：工具池+统一接口不需要单独 Story，Skill/MCP 已在 5-1/5-2/5-3 中整合
   5-5-tool-center-ui-minimal-viable-version: done
   epic-5-retrospective: optional
 
@@ -130,11 +131,11 @@ development_status:
   epic-6-retrospective: optional
 
   # ===== Epic 7: 对话交互 =====
-  epic-7: backlog
-  7-1-session-data-model-and-history: backlog
-  7-2-conversation-start-and-message-send-websocket-streaming: backlog
-  7-3-tool-call-visualization-and-plan-display: backlog
-  7-4-conversation-trigger-workflow: backlog
+  epic-7: done
+  7-1-session-data-model-and-history: done
+  7-2-conversation-start-and-message-send-websocket-streaming: done
+  7-3-tool-call-visualization-and-plan-display: done
+  7-4-conversation-trigger-workflow: done
   7-5-session-list-and-new-conversation-ui: done
   7-6-input-enhancement-and-message-actions: done
   epic-7-retrospective: optional
@@ -159,12 +160,12 @@ development_status:
   # 核心设计：File 是独立一等公民，不绑定 session/workflow/cron
   # 所有使用方通过 FileUsage 引用，file_id 跨场景传递
   # 删除策略：仅手动删除，不做 TTL/孤儿自动清理（后续可演进）
-  epic-10: in-progress
-  10-1-file-ref-file-usage-data-model-and-storage-abstraction: review
-  10-2-file-upload-download-delete-api: review
-  10-3-chat-upload-integration: review
+  epic-10: done
+  10-1-file-ref-file-usage-data-model-and-storage-abstraction: done
+  10-2-file-upload-download-delete-api: done
+  10-3-chat-upload-integration: done
   10-4-agent-file-tools-extend-existing-workflow-with-file-support: done
-  10-5-workflow-start-node-file-type-support: backlog
-  10-6-frontend-file-upload-component: backlog
-  10-7-file-deletion-and-usage-lifecycle: backlog
+  10-5-workflow-start-node-file-type-support: done
+  10-6-frontend-file-upload-component: done
+  10-7-file-deletion-and-usage-lifecycle: done
   epic-10-retrospective: optional

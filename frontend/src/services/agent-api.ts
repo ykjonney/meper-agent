@@ -83,6 +83,8 @@ export interface ExecutionRequest {
   input: string
   session_id?: string
   enable_thinking?: boolean
+  file_paths?: string[]
+  file_ids?: string[]
 }
 
 export interface ExecutionResponse {

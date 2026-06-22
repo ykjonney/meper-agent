@@ -14,6 +14,14 @@ class ExecutionRequest(BaseModel):
         description="启用 LLM 原生推理（Claude extended thinking / OpenAI o-series reasoning_effort）。"
         "不支持的模型会静默降级到普通模式。",
     )
+    file_paths: list[str] | None = Field(
+        default=None,
+        description="本次上传的文件相对路径列表（相对于 workspace input/ 目录）",
+    )
+    file_ids: list[str] | None = Field(
+        default=None,
+        description="本次上传的文件 ID 列表",
+    )
 
 
 class ExecutionResponse(BaseModel):

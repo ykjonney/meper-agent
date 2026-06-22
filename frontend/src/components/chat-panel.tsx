@@ -12,7 +12,7 @@
  * - Loads history from backend when `sessionId` prop is provided
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Input, Avatar, Tooltip, Empty, Switch, Tag, Spin, Popconfirm, Modal } from 'antd'
+import { Input, Avatar, Tooltip, Empty, Switch, Tag, Spin, Popconfirm, Modal, message } from 'antd'
 import {
   SendOutlined,
   UserOutlined,
@@ -30,6 +30,8 @@ import {
   DownloadOutlined,
   EyeOutlined,
   LoadingOutlined,
+  PaperClipOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import { parseBackendDate } from '../lib/format'
@@ -82,6 +84,8 @@ export interface Message {
   isError?: boolean
   /** Timeline entries for agent messages */
   timeline?: TimelineEntry[]
+  /** File attachments for user messages */
+  files?: { id: string; name: string; size: number }[]
 }
 
 export interface ChatPanelProps {
@@ -204,6 +208,7 @@ function historyToMessages(records: MessageRecord[]): Message[] {
     timeline: rec.role === 'agent' && rec.timeline_entries?.length
       ? historyEntryToTimeline(rec.timeline_entries)
       : undefined,
+    files: rec.files?.map(f => ({ id: f.id || f._id || '', name: f.name, size: f.size })),
   }))
 }
 
@@ -232,9 +237,14 @@ export default function ChatPanel({
   const [sessionFiles, setSessionFiles] = useState<SessionFileEntry[]>([])
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [previewFile, setPreviewFile] = useState<{ path: string; content: string; type: 'text' | 'image' } | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number }[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sseBufferRef = useRef('')
+  const skipNextHistoryLoadRef = useRef(false)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -389,6 +399,13 @@ export default function ChatPanel({
       return
     }
 
+    // Skip history reload when handleSend just created this session
+    // (messages are already set by handleSend, loading history would overwrite them)
+    if (skipNextHistoryLoadRef.current) {
+      skipNextHistoryLoadRef.current = false
+      return
+    }
+
     let cancelled = false
     setIsLoadingHistory(true)
 
@@ -415,13 +432,71 @@ export default function ChatPanel({
 
   const handleSend = useCallback(async (text?: string) => {
     const content = text ?? input.trim()
-    if (!content || isStreaming) return
+    if ((!content && pendingFiles.length === 0) || isStreaming) return
+
+    // Track the session ID to use — may be created here for file uploads
+    let sid = currentSessionId
+    const uploadedPaths: string[] = []
+    const uploadedFileIds: string[] = []
+    const uploadedFileRefs: { id: string; name: string; size: number }[] = []
+
+    // If files are pending, upload them first (before any message is created)
+    if (pendingFiles.length > 0) {
+      setIsUploading(true)
+      // Need a session before uploading
+      if (!sid) {
+        try {
+          const newSession = await sessionApi.create(agentId, content || '文件上传')
+          sid = newSession._id
+          skipNextHistoryLoadRef.current = true  // prevent useEffect from overwriting messages
+          setCurrentSessionId(sid)
+          onSessionChange?.(sid)
+          refreshSessionList()
+        } catch {
+          setIsUploading(false)
+          message.error('创建会话失败')
+          return
+        }
+      }
+      let hasUploadError = false
+      for (const f of pendingFiles) {
+        try {
+          setUploadProgress(prev => [...prev, { name: f.name, percent: 0 }])
+          const res = await sessionApi.uploadFile(sid, f, undefined, (percent) => {
+            setUploadProgress(prev =>
+              prev.map(p => p.name === f.name ? { ...p, percent } : p)
+            )
+          })
+          if (res.workspace_path) {
+            uploadedPaths.push(res.workspace_path)
+          }
+          const fileId = res.file ? (res.file.id || res.file._id || '') : ''
+          if (fileId) {
+            uploadedFileIds.push(fileId)
+            uploadedFileRefs.push({ id: fileId, name: f.name, size: f.size })
+          }
+        } catch {
+          hasUploadError = true
+          // continue uploading remaining files
+        }
+      }
+      if (hasUploadError) {
+        message.warning('部分文件上传失败')
+      }
+      setPendingFiles([])
+      setUploadProgress([])
+      setIsUploading(false)
+    }
+
+    // Nothing to send (only files were uploaded, no text)
+    if (!content) return
 
     const userMsg: Message = {
       id: generateId(),
       role: 'user',
       content,
       time: nowTime(),
+      files: uploadedFileRefs.length > 0 ? uploadedFileRefs : undefined,
     }
     const agentMsgId = generateId()
     textEntryIdRef.current = null
@@ -443,10 +518,16 @@ export default function ChatPanel({
     sseBufferRef.current = ''
 
     try {
+      // Debug: log upload info
+      if (uploadedFileIds.length > 0) {
+        console.log('[ChatPanel] Upload info:', { uploadedPaths, uploadedFileIds, uploadedFileRefs })
+      }
       const response = await agentApi.stream(agentId, {
         input: userMsg.content,
-        session_id: currentSessionId || undefined,
+        session_id: sid || undefined,
         enable_thinking: enableThinking || undefined,
+        file_paths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
+        file_ids: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
       })
 
       if (!response.ok) {
@@ -460,6 +541,7 @@ export default function ChatPanel({
       // Extract session_id from response header if available
       const headerSessionId = response.headers.get('X-Session-Id')
       if (headerSessionId && !currentSessionId) {
+        skipNextHistoryLoadRef.current = true  // prevent useEffect from overwriting messages
         setCurrentSessionId(headerSessionId)
         onSessionChange?.(headerSessionId)
         // Refresh session list to include the newly created session
@@ -663,7 +745,7 @@ export default function ChatPanel({
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [input, isStreaming, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, refreshSessionFiles, appendDelta, flushDelta])
+  }, [input, isStreaming, isUploading, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, refreshSessionFiles, appendDelta, flushDelta, pendingFiles])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -798,6 +880,24 @@ export default function ChatPanel({
                       style={{ background: t.bg, color: t.primary }}
                     >
                       {msg.content}
+                      {msg.files && msg.files.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t" style={{ borderColor: t.bg === '#FFFFFF' ? '#E2E8F0' : '#334155' }}>
+                          {msg.files.map((f, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px]"
+                              style={{
+                                background: t.bg === '#FFFFFF' ? '#E8EDF5' : '#2A3548',
+                                color: t.bg === '#FFFFFF' ? '#1E293B' : '#E2E8F0',
+                              }}
+                            >
+                              <FileTextOutlined style={{ fontSize: 12 }} />
+                              <span className="max-w-[150px] truncate font-medium">{f.name}</span>
+                              <span style={{ opacity: 0.7 }}>{formatFileSize(f.size)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div className="text-[10px] text-[#94A3B8] mt-1.5 text-right">{msg.time}</div>
                     </div>
                   </div>
@@ -905,31 +1005,94 @@ export default function ChatPanel({
         </div>
 
         {/* Input area */}
-        <div className="flex items-center gap-3 shrink-0">
-          <Input.TextArea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="输入测试消息..."
-            rows={2}
-            className="rounded-xl !border-gray-200 !resize-none"
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-          />
-          <div className="flex flex-col gap-2">
-            <Tooltip title={isStreaming ? '停止' : '发送'}>
+        <div className="shrink-0">
+          {/* Pending files preview */}
+          {pendingFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {pendingFiles.map((f, i) => {
+                const progress = uploadProgress.find(p => p.name === f.name)
+                const isUploadingThis = progress !== undefined
+                return (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs relative overflow-hidden"
+                    style={{ background: t.bg === '#FFFFFF' ? '#F1F5F9' : '#1E293B', color: t.bg === '#FFFFFF' ? '#334155' : '#CBD5E1' }}
+                  >
+                    {isUploadingThis && (
+                      <div
+                        className="absolute inset-0 opacity-20 transition-all duration-200"
+                        style={{
+                          width: `${progress?.percent ?? 0}%`,
+                          background: t.primary,
+                        }}
+                      />
+                    )}
+                    <FileTextOutlined className="relative z-10" />
+                    <span className="relative z-10">{f.name} ({formatFileSize(f.size)})</span>
+                    {isUploadingThis && (
+                      <span className="relative z-10 text-[10px] opacity-70">{progress?.percent}%</span>
+                    )}
+                    {!isUploadingThis && (
+                      <button
+                        onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                        className="relative z-10 border-0 bg-transparent text-[#94A3B8] hover:text-[#EF4444] cursor-pointer p-0 ml-0.5"
+                      >
+                        <CloseOutlined style={{ fontSize: 10 }} />
+                      </button>
+                    )}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            {/* File upload button */}
+            <Tooltip title="上传文件">
               <button
-                onClick={isStreaming ? handleStop : () => { handleSend() }}
-                disabled={!input.trim() && !isStreaming}
-                className="w-10 h-10 flex items-center justify-center rounded-xl border-0 text-white transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                style={{ background: t.primary }}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming}
+                className="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 bg-transparent text-[#64748B] hover:text-[#0F172A] hover:border-gray-300 transition-colors duration-150 disabled:opacity-40 cursor-pointer shrink-0"
               >
-                {isStreaming ? <StopOutlined /> : <SendOutlined />}
+                <PaperClipOutlined />
               </button>
             </Tooltip>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || [])
+                if (files.length) {
+                  setPendingFiles(prev => [...prev, ...files])
+                }
+                e.target.value = ''
+              }}
+            />
+            <Input.TextArea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="输入测试消息..."
+              rows={2}
+              className="rounded-xl !border-gray-200 !resize-none flex-1"
+              onPressEnter={(e) => {
+                if (!e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+            />
+            <div className="flex flex-col gap-2">
+              <Tooltip title={isUploading ? '上传中…' : isStreaming ? '停止' : '发送'}>
+                <button
+                  onClick={isStreaming ? handleStop : () => { handleSend() }}
+                  disabled={isUploading || (!input.trim() && pendingFiles.length === 0 && !isStreaming)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl border-0 text-white transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  style={{ background: t.primary }}
+                >
+                  {isUploading ? <LoadingOutlined /> : isStreaming ? <StopOutlined /> : <SendOutlined />}
+                </button>
+              </Tooltip>
+            </div>
           </div>
         </div>
       </div>

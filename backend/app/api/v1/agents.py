@@ -412,6 +412,7 @@ async def invoke_agent(
         session_id=session_id,
         role="user",
         content=body.input,
+        file_ids=body.file_ids or None,
     )
 
     request_id = str(uuid.uuid4())
@@ -524,6 +525,7 @@ async def stream_agent(
         session_id=session_id,
         role="user",
         content=body.input,
+        file_ids=body.file_ids or None,
     )
 
     request_id = str(uuid.uuid4())
@@ -581,7 +583,33 @@ async def stream_agent(
             except Exception:
                 pass  # History loading is best-effort
 
-        initial_messages_stream.append({"role": "user", "content": body.input})
+        # Build user message content — embed uploaded file contents directly
+        # so the agent can see them without needing a separate tool call.
+        user_content = body.input
+        if body.file_paths:
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
+                ws = WorkspaceManager.get_workspace(user.id, session_id)
+                file_parts: list[str] = []
+                for rel_path in body.file_paths:
+                    abs_path = (ws.input_dir / rel_path).resolve()
+                    # Safety: ensure path stays within input_dir
+                    if not str(abs_path).startswith(str(ws.input_dir.resolve())):
+                        continue
+                    if abs_path.is_file():
+                        try:
+                            text = abs_path.read_text(errors="replace")
+                            file_parts.append(
+                                f"--- 文件: {rel_path} ---\n{text}\n"
+                            )
+                        except Exception:
+                            pass  # skip unreadable files
+                if file_parts:
+                    user_content = body.input + "\n\n" + "\n".join(file_parts)
+            except Exception:
+                pass  # File embedding is best-effort
+
+        initial_messages_stream.append({"role": "user", "content": user_content})
 
         initial_state = {
             "messages": initial_messages_stream,

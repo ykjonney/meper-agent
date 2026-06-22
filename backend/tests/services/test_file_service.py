@@ -196,8 +196,8 @@ class TestFileServiceDelete:
     """FileService.delete 测试。"""
 
     @pytest.mark.asyncio
-    async def test_delete_file_without_usage(self) -> None:
-        """删除无引用的文件。"""
+    async def test_delete_file_without_usage_soft_deletes(self) -> None:
+        """force=False 时执行软删除（update_status trashed），不删物理文件。"""
         mock_storage = AsyncMock(spec=FileStorage)
         mock_db = MagicMock()
         mock_file_refs = MagicMock()
@@ -216,8 +216,7 @@ class TestFileServiceDelete:
         mock_file_refs.find_one = AsyncMock(
             return_value=file_ref.model_dump(by_alias=True)
         )
-        mock_file_refs.delete_one = AsyncMock()
-        mock_file_usages.count_documents = AsyncMock(return_value=0)
+        mock_file_refs.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
         mock_db.file_refs = mock_file_refs
         mock_db.file_usages = mock_file_usages
 
@@ -229,12 +228,13 @@ class TestFileServiceDelete:
             result = await service.delete("file_01ABC", force=False)
 
         assert result is True
-        mock_storage.delete.assert_called_once_with(file_ref.storage_key)
-        mock_file_refs.delete_one.assert_called_once()
+        # 软删除不删除物理文件，只更新状态
+        mock_storage.delete.assert_not_called()
+        mock_file_refs.update_one.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_delete_file_with_usage_refused(self) -> None:
-        """有引用的文件 force=False 时拒绝删除。"""
+    async def test_delete_file_with_usage_soft_deletes(self) -> None:
+        """有引用的文件 force=False 时仍软删除（不删物理文件、不删 usage）。"""
         mock_storage = AsyncMock(spec=FileStorage)
         mock_db = MagicMock()
         mock_file_refs = MagicMock()
@@ -253,7 +253,7 @@ class TestFileServiceDelete:
         mock_file_refs.find_one = AsyncMock(
             return_value=file_ref.model_dump(by_alias=True)
         )
-        mock_file_usages.count_documents = AsyncMock(return_value=1)
+        mock_file_refs.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
         mock_db.file_refs = mock_file_refs
         mock_db.file_usages = mock_file_usages
 
@@ -264,8 +264,12 @@ class TestFileServiceDelete:
         with patch("app.services.file_service.get_database", return_value=mock_db):
             result = await service.delete("file_01ABC", force=False)
 
-        assert result is False
+        assert result is True
+        # 软删除不删物理文件
         mock_storage.delete.assert_not_called()
+        # 软删除不删 usage
+        mock_file_usages.delete_many.assert_not_called()
+        mock_file_refs.update_one.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_file_with_usage_force_deletes(self) -> None:
@@ -346,3 +350,118 @@ class TestFileServiceUpdateStatus:
 
         assert result is True
         mock_file_refs.update_one.assert_called_once()
+
+
+class TestFileServiceCleanupExpiredUsages:
+    """FileService.cleanup_expired_usages 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_expired_usages_deletes_and_hard_deletes_trashed(self) -> None:
+        """清理过期 usage，无引用且 trashed 的文件被硬删除。"""
+        mock_storage = AsyncMock(spec=FileStorage)
+        mock_db = MagicMock()
+        mock_file_refs = MagicMock()
+        mock_file_usages = MagicMock()
+
+        trashed_file = FileRef(
+            id="file_TRASH",
+            owner_user_id="user_01HXYZ",
+            storage_key="user_01HXYZ/files/file_TRASH",
+            name="old.pdf",
+            size=500,
+            sha256="hash",
+            origin_kind=FileConsumerKind.USER_LIBRARY,
+            origin_id="user_01HXYZ",
+            status="trashed",
+        )
+        # find 返回 trashed 文件列表
+        cursor = MagicMock()
+        cursor.to_list = AsyncMock(return_value=[trashed_file.model_dump(by_alias=True)])
+        mock_file_refs.find = MagicMock(return_value=cursor)
+        mock_file_refs.delete_one = AsyncMock()
+        mock_file_usages.delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
+        # 清理后无剩余 usage
+        mock_file_usages.count_documents = AsyncMock(return_value=0)
+        mock_db.file_refs = mock_file_refs
+        mock_db.file_usages = mock_file_usages
+
+        from app.services.file_service import FileService
+
+        service = FileService(storage=mock_storage)
+
+        with patch("app.services.file_service.get_database", return_value=mock_db):
+            count = await service.cleanup_expired_usages()
+
+        assert count == 2
+        # trashed 文件无引用 → 硬删除
+        mock_storage.delete.assert_called_once_with(trashed_file.storage_key)
+        mock_file_refs.delete_one.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_keeps_trashed_file_with_remaining_usages(self) -> None:
+        """trashed 文件仍有未过期 usage 时保留。"""
+        mock_storage = AsyncMock(spec=FileStorage)
+        mock_db = MagicMock()
+        mock_file_refs = MagicMock()
+        mock_file_usages = MagicMock()
+
+        trashed_file = FileRef(
+            id="file_TRASH2",
+            owner_user_id="user_01HXYZ",
+            storage_key="user_01HXYZ/files/file_TRASH2",
+            name="still_used.pdf",
+            size=500,
+            sha256="hash",
+            origin_kind=FileConsumerKind.USER_LIBRARY,
+            origin_id="user_01HXYZ",
+            status="trashed",
+        )
+        cursor = MagicMock()
+        cursor.to_list = AsyncMock(return_value=[trashed_file.model_dump(by_alias=True)])
+        mock_file_refs.find = MagicMock(return_value=cursor)
+        mock_file_usages.delete_many = AsyncMock(return_value=MagicMock(deleted_count=1))
+        # 仍有剩余 usage
+        mock_file_usages.count_documents = AsyncMock(return_value=1)
+        mock_db.file_refs = mock_file_refs
+        mock_db.file_usages = mock_file_usages
+
+        from app.services.file_service import FileService
+
+        service = FileService(storage=mock_storage)
+
+        with patch("app.services.file_service.get_database", return_value=mock_db):
+            count = await service.cleanup_expired_usages()
+
+        assert count == 1
+        # 有引用，不硬删除
+        mock_storage.delete.assert_not_called()
+
+
+class TestFileServiceRemoveUsagesByConsumer:
+    """FileService.remove_usages_by_consumer 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_remove_usages_by_consumer(self) -> None:
+        """按消费者删除所有 usage 记录。"""
+        mock_storage = AsyncMock(spec=FileStorage)
+        mock_db = MagicMock()
+        mock_file_usages = MagicMock()
+        mock_file_usages.delete_many = AsyncMock(return_value=MagicMock(deleted_count=3))
+        mock_db.file_usages = mock_file_usages
+
+        from app.services.file_service import FileService
+
+        service = FileService(storage=mock_storage)
+
+        with patch("app.services.file_service.get_database", return_value=mock_db):
+            count = await service.remove_usages_by_consumer(
+                FileConsumerKind.SESSION_MESSAGE, "sess_01ABC"
+            )
+
+        assert count == 3
+        mock_file_usages.delete_many.assert_called_once_with(
+            {
+                "consumer_kind": FileConsumerKind.SESSION_MESSAGE,
+                "consumer_id": "sess_01ABC",
+            }
+        )

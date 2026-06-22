@@ -105,6 +105,8 @@ class StartNodeExecutor(BaseNodeExecutor):
                 if not name:
                     continue
 
+                var_type = var_def.get("type", "text")
+
                 # Read required/default from `constraints` (frontend schema)
                 # with top-level fallback for legacy data.
                 constraints = var_def.get("constraints") if isinstance(var_def.get("constraints"), dict) else {}
@@ -119,6 +121,24 @@ class StartNodeExecutor(BaseNodeExecutor):
                     value = default_val
                 else:
                     value = None
+
+                # File type: delegate to file_validator for resolution.
+                if var_type == "file":
+                    if value in (None, ""):
+                        # No file provided — handled by required check below
+                        pass
+                    else:
+                        from app.engine.workflow.file_validator import validate_file_variable
+
+                        resolved, ferror = await validate_file_variable(value, var_def)
+                        if ferror:
+                            return NodeResult(
+                                success=False,
+                                output={},
+                                error_message=f"Start 节点文件变量 '{name}' 验证失败: {ferror}",
+                            )
+                        output[name] = resolved
+                        continue
 
                 # Required validation: None or empty string counts as missing.
                 if is_required and value in (None, ""):

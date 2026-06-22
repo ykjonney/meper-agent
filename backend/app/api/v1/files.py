@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import NotFoundError
 from app.core.security import get_current_user, require_any_role
 from app.models.file_library import FileConsumerKind, FileRef
 from app.schemas.file_library import (
@@ -200,9 +200,8 @@ async def download_file(
     summary="Delete a file",
     response_model=None,
     responses={
-        204: {"description": "File hard-deleted"},
+        204: {"description": "File deleted"},
         404: {"description": "File not found"},
-        409: {"description": "File has references"},
     },
 )
 async def delete_file(
@@ -219,13 +218,7 @@ async def delete_file(
     file_ref = await _get_owner_file(svc, file_id, current_user.id)
 
     if force:
-        # 硬删除
-        usage_count = await svc._file_usages().count_documents({"file_id": file_id})
-        if usage_count > 0:
-            raise ConflictError(
-                code="FILE_HAS_REFERENCES",
-                message=f"文件仍被 {usage_count} 处引用，请使用 force=true 强制删除",
-            )
+        # 硬删除（级联删除 usage + 物理文件 + DB）
         deleted = await svc.delete(file_id, force=True)
         if not deleted:
             raise NotFoundError(
@@ -234,14 +227,106 @@ async def delete_file(
         return Response(status_code=204)
     else:
         # 软删除
-        updated = await svc.update_status(file_id, "trashed")
-        if not updated:
+        deleted = await svc.delete(file_id, force=False)
+        if not deleted:
             raise NotFoundError(
                 code="FILE_NOT_FOUND", message=f"文件 {file_id} 不存在"
             )
-        # 返回更新后的文件
         updated_ref = await svc.get(file_id)
         return FileRefResponse(**updated_ref.model_dump(by_alias=True))
+
+
+# ------------------------------------------------------------------
+# POST /files/{file_id}/restore — 从回收站恢复
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/{file_id}/restore",
+    response_model=FileRefResponse,
+    summary="Restore file from trash",
+    responses={404: {"description": "File not found"}},
+)
+async def restore_file(
+    file_id: str,
+    svc: FileService = Depends(get_file_service),
+    current_user: UserResponse = Depends(get_current_user),
+) -> FileRefResponse:
+    """从回收站恢复文件（status: trashed → active）。"""
+    file_ref = await _get_owner_file(svc, file_id, current_user.id)
+    if file_ref.status != "trashed":
+        # 已经是 active，直接返回
+        return FileRefResponse(**file_ref.model_dump(by_alias=True))
+
+    updated = await svc.update_status(file_id, "active")
+    if not updated:
+        raise NotFoundError(
+            code="FILE_NOT_FOUND", message=f"文件 {file_id} 不存在"
+        )
+    updated_ref = await svc.get(file_id)
+    return FileRefResponse(**updated_ref.model_dump(by_alias=True))
+
+
+# ------------------------------------------------------------------
+# POST /files/trash/empty — 清空回收站
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/trash/empty",
+    summary="Empty trash",
+    responses={200: {"description": "Trash emptied"}},
+)
+async def empty_trash(
+    svc: FileService = Depends(get_file_service),
+    current_user: UserResponse = Depends(
+        require_any_role("admin", "developer", "operator", "viewer")
+    ),
+) -> dict:
+    """清空当前用户的回收站。
+
+    硬删除所有 status=trashed 且 usage_count=0 的文件。
+    """
+    # 查询当前用户所有 trashed 文件
+    trashed_files, _ = await svc.list_by_owner(
+        owner_user_id=current_user.id,
+        page=1,
+        page_size=10000,
+        status="trashed",
+    )
+
+    deleted_count = 0
+    for file_ref in trashed_files:
+        has_refs = await svc.has_usages(file_ref.id)
+        if not has_refs:
+            result = await svc.delete(file_ref.id, force=True)
+            if result:
+                deleted_count += 1
+
+    return {"deleted_count": deleted_count}
+
+
+# ------------------------------------------------------------------
+# POST /files/cleanup — 过期 Usage 清理
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/cleanup",
+    summary="Cleanup expired usages",
+    responses={200: {"description": "Expired usages cleaned up"}},
+)
+async def cleanup_expired_usages(
+    svc: FileService = Depends(get_file_service),
+    current_user: UserResponse = Depends(require_any_role("admin")),
+) -> dict:
+    """清理过期的 FileUsage 记录（管理员端）。
+
+    删除所有 expires_at < now 的 usage 记录，
+    清理后若文件无引用且 status=trashed 则一并硬删除。
+    """
+    deleted_count = await svc.cleanup_expired_usages()
+    return {"deleted_count": deleted_count}
 
 
 # ------------------------------------------------------------------

@@ -171,6 +171,117 @@ class TestStartNodeExecutor:
         assert result.success
         assert result.output["query"] == "legacy_fallback"
 
+    # ── file 类型 StartNodeExecutor 集成 ──
+
+    @pytest.mark.asyncio
+    async def test_file_type_valid_single(self) -> None:
+        """file 类型正常解析 → 输出包含文件元信息 dict。"""
+        from unittest.mock import AsyncMock, patch
+
+        from app.models.file_library import FileConsumerKind, FileRef
+
+        fake_ref = FileRef(
+            id="file_OK",
+            owner_user_id="user_X",
+            storage_key="user_X/files/file_OK",
+            name="data.csv",
+            size=512,
+            mime_type="text/csv",
+            sha256="deadbeef",
+            origin_kind=FileConsumerKind.USER_LIBRARY,
+            origin_id="user_X",
+        )
+        config = {
+            "output_variables": [
+                {
+                    "name": "dataset",
+                    "type": "file",
+                    "constraints": {"required": True},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        with patch("app.engine.workflow.file_validator._get_file_service") as mock_svc:
+            mock_svc.return_value.get = AsyncMock(return_value=fake_ref)
+            result = await executor.execute({"input": {"dataset": "file_OK"}})
+        assert result.success
+        out = result.output["dataset"]
+        assert out["file_id"] == "file_OK"
+        assert out["name"] == "data.csv"
+        assert out["size"] == 512
+
+    @pytest.mark.asyncio
+    async def test_file_type_required_missing(self) -> None:
+        """file 类型 required=True 但未传入 → 必填变量缺失。"""
+        config = {
+            "output_variables": [
+                {
+                    "name": "document",
+                    "type": "file",
+                    "constraints": {"required": True},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        result = await executor.execute({"input": {}})
+        assert not result.success
+        assert "document" in result.error_message
+        assert "必填变量缺失" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_file_type_validation_error(self) -> None:
+        """file 类型验证失败（文件不存在）→ NodeResult 失败。"""
+        from unittest.mock import AsyncMock, patch
+
+        config = {
+            "output_variables": [
+                {
+                    "name": "attachment",
+                    "type": "file",
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        with patch("app.engine.workflow.file_validator._get_file_service") as mock_svc:
+            mock_svc.return_value.get = AsyncMock(return_value=None)
+            result = await executor.execute({"input": {"attachment": "file_GONE"}})
+        assert not result.success
+        assert "attachment" in result.error_message
+        assert "不存在" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_file_type_multiple(self) -> None:
+        """file 类型 multiple=True → 输出为 list[dict]。"""
+        from unittest.mock import AsyncMock, patch
+
+        from app.models.file_library import FileConsumerKind, FileRef
+
+        f1 = FileRef(id="f1", owner_user_id="u", storage_key="u/files/f1", name="a.pdf",
+                     size=100, mime_type="application/pdf", sha256="h1",
+                     origin_kind=FileConsumerKind.USER_LIBRARY, origin_id="u")
+        f2 = FileRef(id="f2", owner_user_id="u", storage_key="u/files/f2", name="b.pdf",
+                     size=200, mime_type="application/pdf", sha256="h2",
+                     origin_kind=FileConsumerKind.USER_LIBRARY, origin_id="u")
+        config = {
+            "output_variables": [
+                {
+                    "name": "files",
+                    "type": "file",
+                    "constraints": {"multiple": True},
+                },
+            ],
+        }
+        executor = StartNodeExecutor("start_1", config)
+        with patch("app.engine.workflow.file_validator._get_file_service") as mock_svc:
+            mock_svc.return_value.get = AsyncMock(side_effect=[f1, f2])
+            result = await executor.execute({"input": {"files": ["f1", "f2"]}})
+        assert result.success
+        out = result.output["files"]
+        assert isinstance(out, list)
+        assert len(out) == 2
+        assert out[0]["file_id"] == "f1"
+        assert out[1]["file_id"] == "f2"
+
 
 # ── EndNodeExecutor ──
 

@@ -25,7 +25,33 @@ export interface MessageRecord {
   content: string
   /** Structured timeline events stored in agent messages */
   timeline_entries: TimelineEntryData[]
+  /** File IDs attached to this message */
+  file_ids?: string[]
+  /** File references attached to this message */
+  files?: FileRef[]
   created_at: string
+}
+
+export interface FileRef {
+  id: string
+  _id?: string  // Backend returns _id due to MongoDB field alias
+  name: string
+  size: number
+  mime_type: string
+  storage_key: string
+  status: string
+  created_at: string
+}
+
+/** Get file ID, handling both `id` and `_id` (MongoDB alias) */
+export function getFileId(file: FileRef): string {
+  return file.id || file._id || ''
+}
+
+export interface ChatFileUploadResponse {
+  file: FileRef
+  message: MessageRecord | null
+  workspace_path: string
 }
 
 export interface TimelineEntryData {
@@ -192,6 +218,38 @@ export const sessionApi = {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(downloadUrl)
+  },
+
+  /**
+   * Upload a file to a chat session.
+   * POST /api/v1/sessions/{id}/files/upload
+   * Uses FormData with multipart/form-data.
+   */
+  async uploadFile(
+    sessionId: string,
+    file: File,
+    content?: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<ChatFileUploadResponse> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (content) {
+      formData.append('content', content)
+    }
+    const res = await apiClient.post<ChatFileUploadResponse>(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/files/upload`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            onProgress(percent)
+          }
+        },
+      },
+    )
+    return res.data
   },
 }
 
