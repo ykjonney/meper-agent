@@ -1,5 +1,6 @@
 # generated: 2026-06-08
 # last_updated: 2026-06-22
+# Story 10-2 创建于 2026-06-22：文件上传/下载/删除 API
 # Story 3-5 实现于 2026-06-09：上下文压缩模块 + REACT 循环集成
 # project: agent-flow
 # project_key: NOKEY
@@ -159,8 +160,8 @@ development_status:
   # 所有使用方通过 FileUsage 引用，file_id 跨场景传递
   # 删除策略：仅手动删除，不做 TTL/孤儿自动清理（后续可演进）
   epic-10: in-progress
-  10-1-file-ref-file-usage-data-model-and-storage-abstraction: in-progress
-  10-2-file-upload-download-delete-api: backlog
+  10-1-file-ref-file-usage-data-model-and-storage-abstraction: review
+  10-2-file-upload-download-delete-api: review
   10-3-chat-upload-integration: backlog
   10-4-agent-file-tools-extend-existing-workflow-with-file-support: backlog
   10-5-workflow-start-node-file-type-support: backlog

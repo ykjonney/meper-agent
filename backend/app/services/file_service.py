@@ -116,7 +116,8 @@ class FileService:
         return FileRef(**doc)
 
     async def list_by_owner(
-        self, owner_user_id: str, page: int = 1, page_size: int = 20
+        self, owner_user_id: str, page: int = 1, page_size: int = 20,
+        status: str | None = None,
     ) -> tuple[list[FileRef], int]:
         """按 owner 分页查询文件列表。
 
@@ -124,11 +125,14 @@ class FileService:
             owner_user_id: 所属用户 ID
             page: 页码（从 1 开始）
             page_size: 每页大小
+            status: 可选状态过滤（如 "active"、"trashed"）
 
         Returns:
             (文件列表, 总数) 元组
         """
-        query = {"owner_user_id": owner_user_id}
+        query: dict[str, Any] = {"owner_user_id": owner_user_id}
+        if status is not None:
+            query["status"] = status
 
         # 查询总数
         total = await self._file_refs().count_documents(query)
