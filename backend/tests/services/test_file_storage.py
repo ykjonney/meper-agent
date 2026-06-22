@@ -1,6 +1,5 @@
 """Tests for FileStorage abstraction and LocalFileStorage implementation."""
 import pytest
-
 from app.services.file_storage import FileStorage, LocalFileStorage
 
 

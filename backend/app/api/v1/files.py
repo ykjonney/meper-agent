@@ -181,7 +181,7 @@ async def download_file(
     except FileNotFoundError:
         raise NotFoundError(
             code="FILE_CONTENT_NOT_FOUND", message="文件内容不存在"
-        )
+        ) from None
 
     return Response(
         content=data,
@@ -215,7 +215,7 @@ async def delete_file(
     - 默认（force=false）：软删除，将状态标记为 trashed
     - force=true：硬删除，物理删除文件 + 级联删除所有 usage
     """
-    file_ref = await _get_owner_file(svc, file_id, current_user.id)
+    await _get_owner_file(svc, file_id, current_user.id)
 
     if force:
         # 硬删除（级联删除 usage + 物理文件 + DB）

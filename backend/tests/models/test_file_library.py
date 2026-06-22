@@ -1,6 +1,5 @@
 """Tests for FileRef and FileUsage data models."""
 import pytest
-
 from app.models.file_library import FileConsumerKind, FileRef, FileUsage
 
 

@@ -128,7 +128,9 @@ class StartNodeExecutor(BaseNodeExecutor):
                         # No file provided — handled by required check below
                         pass
                     else:
-                        from app.engine.workflow.file_validator import validate_file_variable
+                        from app.engine.workflow.file_validator import (
+                            validate_file_variable,
+                        )
 
                         resolved, ferror = await validate_file_variable(value, var_def)
                         if ferror:

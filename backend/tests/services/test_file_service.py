@@ -3,7 +3,6 @@ import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.models.file_library import FileConsumerKind, FileRef
 from app.services.file_storage import FileStorage
 

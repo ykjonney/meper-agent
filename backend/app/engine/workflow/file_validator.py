@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from loguru import logger
-
 from app.models.file_library import FileRef
 
 

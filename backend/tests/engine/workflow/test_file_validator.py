@@ -7,10 +7,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from app.models.file_library import FileConsumerKind, FileRef
-
 from app.engine.workflow.file_validator import validate_file_variable
+from app.models.file_library import FileConsumerKind, FileRef
 
 
 def _make_file_ref(

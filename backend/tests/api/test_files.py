@@ -2,7 +2,7 @@
 
 Uses ``unittest.mock`` to mock FileService so tests run without MongoDB.
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from app.core.security import get_current_user

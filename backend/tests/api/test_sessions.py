@@ -1,5 +1,4 @@
 """API tests for chat file upload in /api/v1/sessions endpoints (mock-based)."""
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
