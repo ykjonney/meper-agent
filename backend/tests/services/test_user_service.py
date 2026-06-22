@@ -39,7 +39,8 @@ class TestCreateAdminUser:
         assert result.tokens.access_token
         assert result.tokens.refresh_token
         assert result.tokens.token_type == "bearer"
-        assert result.tokens.expires_in == 3600  # 60 * 60
+        from app.core.config import settings
+        assert result.tokens.expires_in == settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
         # Verify insert was called with _id (not id)
         mock_collection.insert_one.assert_called_once()

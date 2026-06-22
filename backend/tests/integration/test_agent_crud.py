@@ -21,17 +21,17 @@ class TestCreateAgent:
         doc = await AgentService.create_agent(
             name="Test Agent",
             description="A test agent",
-            system_prompt="You are helpful.",
+            prompt_slots={"role": "You are helpful."},
             skill_ids=["tool_001"],
             workflow_ids=["wf_001"],
         )
         assert doc["_id"].startswith("agent_")
         assert doc["name"] == "Test Agent"
         assert doc["status"] == "draft"
-        assert doc["version"] == 1
         assert doc["description"] == "A test agent"
         assert doc["skill_ids"] == ["tool_001"]
         assert doc["workflow_ids"] == ["wf_001"]
+        assert doc["prompt_slots"] == {"role": "You are helpful."}
 
     async def test_create_agent_defaults(
         self,
@@ -39,7 +39,7 @@ class TestCreateAgent:
     ) -> None:
         """AC1: Minimal Agent creation uses sensible defaults."""
         doc = await AgentService.create_agent(name="Minimal Agent")
-        assert doc["system_prompt"] == ""
+        assert doc["prompt_slots"] == {}
         assert doc["skill_ids"] == []
         assert doc["workflow_ids"] == []
         assert doc["knowledge_base_ids"] == []
@@ -167,25 +167,24 @@ class TestUpdateAgent:
         self,
         mock_agent_collection: None,  # noqa: ARG002
     ) -> None:
-        """AC4: Full update replaces all fields and increments version."""
+        """AC4: Full update replaces all specified fields."""
         created = await AgentService.create_agent(
             name="Original",
             description="Original description",
         )
-        assert created["version"] == 1
 
         updated = await AgentService.update_agent(
             agent_id=created["_id"],
             name="Updated",
             description="New description",
-            system_prompt="New prompt",
+            prompt_slots={"role": "New prompt"},
             skill_ids=["tool_001"],
             workflow_ids=[],
         )
         assert updated is not None
         assert updated["name"] == "Updated"
         assert updated["description"] == "New description"
-        assert updated["version"] == 1  # Draft — no version auto-increment
+        assert updated["prompt_slots"] == {"role": "New prompt"}
 
     async def test_update_agent_not_found(
         self,
@@ -221,7 +220,7 @@ class TestUpdateAgent:
         created = await AgentService.create_agent(
             name="Original",
             description="Desc",
-            system_prompt="Prompt",
+            prompt_slots={"role": "Prompt"},
             skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
@@ -230,14 +229,14 @@ class TestUpdateAgent:
             agent_id=created["_id"],
             name="Original",
             description="Desc",
-            system_prompt="Prompt",
+            prompt_slots={"role": "Prompt"},
             skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
         )
         assert updated is not None
-        # Version stays at 1 because agent is in draft status (no auto-increment)
-        assert updated["version"] == 1
+        assert updated["name"] == "Original"
+        assert updated["description"] == "Desc"
 
     async def test_update_agent_categorized_fields(
         self,
@@ -254,7 +253,7 @@ class TestUpdateAgent:
             agent_id=created["_id"],
             name="Categorized Update",
             description="Updated",
-            system_prompt="",
+            prompt_slots={},
             skill_ids=["skill_002", "skill_003"],
             mcp_connection_ids=["mcp_002"],
             builtin_config=["read", "write"],
@@ -265,7 +264,6 @@ class TestUpdateAgent:
         assert updated["skill_ids"] == ["skill_002", "skill_003"]
         assert updated["mcp_connection_ids"] == ["mcp_002"]
         assert updated["builtin_config"] == ["read", "write"]
-        assert updated["version"] == 1  # create(1) → update(draft, no increment)
 
 
 class TestDuplicateAgent:
@@ -292,7 +290,6 @@ class TestDuplicateAgent:
         assert duplicate["workflow_ids"] == ["wf_001"]
         assert duplicate["knowledge_base_ids"] == ["kb_001"]
         assert duplicate["status"] == "draft"
-        assert duplicate["version"] == 1
 
     async def test_duplicate_legacy_tool_ids_doc(
         self,
