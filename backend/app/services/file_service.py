@@ -77,7 +77,7 @@ class FileService:
 
         # 创建 FileRef
         file_ref = FileRef(
-            id=file_id,
+            _id=file_id,
             owner_user_id=owner_user_id,
             storage_key=storage_key,
             name=filename,
