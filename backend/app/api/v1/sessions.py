@@ -3,13 +3,16 @@ import io
 import mimetypes
 import zipfile
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.errors import NotFoundError
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_any_role
 from app.engine.tool.workspace import Workspace
+from app.models.file_library import FileConsumerKind
+from app.schemas.file_library import FileRefResponse
 from app.schemas.session import (
+    ChatFileUploadResponse,
     MessageResponse,
     SessionCreate,
     SessionDetailResponse,
@@ -17,6 +20,8 @@ from app.schemas.session import (
     SessionResponse,
 )
 from app.schemas.user import UserResponse
+from app.services.file_service import FileService
+from app.services.file_storage import LocalFileStorage
 from app.services.session_service import MessageService, SessionService
 
 router = APIRouter(
@@ -48,6 +53,8 @@ def _msg_to_response(doc: dict) -> MessageResponse:
         role=doc["role"],
         content=doc.get("content", ""),
         timeline_entries=doc.get("timeline_entries", []),
+        file_ids=doc.get("file_ids", []),
+        files=[],  # Populated separately when needed
         created_at=doc.get("created_at", ""),
     )
 
@@ -119,9 +126,23 @@ async def get_session(
         )
 
     messages = await MessageService.list_messages(session_id)
+    msg_responses = []
+    for m in messages:
+        mr = _msg_to_response(m)
+        # Populate file details if file_ids present
+        file_ids = m.get("file_ids", [])
+        if file_ids:
+            file_svc = _get_file_service()
+            files = []
+            for fid in file_ids:
+                fref = await file_svc.get(fid)
+                if fref:
+                    files.append(FileRefResponse(**fref.model_dump(by_alias=True)))
+            mr.files = files
+        msg_responses.append(mr)
     return SessionDetailResponse(
         session=_doc_to_response(session_doc),
-        messages=[_msg_to_response(m) for m in messages],
+        messages=msg_responses,
     )
 
 
@@ -149,6 +170,107 @@ async def delete_session(
         )
 
     await SessionService.delete_session(session_id)
+
+
+# ---------------------------------------------------------------------------
+# Chat file upload
+# ---------------------------------------------------------------------------
+
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+
+def _get_file_service() -> FileService:
+    """FileService 依赖注入。"""
+    return FileService(storage=LocalFileStorage())
+
+
+def _resolve_input_filename(input_dir, filename: str):
+    """Resolve filename conflicts by adding numeric suffix."""
+    from pathlib import Path
+
+    target = Path(input_dir) / filename
+    if not target.exists():
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    counter = 1
+    while target.exists():
+        target = Path(input_dir) / f"{stem}_{counter}{suffix}"
+        counter += 1
+    return target
+
+
+@router.post(
+    "/{session_id}/files/upload",
+    status_code=201,
+    response_model=ChatFileUploadResponse,
+    summary="Upload a file to chat",
+    responses={413: {"description": "File too large"}},
+)
+async def upload_chat_file(
+    session_id: str,
+    file: UploadFile = File(...),
+    content: str = Form(""),
+    svc: FileService = Depends(_get_file_service),
+    user: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+) -> ChatFileUploadResponse:
+    """Upload a file to a chat session.
+
+    Creates a FileRef, copies to workspace input/ dir,
+    and optionally creates a user message with the file attached.
+    """
+    # Verify session ownership
+    ws = await _verify_session_ownership(session_id, user.id)
+
+    # Read file data
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制（最大 {MAX_FILE_SIZE // 1024 // 1024}MB）",
+        )
+
+    mime_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "unnamed"
+
+    # Create FileRef in file library
+    file_ref = await svc.create(
+        data=data,
+        filename=filename,
+        mime_type=mime_type,
+        owner_user_id=user.id,
+        origin_kind=FileConsumerKind.SESSION_MESSAGE,
+        origin_id=session_id,
+    )
+
+    # Create FileUsage
+    await svc.add_usage(
+        file_id=file_ref.id,
+        consumer_kind=FileConsumerKind.SESSION_MESSAGE,
+        consumer_id=session_id,
+    )
+
+    # Copy physical file to workspace input/ directory
+    input_path = _resolve_input_filename(ws.input_dir, filename)
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_bytes(data)
+
+    # Optionally create a user message
+    message_response = None
+    if content:
+        msg_doc = await MessageService.add_message(
+            session_id=session_id,
+            role="user",
+            content=content,
+            file_ids=[file_ref.id],
+        )
+        message_response = _msg_to_response(msg_doc)
+
+    return ChatFileUploadResponse(
+        file=FileRefResponse(**file_ref.model_dump(by_alias=True)),
+        message=message_response,
+        workspace_path=str(input_path.relative_to(ws.input_dir)),
+    )
 
 
 # ---------------------------------------------------------------------------

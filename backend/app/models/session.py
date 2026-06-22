@@ -53,4 +53,8 @@ class Message(BaseModel):
         default_factory=list,
         description="Structured timeline events (thinking/tool_call/tool_result/final_answer) for agent messages",
     )
+    file_ids: list[str] = Field(
+        default_factory=list,
+        description="Associated FileRef IDs for uploaded attachments",
+    )
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())

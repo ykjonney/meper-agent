@@ -1,6 +1,8 @@
 """Session and Message API schemas (request/response validation)."""
 from pydantic import BaseModel, Field
 
+from app.schemas.file_library import FileRefResponse
+
 
 class SessionCreate(BaseModel):
     """Request body for creating a new session."""
@@ -41,9 +43,19 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     timeline_entries: list[dict] = []
+    file_ids: list[str] = []
+    files: list[FileRefResponse] = []
     created_at: str
 
     model_config = {"populate_by_name": True}
+
+
+class ChatFileUploadResponse(BaseModel):
+    """Response for chat file upload endpoint."""
+
+    file: FileRefResponse
+    message: MessageResponse | None = None
+    workspace_path: str
 
 
 class SessionDetailResponse(BaseModel):

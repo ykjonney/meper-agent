@@ -162,7 +162,7 @@ development_status:
   epic-10: in-progress
   10-1-file-ref-file-usage-data-model-and-storage-abstraction: review
   10-2-file-upload-download-delete-api: review
-  10-3-chat-upload-integration: backlog
+  10-3-chat-upload-integration: review
   10-4-agent-file-tools-extend-existing-workflow-with-file-support: backlog
   10-5-workflow-start-node-file-type-support: backlog
   10-6-frontend-file-upload-component: backlog

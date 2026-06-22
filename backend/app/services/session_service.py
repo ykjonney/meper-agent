@@ -162,6 +162,7 @@ class MessageService:
         role: str,
         content: str,
         timeline_entries: list[dict] | None = None,
+        file_ids: list[str] | None = None,
     ) -> dict:
         """Add a message to a session.
 
@@ -170,6 +171,7 @@ class MessageService:
             role: 'user' or 'agent'.
             content: Message text.
             timeline_entries: Structured timeline events (for agent messages).
+            file_ids: Associated FileRef IDs for uploaded attachments.
 
         Returns:
             Created message document.
@@ -179,6 +181,7 @@ class MessageService:
             role=role,
             content=content,
             timeline_entries=timeline_entries or [],
+            file_ids=file_ids or [],
         )
         doc = {
             "_id": msg.id,
@@ -186,6 +189,7 @@ class MessageService:
             "role": msg.role,
             "content": msg.content,
             "timeline_entries": msg.timeline_entries,
+            "file_ids": msg.file_ids,
             "created_at": msg.created_at,
         }
 
