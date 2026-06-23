@@ -174,7 +174,9 @@ export interface TaskCreatePayload {
 
 export interface TaskIntervenePayload {
   action: string
+  /** @deprecated use comment */
   reason?: string
+  comment?: string
   version: number
 }
 

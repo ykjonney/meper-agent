@@ -1,13 +1,16 @@
 /**
  * HumanNodeConfig — 人工审批节点配置面板。
  *
- * options 改为逐条编辑模式：每条包含一个「选项标签」，
- * 与后续 Gateway 节点条件中的 decision 值一一对应。
- * 新增超时动作选择器。
+ * 系统固定提供三个审批行为，无需用户配置：
+ *   1. approve  — 通过
+ *   2. reject   — 驳回
+ *   3. comment  — 审批人留言（可选，approval 时给出意见）
+ *
+ * 审批结果以 {decision, comment, approver, decided_at} 结构写入
+ *   variables[human_decision_<node_id>]
+ * 供下游 Gateway 节点条件分支消费。
  */
-import { useCallback, useMemo } from 'react'
-import { Button, Input, Select } from 'antd'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Input, Select, Tag } from 'antd'
 
 interface Props {
   config: Record<string, unknown>
@@ -21,41 +24,7 @@ const TIMEOUT_ACTIONS = [
   { label: '标记失败', value: 'fail' },
 ]
 
-/** 安全提取 options，保证返回 string[] */
-function safeOptions(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map(String)
-  return []
-}
-
 export default function HumanNodeConfig({ config, onChange }: Props) {
-  const rawOptions = config?.options
-  const options = useMemo(() => safeOptions(rawOptions), [rawOptions])
-
-  const updateOptions = useCallback(
-    (next: string[]) => onChange({ ...(config ?? {}), options: next }),
-    [config, onChange],
-  )
-
-  const addOption = useCallback(() => {
-    updateOptions([...options, ''])
-  }, [options, updateOptions])
-
-  const removeOption = useCallback(
-    (idx: number) => {
-      updateOptions(options.filter((_, i) => i !== idx))
-    },
-    [options, updateOptions],
-  )
-
-  const updateOption = useCallback(
-    (idx: number, value: string) => {
-      const next = options.slice()
-      next[idx] = value
-      updateOptions(next)
-    },
-    [options, updateOptions],
-  )
-
   return (
     <div className="space-y-3">
       {/* ── 审批标题 ── */}
@@ -79,50 +48,32 @@ export default function HumanNodeConfig({ config, onChange }: Props) {
         />
       </div>
 
-      {/* ── 审批选项（逐条编辑） ── */}
+      {/* ── 审批行为（系统固定三个：approve / reject / comment） ── */}
       <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-[#64748B]">审批选项</label>
-          <Button
-            size="small"
-            type="link"
-            icon={<PlusOutlined />}
-            onClick={addOption}
-          >
-            添加选项
-          </Button>
+        <label className="block text-xs text-[#64748B] mb-1.5">审批行为</label>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#E2E8F0] bg-[#F8FAFC]">
+            <Tag color="green" className="mr-0">通过</Tag>
+            <span className="text-xs text-[#475569] flex-1">
+              审批人点击后，任务继续执行，decision=<code className="font-mono">approve</code>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#E2E8F0] bg-[#F8FAFC]">
+            <Tag color="red" className="mr-0">驳回</Tag>
+            <span className="text-xs text-[#475569] flex-1">
+              审批人点击后，任务标记为 FAILED，decision=<code className="font-mono">reject</code>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#E2E8F0] bg-[#F8FAFC]">
+            <Tag color="purple" className="mr-0">意见</Tag>
+            <span className="text-xs text-[#475569] flex-1">
+              审批人在通过/驳回时填写，可空，comment 写入 variables
+            </span>
+          </div>
         </div>
-
-        {options.length > 0 ? (
-          <div className="space-y-1.5">
-            {options.map((opt, idx) => (
-              <div key={idx} className="flex items-center gap-1.5">
-                <Input
-                  size="small"
-                  value={opt}
-                  onChange={(e) => updateOption(idx, e.target.value)}
-                  placeholder={`选项 ${idx + 1}，如 approve / reject`}
-                  className="flex-1 font-mono"
-                />
-                <Button
-                  size="small"
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => removeOption(idx)}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-[#94A3B8] text-center py-3">
-            暂无选项，点击「添加选项」创建
-          </div>
-        )}
-
         <div className="text-[10px] text-[#94A3B8] mt-1.5">
-          选项值将写入变量 <code className="font-mono">node_id.decision</code>，
-          供后续 Gateway 条件分支使用
+          审批完成后，<code className="font-mono">variables.human_decision_&lt;node_id&gt;</code> 包含
+          decision / comment / approver / decided_at 四个字段
         </div>
       </div>
 

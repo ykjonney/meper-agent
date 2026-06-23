@@ -23,7 +23,9 @@ class TaskIntervene(BaseModel):
     """Request body for Task intervention."""
 
     action: str = Field(..., pattern=r"^(approve|reject|skip|retry|pause|resume|cancel|update_variables)$")
+    # Deprecated: use comment; reason kept for backward compat
     reason: str | None = None
+    comment: str | None = None
     version: int = Field(..., ge=1)
 
 

@@ -36,6 +36,7 @@ import {
 } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 import { TaskBoardColumn } from '../components/task-board-column'
+import { APPROVAL_ACCENT } from '../components/task-board-card'
 import { parseBackendDate } from '../lib/format'
 
 /* ─── helpers ─── */
@@ -209,8 +210,8 @@ export default function TasksPage() {
 
   /* ─── Mutation: intervene (cancel / retry / approve / reject) ─── */
   const interveneMutation = useMutation({
-    mutationFn: ({ taskId, action, version, reason }: { taskId: string; action: string; version: number; reason?: string }) =>
-      tasksApi.intervene(taskId, { action, version, reason }),
+    mutationFn: ({ taskId, action, version, comment, reason }: { taskId: string; action: string; version: number; comment?: string; reason?: string }) =>
+      tasksApi.intervene(taskId, { action, version, comment, reason }),
     onSuccess: () => {
       message.success('操作成功')
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
@@ -304,12 +305,28 @@ export default function TasksPage() {
       taskId: approvalTask.id,
       action: approvalAction,
       version: approvalTask.version,
-      reason: approvalReason || undefined,
+      comment: approvalReason || undefined,
     })
     setApprovalAction(null)
     setApprovalTask(null)
     setApprovalReason('')
   }, [approvalAction, approvalTask, approvalReason, interveneMutation])
+
+  /**
+   * 看板卡片快速审批入口（BOARD_CARD_QUICK_APPROVE / BOARD_CARD_QUICK_REJECT）。
+   * 父级统一处理 interveneMutation，TaskBoardCard 不直接调 API。
+   */
+  const handleBoardApproval = useCallback(
+    (task: TaskSummary, action: 'approve' | 'reject', comment: string) => {
+      interveneMutation.mutate({
+        taskId: task.id,
+        action,
+        version: task.version,
+        comment,
+      })
+    },
+    [interveneMutation],
+  )
 
   const handleApprovalCancel = useCallback(() => {
     setApprovalAction(null)
@@ -422,6 +439,7 @@ export default function TasksPage() {
                 onCancel={handleCancel}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
+                onApprovalSubmit={handleBoardApproval}
                 interveneLoading={interveneMutation.isPending}
                 deleteLoading={deleteMutation.isPending}
               />
@@ -771,41 +789,17 @@ export default function TasksPage() {
                     取消任务
                   </Button>
                 )}
-                {taskDetail.status === 'waiting_human' && (() => {
-                  const humanOptions: string[] = Array.isArray(taskDetail.checkpoint?.human_context?.options)
-                    ? taskDetail.checkpoint.human_context.options.filter(Boolean)
-                    : []
-
-                  if (humanOptions.length === 0) {
-                    // 无选项 → 显示通用"继续"按钮
-                    return (
-                      <Button
-                        type="primary"
-                        icon={<CheckOutlined />}
-                        onClick={() => interveneMutation.mutate({
-                          taskId: taskDetail.id,
-                          action: 'resume',
-                          version: taskDetail.version,
-                          reason: '',
-                        })}
-                        loading={interveneMutation.isPending}
-                      >
-                        继续
-                      </Button>
-                    )
-                  }
-
-                  // 有选项 → 显示批准/驳回按钮
-                  return (
-                    <>
+                {taskDetail.status === 'waiting_human' && (
+                  <div className="w-full flex flex-col gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Button
                         type="primary"
                         icon={<CheckOutlined />}
                         onClick={() => handleApprove(taskDetail)}
                         loading={interveneMutation.isPending}
-                        style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
+                        style={{ backgroundColor: APPROVAL_ACCENT, borderColor: APPROVAL_ACCENT }}
                       >
-                        批准
+                        通过
                       </Button>
                       <Button
                         danger
@@ -815,9 +809,9 @@ export default function TasksPage() {
                       >
                         驳回
                       </Button>
-                    </>
-                  )
-                })()}
+                    </div>
+                  </div>
+                )}
                 {taskDetail.status === 'failed' && (
                   <Button
                     type="primary"
@@ -869,11 +863,11 @@ export default function TasksPage() {
               : `确定驳回任务「${approvalTask?.id}」吗？任务将被标记为失败。`}
           </p>
           <div>
-            <label className="block text-sm text-[#0F172A] mb-1.5">审批意见（可选）</label>
+            <label className="block text-sm text-[#0F172A] mb-1.5">comment（可选）</label>
             <Input.TextArea
               value={approvalReason}
               onChange={(e) => setApprovalReason(e.target.value)}
-              placeholder="请输入审批意见..."
+              placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
               rows={3}
             />
           </div>

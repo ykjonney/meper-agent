@@ -1,6 +1,10 @@
 """Task API endpoints — CRUD, state transitions, intervention, stats."""
+import hashlib
+import re
+
 from fastapi import APIRouter, Depends, Query
 
+from app.core.errors import ValidationError as AppValidationError
 from app.core.security import get_current_user
 from app.models.task import TaskStatus, utc_now
 from app.schemas.common import PaginatedResponse
@@ -72,6 +76,19 @@ def _doc_to_summary(doc: dict) -> TaskSummary:
 
 
 # ── Endpoints ──
+
+
+def _sanitize_node_id(node_id: str) -> str:
+    """Sanitize a node id for use in a variables key.
+
+    Produces a collision-resistant key by combining a sanitized version of the
+    original id (so the result is still readable and expression-friendly) with a
+    short hash suffix (so distinct ids that happen to sanitize to the same
+    string do not silently overwrite each other's decisions).
+    """
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", node_id) or "node"
+    digest = hashlib.sha1(node_id.encode("utf-8")).hexdigest()[:6]
+    return f"{sanitized}_{digest}"
 
 
 @router.post(
@@ -186,8 +203,6 @@ async def intervene_task(
     valid_actions = {"approve", "reject", "skip", "cancel", "resume", "retry"}
 
     if body.action not in valid_actions:
-        from app.core.errors import ValidationError as AppValidationError
-
         raise AppValidationError(
             code="TASK_INVALID_ACTION",
             message=f"不支持的操作: {body.action}",
@@ -195,6 +210,17 @@ async def intervene_task(
 
     # Get current task document for checkpoint info
     doc = await TaskService.get_task_or_404(task_id)
+
+    # Guard: approve/reject/skip require WAITING_HUMAN. If a timeout or another
+    # actor has already moved the task out of that state, the optimistic-lock
+    # check inside transition_task will return 409 — but rejecting early with a
+    # 4xx gives a clearer signal and avoids writing variables for a decision
+    # that the workflow is no longer waiting on.
+    if body.action in {"approve", "reject", "skip"} and doc.get("status") != TaskStatus.WAITING_HUMAN.value:
+        raise AppValidationError(
+            code="TASK_NOT_WAITING_HUMAN",
+            message=f"任务当前状态为 {doc.get('status')},无法执行 {body.action}",
+        )
 
     if body.action == "approve":
         # Transition waiting_human → running
@@ -204,7 +230,7 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="approve",
-            timeline_data={"reason": body.reason or "", "action": "approve"},
+            timeline_data={"comment": body.comment or "", "action": "approve"},
         )
         # Write decision to variables
         checkpoint_data = doc.get("checkpoint", {})
@@ -212,14 +238,15 @@ async def intervene_task(
         if human_node_id:
             decision_data = {
                 "decision": "approve",
-                "reason": body.reason or "",
-                "approved_by": current_user.id,
+                "comment": body.comment or "",
+                "approver": current_user.id,
+                "decided_at": utc_now().isoformat(),
             }
             await TaskService.update_variables(
                 task_id=task_id,
-                variables={human_node_id: decision_data},
+                variables={f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data},
                 version=doc.get("version", 1),
-                reason=f"Approved by {current_user.id}",
+                reason=body.comment,
                 triggered_by=current_user.id,
             )
         # Resume workflow execution
@@ -233,7 +260,7 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="skip",
-            timeline_data={"reason": body.reason or "", "action": "skip"},
+            timeline_data={"comment": body.comment or "", "action": "skip"},
         )
         # Resume workflow execution (no decision written)
         TaskService.resume_task_execution(task_id)
@@ -246,12 +273,29 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="reject",
-            timeline_data={"reason": body.reason or "", "action": "reject"},
+            timeline_data={"comment": body.comment or "", "action": "reject"},
             error_info={
-                "error_message": f"人工驳回: {body.reason or '无原因'}",
+                "error_message": f"人工驳回: {body.comment or '无原因'}",
                 "error_code": "HUMAN_REJECTED",
             },
         )
+        # Write decision to variables
+        checkpoint_data = doc.get("checkpoint", {})
+        human_node_id = checkpoint_data.get("paused_at_node", "") if checkpoint_data else ""
+        if human_node_id:
+            decision_data = {
+                "decision": "reject",
+                "comment": body.comment or "",
+                "approver": current_user.id,
+                "decided_at": utc_now().isoformat(),
+            }
+            await TaskService.update_variables(
+                task_id=task_id,
+                variables={f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data},
+                version=doc.get("version", 1),
+                reason=body.comment,
+                triggered_by=current_user.id,
+            )
 
     elif body.action == "cancel":
         # Transition to cancelled
