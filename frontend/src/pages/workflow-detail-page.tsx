@@ -959,10 +959,10 @@ function TaskOutputFilesInline({ taskId }: { taskId: string }) {
       <ul className="mt-1 space-y-1">
         {files.map(f => {
           const previewable = getPreviewKind(f.mime_type) !== 'none'
-          const expanded = expandedId === f.id
+          const expanded = expandedId === f._id
           return (
             <li
-              key={f.id}
+              key={f._id}
               className="bg-gray-50 rounded px-2 py-1.5 text-xs border border-gray-200"
             >
               <div className="flex items-center gap-2">
@@ -980,18 +980,18 @@ function TaskOutputFilesInline({ taskId }: { taskId: string }) {
                     type="text"
                     icon={<EyeOutlined />}
                     onClick={() =>
-                      setExpandedId(expanded ? null : f.id)
+                      setExpandedId(expanded ? null : f._id)
                     }
                   >
                     {expanded ? '收起' : '预览'}
                   </Button>
                 )}
-                <FileDownloadButton fileId={f.id} filename={f.name} />
+                <FileDownloadButton fileId={f._id} filename={f.name} />
               </div>
               {expanded && (
                 <div className="mt-1">
                   <FilePreview
-                    fileId={f.id}
+                    fileId={f._id}
                     filename={f.name}
                     mime={f.mime_type}
                   />

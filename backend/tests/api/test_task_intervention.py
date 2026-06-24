@@ -1,12 +1,11 @@
 """Tests for Task intervention variables write behavior (spec-human-node-approval)."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.api.v1.tasks import _sanitize_node_id
 from app.core.security import create_access_token
 from app.schemas.user import UserResponse, UserStatus
 from fastapi.testclient import TestClient
-
 
 TASK_ID = "task_01HAPPROVAL"
 HUMAN_NODE_ID = "node_approval_1"
@@ -34,7 +33,6 @@ def current_user() -> UserResponse:
 
 
 def _override_auth(user: UserResponse):
-    from app.core.security import get_current_user
 
     async def _fake():
         return user
@@ -190,7 +188,7 @@ def test_sanitize_node_id_is_collision_resistant() -> None:
     # 这些原版 sanitize 后都是同一个 key '__5'，新实现必须产生不同 key
     candidates = ["审批-质检.5", "审批_质检_5", "审批.质检.5", "审批/质检@5", "审批!质检#5"]
     keys = [_sanitize_node_id(c) for c in candidates]
-    assert len(set(keys)) == len(candidates), f"Collision detected: {dict(zip(candidates, keys))}"
+    assert len(set(keys)) == len(candidates), f"Collision detected: {dict(zip(candidates, keys, strict=True))}"
     # 同时保留原 node_id 的人类可读部分
     for key in keys:
         assert "5" in key, f"sanitize lost content: {key}"
