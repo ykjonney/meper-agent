@@ -31,24 +31,21 @@ class BaseNodeExecutor(ABC):
 
     Subclasses must implement ``execute()``.
 
-    Story 4-15: Added optional ``task_id`` and ``user_id`` parameters so
-    the engine can pass them through to executors that need them
-    (currently :class:`AgentNodeExecutor` for task workspace creation).
-    Both default to empty string for backward compatibility with existing
-    callers and the factory function.
+    Story 4-15 (system variables refactor): Task-level context like
+    ``task_id`` and ``user_id`` is no longer injected through the
+    constructor. Instead, it is bound to the :class:`VariablePool` as
+    system variables (``variables["system"]["task_id"]`` etc.) at task
+    creation time. Executors that need these values read them from the
+    ``variables`` dict passed to ``execute()``.
     """
 
     def __init__(
         self,
         node_id: str,
         node_config: dict[str, Any],
-        task_id: str = "",
-        user_id: str = "",
     ) -> None:
         self.node_id = node_id
         self.node_config = node_config
-        self.task_id = task_id
-        self.user_id = user_id
 
     @abstractmethod
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
@@ -223,19 +220,21 @@ class AgentNodeExecutor(BaseNodeExecutor):
         if not agent_id:
             return NodeResult(success=False, output={}, error_message="agent_id 未配置")
 
-        # ── Story 4-15: Fail fast when identity is missing ──
-        # task_id and user_id are required for AgentNodeExecutor to (a)
-        # create a per-task workspace so Agent tools (write_to_output /
-        # read / write / bash) have a real write target, and (b) register
-        # any produced files to file_library with the right origin_id.
-        # Without them, tools would fall back to the dev-mode PROJECT_ROOT
-        # and produced files would be invisible to downstream nodes.
-        if not self.task_id or not self.user_id:
+        # ── Story 4-15: Read task identity from system variables ──
+        # System variables (task_id, user_id) are bound to the VariablePool
+        # at task creation time by WorkflowEngine. They are available to all
+        # nodes via variables["system"]["task_id"] etc. This is more robust
+        # than constructor injection because it works for both initial
+        # execution and checkpoint resume without special-casing.
+        sys_vars = variables.get("system", {}) or {}
+        task_id = sys_vars.get("task_id", "")
+        user_id = sys_vars.get("user_id", "")
+        if not task_id or not user_id:
             missing = []
-            if not self.task_id:
-                missing.append("task_id")
-            if not self.user_id:
-                missing.append("user_id")
+            if not task_id:
+                missing.append("system.task_id")
+            if not user_id:
+                missing.append("system.user_id")
             return NodeResult(
                 success=False,
                 output={},
@@ -358,15 +357,15 @@ class AgentNodeExecutor(BaseNodeExecutor):
         from app.engine.tool.workspace import WorkspaceManager
 
         task_workspace = WorkspaceManager.create_task_workspace(
-            self.user_id, self.task_id,
+            user_id, task_id,
         )
         workspace_token = set_workspace_context(task_workspace)
         node_start_ts = _time.time()
         logger.info(
             "agent_node_workspace_set",
             node_id=self.node_id,
-            task_id=self.task_id,
-            user_id=self.user_id,
+            task_id=task_id,
+            user_id=user_id,
             workspace_root=str(task_workspace.root),
         )
 
@@ -402,6 +401,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     #    等通过 contextvars 落到本 task 专属 output/）。
                     registered_files = await self._register_task_output_files(
                         task_workspace, node_start_ts,
+                        task_id=task_id, user_id=user_id,
                     )
 
                     # 合并去重（registered 优先，保留最新的 file_id/大小/路径）
@@ -491,6 +491,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
         self,
         task_workspace: Any,
         node_start_ts: float,
+        *,
+        task_id: str,
+        user_id: str,
     ) -> list[dict[str, Any]]:
         """Register files newly created in the task workspace to file_library.
 
@@ -522,7 +525,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
         existing_cursor = file_service._file_refs().find(
             {
                 "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
-                "origin_id": self.task_id,
+                "origin_id": task_id,
             },
             {"sha256": 1, "_id": 0},
         )
@@ -565,9 +568,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     data=data,
                     filename=path.name,
                     mime_type=mime_type,
-                    owner_user_id=self.user_id,
+                    owner_user_id=user_id,
                     origin_kind=FileConsumerKind.WORKFLOW_RUN,
-                    origin_id=self.task_id,
+                    origin_id=task_id,
                 )
             except Exception as exc:  # noqa: BLE001 — surface but don't crash node
                 logger.error(
@@ -589,7 +592,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
             logger.info(
                 "agent_node_file_registered",
                 node_id=self.node_id,
-                task_id=self.task_id,
+                task_id=task_id,
                 file_id=fref.id,
                 name=fref.name,
                 size=fref.size,
@@ -1018,14 +1021,13 @@ def get_node_executor(
     node_type: str,
     node_id: str,
     node_config: dict[str, Any],
-    task_id: str = "",
-    user_id: str = "",
 ) -> BaseNodeExecutor:
     """Factory: return the appropriate executor for *node_type*.
 
-    Story 4-15: Passes through ``task_id`` and ``user_id`` to the
-    executor constructor for executors that need them (currently
-    :class:`AgentNodeExecutor` for task workspace creation).
+    Story 4-15 (system variables refactor): Task-level context
+    (task_id, user_id) is no longer threaded through the factory or
+    executor constructors. Executors that need these values read them
+    from the ``variables`` dict passed to ``execute()``.
 
     Raises ``ValueError`` for unknown node types.
     """
@@ -1039,9 +1041,9 @@ def get_node_executor(
             from app.engine.workflow.nodes.human import HumanNodeExecutor
             _human_executor_cls = HumanNodeExecutor
         return _human_executor_cls(
-            node_id=node_id, node_config=node_config, task_id=task_id, user_id=user_id,
+            node_id=node_id, node_config=node_config,
         )
 
     return cls(
-        node_id=node_id, node_config=node_config, task_id=task_id, user_id=user_id,
+        node_id=node_id, node_config=node_config,
     )  # type: ignore[return-value]

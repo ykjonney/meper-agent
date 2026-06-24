@@ -174,7 +174,7 @@ class TaskService:
         async def _run() -> None:
             try:
                 engine = WorkflowEngine()
-                await engine.resume_from_checkpoint(task_id)
+                await engine.run_and_persist(task_id)
             except Exception as exc:
                 logger.error(
                     "workflow_engine_resume_error",

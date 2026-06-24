@@ -204,3 +204,93 @@ const defaults: VariableDefinition[] = [
 - Task 完成时 cascade 清理 file_library
 - 旧 session workspace 的 Agent 文件迁移（确认无旧数据需要搬）
 - 工具契约统一（`{file_ref, status}` schema）— 旧设计，与 builtin 工具实际行为不符，**不实现**
+
+---
+
+## 系统变量架构重构（2026-06-24 追加）
+
+### 背景
+
+初始实现通过 `BaseNodeExecutor.__init__(task_id=..., user_id=...)` 把 Task 身份信息通过构造函数逐层注入（WorkflowEngine → get_node_executor → BaseNodeExecutor → AgentNodeExecutor）。这带来两个问题：
+
+1. **`resume_from_checkpoint` bug**：该方法只设置了 `self._task_id` 但遗漏了 `self._user_id`，导致 Agent 节点在 Human 审批恢复后报错「缺少执行身份: user_id」。
+2. **架构问题**：Task 级身份（task_id、user_id）是**所有节点都可能需要**的上下文，不应该靠构造函数逐层透传。每个新的入口方法（如 `resume_from_checkpoint`）都要单独记得设置这些字段，容易遗漏。
+
+### 方案
+
+Task 级上下文作为**系统变量**在 `VariablePool` 初始化时一次性绑定，所有节点通过 `variables["system"]["task_id"]` 等路径访问。
+
+```python
+# WorkflowEngine.execute_task / resume_from_checkpoint
+self._pool = VariablePool(
+    initial={
+        "input": task_doc.get("input", {}),
+        "system": {
+            "task_id": task_doc["_id"],
+            "user_id": task_doc.get("created_by", ""),
+            "workflow_id": workflow_doc.get("_id", ""),
+        },
+    }
+)
+```
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `backend/app/engine/workflow/engine.py` | `execute_task` 和 `resume_from_checkpoint` 在初始化 VariablePool 时注入 `system` 变量；删除 `self._user_id` 字段；`_execute_node` 不再向 `get_node_executor` 传递 task_id/user_id |
+| `backend/app/engine/workflow/node_executor.py` | `BaseNodeExecutor.__init__` 去掉 `task_id` / `user_id` 参数；`AgentNodeExecutor.execute` 改为从 `variables["system"]` 读取；`get_node_executor` 工厂函数去掉两个参数；`_register_task_output_files` 签名改为显式接收 `task_id` / `user_id` 关键字参数 |
+| `backend/tests/engine/workflow/test_node_executors.py` | 所有 AgentNodeExecutor 测试：构造去掉 task_id/user_id；execute() 改为传 `{"system": {...}}`；身份缺失测试改为断言 `"system.task_id"` |
+
+### 兼容性
+
+- **旧 checkpoint 兼容**：`resume_from_checkpoint` 用 `setdefault` 为旧 snapshot 补上 `system` 字段，无需数据迁移。
+- **向后兼容**：其他节点类型（Start / End / Tool / Gateway / Human / Subflow）不受影响 — 它们本来就不用 task_id/user_id。
+
+### 收益
+
+1. **Bug 修复**：`resume_from_checkpoint` 不再遗漏 user_id（根本性解决）。
+2. **架构简化**：Task 上下文集中在一处绑定，新增入口方法无需重复注入。
+3. **可扩展**：未来节点如需其他 Task 级信息（如 workflow_id），只需在 `system` 字典中加一项。
+4. **表达式可访问**：用户可在节点配置模板中用 `{{system.task_id}}` 等引用 Task 身份。
+
+---
+
+## 沙盒降级 subprocess 后的路径翻译（2026-06-24 追加）
+
+### 背景
+
+当 `SANDBOX_ENABLED=true` 但 Docker daemon 未运行时（本地开发常见），`SandboxExecutor` 会捕获 `_DockerUnavailableError` 并降级到 subprocess 执行。但此时 LLM 已经被 skill 加载器告知使用容器内路径（`/data/skills/...`），生成的 bash 命令在 host 上找不到路径，导致：
+
+- `cd /data/skills/xxx` → 目录不存在 → 退出码 1
+- `find / -name "xxx"` → 全盘搜索 120 秒超时
+
+### 修复
+
+在 `SandboxExecutor._execute_subprocess` 中新增路径翻译：把命令中的容器路径替换为 host 路径。
+
+```python
+# sandbox.py: _execute_subprocess
+command = self._translate_container_paths(command, workspace)
+```
+
+新方法 `_translate_container_paths` 翻译两类路径：
+
+| 容器路径 | host 路径 |
+|---|---|
+| `SANDBOX_CONTAINER_SKILLS_DIR`（`/data/skills`）| `SKILLS_CONTAINER_DIR`（`~/.agent-flow/skills`）|
+| `SANDBOX_CONTAINER_WORKSPACE_DIR`（`/workspace`）| `workspace.root`（`~/.agent-flow/workspaces/...`）|
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `backend/app/engine/tool/sandbox.py` | `_execute_subprocess` 调用新的 `_translate_container_paths`；新增静态方法 |
+| `backend/tests/engine/tool/test_sandbox.py` | 新测试文件，5 个测试覆盖各种路径翻译场景 |
+
+### 兼容性
+
+- **无 Docker 场景**：`SANDBOX_ENABLED=false` 时本来就用 host 路径，翻译是 no-op
+- **Docker 正常运行场景**：命令仍然发到容器内，容器内路径正确，不经过 `_translate_container_paths`
+- **路径相同场景**：本地开发若 `SKILLS_CONTAINER_DIR == SANDBOX_CONTAINER_SKILLS_DIR`，翻译是 no-op
+

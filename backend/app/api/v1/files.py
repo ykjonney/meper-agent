@@ -34,9 +34,18 @@ def get_file_service() -> FileService:
 async def _get_owner_file(
     svc: FileService, file_id: str, owner_user_id: str
 ) -> FileRef:
-    """获取文件并验证所有权，不存在或非 owner 返回 404。"""
+    """获取文件并验证所有权，不存在或非 owner 返回 404。
+
+    Story 4-15: 如果文件的 owner_user_id 是 "agent"（chat agent 创建），
+    允许任何已认证用户访问（这些文件是 task 的公共产物）。
+    """
     file_ref = await svc.get(file_id)
-    if file_ref is None or file_ref.owner_user_id != owner_user_id:
+    if file_ref is None:
+        raise NotFoundError(
+            code="FILE_NOT_FOUND", message=f"文件 {file_id} 不存在"
+        )
+    # agent 创建的文件允许任何用户访问
+    if file_ref.owner_user_id != "agent" and file_ref.owner_user_id != owner_user_id:
         raise NotFoundError(
             code="FILE_NOT_FOUND", message=f"文件 {file_id} 不存在"
         )

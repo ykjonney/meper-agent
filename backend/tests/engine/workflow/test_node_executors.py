@@ -191,7 +191,7 @@ class TestStartNodeExecutor:
             mime_type="text/csv",
             sha256="deadbeef",
             origin_kind=FileConsumerKind.USER_LIBRARY,
-            origin_id="user_X",
+            origin_id="user_X"
         )
         config = {
             "output_variables": [
@@ -312,7 +312,7 @@ class TestAgentNodeExecutor:
     @pytest.mark.asyncio
     async def test_missing_agent_id(self) -> None:
         executor = AgentNodeExecutor("agent_1", {})
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert not result.success
         assert "agent_id" in result.error_message
 
@@ -328,17 +328,16 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         _mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(return_value=None)
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_1", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert not result.success
         assert "不存在" in result.error_message
 
@@ -354,11 +353,11 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -374,15 +373,14 @@ class TestAgentNodeExecutor:
         mock_ws_mgr.create_task_workspace.return_value = mock_ws
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_1", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert result.success
         assert result.output["response"] == "response text"
         assert result.output["files"] == []
         mock_ws_mgr.create_task_workspace.assert_called_once_with(
-            "user_alice", "task_1",
+            "user_alice", "task_1"
         )
 
     @pytest.mark.asyncio
@@ -397,11 +395,11 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -416,11 +414,9 @@ class TestAgentNodeExecutor:
 
         executor = AgentNodeExecutor(
             "agent_1",
-            {"agent_id": "agent_xxx", "timeout_ms": 100},
-            task_id="task_1",
-            user_id="user_alice",
+            {"agent_id": "agent_xxx", "timeout_ms": 100}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert not result.success
         assert "超时" in result.error_message
 
@@ -436,11 +432,11 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -466,11 +462,9 @@ class TestAgentNodeExecutor:
 
         executor = AgentNodeExecutor(
             "agent_1",
-            {"agent_id": "agent_xxx", "max_retry": 1, "retry_delay_ms": 10},
-            task_id="task_1",
-            user_id="user_alice",
+            {"agent_id": "agent_xxx", "max_retry": 1, "retry_delay_ms": 10}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert result.success
         assert result.output["response"] == "ok"
 
@@ -486,11 +480,11 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -505,11 +499,9 @@ class TestAgentNodeExecutor:
 
         executor = AgentNodeExecutor(
             "agent_1",
-            {"agent_id": "agent_xxx", "max_retry": 2, "retry_delay_ms": 10},
-            task_id="task_1",
-            user_id="user_alice",
+            {"agent_id": "agent_xxx", "max_retry": 2, "retry_delay_ms": 10}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert not result.success
         assert "persistent error" in result.error_message
 
@@ -525,11 +517,11 @@ class TestAgentNodeExecutor:
         _mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -543,10 +535,9 @@ class TestAgentNodeExecutor:
         mock_ws_mgr.create_task_workspace.return_value = mock_ws
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_1", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
         assert not result.success
         assert "LLM crashed" in result.error_message
 
@@ -573,19 +564,19 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         """set_workspace_context is called with the task workspace; reset is
         called in the finally block, even on success."""
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(
-            return_value={"messages": [{"role": "assistant", "content": "done"}]},
+            return_value={"messages": [{"role": "assistant", "content": "done"}]}
         )
         mock_build.return_value = mock_graph
 
@@ -599,15 +590,14 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_file_svc_cls.return_value = mock_file_svc
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_1", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
 
         assert result.success
         # Workspace was created with the right identity.
         mock_ws_mgr.create_task_workspace.assert_called_once_with(
-            "user_alice", "task_1",
+            "user_alice", "task_1"
         )
         # set_workspace_context was called with the task workspace.
         mock_set.assert_called_once_with(mock_ws)
@@ -629,7 +619,7 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
         mock_db: MagicMock,
-        tmp_path: Path,
+        tmp_path: Path
     ) -> None:
         """Files newer than node_start_ts are registered as file_refs.
 
@@ -640,7 +630,7 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         """
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -673,10 +663,9 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_file_svc_cls.return_value = mock_file_svc
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_2", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_2", "user_id": "user_alice"}})
 
         assert result.success
         # File was registered.
@@ -705,7 +694,7 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
         mock_db: MagicMock,
-        tmp_path: Path,
+        tmp_path: Path
     ) -> None:
         """Files with mtime before node_start_ts are NOT registered."""
         import os
@@ -713,13 +702,13 @@ class TestAgentNodeExecutorWithTaskWorkspace:
 
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(
-            return_value={"messages": [{"role": "assistant", "content": "ok"}]},
+            return_value={"messages": [{"role": "assistant", "content": "ok"}]}
         )
         mock_build.return_value = mock_graph
 
@@ -741,10 +730,9 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_file_svc_cls.return_value = mock_file_svc
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_3", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
 
         assert result.success
         # create() must not have been called.
@@ -767,20 +755,20 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
         mock_db: MagicMock,
-        tmp_path: Path,
+        tmp_path: Path
     ) -> None:
         """Files whose sha256 already exists in file_refs are skipped."""
         import hashlib
 
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(
-            return_value={"messages": [{"role": "assistant", "content": "ok"}]},
+            return_value={"messages": [{"role": "assistant", "content": "ok"}]}
         )
         mock_build.return_value = mock_graph
 
@@ -797,16 +785,15 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         # Pre-existing file_ref with same sha256 → must be skipped.
         mock_file_svc = MagicMock()
         mock_file_svc._file_refs.return_value.find.return_value.to_list = AsyncMock(
-            return_value=[{"sha256": existing_sha}],
+            return_value=[{"sha256": existing_sha}]
         )
         mock_file_svc.create = AsyncMock()
         mock_file_svc_cls.return_value = mock_file_svc
 
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"},
-            task_id="task_4", user_id="user_alice",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
 
         assert result.success
         mock_file_svc.create.assert_not_called()
@@ -826,12 +813,12 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         mock_set: MagicMock,
         mock_ws_mgr: MagicMock,
         mock_build: AsyncMock,
-        mock_db: MagicMock,
+        mock_db: MagicMock
     ) -> None:
         """reset_workspace_context is called even when ainvoke raises."""
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -851,11 +838,9 @@ class TestAgentNodeExecutorWithTaskWorkspace:
 
         executor = AgentNodeExecutor(
             "agent_1",
-            {"agent_id": "agent_xxx", "max_retry": 0},
-            task_id="task_5",
-            user_id="user_alice",
+            {"agent_id": "agent_xxx", "max_retry": 0}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
 
         assert not result.success
         # Context was still reset.
@@ -867,18 +852,18 @@ class TestAgentNodeExecutorWithTaskWorkspace:
         executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx"})
         result = await executor.execute({})
         assert not result.success
-        assert "task_id" in result.error_message
-        assert "user_id" in result.error_message
+        assert "system.task_id" in result.error_message
+        assert "system.user_id" in result.error_message
 
     @pytest.mark.asyncio
     async def test_missing_user_id_only_returns_error(self) -> None:
         """user_id missing alone still fails fast."""
         executor = AgentNodeExecutor(
-            "agent_1", {"agent_id": "agent_xxx"}, task_id="task_x",
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_x"}})
         assert not result.success
-        assert "user_id" in result.error_message
+        assert "system.user_id" in result.error_message
 
 
 # ── ToolNodeExecutor ──
@@ -909,7 +894,7 @@ class TestToolNodeExecutor:
     async def test_non_mcp_tool(self, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "markdown", "description": "desc", "instructions": "do stuff"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "markdown", "description": "desc", "instructions": "do stuff"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -925,7 +910,7 @@ class TestToolNodeExecutor:
     async def test_mcp_normal(self, mock_db: MagicMock, mock_cache: AsyncMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -945,7 +930,7 @@ class TestToolNodeExecutor:
     async def test_mcp_timeout(self, mock_db: MagicMock, mock_cache: AsyncMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -965,20 +950,20 @@ class TestToolNodeExecutor:
     async def test_mcp_retry_success(self, mock_db: MagicMock, mock_cache: AsyncMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
         mock_tool = MagicMock()
         mock_tool.name = "my_tool"
         mock_tool.ainvoke = AsyncMock(
-            side_effect=[TimeoutError(), {"data": "ok"}],
+            side_effect=[TimeoutError(), {"data": "ok"}]
         )
         mock_cache.return_value = [mock_tool]
 
         executor = ToolNodeExecutor(
             "tool_1",
-            {"tool_id": "tool_xxx", "timeout_ms": 100, "retry_policy": {"max_retries": 1, "backoff_ms": 10}},
+            {"tool_id": "tool_xxx", "timeout_ms": 100, "retry_policy": {"max_retries": 1, "backoff_ms": 10}}
         )
         result = await executor.execute({})
         assert result.success
@@ -990,7 +975,7 @@ class TestToolNodeExecutor:
     async def test_mcp_retry_exhausted(self, mock_db: MagicMock, mock_cache: AsyncMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp", "mcp_connection_id": "conn_1"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
@@ -1001,7 +986,7 @@ class TestToolNodeExecutor:
 
         executor = ToolNodeExecutor(
             "tool_1",
-            {"tool_id": "tool_xxx", "timeout_ms": 100, "retry_policy": {"max_retries": 2, "backoff_ms": 10}},
+            {"tool_id": "tool_xxx", "timeout_ms": 100, "retry_policy": {"max_retries": 2, "backoff_ms": 10}}
         )
         result = await executor.execute({})
         assert not result.success
@@ -1012,7 +997,7 @@ class TestToolNodeExecutor:
     async def test_mcp_missing_connection_id(self, mock_db: MagicMock) -> None:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp"},
+            return_value={"_id": "tool_xxx", "name": "my_tool", "source": "mcp"}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 

@@ -33,14 +33,16 @@ class WorkflowEngine:
         engine = WorkflowEngine()
         result = await engine.execute_task(task_doc, workflow_doc)
 
-    Story 4-15: The engine now tracks ``user_id`` (Task owner) and passes
-    ``task_id`` + ``user_id`` to node executors so executors that need
-    them (e.g. :class:`AgentNodeExecutor`) can locate the right workspace.
+    Story 4-15: Task-level context (task_id, user_id, workflow_id) is
+    injected into the :class:`VariablePool` as system variables at task
+    creation time, so all nodes can access them via
+    ``variables["system"]["task_id"]`` etc. This also ensures that
+    ``resume_from_checkpoint`` works without needing to separately
+    track ``user_id`` on the engine instance.
     """
 
     def __init__(self) -> None:
         self._task_id: str = ""
-        self._user_id: str = ""
         self._pool: VariablePool | None = None
         self._nodes: list[dict[str, Any]] = []
         self._node_map: dict[str, dict[str, Any]] = {}
@@ -123,11 +125,6 @@ class WorkflowEngine:
             Final variable pool snapshot (or partial snapshot on failure).
         """
         self._task_id = task_doc["_id"]
-        # Story 4-15: capture owner user_id so node executors can locate
-        # per-task workspace. Falls back to empty string if the field is
-        # missing (e.g. legacy task docs); executors that need it (like
-        # AgentNodeExecutor) will fail fast and report a clear error.
-        self._user_id = task_doc.get("created_by", "")
         self._nodes = workflow_doc.get("nodes", [])
         self._node_map = {n["node_id"]: n for n in self._nodes}
         self._edges = workflow_doc.get("edges", [])
@@ -145,7 +142,20 @@ class WorkflowEngine:
         self._migrate_edges_to_next_nodes()
 
         # Initialise variable pool
-        self._pool = VariablePool(initial={"input": task_doc.get("input", {})})
+        # Story 4-15: Inject task-level system variables so that all nodes
+        # can access task_id / user_id / workflow_id via variables['system'].
+        # This replaces the old per-entry-point constructor injection via
+        # BaseNodeExecutor(task_id=..., user_id=...).
+        self._pool = VariablePool(
+            initial={
+                "input": task_doc.get("input", {}),
+                "system": {
+                    "task_id": task_doc["_id"],
+                    "user_id": task_doc.get("created_by", ""),
+                    "workflow_id": workflow_doc.get("_id", ""),
+                },
+            }
+        )
         self._completed_nodes.clear()
 
         # Mark Task as running
@@ -308,7 +318,15 @@ class WorkflowEngine:
         self._completed_nodes.add(paused_node_id)
 
         # Restore variable pool
+        # Story 4-15: Ensure system variables are present in the pool even
+        # for checkpoints saved before system variables were introduced.
+        # This also fixes the bug where resume_from_checkpoint didn't set
+        # self._user_id, causing AgentNodeExecutor to fail.
         variable_snapshot = checkpoint_data.get("variable_snapshot", {})
+        variable_snapshot.setdefault("system", {})
+        variable_snapshot["system"].setdefault("task_id", task_id)
+        variable_snapshot["system"].setdefault("user_id", task_doc.get("created_by", ""))
+        variable_snapshot["system"].setdefault("workflow_id", workflow_id)
         self._pool = VariablePool(initial=variable_snapshot)
 
         logger.info(
@@ -479,12 +497,11 @@ class WorkflowEngine:
             data={"node_id": node_id, "node_type": node_type},
         )
 
-        # Get executor — Story 4-15: pass task_id + user_id so executors
-        # that need them (AgentNodeExecutor) can locate the task workspace.
+        # Get executor — system variables (task_id, user_id, etc.) are
+        # available via the variable pool; no need to thread them through
+        # the executor constructor.
         executor = get_node_executor(
             node_type, node_id, node_config,
-            task_id=self._task_id,
-            user_id=self._user_id,
         )
 
         # Resolve config expressions before execution

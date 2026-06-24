@@ -33,6 +33,8 @@ import {
   PlayCircleOutlined,
   HistoryOutlined,
   ExclamationCircleOutlined,
+  EyeOutlined,
+  FileOutlined,
 } from '@ant-design/icons'
 import {
   workflowsApi,
@@ -42,6 +44,10 @@ import {
 } from '../services/workflows-api'
 import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
+import { tasksApi, type TaskOutputFile } from '../services/tasks-api'
+import FileDownloadButton from '../components/file-download-button'
+import FilePreview from '../components/file-preview'
+import { getPreviewKind } from '../lib/file-preview'
 
 /* ─── Workflow Editor 组件 ─── */
 import WorkflowCanvas from '../features/workflow-editor/WorkflowCanvas'
@@ -394,6 +400,11 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
                       {JSON.stringify(result.output, null, 2)}
                     </pre>
                   </div>
+                )}
+
+                {/* Story 4-15-UI: 输出文件列表（Agent 节点产物，仅 completed 状态拉取） */}
+                {result.status === 'completed' && (
+                  <TaskOutputFilesInline taskId={result.taskId} />
                 )}
               </div>
             }
@@ -900,4 +911,103 @@ export default function WorkflowDetailPage() {
 
     </div>
   )
+}
+
+/**
+ * TaskOutputFilesInline — 列出 task 的输出文件，每项支持就地折叠预览。
+ *
+ * 与 TaskResultCard 中的 TaskOutputFiles 同构（plan v2 决策：不复用公共组件）。
+ * Story 4-15-UI
+ */
+function TaskOutputFilesInline({ taskId }: { taskId: string }) {
+  const [files, setFiles] = useState<TaskOutputFile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        const list = await tasksApi.listOutputs(taskId)
+        if (!cancelled) setFiles(list)
+      } catch (err) {
+        console.error('[list_task_outputs]', err)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [taskId])
+
+  if (loading) {
+    return (
+      <div className="mt-2 text-xs text-[#64748B]">
+        <Spin size="small" className="mr-1" />
+        加载输出文件…
+      </div>
+    )
+  }
+
+  if (files.length === 0) return null
+
+  return (
+    <div className="mt-2">
+      <span className="text-[#64748B] text-xs">输出文件 ({files.length}):</span>
+      <ul className="mt-1 space-y-1">
+        {files.map(f => {
+          const previewable = getPreviewKind(f.mime_type) !== 'none'
+          const expanded = expandedId === f.id
+          return (
+            <li
+              key={f.id}
+              className="bg-gray-50 rounded px-2 py-1.5 text-xs border border-gray-200"
+            >
+              <div className="flex items-center gap-2">
+                <FileOutlined className="text-gray-500" />
+                <span
+                  className="flex-1 truncate text-gray-700"
+                  title={f.name}
+                >
+                  {f.name}
+                </span>
+                <span className="text-gray-400">{formatSize(f.size)}</span>
+                {previewable && (
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<EyeOutlined />}
+                    onClick={() =>
+                      setExpandedId(expanded ? null : f.id)
+                    }
+                  >
+                    {expanded ? '收起' : '预览'}
+                  </Button>
+                )}
+                <FileDownloadButton fileId={f.id} filename={f.name} />
+              </div>
+              {expanded && (
+                <div className="mt-1">
+                  <FilePreview
+                    fileId={f.id}
+                    filename={f.name}
+                    mime={f.mime_type}
+                  />
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+/** 本地小工具 — 字节数转人类可读字符串 */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

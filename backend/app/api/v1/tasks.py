@@ -399,11 +399,10 @@ async def list_task_outputs(
     (``{workspaces_root}/{user_id}/tasks/{task_id}/output/``) and register
     them in ``file_library`` with ``origin_kind=workflow_run`` and
     ``origin_id=task_id``. This endpoint returns the registered files in
-    newest-first order, scoped to the requesting user.
+    newest-first order.
 
     The task is loaded first to confirm it exists and to authorize the
-    caller; files are then filtered by ``owner_user_id`` to prevent
-    cross-user leakage.
+    caller; files are scoped by ``origin_id=task_id`` to the specific task.
     """
     from app.models.file_library import FileConsumerKind
     from app.services.file_service import FileService
@@ -417,7 +416,6 @@ async def list_task_outputs(
         {
             "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
             "origin_id": task_id,
-            "owner_user_id": current_user.id,
         },
     ).sort("created_at", -1)
     docs = await cursor.to_list(length=None)
