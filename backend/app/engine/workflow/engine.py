@@ -32,10 +32,15 @@ class WorkflowEngine:
 
         engine = WorkflowEngine()
         result = await engine.execute_task(task_doc, workflow_doc)
+
+    Story 4-15: The engine now tracks ``user_id`` (Task owner) and passes
+    ``task_id`` + ``user_id`` to node executors so executors that need
+    them (e.g. :class:`AgentNodeExecutor`) can locate the right workspace.
     """
 
     def __init__(self) -> None:
         self._task_id: str = ""
+        self._user_id: str = ""
         self._pool: VariablePool | None = None
         self._nodes: list[dict[str, Any]] = []
         self._node_map: dict[str, dict[str, Any]] = {}
@@ -118,6 +123,11 @@ class WorkflowEngine:
             Final variable pool snapshot (or partial snapshot on failure).
         """
         self._task_id = task_doc["_id"]
+        # Story 4-15: capture owner user_id so node executors can locate
+        # per-task workspace. Falls back to empty string if the field is
+        # missing (e.g. legacy task docs); executors that need it (like
+        # AgentNodeExecutor) will fail fast and report a clear error.
+        self._user_id = task_doc.get("created_by", "")
         self._nodes = workflow_doc.get("nodes", [])
         self._node_map = {n["node_id"]: n for n in self._nodes}
         self._edges = workflow_doc.get("edges", [])
@@ -469,8 +479,13 @@ class WorkflowEngine:
             data={"node_id": node_id, "node_type": node_type},
         )
 
-        # Get executor
-        executor = get_node_executor(node_type, node_id, node_config)
+        # Get executor — Story 4-15: pass task_id + user_id so executors
+        # that need them (AgentNodeExecutor) can locate the task workspace.
+        executor = get_node_executor(
+            node_type, node_id, node_config,
+            task_id=self._task_id,
+            user_id=self._user_id,
+        )
 
         # Resolve config expressions before execution
         variables = self._pool.get_all() if self._pool else {}

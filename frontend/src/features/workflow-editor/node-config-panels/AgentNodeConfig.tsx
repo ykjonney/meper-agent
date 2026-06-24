@@ -10,7 +10,7 @@
  * 这些由 Agent 自身的配置决定。
  * 工作流中的行为约束（如"禁止反问"）应在 Agent 自身的 constraints 卡槽中配置。
  */
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Select, Input, Spin } from 'antd'
 import { agentApi, agentKeys } from '../../../services/agent-api'
@@ -33,33 +33,69 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
   })
 
   const agents = agentsData?.items ?? []
+  const agentsById = new Map(agents.map((a) => [a.id, a] as const))
   const agentOptions = agents.map((a) => ({
     value: a.id,
-    label: `${a.name} (${a.id.substring(0, 8)}...)`,
+    label: a.name,
   }))
 
-  // 输出变量：初始化时提供默认值
+  // 输出变量：智能合并系统默认变量
+  //
+  // 策略：每次节点 ID 变化时，扫描 output_variables：
+  //   1. 缺失的系统默认变量（如 files）→ 自动补齐
+  //   2. 已存在的系统默认变量 → 升级 readonly = true（覆盖可能存在的旧值）
+  //   3. 用户自定义变量（不在系统白名单内）→ 原样保留
+  //
+  // 这样存量数据（v2 之前生成的）打开面板时也能"自我升级"，
+  // 不会破坏用户已有的自定义变量。
   const outputVariables = (config.output_variables as VariableDefinition[]) ?? []
-  const [initialized, setInitialized] = useState(false)
+
+  // 系统默认变量注册表（用 useMemo 稳定引用，避免 useEffect 重复触发）
+  const SYSTEM_DEFAULT_VARIABLES = useMemo<VariableDefinition[]>(() => [
+    {
+      name: 'response',
+      label: 'Agent 响应',
+      type: 'text' as VariableTypeName,
+      constraints: {},
+      description: 'Agent 的输出文本',
+      readonly: true,
+    },
+    {
+      name: 'files',
+      label: '生成文件',
+      type: 'file' as VariableTypeName,
+      constraints: { multiple: true, allowed_extensions: [], max_size_mb: null },
+      description: 'Agent 工具生成的文件列表（如 Excel/PDF/CSV）',
+      readonly: true,
+    },
+  ], [])
 
   useEffect(() => {
-    if (!initialized && (!config.output_variables || !Array.isArray(config.output_variables) || (config.output_variables as VariableDefinition[]).length === 0)) {
-      const defaults: VariableDefinition[] = [
-        {
-          name: 'response',
-          label: 'Agent 响应',
-          type: 'text' as VariableTypeName,
-          constraints: {},
-          description: 'Agent 的输出文本',
-        },
-      ]
-      onChange({ ...config, output_variables: defaults })
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setInitialized(true)
-    } else if (!initialized) {
-      setInitialized(true)
+    const existing = (config.output_variables as VariableDefinition[] | undefined) ?? []
+
+    // 计算需要补齐的系统默认变量（在 SYSTEM_DEFAULT_VARIABLES 但不在 existing）
+    const missing = SYSTEM_DEFAULT_VARIABLES.filter(
+      (sv) => !existing.some((ev) => ev.name === sv.name),
+    )
+
+    // 计算需要升级 readonly 的系统默认变量（已存在但 readonly !== true）
+    const upgraded = existing.map((ev) => {
+      const sysVar = SYSTEM_DEFAULT_VARIABLES.find((sv) => sv.name === ev.name)
+      if (sysVar && ev.readonly !== true) {
+        return { ...ev, readonly: true }
+      }
+      return ev
+    })
+
+    // 没有变化则不触发 onChange（避免无限循环）
+    if (missing.length === 0 && JSON.stringify(upgraded) === JSON.stringify(existing)) {
+      return
     }
-  }, [initialized, config, onChange])
+
+    // 合并：先放已有的（升级后），再补缺失的
+    const merged: VariableDefinition[] = [...upgraded, ...missing]
+    onChange({ ...config, output_variables: merged })
+  }, [currentNodeId, config, onChange, SYSTEM_DEFAULT_VARIABLES])
 
   const handleOutputVariablesChange = (variables: VariableDefinition[]) => {
     onChange({ ...config, output_variables: variables })
@@ -86,7 +122,14 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           <Select
             className="w-full"
             value={config.agent_id as string || undefined}
-            onChange={(val) => onChange({ ...config, agent_id: val })}
+            onChange={(val) => {
+              const agent = agentsById.get(val)
+              onChange({
+                ...config,
+                agent_id: val,
+                agent_name: agent?.name ?? '',
+              })
+            }}
             options={agentOptions}
             placeholder="选择 Agent..."
             showSearch

@@ -24,6 +24,8 @@ export interface VariableDefinition {
   description?: string
   /** 是否必填 */
   required?: boolean
+  /** 系统默认变量：只读，用户不可编辑/删除 */
+  readonly?: boolean
 }
 
 /* ─── 约束字段描述 ─── */

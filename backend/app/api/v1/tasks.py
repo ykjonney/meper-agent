@@ -8,6 +8,7 @@ from app.core.errors import ValidationError as AppValidationError
 from app.core.security import get_current_user
 from app.models.task import TaskStatus, utc_now
 from app.schemas.common import PaginatedResponse
+from app.schemas.file_library import FileRefResponse
 from app.schemas.task import (
     TaskCreate,
     TaskIntervene,
@@ -381,3 +382,45 @@ async def list_task_audit_logs(
         page_size=limit,
         items=logs,
     )
+
+
+@router.get(
+    "/{task_id}/outputs",
+    response_model=list[FileRefResponse],
+    summary="List Task output files",
+)
+async def list_task_outputs(
+    task_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> list[dict]:
+    """List files produced by an Agent node during Task execution.
+
+    Story 4-15: Agent nodes write their output files to a per-task workspace
+    (``{workspaces_root}/{user_id}/tasks/{task_id}/output/``) and register
+    them in ``file_library`` with ``origin_kind=workflow_run`` and
+    ``origin_id=task_id``. This endpoint returns the registered files in
+    newest-first order, scoped to the requesting user.
+
+    The task is loaded first to confirm it exists and to authorize the
+    caller; files are then filtered by ``owner_user_id`` to prevent
+    cross-user leakage.
+    """
+    from app.models.file_library import FileConsumerKind
+    from app.services.file_service import FileService
+    from app.services.file_storage import LocalFileStorage
+
+    # 404 if the task itself doesn't exist — clearer signal than an empty list.
+    await TaskService.get_task_or_404(task_id)
+
+    file_service = FileService(LocalFileStorage())
+    cursor = file_service._file_refs().find(
+        {
+            "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
+            "origin_id": task_id,
+            "owner_user_id": current_user.id,
+        },
+    ).sort("created_at", -1)
+    docs = await cursor.to_list(length=None)
+    # Return as dicts so FastAPI can serialize them with the FileRefResponse
+    # schema (Pydantic handles the _id → id alias from MongoDB).
+    return [FileRefResponse.model_validate(doc).model_dump(mode="json") for doc in docs]

@@ -53,17 +53,10 @@ function getNodeSummary(type: string, config: Record<string, unknown>): string {
     }
     case 'agent': {
       const agentId = config.agent_id as string | undefined
-      const query = config.input_query as string | undefined
-      if (agentId && query) {
-        const shortQuery = query.length > 25 ? `${query.slice(0, 25)}...` : query
-        return `Agent: ${agentId.slice(0, 8)}.. | ${shortQuery}`
-      }
-      if (agentId) return `Agent: ${agentId.slice(0, 8)}.. | 未填写查询`
-      if (query) {
-        const shortQuery = query.length > 25 ? `${query.slice(0, 25)}...` : query
-        return `查询: ${shortQuery}`
-      }
-      return '请选择 Agent 并填写查询'
+      const agentName = config.agent_name as string | undefined
+      if (agentName) return agentName
+      if (agentId) return `Agent: ${agentId.slice(0, 8)}..`
+      return '请选择 Agent'
     }
     case 'tool': {
       const toolId = config.tool_id as string | undefined

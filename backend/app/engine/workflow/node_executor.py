@@ -6,6 +6,7 @@ The ``WorkflowEngine`` selects the appropriate executor based on node type.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -29,11 +30,25 @@ class BaseNodeExecutor(ABC):
     """Abstract base for all workflow node executors.
 
     Subclasses must implement ``execute()``.
+
+    Story 4-15: Added optional ``task_id`` and ``user_id`` parameters so
+    the engine can pass them through to executors that need them
+    (currently :class:`AgentNodeExecutor` for task workspace creation).
+    Both default to empty string for backward compatibility with existing
+    callers and the factory function.
     """
 
-    def __init__(self, node_id: str, node_config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        node_id: str,
+        node_config: dict[str, Any],
+        task_id: str = "",
+        user_id: str = "",
+    ) -> None:
         self.node_id = node_id
         self.node_config = node_config
+        self.task_id = task_id
+        self.user_id = user_id
 
     @abstractmethod
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
@@ -208,6 +223,28 @@ class AgentNodeExecutor(BaseNodeExecutor):
         if not agent_id:
             return NodeResult(success=False, output={}, error_message="agent_id 未配置")
 
+        # ── Story 4-15: Fail fast when identity is missing ──
+        # task_id and user_id are required for AgentNodeExecutor to (a)
+        # create a per-task workspace so Agent tools (write_to_output /
+        # read / write / bash) have a real write target, and (b) register
+        # any produced files to file_library with the right origin_id.
+        # Without them, tools would fall back to the dev-mode PROJECT_ROOT
+        # and produced files would be invisible to downstream nodes.
+        if not self.task_id or not self.user_id:
+            missing = []
+            if not self.task_id:
+                missing.append("task_id")
+            if not self.user_id:
+                missing.append("user_id")
+            return NodeResult(
+                success=False,
+                output={},
+                error_message=(
+                    "AgentNodeExecutor 缺少执行身份: "
+                    f"{', '.join(missing)}（无法定位 task workspace）"
+                ),
+            )
+
         from app.engine.workflow.expression import ExpressionEngine
 
         engine = ExpressionEngine(variables)
@@ -308,46 +345,318 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 "content": f"请根据你的系统提示执行任务（input_query='{input_query}' 解析结果为空）",
             })
 
-        last_error: str | None = None
-        for attempt in range(1 + max_retry):
-            try:
-                result = await asyncio.wait_for(
-                    graph.ainvoke(
-                        {"messages": initial_messages},
-                        config={"configurable": {"thread_id": _thread_id}},
-                    ),
-                    timeout=timeout_ms / 1000,
-                )
-                output_content = ""
-                if result.get("messages"):
-                    last_msg = result["messages"][-1]
-                    # 兼容 LangChain AIMessage（.content）和 dict（["content"] / .get("content")）
-                    if isinstance(last_msg, dict):
-                        output_content = last_msg.get("content", str(last_msg))
-                    elif hasattr(last_msg, "content"):
-                        output_content = last_msg.content
-                    else:
-                        output_content = str(last_msg)
-                return NodeResult(
-                    success=True,
-                    output={"response": output_content, "agent_id": agent_id},
-                )
-            except TimeoutError:
-                last_error = f"Agent 执行超时 ({timeout_ms}ms)"
-                logger.warning("node_agent_timeout", node_id=self.node_id, attempt=attempt + 1)
-            except Exception as exc:
-                last_error = f"Agent 执行失败: {exc}"
-                logger.error("node_agent_failed", node_id=self.node_id, error=str(exc), attempt=attempt + 1)
+        # ── Story 4-15: Set up task workspace context for Agent tools ──
+        # Without this, builtin tools like write_to_output / read / write
+        # / bash have no workspace to write to and fall back to PROJECT_ROOT.
+        task_workspace = None
+        workspace_token: contextvars.Token | None = None
+        node_start_ts: float = 0.0
+        from app.engine.agent.builtin_tools import (
+            reset_workspace_context,
+            set_workspace_context,
+        )
+        from app.engine.tool.workspace import WorkspaceManager
 
-            if attempt < max_retry:
-                logger.info("agent_retry", node_id=self.node_id, attempt=attempt + 1, max_retry=max_retry)
-                await asyncio.sleep(retry_delay_ms / 1000)
+        task_workspace = WorkspaceManager.create_task_workspace(
+            self.user_id, self.task_id,
+        )
+        workspace_token = set_workspace_context(task_workspace)
+        node_start_ts = _time.time()
+        logger.info(
+            "agent_node_workspace_set",
+            node_id=self.node_id,
+            task_id=self.task_id,
+            user_id=self.user_id,
+            workspace_root=str(task_workspace.root),
+        )
+
+        last_error: str | None = None
+        try:
+            for attempt in range(1 + max_retry):
+                try:
+                    result = await asyncio.wait_for(
+                        graph.ainvoke(
+                            {"messages": initial_messages},
+                            config={"configurable": {"thread_id": _thread_id}},
+                        ),
+                        timeout=timeout_ms / 1000,
+                    )
+                    output_content = ""
+                    if result.get("messages"):
+                        last_msg = result["messages"][-1]
+                        # 兼容 LangChain AIMessage（.content）和 dict（["content"] / .get("content")）
+                        if isinstance(last_msg, dict):
+                            output_content = last_msg.get("content", str(last_msg))
+                        elif hasattr(last_msg, "content"):
+                            output_content = last_msg.content
+                        else:
+                            output_content = str(last_msg)
+
+                    # ── 提取 Agent 工具生成的文件引用（Story 4-15）──
+                    # 1) MCP / artifact-based (legacy path)
+                    mcp_files = self._extract_files_from_messages(
+                        result.get("messages") or [],
+                    )
+                    # 2) 扫描 task workspace output/ 中新生成的文件并注册到
+                    #    file_library（覆盖内置工具真实行为：write_to_output
+                    #    等通过 contextvars 落到本 task 专属 output/）。
+                    registered_files = await self._register_task_output_files(
+                        task_workspace, node_start_ts,
+                    )
+
+                    # 合并去重（registered 优先，保留最新的 file_id/大小/路径）
+                    files_output = self._merge_file_outputs(
+                        mcp_files, registered_files,
+                    )
+
+                    return NodeResult(
+                        success=True,
+                        output={
+                            "response": output_content,
+                            "agent_id": agent_id,
+                            "files": files_output,
+                        },
+                    )
+                except TimeoutError:
+                    last_error = f"Agent 执行超时 ({timeout_ms}ms)"
+                    logger.warning("node_agent_timeout", node_id=self.node_id, attempt=attempt + 1)
+                except Exception as exc:
+                    last_error = f"Agent 执行失败: {exc}"
+                    import traceback as _tb
+                    logger.error(f"node_agent_failed FULL TRACEBACK:\n{_tb.format_exc()}")
+                    logger.error("node_agent_failed", node_id=self.node_id, error=str(exc), attempt=attempt + 1)
+
+                if attempt < max_retry:
+                    logger.info("agent_retry", node_id=self.node_id, attempt=attempt + 1, max_retry=max_retry)
+                    await asyncio.sleep(retry_delay_ms / 1000)
+        finally:
+            # Always reset the contextvar so other coroutines in the same
+            # event loop don't accidentally inherit this task's workspace.
+            if workspace_token is not None:
+                from app.engine.agent.builtin_tools import reset_workspace_context
+
+                reset_workspace_context(workspace_token)
 
         return NodeResult(
             success=False,
             output={},
             error_message=last_error or "Agent 执行失败",
         )
+
+    @staticmethod
+    def _merge_file_outputs(
+        mcp_files: list[dict[str, Any]],
+        registered_files: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Merge MCP-artifact files and task-workspace-registered files.
+
+        Both sources may report the same file; registered files win because
+        they have authoritative ``file_id``/``storage_key`` values from
+        file_library. Deduplication is by ``file_id`` when present,
+        otherwise by ``name``.
+        """
+        seen_ids: set[str] = set()
+        seen_names: set[str] = set()
+        merged: list[dict[str, Any]] = []
+
+        for entry in registered_files:
+            fid = entry.get("file_id", "")
+            name = entry.get("name", "")
+            if fid and fid in seen_ids:
+                continue
+            if not fid and name in seen_names:
+                continue
+            merged.append(entry)
+            if fid:
+                seen_ids.add(fid)
+            if name:
+                seen_names.add(name)
+
+        for entry in mcp_files:
+            fid = entry.get("file_id", "")
+            name = entry.get("name", "")
+            if fid and fid in seen_ids:
+                continue
+            if not fid and name in seen_names:
+                continue
+            merged.append(entry)
+            if fid:
+                seen_ids.add(fid)
+            if name:
+                seen_names.add(name)
+
+        return merged
+
+    async def _register_task_output_files(
+        self,
+        task_workspace: Any,
+        node_start_ts: float,
+    ) -> list[dict[str, Any]]:
+        """Register files newly created in the task workspace to file_library.
+
+        Story 4-15: After the Agent graph finishes, we walk
+        ``task_workspace.output_dir`` and register every file with an
+        mtime > ``node_start_ts`` to ``file_library`` as
+        ``origin_kind='workflow_run'`` / ``origin_id=task_id``. Files
+        already registered with the same ``sha256`` for this task are
+        skipped (deduplication).
+
+        Returns:
+            A list of dicts with ``file_id``, ``name``, ``size``,
+            ``mime_type``, ``storage_key`` — the canonical output shape
+            downstream nodes consume via ``{{ agent_node.files[i].file_id }}``.
+        """
+        if not task_workspace.output_dir.exists():
+            return []
+
+        # Local import to avoid top-level cycle (file_service depends on
+        # db, which loads settings — safe at runtime, not at import time).
+        from app.models.file_library import FileConsumerKind
+        from app.services.file_service import FileService
+        from app.services.file_storage import LocalFileStorage
+
+        file_service = FileService(LocalFileStorage())
+
+        # Pre-fetch known sha256s for this task to avoid registering the
+        # same file twice (e.g. on node retry).
+        existing_cursor = file_service._file_refs().find(
+            {
+                "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
+                "origin_id": self.task_id,
+            },
+            {"sha256": 1, "_id": 0},
+        )
+        existing_docs = await existing_cursor.to_list(length=None)
+        seen_sha256: set[str] = {doc["sha256"] for doc in existing_docs if doc.get("sha256")}
+
+        registered: list[dict[str, Any]] = []
+        import hashlib
+        import mimetypes
+
+        for path in sorted(task_workspace.output_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                # File was removed between rglob and stat — skip.
+                continue
+            if stat.st_mtime < node_start_ts:
+                # Pre-existing file from an earlier run; do not re-register.
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                logger.warning(
+                    "agent_node_read_output_failed",
+                    node_id=self.node_id,
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+
+            sha256 = hashlib.sha256(data).hexdigest()
+            if sha256 in seen_sha256:
+                continue
+
+            mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            try:
+                fref = await file_service.create(
+                    data=data,
+                    filename=path.name,
+                    mime_type=mime_type,
+                    owner_user_id=self.user_id,
+                    origin_kind=FileConsumerKind.WORKFLOW_RUN,
+                    origin_id=self.task_id,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface but don't crash node
+                logger.error(
+                    "agent_node_register_file_failed",
+                    node_id=self.node_id,
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+
+            seen_sha256.add(sha256)
+            registered.append({
+                "file_id": fref.id,
+                "name": fref.name,
+                "size": fref.size,
+                "mime_type": fref.mime_type,
+                "storage_key": fref.storage_key,
+            })
+            logger.info(
+                "agent_node_file_registered",
+                node_id=self.node_id,
+                task_id=self.task_id,
+                file_id=fref.id,
+                name=fref.name,
+                size=fref.size,
+            )
+
+        return registered
+
+    def _extract_files_from_messages(self, messages: list) -> list[dict[str, Any]]:
+        """Scan LangGraph messages for tool-emitted file references.
+
+        Tools may attach a ``files`` array to their ToolMessage result. We
+        normalise each entry to a stable ``{file_id, name, mime_type, size}``
+        shape and de-duplicate by ``file_id`` so downstream consumers see a
+        single canonical list regardless of how many tool calls emitted the
+        same file.
+
+        Supported shapes (in order of preference):
+          1. ``msg.artifact = {"files": [...]}``         (LangChain ToolMessage artifact)
+          2. ``msg.artifact = [...]``                     (artifact is itself a list)
+          3. ``msg.additional_kwargs = {"files": [...]}"``
+          4. ``msg.content = {"files": [...]}"``          (dict content)
+
+        See Story 4-15 AC2 / AC8.
+        """
+        collected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for msg in messages:
+            payload: Any = None
+            if isinstance(msg, dict):
+                payload = msg.get("artifact") or msg.get("additional_kwargs")
+                if payload is None and isinstance(msg.get("content"), (dict, list)):
+                    payload = msg.get("content")
+            else:
+                if getattr(msg, "artifact", None) is not None:
+                    payload = msg.artifact
+                elif getattr(msg, "additional_kwargs", None):
+                    payload = msg.additional_kwargs
+
+            if payload is None:
+                continue
+
+            if isinstance(payload, list):
+                file_entries = [p for p in payload if isinstance(p, dict) and p.get("file_id")]
+            elif isinstance(payload, dict) and isinstance(payload.get("files"), list):
+                file_entries = [p for p in payload["files"] if isinstance(p, dict) and p.get("file_id")]
+            else:
+                continue
+
+            for entry in file_entries:
+                file_id = str(entry.get("file_id", ""))
+                if not file_id or file_id in seen:
+                    continue
+                seen.add(file_id)
+                # size may be int or numeric string; coerce defensively
+                try:
+                    size_val = int(entry.get("size", 0) or 0)
+                except (TypeError, ValueError):
+                    size_val = 0
+                collected.append({
+                    "file_id": file_id,
+                    "name": str(entry.get("name", "")),
+                    "mime_type": str(entry.get("mime_type", "application/octet-stream")),
+                    "size": size_val,
+                })
+
+        return collected
 
 
 # ── Tool ──
@@ -705,8 +1014,18 @@ _NODE_EXECUTOR_MAP: dict[str, type[BaseNodeExecutor]] = {
 _human_executor_cls: type[BaseNodeExecutor] | None = None
 
 
-def get_node_executor(node_type: str, node_id: str, node_config: dict[str, Any]) -> BaseNodeExecutor:
+def get_node_executor(
+    node_type: str,
+    node_id: str,
+    node_config: dict[str, Any],
+    task_id: str = "",
+    user_id: str = "",
+) -> BaseNodeExecutor:
     """Factory: return the appropriate executor for *node_type*.
+
+    Story 4-15: Passes through ``task_id`` and ``user_id`` to the
+    executor constructor for executors that need them (currently
+    :class:`AgentNodeExecutor` for task workspace creation).
 
     Raises ``ValueError`` for unknown node types.
     """
@@ -719,6 +1038,10 @@ def get_node_executor(node_type: str, node_id: str, node_config: dict[str, Any])
         if _human_executor_cls is None:
             from app.engine.workflow.nodes.human import HumanNodeExecutor
             _human_executor_cls = HumanNodeExecutor
-        return _human_executor_cls(node_id=node_id, node_config=node_config)
+        return _human_executor_cls(
+            node_id=node_id, node_config=node_config, task_id=task_id, user_id=user_id,
+        )
 
-    return cls(node_id=node_id, node_config=node_config)  # type: ignore[return-value]
+    return cls(
+        node_id=node_id, node_config=node_config, task_id=task_id, user_id=user_id,
+    )  # type: ignore[return-value]
