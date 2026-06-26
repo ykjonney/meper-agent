@@ -1,0 +1,6 @@
+{
+  "name": "LinkGraph Agent Studio",
+  "description": "An agentic orchestration and multi-agent development platform, featuring professional skill management, LangGraph visual workflow design, and automated multi-agent collaboration workspaces.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

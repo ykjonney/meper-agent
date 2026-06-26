@@ -1,0 +1,557 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "highlight.js/styles/github-dark.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* Animation utilities used across components (animate-fade-in / animate-slide-left) */
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-left: slide-left 0.25s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-left {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@utility bg-grid-dots {
+  background-image: radial-gradient(#27272a 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+@utility scrollbar-custom {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #27272a;
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: #3f3f46;
+  }
+  scrollbar-width: thin;
+  scrollbar-color: #27272a transparent;
+}
+
+/* ==========================================
+   THEME LIGHT RESPONSIVE OVERRIDE BLOCK
+   ========================================== */
+.theme-light .scrollbar-custom::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+}
+.theme-light .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
+}
+.theme-light .scrollbar-custom {
+  scrollbar-color: #cbd5e1 transparent !important;
+}
+
+/* Grid dots override for canvas maps */
+.theme-light .bg-grid-dots {
+  background-image: radial-gradient(#cbd5e1 1px, transparent 1px) !important;
+}
+
+/* Background overrides for custom dark colors */
+.theme-light .bg-\[\#121214\] {
+  background-color: #f8fafc !important; /* bg-slate-50 */
+}
+.theme-light .bg-\[\#18181b\] {
+  background-color: #ffffff !important; /* bg-white */
+}
+.theme-light .bg-\[\#09090b\] {
+  background-color: #f1f5f9 !important; /* bg-slate-100 */
+}
+.theme-light .bg-\[\#1c1c1f\] {
+  background-color: #f1f5f9 !important; /* bg-slate-100 */
+}
+
+/* Background Opacity variants overrides */
+.theme-light .bg-\[\#09090b\]\/95 {
+  background-color: rgba(248, 250, 252, 0.95) !important; /* bg-slate-50, sticky bar */
+}
+.theme-light .bg-\[\#09090b\]\/90 {
+  background-color: rgba(248, 250, 252, 0.9) !important;
+}
+.theme-light .bg-\[\#09090b\]\/80 {
+  background-color: rgba(248, 250, 252, 0.85) !important;
+}
+.theme-light .bg-\[\#121214\]\/60 {
+  background-color: rgba(248, 250, 252, 0.75) !important;
+}
+.theme-light .bg-\[\#121214\]\/50 {
+  background-color: rgba(248, 250, 252, 0.6) !important;
+}
+.theme-light .bg-\[\#121214\]\/40 {
+  background-color: rgba(248, 250, 252, 0.5) !important;
+}
+.theme-light .bg-\[\#121214\]\/80 {
+  background-color: rgba(248, 250, 252, 0.85) !important;
+}
+.theme-light .bg-\[\#18181b\]\/80 {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+.theme-light .bg-\[\#18181b\]\/40 {
+  background-color: rgba(248, 250, 252, 0.5) !important;
+}
+.theme-light .bg-\[\#18181b\]\/50 {
+  background-color: rgba(255, 255, 255, 0.65) !important;
+}
+.theme-light .bg-\[\#18181b\]\/60 {
+  background-color: rgba(255, 255, 255, 0.75) !important;
+}
+.theme-light .bg-\[\#18181b\]\/10 {
+  background-color: rgba(241, 245, 249, 0.2) !important;
+}
+.theme-light .bg-\[\#18181b\]\/90 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+.theme-light .bg-\[\#1c1c1f\]\/50 {
+  background-color: rgba(241, 245, 249, 0.5) !important;
+}
+.theme-light .bg-\[\#1c1c1f\]\/60 {
+  background-color: rgba(241, 245, 249, 0.6) !important;
+}
+.theme-light .bg-\[\#27272a\] {
+  background-color: #e2e8f0 !important; /* border-slate-200 — disabled send btn etc. */
+}
+.theme-light .bg-\[\#27272a\]\/50 {
+  background-color: rgba(226, 232, 240, 0.5) !important;
+}
+.theme-light .bg-\[\#27272a\]\/60 {
+  background-color: rgba(226, 232, 240, 0.6) !important;
+}
+.theme-light .bg-\[\#1f1f23\] {
+  background-color: #ffffff !important;
+}
+
+/* Gradient stops (neutral dark → light). Fixes Dashboard welcome banner
+   and any other bg-gradient-to-* that uses the dark surface palette — the
+   `bg-[#...]` overrides above only handle solid backgrounds, not the
+   --tw-gradient-from / --tw-gradient-to vars these classes set. */
+.theme-light .from-\[\#121214\] {
+  --tw-gradient-from: #f8fafc !important;
+}
+.theme-light .to-\[\#121214\] {
+  --tw-gradient-to: #f8fafc !important;
+}
+.theme-light .from-\[\#18181b\] {
+  --tw-gradient-from: #ffffff !important;
+}
+.theme-light .to-\[\#18181b\] {
+  --tw-gradient-to: #ffffff !important;
+}
+.theme-light .from-\[\#09090b\],
+.theme-light .from-\[\#1c1c1f\] {
+  --tw-gradient-from: #f1f5f9 !important;
+}
+.theme-light .to-\[\#09090b\],
+.theme-light .to-\[\#1c1c1f\] {
+  --tw-gradient-to: #f1f5f9 !important;
+}
+
+/* Tailwind default slate colors under light mode */
+.theme-light .bg-slate-950 {
+  background-color: #fafafa !important;
+}
+.theme-light .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+}
+.theme-light .bg-slate-800 {
+  background-color: #e2e8f0 !important;
+}
+
+/* Hover Backgrounds */
+.theme-light .hover\:bg-\[\#121214\]:hover {
+  background-color: #f1f5f9 !important;
+}
+.theme-light .hover\:bg-\[\#1c1c1f\]:hover {
+  background-color: #e2e8f0 !important;
+}
+.theme-light .hover\:bg-\[\#18181b\]:hover {
+  background-color: #f1f5f9 !important;
+}
+.theme-light .hover\:bg-\[\#27272a\]\/50:hover {
+  background-color: rgba(203, 213, 225, 0.5) !important;
+}
+.theme-light .hover\:bg-\[\#121214\]\/60:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Border overrides */
+.theme-light .border-\[\#27272a\] {
+  border-color: #e2e8f0 !important; /* border-slate-200 */
+}
+.theme-light .border-b-\[\#27272a\] {
+  border-bottom-color: #e2e8f0 !important;
+}
+.theme-light .border-r-\[\#27272a\] {
+  border-right-color: #e2e8f0 !important;
+}
+.theme-light .border-t-\[\#27272a\] {
+  border-top-color: #e2e8f0 !important;
+}
+.theme-light .border-l-\[\#27272a\] {
+  border-left-color: #e2e8f0 !important;
+}
+.theme-light .border-\[\#27272a\]\/40 {
+  border-color: rgba(226, 232, 240, 0.4) !important;
+}
+.theme-light .border-\[\#27272a\]\/50 {
+  border-color: rgba(226, 232, 240, 0.5) !important;
+}
+.theme-light .border-b-\[\#27272a\]\/40 {
+  border-bottom-color: rgba(226, 232, 240, 0.4) !important;
+}
+.theme-light .border-b-\[\#27272a\]\/50 {
+  border-bottom-color: rgba(226, 232, 240, 0.5) !important;
+}
+.theme-light .border-t-\[\#27272a\]\/40 {
+  border-top-color: rgba(226, 232, 240, 0.4) !important;
+}
+.theme-light .border-t-\[\#27272a\]\/50 {
+  border-top-color: rgba(226, 232, 240, 0.5) !important;
+}
+.theme-light .hover\:border-\[\#3f3f46\]:hover {
+  border-color: #94a3b8 !important;
+}
+.theme-light .hover\:border-\[\#71717a\]:hover {
+  border-color: #64748b !important;
+}
+
+/* Tailwind default borders under light mode */
+.theme-light .border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
+.theme-light .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Dividers overrides */
+.theme-light .divide-\[\#27272a\]\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(226, 232, 240, 0.6) !important;
+}
+.theme-light .divide-\[\#27272a\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* Headings and generic Text color overrides */
+.theme-light .text-white {
+  color: #0f172a !important; /* text-slate-900 primary heading */
+}
+.theme-light .text-\[\#fafafa\] {
+  color: #0f172a !important; /* text-slate-900 */
+}
+.theme-light .text-\[\#a1a1aa\] {
+  color: #334155 !important; /* text-slate-705 */
+}
+.theme-light .text-\[\#71717a\] {
+  color: #64748b !important; /* text-slate-500 */
+}
+
+/* Tailwind default slate texts under light mode */
+.theme-light .text-slate-100 {
+  color: #0f172a !important;
+}
+.theme-light .text-slate-200 {
+  color: #1e293b !important;
+}
+.theme-light .text-slate-300 {
+  color: #334155 !important;
+}
+.theme-light .text-slate-400 {
+  color: #475569 !important;
+}
+.theme-light .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Input Fields, select dropdown, and Textareas */
+.theme-light input,
+.theme-light textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+.theme-light select {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+.theme-light select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* SVG Text fill / line stroke overrides */
+.theme-light .fill-\[\#a1a1aa\] {
+  fill: #334155 !important;
+}
+.theme-light text.fill-slate-500 {
+  fill: #475569 !important;
+}
+
+/* Input placeholders */
+.theme-light ::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Text interaction on hover */
+.theme-light .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+.theme-light .hover\:text-\[\#fafafa\]:hover {
+  color: #0f172a !important;
+}
+
+/* ------------------------------------------
+   WHITE TEXT ON COLORED BACKGROUNDS (both themes)
+   The .text-white / text-[#fafafa] overrides above are unconditional, so they
+   also darken text that sits on a colored (brand) surface — buttons, badges,
+   active tabs, gradient avatars. These higher-specificity rules force that
+   text back to white so it stays legible on the colored fill. "元素偏深则字体
+   选浅色". Must come AFTER the unconditional overrides to win at equal src order.
+   ------------------------------------------ */
+
+/* Solid Tailwind-color buttons / badges / active states */
+.theme-light .bg-indigo-600,
+.theme-light .bg-indigo-500,
+.theme-light .bg-indigo-700,
+.theme-light .bg-emerald-600,
+.theme-light .bg-emerald-600\/80,
+.theme-light .bg-rose-600,
+.theme-light .bg-rose-500,
+.theme-light .bg-red-500 {
+  color: #ffffff !important;
+}
+
+/* Brand hex surfaces: primary buttons (#1E5EFF), dark tooltip/badge (#0F172A) */
+.theme-light .bg-\[\#1E5EFF\],
+.theme-light .bg-\[\#0F172A\],
+.theme-light .bg-\[\#0f172a\] {
+  color: #ffffff !important;
+}
+
+/* Colored gradient endpoints (avatars / icon tiles). Only the colored stops —
+   neutral stops are handled by the from/to-[#hex] block above. */
+.theme-light .from-orange-400,
+.theme-light .from-indigo-500,
+.theme-light .from-amber-500,
+.theme-light .to-rose-400,
+.theme-light .to-violet-500 {
+  color: #ffffff !important;
+}
+/* A gradient avatar's text-white child (e.g. the lucide icon inside) */
+.theme-light .from-orange-400 .text-white,
+.theme-light .from-indigo-500 .text-white {
+  color: #ffffff !important;
+}
+
+/* ==========================================
+   CHAT MARKDOWN (.prose-chat)
+   Scoped styles for streaming markdown in chat bubbles. Dark-first,
+   with .theme-light overrides below to match the rest of the app.
+   ========================================== */
+.prose-chat {
+  font-size: 12.5px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+.prose-chat > :first-child {
+  margin-top: 0;
+}
+.prose-chat > :last-child {
+  margin-bottom: 0;
+}
+.prose-chat p {
+  margin: 0.5em 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.8em 0 0.4em;
+  color: #fafafa;
+}
+.prose-chat h1 {
+  font-size: 1.25em;
+}
+.prose-chat h2 {
+  font-size: 1.15em;
+}
+.prose-chat h3 {
+  font-size: 1.05em;
+}
+.prose-chat h4 {
+  font-size: 1em;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.prose-chat ul {
+  list-style: disc;
+}
+.prose-chat ol {
+  list-style: decimal;
+}
+.prose-chat li {
+  margin: 0.2em 0;
+}
+.prose-chat li > ul,
+.prose-chat li > ol {
+  margin: 0.2em 0;
+}
+/* Inline code */
+.prose-chat :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.12em 0.38em;
+  border-radius: 5px;
+  background: rgba(115, 115, 115, 0.18);
+  border: 1px solid rgba(115, 115, 115, 0.2);
+  white-space: break-spaces;
+}
+/* Fenced code blocks: highlight.js theme handles token colors; we set chrome */
+.prose-chat pre {
+  margin: 0.6em 0;
+  padding: 0.85em 1em;
+  border-radius: 10px;
+  background: #0d1117;
+  border: 1px solid #27272a;
+  overflow-x: auto;
+}
+.prose-chat pre code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+  background: transparent !important;
+  padding: 0;
+  border: 0;
+  white-space: pre;
+}
+.prose-chat blockquote {
+  margin: 0.6em 0;
+  padding: 0.2em 0.9em;
+  border-left: 3px solid #3f3f46;
+  color: #a1a1aa;
+}
+.prose-chat a {
+  color: #818cf8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-chat a:hover {
+  color: #a5b4fc;
+}
+.prose-chat strong {
+  font-weight: 700;
+  color: #fafafa;
+}
+.prose-chat em {
+  font-style: italic;
+}
+.prose-chat hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid #27272a;
+}
+/* GFM tables */
+.prose-chat table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.92em;
+  display: block;
+  overflow-x: auto;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid #27272a;
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.prose-chat th {
+  background: rgba(39, 39, 42, 0.5);
+  font-weight: 700;
+}
+.prose-chat tr:nth-child(2n) td {
+  background: rgba(39, 39, 42, 0.2);
+}
+/* GFM task lists */
+.prose-chat input[type='checkbox'] {
+  margin-right: 0.4em;
+  transform: translateY(1px);
+}
+.prose-chat img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* ----- Light theme overrides for chat markdown ----- */
+.theme-light .prose-chat {
+  color: #1e293b;
+}
+.theme-light .prose-chat h1,
+.theme-light .prose-chat h2,
+.theme-light .prose-chat h3,
+.theme-light .prose-chat h4,
+.theme-light .prose-chat strong {
+  color: #0f172a;
+}
+.theme-light .prose-chat :not(pre) > code {
+  background: rgba(100, 116, 139, 0.14);
+  border-color: rgba(100, 116, 139, 0.2);
+  color: #334155;
+}
+.theme-light .prose-chat pre {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+.theme-light .prose-chat blockquote {
+  border-left-color: #cbd5e1;
+  color: #64748b;
+}
+.theme-light .prose-chat a {
+  color: #4f46e5;
+}
+.theme-light .prose-chat a:hover {
+  color: #4338ca;
+}
+.theme-light .prose-chat hr {
+  border-top-color: #e2e8f0;
+}
+.theme-light .prose-chat th,
+.theme-light .prose-chat td {
+  border-color: #e2e8f0;
+}
+.theme-light .prose-chat th {
+  background: rgba(226, 232, 240, 0.6);
+}
+.theme-light .prose-chat tr:nth-child(2n) td {
+  background: rgba(226, 232, 240, 0.35);
+}
+

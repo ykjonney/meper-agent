@@ -1,0 +1,127 @@
+/**
+ * 每种节点类型的默认输出变量定义表。
+ *
+ * 用于 VariableSelector 展示上游节点的可用字段，
+ * 用户点击字段 Tag 即可插入 `{{node_id.field}}` 模板变量。
+ */
+
+import type { WorkflowNode } from '../../../services/workflows-api'
+import type { VariableDefinition } from './variable-types'
+
+export interface NodeOutputField {
+  /** 字段名（如 "response"、"agent_id"） */
+  name: string
+  /** 人类可读的标签 */
+  label: string
+  /** 字段类型描述 */
+  type: 'string' | 'object' | 'any' | 'number' | 'boolean'
+  /** 简短说明 */
+  description: string
+}
+
+/**
+ * 节点类型 → 输出字段列表
+ */
+export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
+  start: [
+    { name: 'input', label: '原始输入', type: 'any', description: '工作流的原始输入参数' },
+  ],
+  end: [
+    { name: 'output_mapping', label: '输出映射', type: 'object', description: '输出字段映射结果' },
+  ],
+  agent: [
+    { name: 'response', label: 'Agent 响应', type: 'string', description: 'Agent 的输出文本' },
+    { name: 'agent_id', label: 'Agent ID', type: 'string', description: '执行的 Agent ID' },
+  ],
+  tool: [
+    { name: 'tool_name', label: '工具名称', type: 'string', description: '调用的工具名称' },
+    { name: 'tool_description', label: '工具描述', type: 'string', description: '工具的描述信息' },
+    { name: 'instructions', label: '工具指令', type: 'string', description: '工具的执行指令' },
+    { name: 'result', label: '执行结果', type: 'any', description: 'MCP 工具执行返回的结果' },
+  ],
+  gateway: [
+    { name: 'selected_branch', label: '选中分支', type: 'string', description: '匹配到的条件分支' },
+    { name: 'condition', label: '条件表达式', type: 'string', description: '触发该分支的条件' },
+  ],
+  human: [
+    { name: 'status', label: '审批状态', type: 'string', description: 'approved / rejected / timeout' },
+    { name: 'title', label: '审批标题', type: 'string', description: '审批请求的标题' },
+    { name: 'description', label: '审批描述', type: 'string', description: '审批请求的详细描述' },
+    { name: 'options', label: '可选选项', type: 'object', description: '审批的可选项目列表' },
+  ],
+  parallel: [
+    { name: 'branches', label: '分支列表', type: 'object', description: '所有分支的执行结果' },
+    { name: 'join_strategy', label: '合并策略', type: 'string', description: '分支结果的合并策略' },
+    { name: 'scope', label: '作用域', type: 'string', description: '并行执行的变量作用域' },
+  ],
+  subflow: [
+    { name: 'child_task_id', label: '子任务 ID', type: 'string', description: '子工作流任务 ID' },
+    { name: 'child_output', label: '子任务输出', type: 'any', description: '子工作流的执行结果' },
+    { name: 'workflow_id', label: '工作流 ID', type: 'string', description: '子工作流的模板 ID' },
+  ],
+}
+
+/**
+ * 获取指定节点类型的输出字段列表（静态表）
+ */
+export function getNodeOutputFields(nodeType: string): NodeOutputField[] {
+  return NODE_OUTPUT_VARIABLES[nodeType] ?? []
+}
+
+/* ─── v2 兼容函数 ─── */
+
+/**
+ * 获取节点的有效输出变量列表。
+ *
+ * 优先级：
+ * 1. config.output_variables（用户自定义）
+ * 2. 静态表 NODE_OUTPUT_VARIABLES（向后兼容）
+ */
+export function getEffectiveOutputVariables(node: WorkflowNode): VariableDefinition[] | NodeOutputField[] {
+  const userDefined = node.config?.output_variables
+  if (Array.isArray(userDefined) && userDefined.length > 0) {
+    return userDefined as VariableDefinition[]
+  }
+  return getNodeOutputFields(node.type)
+}
+
+/**
+ * 判断节点是否有用户自定义的输出变量
+ */
+export function hasUserDefinedOutputVariables(node: WorkflowNode): boolean {
+  const vars = node.config?.output_variables
+  return Array.isArray(vars) && vars.length > 0
+}
+
+/**
+ * 每种节点类型的固定输入变量定义。
+ * 用于 Config Panel 展示节点可以引用的上游输入变量。
+ */
+export interface NodeInputVariable {
+  name: string
+  label: string
+  type: string
+  description: string
+  required: boolean
+}
+
+/**
+ * 节点类型 → 输入变量列表
+ * 有些节点定义输入变量（如 agent→user_query），有些则没有
+ */
+export const NODE_INPUT_VARIABLES: Record<string, NodeInputVariable[]> = {
+  agent: [],
+  tool: [],
+  gateway: [],
+  end: [],
+  start: [],
+  human: [],
+  parallel: [],
+}
+
+/**
+ * 获取指定节点类型的输入变量列表
+ */
+export function getNodeInputVariables(nodeType: string): NodeInputVariable[] {
+  return NODE_INPUT_VARIABLES[nodeType] ?? []
+}
