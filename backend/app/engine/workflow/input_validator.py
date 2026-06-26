@@ -151,7 +151,7 @@ def _validate_json(value: Any, constraints: dict[str, Any]) -> str | None:
     if not schema:
         return None
     try:
-        import jsonschema
+        import jsonschema  # type: ignore[import-untyped]
         jsonschema.validate(instance=value, schema=schema)
     except ImportError:
         # jsonschema 未安装时跳过 schema 校验
