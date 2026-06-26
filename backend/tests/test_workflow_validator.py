@@ -1,16 +1,12 @@
 """Tests for WorkflowValidator — static structural analysis."""
 from __future__ import annotations
 
-import pytest
-
 from app.engine.workflow.validator import (
     ValidationIssue,
     ValidationResult,
     ValidationSeverity,
-    WorkflowValidator,
     validate_workflow,
 )
-
 
 # ── Test Data ──
 

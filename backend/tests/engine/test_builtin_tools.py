@@ -1,11 +1,10 @@
 """Tests for _read_via_sandbox in builtin_tools."""
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 from app.engine.agent.builtin_tools import _read_via_sandbox
-from app.engine.tool.workspace import Workspace
 from app.engine.tool.sandbox import SandboxResult
+from app.engine.tool.workspace import Workspace
 
 
 def _make_workspace() -> Workspace:
@@ -30,8 +29,8 @@ class TestReadViaSandbox:
             stderr="",
             exit_code=0,
         )
-        with patch("app.engine.tool.sandbox.SandboxExecutor") as MockExec:
-            MockExec.return_value.execute.return_value = mock_result
+        with patch("app.engine.tool.sandbox.SandboxExecutor") as mock_exec:
+            mock_exec.return_value.execute.return_value = mock_result
             result = _read_via_sandbox("/workspace/tmp/test.txt", ws)
         assert result == "hello world\n"
 
@@ -43,8 +42,8 @@ class TestReadViaSandbox:
             stderr="cat: /workspace/tmp/missing.txt: No such file or directory",
             exit_code=1,
         )
-        with patch("app.engine.tool.sandbox.SandboxExecutor") as MockExec:
-            MockExec.return_value.execute.return_value = mock_result
+        with patch("app.engine.tool.sandbox.SandboxExecutor") as mock_exec:
+            mock_exec.return_value.execute.return_value = mock_result
             result = _read_via_sandbox("/workspace/tmp/missing.txt", ws)
         assert "File not found" in result
 
@@ -57,8 +56,8 @@ class TestReadViaSandbox:
             exit_code=-1,
             timed_out=True,
         )
-        with patch("app.engine.tool.sandbox.SandboxExecutor") as MockExec:
-            MockExec.return_value.execute.return_value = mock_result
+        with patch("app.engine.tool.sandbox.SandboxExecutor") as mock_exec:
+            mock_exec.return_value.execute.return_value = mock_result
             result = _read_via_sandbox("/workspace/tmp/huge.bin", ws)
         assert "timed out" in result.lower()
 
@@ -70,8 +69,8 @@ class TestReadViaSandbox:
             stderr="Permission denied",
             exit_code=1,
         )
-        with patch("app.engine.tool.sandbox.SandboxExecutor") as MockExec:
-            MockExec.return_value.execute.return_value = mock_result
+        with patch("app.engine.tool.sandbox.SandboxExecutor") as mock_exec:
+            mock_exec.return_value.execute.return_value = mock_result
             result = _read_via_sandbox("/workspace/tmp/secret.txt", ws)
         assert "Permission denied" in result
 
@@ -84,8 +83,8 @@ class TestReadViaSandbox:
             stderr="",
             exit_code=0,
         )
-        with patch("app.engine.tool.sandbox.SandboxExecutor") as MockExec:
-            MockExec.return_value.execute.return_value = mock_result
+        with patch("app.engine.tool.sandbox.SandboxExecutor") as mock_exec:
+            mock_exec.return_value.execute.return_value = mock_result
             result = _read_via_sandbox("/workspace/tmp/big.txt", ws)
         assert len(result) < len(large)
         assert "truncated" in result
