@@ -30,8 +30,9 @@ COPY app/ app/
 COPY scripts/ scripts/
 COPY pyproject.toml uv.lock .python-version ./
 
-# Create logs directory for non-root user
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+# Create logs directory and data directories for non-root user
+RUN mkdir -p /app/logs /data/workspaces /data/skills \
+    && chown -R appuser:appuser /app /data
 
 # Ensure the venv takes precedence on PATH
 ENV PATH="/app/.venv/bin:$PATH" \

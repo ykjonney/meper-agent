@@ -103,6 +103,7 @@ export const VARIABLE_TYPE_CONFIGS: Record<VariableTypeName, VariableTypeConfig>
     icon: '📄',
     description: '文件上传',
     constraintFields: [
+      { name: 'required', label: '必填', valueType: 'boolean', defaultValue: false },
       { name: 'allowed_extensions', label: '允许的扩展名', valueType: 'tags', defaultValue: [], placeholder: '如 .pdf, .txt' },
       { name: 'max_size_mb', label: '最大大小 (MB)', valueType: 'number', defaultValue: null, placeholder: '不限', min: 1, max: 1024 },
       { name: 'multiple', label: '允许多文件', valueType: 'boolean', defaultValue: false },

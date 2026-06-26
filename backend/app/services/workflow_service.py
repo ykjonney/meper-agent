@@ -107,6 +107,11 @@ class WorkflowService:
 
         Raises:
             NotFoundError: If workflow not found.
+
+        Note:
+            Validation is NOT performed here — call ``POST /{id}/validate`` or
+            use the ``validate_workflow()`` helper for on-demand checks (e.g.
+            before a test run).
         """
         # Prevent changing the ID
         updates.pop("_id", None)
@@ -304,13 +309,18 @@ class WorkflowService:
                 details={"errors": errors},
             )
 
-        # 2. Start node is required; end node is recommended but not mandatory
+        # 2. Start node is required; end node is recommended but NOT required
+        #    (the engine does not depend on an end node, and the frontend validator
+        #    only issues a warning for its absence — keep publish consistent)
         has_start = any(n.get("type") == "start" for n in nodes if isinstance(n, dict))
         if not has_start:
             errors.append({
                 "code": "NO_START_NODE",
                 "message": "工作流必须包含开始(start)节点",
             })
+
+        # End node is recommended but not enforced — matches frontend validator.
+        # A warning is surfaced via the /validate endpoint instead.
 
         # 3. At least some connectivity (edges or next_nodes)
         has_edges = len(edges) > 0

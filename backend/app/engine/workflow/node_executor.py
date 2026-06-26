@@ -90,8 +90,6 @@ class StartNodeExecutor(BaseNodeExecutor):
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
         logger.debug("node_start", node_id=self.node_id)
 
-        output: dict[str, Any] = {}
-
         # 1. If input_mapping is explicitly configured, use it (takes precedence)
         input_mapping = self.node_config.get("input_mapping", {})
         if input_mapping:
@@ -101,76 +99,23 @@ class StartNodeExecutor(BaseNodeExecutor):
             output = engine.resolve_dict(input_mapping)
             return NodeResult(success=True, output=output)
 
-        # 2. Otherwise, initialize variables from output_variables definition
+        # 2. Otherwise, validate input via output_variables definition
         output_variables = self.node_config.get("output_variables", [])
         task_input = variables.get("input")
         if not isinstance(task_input, dict):
             task_input = {}
 
         if isinstance(output_variables, list) and output_variables:
-            missing_required: list[str] = []
+            from app.engine.workflow.input_validator import validate_input_variables
 
-            for var_def in output_variables:
-                if not isinstance(var_def, dict):
-                    continue
-                name = var_def.get("name", "")
-                if not name:
-                    continue
-
-                var_type = var_def.get("type", "text")
-
-                # Read required/default from `constraints` (frontend schema)
-                # with top-level fallback for legacy data.
-                constraints = var_def.get("constraints") if isinstance(var_def.get("constraints"), dict) else {}
-                raw_required = constraints.get("required", var_def.get("required"))
-                is_required = bool(raw_required) if raw_required is not None else False
-                default_val = constraints.get("default_value", var_def.get("default"))
-
-                # Use input value if provided, else fall back to default.
-                if name in task_input:
-                    value = task_input[name]
-                elif default_val not in (None, ""):
-                    value = default_val
-                else:
-                    value = None
-
-                # File type: delegate to file_validator for resolution.
-                if var_type == "file":
-                    if value in (None, ""):
-                        # No file provided — handled by required check below
-                        pass
-                    else:
-                        from app.engine.workflow.file_validator import (
-                            validate_file_variable,
-                        )
-
-                        resolved, ferror = await validate_file_variable(value, var_def)
-                        if ferror:
-                            return NodeResult(
-                                success=False,
-                                output={},
-                                error_message=f"Start 节点文件变量 '{name}' 验证失败: {ferror}",
-                            )
-                        output[name] = resolved
-                        continue
-
-                # Required validation: None or empty string counts as missing.
-                if is_required and value in (None, ""):
-                    missing_required.append(name)
-                else:
-                    output[name] = value
-
-            if missing_required:
+            resolved, error = await validate_input_variables(output_variables, task_input)
+            if error:
                 return NodeResult(
                     success=False,
                     output={},
-                    error_message=(
-                        f"Start 节点必填变量缺失: {', '.join(missing_required)}。"
-                        f"请在 dispatch_workflow 的 params 中补充这些字段。"
-                    ),
+                    error_message=f"Start 节点输入校验失败: {error}",
                 )
-
-            return NodeResult(success=True, output=output)
+            return NodeResult(success=True, output=resolved)
 
         # 3. Fallback: pass through all task input
         return NodeResult(success=True, output={"input": task_input})

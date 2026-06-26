@@ -71,7 +71,7 @@ class TestStartNodeExecutor:
         executor = StartNodeExecutor("start_1", config)
         result = await executor.execute({"input": {}})
         assert not result.success
-        assert "必填变量缺失" in result.error_message
+        assert "必填输入字段缺失" in result.error_message
         assert "query" in result.error_message
 
     @pytest.mark.asyncio
@@ -228,7 +228,7 @@ class TestStartNodeExecutor:
         result = await executor.execute({"input": {}})
         assert not result.success
         assert "document" in result.error_message
-        assert "必填变量缺失" in result.error_message
+        assert "必填输入字段缺失" in result.error_message
 
     @pytest.mark.asyncio
     async def test_file_type_validation_error(self) -> None:

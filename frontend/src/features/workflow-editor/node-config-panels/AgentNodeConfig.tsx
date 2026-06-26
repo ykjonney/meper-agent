@@ -94,8 +94,12 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
 
     // 合并：先放已有的（升级后），再补缺失的
     const merged: VariableDefinition[] = [...upgraded, ...missing]
-    onChange({ ...config, output_variables: merged })
-  }, [currentNodeId, config, onChange, SYSTEM_DEFAULT_VARIABLES])
+
+    // 使用 queueMicrotask 延迟执行，避免在渲染过程中触发状态更新
+    queueMicrotask(() => {
+      onChange({ ...config, output_variables: merged })
+    })
+  }, [currentNodeId]) // 只在节点 ID 变化时执行，移除 config 和 onChange 依赖
 
   const handleOutputVariablesChange = (variables: VariableDefinition[]) => {
     onChange({ ...config, output_variables: variables })

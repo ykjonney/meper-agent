@@ -28,12 +28,177 @@ router = APIRouter(
 )
 
 
-def _history_to_langchain_messages(records: list[dict]) -> list:
+# ---------------------------------------------------------------------------
+# File attachment rendering — shared by stream / invoke / history paths
+# ---------------------------------------------------------------------------
+
+# 单文件注入的最大字符数；与 file_validator.MAX_CONTENT_CHARS 对齐。
+_MAX_ATTACHMENT_CHARS = 50_000
+
+# 被视为"文本文件"的 MIME 类型前缀（这些类型才尝试注入内容）。
+_TEXT_MIME_PREFIXES = ("text/", "application/json", "application/xml")
+_TEXT_MIME_EXACT = {
+    "application/javascript", "application/typescript",
+    "application/x-yaml", "application/x-sh", "application/sql",
+}
+
+
+def _is_text_mime(mime_type: str, filename: str) -> bool:
+    """判断文件是否应视为文本（可安全注入到 LLM 上下文）。"""
+    if not mime_type or mime_type == "application/octet-stream":
+        ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        return ext in {
+            ".txt", ".md", ".json", ".yaml", ".yml", ".xml", ".html",
+            ".csv", ".tsv", ".py", ".js", ".ts", ".jsx", ".tsx",
+            ".sh", ".sql", ".log", ".rst", ".toml", ".ini",
+        }
+    if mime_type in _TEXT_MIME_EXACT:
+        return True
+    return any(mime_type.startswith(p) for p in _TEXT_MIME_PREFIXES)
+
+
+def _render_single_file(
+    *, file_id: str, name: str, size: int, mime_type: str, content: str | None,
+    truncated: bool = False, unavailable_reason: str | None = None,
+) -> str:
+    """渲染单个附件为结构化 XML 块（与 file_validator.FileVariableValue 同格式）。"""
+    import html as _html
+    attrs = (
+        f'id="{file_id}" '
+        f'name="{_html.escape(str(name))}" '
+        f'size="{size}" '
+        f'mime_type="{_html.escape(str(mime_type))}"'
+    )
+    if content is None:
+        note = unavailable_reason or "content unavailable"
+        return f"<file {attrs}>\n[{_html.escape(note)}]\n</file>"
+    if truncated:
+        return (
+            f"<file {attrs}>\n"
+            f"{content}\n"
+            f"[... truncated at {_MAX_ATTACHMENT_CHARS} chars ...]\n"
+            f"</file>"
+        )
+    return f"<file {attrs}>\n{content}\n</file>"
+
+
+def _render_attachments_block(file_blocks: list[str]) -> str:
+    """把多个 <file> 块包成 <attachments> 并加提示尾巴。"""
+    if not file_blocks:
+        return ""
+    inner = "\n".join(file_blocks)
+    return (
+        "\n\n<attachments>\n"
+        f"{inner}\n"
+        "</attachments>\n\n"
+        "提示：如需将附件传给 workflow 的 file 类型参数，使用 <file> 标签的 id 属性值 "
+        "（例如 'file_01ABC...'）作为参数值。"
+    )
+
+
+async def _render_files_by_ids(file_ids: list[str]) -> list[str]:
+    """根据 file_id 列表加载文件，返回渲染好的 <file> 字符串列表。"""
+    if not file_ids:
+        return []
+    from app.services.file_service import FileService
+    from app.services.file_storage import LocalFileStorage
+
+    file_svc = FileService(storage=LocalFileStorage())
+    blocks: list[str] = []
+    for fid in file_ids:
+        try:
+            loaded = await file_svc.load_content(fid)
+        except Exception:
+            continue
+        if loaded is None:
+            continue
+        fref, data = loaded
+        if not _is_text_mime(fref.mime_type, fref.name):
+            blocks.append(_render_single_file(
+                file_id=fref.id, name=fref.name, size=fref.size,
+                mime_type=fref.mime_type, content=None,
+                unavailable_reason=f"binary file ({fref.mime_type})",
+            ))
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            blocks.append(_render_single_file(
+                file_id=fref.id, name=fref.name, size=fref.size,
+                mime_type=fref.mime_type, content=None,
+                unavailable_reason="UTF-8 decode failed",
+            ))
+            continue
+        truncated = len(text) > _MAX_ATTACHMENT_CHARS
+        if truncated:
+            text = text[:_MAX_ATTACHMENT_CHARS]
+        blocks.append(_render_single_file(
+            file_id=fref.id, name=fref.name, size=fref.size,
+            mime_type=fref.mime_type, content=text, truncated=truncated,
+        ))
+    return blocks
+
+
+async def _render_files_by_paths(
+    file_paths: list[str], workspace_root,
+) -> list[str]:
+    """Fallback：只有路径时的降级渲染（无 file_id / size / mime_type）。"""
+    if not file_paths:
+        return []
+    from pathlib import Path as _Path
+
+    blocks: list[str] = []
+    input_dir = _Path(workspace_root) / "input"
+    for rel_path in file_paths:
+        abs_path = (input_dir / rel_path).resolve()
+        if not str(abs_path).startswith(str(input_dir.resolve())):
+            continue
+        if not abs_path.is_file():
+            continue
+        try:
+            stat = abs_path.stat()
+            data = abs_path.read_bytes()
+        except OSError:
+            continue
+        # 猜测 mime_type
+        import mimetypes
+        mime, _ = mimetypes.guess_type(abs_path.name)
+        mime = mime or "application/octet-stream"
+        if not _is_text_mime(mime, abs_path.name):
+            blocks.append(_render_single_file(
+                file_id="", name=rel_path, size=stat.st_size,
+                mime_type=mime, content=None,
+                unavailable_reason=f"binary file ({mime})",
+            ))
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            blocks.append(_render_single_file(
+                file_id="", name=rel_path, size=stat.st_size,
+                mime_type=mime, content=None,
+                unavailable_reason="UTF-8 decode failed",
+            ))
+            continue
+        truncated = len(text) > _MAX_ATTACHMENT_CHARS
+        if truncated:
+            text = text[:_MAX_ATTACHMENT_CHARS]
+        blocks.append(_render_single_file(
+            file_id="", name=rel_path, size=stat.st_size,
+            mime_type=mime, content=text, truncated=truncated,
+        ))
+    return blocks
+
+
+async def _history_to_langchain_messages(records: list[dict]) -> list:
     """Convert persisted session messages to LangChain message objects.
 
     Reconstructs tool_call → tool_result → final_answer sequences from
     ``timeline_entries`` so the LLM sees full multi-turn context including
     previous tool invocations and workflow previews.
+
+    For user messages with ``file_ids``, the file content is re-injected
+    into the message so the LLM retains context across turns.
     """
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -46,6 +211,15 @@ def _history_to_langchain_messages(records: list[dict]) -> list:
         timeline = record.get("timeline_entries", [])
 
         if role == "user":
+            # Re-inject file content for multi-turn context
+            file_ids = record.get("file_ids") or []
+            if file_ids:
+                try:
+                    blocks = await _render_files_by_ids(file_ids)
+                    if blocks:
+                        content = (content or "") + _render_attachments_block(blocks)
+                except Exception:
+                    pass  # best-effort
             if content:
                 result.append(HumanMessage(content=content))
         elif role == "agent":
@@ -427,7 +601,24 @@ async def invoke_agent(
     initial_messages: list = []
     if system_text:
         initial_messages.append(SystemMessage(content=system_text))
-    initial_messages.append({"role": "user", "content": body.input})
+
+    # Build user message with file attachments
+    user_content = body.input
+    try:
+        if body.file_ids:
+            blocks = await _render_files_by_ids(body.file_ids)
+            if blocks:
+                user_content += _render_attachments_block(blocks)
+        elif body.file_paths:
+            from app.engine.tool.workspace import WorkspaceManager
+            ws = WorkspaceManager.get_workspace(user.id, session_id)
+            blocks = await _render_files_by_paths(body.file_paths, ws.root)
+            if blocks:
+                user_content += _render_attachments_block(blocks)
+    except Exception:
+        pass  # File embedding is best-effort
+
+    initial_messages.append({"role": "user", "content": user_content})
 
     initial_state = {
         "messages": initial_messages,
@@ -578,36 +769,28 @@ async def stream_agent(
                     r for r in history_records
                     if r.get("content") != body.input or r.get("role") != "user"
                 ]
-                history_msgs = _history_to_langchain_messages(history_records)
+                history_msgs = await _history_to_langchain_messages(history_records)
                 initial_messages_stream.extend(history_msgs)
             except Exception:
                 pass  # History loading is best-effort
 
         # Build user message content — embed uploaded file contents directly
         # so the agent can see them without needing a separate tool call.
+        # Priority: file_ids (rich metadata) → file_paths (fallback, no ID).
         user_content = body.input
-        if body.file_paths:
-            try:
+        try:
+            if body.file_ids:
+                blocks = await _render_files_by_ids(body.file_ids)
+                if blocks:
+                    user_content += _render_attachments_block(blocks)
+            elif body.file_paths:
                 from app.engine.tool.workspace import WorkspaceManager
                 ws = WorkspaceManager.get_workspace(user.id, session_id)
-                file_parts: list[str] = []
-                for rel_path in body.file_paths:
-                    abs_path = (ws.input_dir / rel_path).resolve()
-                    # Safety: ensure path stays within input_dir
-                    if not str(abs_path).startswith(str(ws.input_dir.resolve())):
-                        continue
-                    if abs_path.is_file():
-                        try:
-                            text = abs_path.read_text(errors="replace")
-                            file_parts.append(
-                                f"--- 文件: {rel_path} ---\n{text}\n"
-                            )
-                        except Exception:
-                            pass  # skip unreadable files
-                if file_parts:
-                    user_content = body.input + "\n\n" + "\n".join(file_parts)
-            except Exception:
-                pass  # File embedding is best-effort
+                blocks = await _render_files_by_paths(body.file_paths, ws.root)
+                if blocks:
+                    user_content += _render_attachments_block(blocks)
+        except Exception:
+            pass  # File embedding is best-effort
 
         initial_messages_stream.append({"role": "user", "content": user_content})
 

@@ -334,9 +334,13 @@ async def _build_workflow_tool_declaration(workflow_ids: list[str]) -> str:
 
                 # Build the full param line: name (type, required): description
                 desc = p.get("description") or p.get("label") or ""
-                # File type: append FileRef ID hint so LLM knows to pass file IDs
+                # File type: guide model to extract file ID from <file> XML attachment
                 if p.get("type") == "file":
-                    desc = (desc + " — pass FileRef ID string (or list of IDs for multiple files)").strip(" —")
+                    desc = (
+                        desc
+                        + " — pass the file ID from the user's <file id=\"...\"> attachment "
+                        "(string, or list of IDs for multiple files)"
+                    ).strip(" —")
                 if desc:
                     parts_list.append(f"{p['name']} ({attr_str}): {desc}")
                 else:

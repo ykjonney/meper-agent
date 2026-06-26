@@ -13,6 +13,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import timedelta
 from typing import Any
 
@@ -91,6 +92,59 @@ class WorkflowEngine:
             logger.error("run_and_persist_workflow_not_found", task_id=task_id, workflow_id=workflow_id)
             return {}
 
+        # ── Static validation before execution ──
+        # Quick structural check to catch obvious issues early
+        from app.engine.workflow.validator import WorkflowValidator
+
+        validator = WorkflowValidator(workflow_doc)
+        validation_result = validator.validate()
+        if not validation_result.is_valid:
+            error_msgs = [str(issue) for issue in validation_result.errors]
+            logger.error(
+                "workflow_validation_failed_before_execution",
+                task_id=task_id,
+                workflow_id=workflow_id,
+                errors=error_msgs,
+            )
+            # Mark task as failed immediately — don't waste resources
+            # Note: only import TaskError/TaskStatus here (NOT utc_now) —
+            # utc_now is already imported at module scope (line 25). Importing
+            # it locally inside this `if` branch would shadow the top-level
+            # name for the ENTIRE function scope, causing UnboundLocalError
+            # on every code path that skips this branch (e.g. valid workflows).
+            from app.models.task import TaskError, TaskStatus
+
+            await db["tasks"].update_one(
+                {"_id": task_id},
+                {
+                    "$set": {
+                        "status": TaskStatus.FAILED.value,
+                        "error": TaskError(
+                            error_message=f"Workflow 结构验证失败: {'; '.join(error_msgs)}",
+                            error_code="WORKFLOW_VALIDATION_FAILED",
+                        ).model_dump(),
+                        "updated_at": utc_now(),
+                    },
+                    "$push": {
+                        "timeline": {
+                            "timestamp": utc_now(),
+                            "event_type": "failed",
+                            "data": {"errors": error_msgs},
+                            "actor": "system",
+                        },
+                    },
+                },
+            )
+            return {}
+
+        # Log warnings if any
+        if validation_result.warnings:
+            logger.warning(
+                "workflow_validation_warnings_before_execution",
+                task_id=task_id,
+                warnings=[str(w) for w in validation_result.warnings],
+            )
+
         # Check if resuming from checkpoint
         if task_doc.get("checkpoint"):
             logger.info("run_and_persist_resuming", task_id=task_id)
@@ -100,13 +154,26 @@ class WorkflowEngine:
             final_output = await self.execute_task(task_doc, workflow_doc)
 
         # Persist final output to Task.output
+        # Strip file content (up to 50K chars per file) before storing —
+        # the content already lives in file_library and is accessible via
+        # storage_key.  Keeping it here would bloat the task document.
+        # Use JSON roundtrip to guarantee BSON-safe types for MongoDB storage.
         try:
+            stripped_output = _strip_file_content(final_output)
+            safe_output = json.loads(
+                json.dumps(stripped_output, default=str, ensure_ascii=False)
+            )
             await db["tasks"].update_one(
                 {"_id": task_id},
-                {"$set": {"output": final_output, "updated_at": utc_now()}},
+                {"$set": {"output": safe_output, "updated_at": utc_now()}},
             )
         except Exception as exc:
-            logger.error("run_and_persist_output_save_failed", task_id=task_id, error=str(exc))
+            logger.error(
+                "run_and_persist_output_save_failed",
+                task_id=task_id,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
         return final_output
 
@@ -185,7 +252,7 @@ class WorkflowEngine:
                 triggered_by="system",
                 triggered_by_type="system",
                 timeline_event_type="completed",
-                timeline_data={"output": final_output},
+                timeline_data={"output": _strip_file_content(final_output)},
             )
 
             return final_output
@@ -350,7 +417,7 @@ class WorkflowEngine:
                     triggered_by="system",
                     triggered_by_type="system",
                     timeline_event_type="completed",
-                    timeline_data={"output": final_output, "resumed_from_checkpoint": True},
+                    timeline_data={"output": _strip_file_content(final_output), "resumed_from_checkpoint": True},
                 )
                 # Clear checkpoint
                 await db["tasks"].update_one(
@@ -371,7 +438,7 @@ class WorkflowEngine:
                 triggered_by="system",
                 triggered_by_type="system",
                 timeline_event_type="completed",
-                timeline_data={"output": final_output, "resumed_from_checkpoint": True},
+                timeline_data={"output": _strip_file_content(final_output), "resumed_from_checkpoint": True},
             )
             # Clear checkpoint
             await db["tasks"].update_one(
@@ -565,12 +632,21 @@ class WorkflowEngine:
 
                 from app.db.mongodb import get_database
                 db = get_database()
+
+                # JSON roundtrip to guarantee BSON-safe types for MongoDB
+                safe_snapshot = json.loads(
+                    json.dumps(
+                        self._pool.snapshot() if self._pool else {},
+                        default=str, ensure_ascii=False,
+                    )
+                )
+
                 await db["tasks"].update_one(
                     {"_id": self._task_id},
                     {
                         "$set": {
                             "checkpoint": checkpoint.model_dump(mode="json"),
-                            "variables": self._pool.snapshot() if self._pool else {},
+                            "variables": safe_snapshot,
                             "updated_at": utc_now(),
                         }
                     },
@@ -698,6 +774,23 @@ def _summarise_output(output: dict[str, Any], max_len: int = 200) -> str:
     if len(text) > max_len:
         return text[:max_len] + "..."
     return text
+
+
+def _strip_file_content(obj: Any) -> Any:
+    """Recursively remove ``content`` from FileVariableValue-like dicts.
+
+    FileVariableValue dicts carry up to 50K chars of file text which bloats
+    the persisted task output.  The content already lives in file_library
+    and can be fetched via ``storage_key``, so we strip it before storing.
+    """
+    if isinstance(obj, dict):
+        # Detect FileVariableValue: has both "file_id" and "content" keys
+        if "file_id" in obj and "content" in obj:
+            return {k: v for k, v in obj.items() if k != "content"}
+        return {k: _strip_file_content(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_file_content(item) for item in obj]
+    return obj
 
 
 class WorkflowNodeError(Exception):

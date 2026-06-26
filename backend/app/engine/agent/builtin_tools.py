@@ -253,6 +253,16 @@ def read(path: str) -> str:
     """
     logger.info("builtin_read_executed", path=path, workspace=_workspace_log_context())
 
+    from app.core.config import settings
+
+    ws = _get_workspace()
+
+    # When sandbox is enabled, read inside the container to share the same
+    # filesystem view as bash.  No path translation needed.
+    if settings.SANDBOX_ENABLED and ws is not None:
+        return _read_via_sandbox(path, ws)
+
+    # Local dev (or no workspace): read directly on the host.
     resolved, error = _safe_path_for_read(path)
     if error:
         return error
@@ -274,6 +284,45 @@ def read(path: str) -> str:
         return content
     except Exception as e:
         return f"Error reading file: {e}"
+
+
+def _read_via_sandbox(path: str, workspace: Workspace) -> str:
+    """Read a file by running ``cat`` inside the sandbox container.
+
+    The sandbox sees the same paths as bash (e.g. ``/workspace/tmp/...``),
+    so no path translation is needed.
+
+    When Docker is unavailable, SandboxExecutor falls back to subprocess
+    which translates container paths to host paths before executing.
+    """
+    from app.engine.tool.sandbox import SandboxExecutor
+    import shlex
+
+    # SandboxExecutor falls back to subprocess if Docker is unavailable
+    executor = SandboxExecutor()
+    result = executor.execute(
+        command=f"cat -- {shlex.quote(path)}",
+        workspace=workspace,
+        timeout=30,
+    )
+
+    if result.timed_out:
+        return "Error: Read timed out"
+
+    if result.exit_code != 0:
+        stderr = result.stderr.strip()
+        if "No such file or directory" in stderr:
+            return f"Error: File not found: {path}"
+        return f"Error reading file: {stderr}" or f"Error reading file: exit code {result.exit_code}"
+
+    content = result.stdout
+    max_content = 50_000
+    if len(content) > max_content:
+        lines = content.count("\n")
+        content = content[:max_content] + (
+            f"\n... [truncated: {len(content):,} chars, {lines} lines]"
+        )
+    return content
 
 
 @tool

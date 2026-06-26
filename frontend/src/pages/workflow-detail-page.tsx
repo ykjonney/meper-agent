@@ -24,6 +24,7 @@ import {
   Drawer,
   Alert,
   Divider,
+  Upload,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -35,6 +36,8 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
   FileOutlined,
+  UploadOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import {
   workflowsApi,
@@ -45,6 +48,7 @@ import {
 import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
 import { tasksApi, type TaskOutputFile } from '../services/tasks-api'
+import { filesApi, getFileId } from '../services/files-api'
 import FileDownloadButton from '../components/file-download-button'
 import FilePreview from '../components/file-preview'
 import { getPreviewKind } from '../lib/file-preview'
@@ -63,14 +67,16 @@ function VariableFormField({
   variable,
   value,
   onChange,
+  disabled = false,
 }: {
   variable: VariableDefinition
   value: unknown
   onChange: (val: unknown) => void
+  disabled?: boolean
 }) {
   const label = variable.label || variable.name
   const desc = variable.description
-  const required = variable.required
+  const required = !!variable.constraints?.required
   const type = variable.type
 
   let input: React.ReactNode = null
@@ -181,6 +187,110 @@ function VariableFormField({
       }
       break
     }
+    case 'file': {
+      const multiple = variable.constraints?.multiple as boolean | undefined
+      const allowedExts = variable.constraints?.allowed_extensions as string[] | undefined
+      const maxSizeMb = variable.constraints?.max_size_mb as number | undefined
+
+      // Parse current value(s) to file info
+      const fileIds: string[] = Array.isArray(value)
+        ? value.map((v) => String(v))
+        : value
+          ? [String(value)]
+          : []
+
+      const accept = allowedExts?.map((ext) => ext.startsWith('.') ? ext : `.${ext}`).join(',') || undefined
+      const maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined
+
+      const handleUpload = async (file: File) => {
+        // Validate size
+        if (maxBytes && file.size > maxBytes) {
+          message.error(`文件 "${file.name}" 超过大小限制 (${maxSizeMb}MB)`)
+          return false
+        }
+
+        try {
+          const ref = await filesApi.upload(file, 'workflow_input')
+          const fileId = getFileId(ref)
+
+          if (multiple) {
+            const current = Array.isArray(value) ? value : []
+            onChange([...current, fileId])
+          } else {
+            onChange(fileId)
+          }
+          message.success(`文件 "${file.name}" 上传成功`)
+        } catch (err) {
+          const msg = err && typeof err === 'object' && 'message' in err
+            ? (err as { message: string }).message : '上传失败'
+          message.error(msg)
+        }
+        return false // Prevent default upload
+      }
+
+      const handleRemove = (fileId: string) => {
+        if (multiple) {
+          const current = Array.isArray(value) ? value : []
+          onChange(current.filter((id) => String(id) !== fileId))
+        } else {
+          onChange(null)
+        }
+      }
+
+      input = (
+        <div className="space-y-1.5">
+          <Upload
+            beforeUpload={handleUpload}
+            showUploadList={false}
+            accept={accept}
+            multiple={multiple}
+            disabled={disabled}
+          >
+            <Button icon={<UploadOutlined />} size="small" loading={disabled}>
+              {multiple ? '上传文件' : '选择文件'}
+            </Button>
+          </Upload>
+
+          {fileIds.length > 0 && (
+            <div className="space-y-1">
+              {fileIds.map((fileId) => (
+                <div
+                  key={fileId}
+                  className="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded text-xs"
+                >
+                  <FileOutlined className="text-orange-500" />
+                  <span className="flex-1 truncate font-mono" title={fileId}>
+                    {fileId}
+                  </span>
+                  <Tooltip title="移除">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      danger
+                      onClick={() => handleRemove(fileId)}
+                      disabled={disabled}
+                    />
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!multiple && fileIds.length > 0 && (
+            <p className="text-[10px] text-[#94A3B8]">
+              已选择 1 个文件
+            </p>
+          )}
+          {multiple && fileIds.length > 0 && (
+            <p className="text-[10px] text-[#94A3B8]">
+              已选择 {fileIds.length} 个文件
+            </p>
+          )}
+        </div>
+      )
+      break
+    }
     default:
       input = (
         <Input
@@ -259,13 +369,40 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
     const parsedInput: Record<string, unknown> = {}
     for (const v of variables) {
       const val = formValues[v.name]
-      if (val !== undefined && val !== null && val !== '') {
+      const isEmpty = val === undefined || val === null || val === '' || (Array.isArray(val) && val.length === 0)
+      if (!isEmpty) {
         parsedInput[v.name] = val
-      } else if (v.required) {
+      } else if (v.constraints?.required) {
         message.warning(`请填写必填项: ${v.label || v.name}`)
         return
       }
     }
+
+    // 1. 先验证工作流结构（不改变任何 UI 状态）
+    let validation
+    try {
+      validation = await workflowsApi.validate(workflowId)
+    } catch {
+      message.error('验证失败，请稍后重试')
+      return
+    }
+    if (!validation.is_valid) {
+      const errorMessages = validation.issues
+        .filter((i) => i.severity === 'error')
+        .map((i) => i.message)
+        .join('\n')
+      message.error(`工作流存在 ${validation.error_count} 个错误，请先修复：\n${errorMessages}`)
+      return
+    }
+    if (validation.warning_count > 0) {
+      const warnMessages = validation.issues
+        .filter((i) => i.severity === 'warning')
+        .map((i) => i.message)
+        .join('\n')
+      message.warning(`工作流有 ${validation.warning_count} 个警告：\n${warnMessages}`)
+    }
+
+    // 2. 验证通过，开始执行
     setRunning(true)
     setResult(null)
     try {
@@ -328,6 +465,7 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
                 variable={v}
                 value={formValues[v.name]}
                 onChange={(val) => setValue(v.name, val)}
+                disabled={running}
               />
             ))}
           </div>
@@ -485,8 +623,13 @@ export default function WorkflowDetailPage() {
   const [saving, setSaving] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
 
-  /* ─── Selected node for editing ─── */
-  const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
+  /* ─── Selected node ID for editing ─── */
+  // 只存储 ID，节点数据从 editNodes 中派生（避免 ReactFlow 替换节点对象时丢失选中状态）
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const selectedNode = useMemo(
+    () => editNodes.find((n) => n.node_id === selectedNodeId) ?? null,
+    [editNodes, selectedNodeId],
+  )
 
   /* ─── Query ─── */
   const { data: workflow, isLoading, isError } = useQuery({
@@ -512,7 +655,7 @@ export default function WorkflowDetailPage() {
   /* ─── Mutations ─── */
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => workflowsApi.update(id!, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(id!) })
       queryClient.invalidateQueries({ queryKey: workflowKeys.lists() })
       setHasChanges(false)
@@ -717,7 +860,7 @@ export default function WorkflowDetailPage() {
   /* ─── Node operations ─── */
   const updateNode = useCallback((updated: WorkflowNode) => {
     setEditNodes((prev) => prev.map((n) => n.node_id === updated.node_id ? updated : n))
-    setSelectedNode(updated)
+    // selectedNodeId 不变，selectedNode 会从 editNodes 自动派生最新数据
     setHasChanges(true)
   }, [])
 
@@ -728,7 +871,7 @@ export default function WorkflowDetailPage() {
   }, [])
 
   const handleSelectNode = useCallback((node: WorkflowNode | null) => {
-    setSelectedNode(node)
+    setSelectedNodeId(node?.node_id ?? null)
   }, [])
 
   const handleDeleteNode = useCallback((nodeId: string) => {
@@ -749,7 +892,7 @@ export default function WorkflowDetailPage() {
         return n
       })
     })
-    setSelectedNode((prev) => prev?.node_id === nodeId ? null : prev)
+    setSelectedNodeId((prev) => prev === nodeId ? null : prev)
     setHasChanges(true)
   }, [])
 
@@ -871,7 +1014,7 @@ export default function WorkflowDetailPage() {
               <WorkflowCanvas
                 key={canvasKey}
                 workflowNodes={editNodes}
-                selectedNodeId={selectedNode?.node_id ?? null}
+                selectedNodeId={selectedNodeId}
                 onNodesChange={handleCanvasNodesChange}
                 onSelectNode={handleSelectNode}
               />
@@ -881,7 +1024,7 @@ export default function WorkflowDetailPage() {
             <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
               <div className="p-4">
                 <WorkflowNodeConfigPanel
-                  key={selectedNode?.node_id ?? 'none'}
+                  key={selectedNodeId ?? 'none'}
                   selectedNode={selectedNode}
                   allNodes={editNodes}
                   onNodeChange={updateNode}
