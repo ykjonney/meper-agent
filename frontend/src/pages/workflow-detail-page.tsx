@@ -52,6 +52,7 @@ import { filesApi, getFileId } from '../services/files-api'
 import FileDownloadButton from '../components/file-download-button'
 import FilePreview from '../components/file-preview'
 import { getPreviewKind } from '../lib/file-preview'
+import { wsClient } from '../lib/ws-client'
 
 /* ─── Workflow Editor 组件 ─── */
 import WorkflowCanvas from '../features/workflow-editor/WorkflowCanvas'
@@ -414,8 +415,19 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
       setResult({ taskId: task.id, status: task.status })
       message.success('任务创建成功，正在执行...')
 
-      // 开始轮询
-      await pollTaskStatus(task.id)
+      // Wait for task completion via WS + HTTP fallback
+      await waitForTask(task.id)
+
+      // Fetch final result data
+      try {
+        const finalTask = await tasksApi.get(task.id)
+        setResult(prev => prev ? {
+          ...prev,
+          status: finalTask.status,
+          output: finalTask.output ?? null,
+          error: finalTask.error?.error_message ?? null,
+        } : prev)
+      } catch { /* ignore */ }
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '运行失败'
@@ -425,21 +437,40 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
     }
   }
 
-  // Poll task status until terminal state
-  const pollTaskStatus = useCallback(async (taskId: string) => {
-    const { tasksApi } = await import('../services/tasks-api')
+  // Wait for task terminal state via WebSocket + HTTP fallback
+  const waitForTask = useCallback(async (taskId: string) => {
+    const { tasksApi: api } = await import('../services/tasks-api')
     const terminalStates = ['completed', 'failed', 'cancelled']
-    const maxAttempts = 60
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-      try {
-        const task = await tasksApi.get(taskId)
-        setResult(prev => prev ? { ...prev, status: task.status, output: task.output ?? null, error: task.error?.error_message ?? null } : prev)
-        if (terminalStates.includes(task.status)) return
-      } catch {
-        // 轮询失败不中断
+
+    return new Promise<void>((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        unsub()
+        clearInterval(intervalId)
+        resolve()
       }
-    }
+
+      // Primary: WebSocket listener
+      const unsub = wsClient.on('task_status', (data: unknown) => {
+        const d = data as { task_id: string; status: string }
+        if (d.task_id === taskId && terminalStates.includes(d.status)) {
+          finish()
+        }
+      })
+
+      // Fallback: HTTP poll every 5s (less aggressive since WS is primary)
+      const intervalId = setInterval(async () => {
+        try {
+          const task = await api.get(taskId)
+          setResult(prev => prev ? { ...prev, status: task.status, output: task.output ?? null, error: task.error?.error_message ?? null } : prev)
+          if (terminalStates.includes(task.status)) {
+            finish()
+          }
+        } catch { /* ignore */ }
+      }, 5_000)
+    })
   }, [])
 
   const isTerminal = result && ['completed', 'failed', 'cancelled'].includes(result.status)

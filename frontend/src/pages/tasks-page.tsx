@@ -93,7 +93,6 @@ export default function TasksPage() {
     queries: BOARD_STATUSES.map((status) => ({
       queryKey: taskKeys.list({ status, page: 1, page_size: 50 }),
       queryFn: () => tasksApi.list({ status, page: 1, page_size: 50 }),
-      refetchInterval: 5_000,
     })),
   })
 
@@ -133,8 +132,6 @@ export default function TasksPage() {
     queries: activeTasksForDetail.map((task) => ({
       queryKey: taskKeys.detail(task.id),
       queryFn: () => tasksApi.get(task.id),
-      refetchInterval: 5_000,
-      staleTime: 3_000,
     })),
   })
 
@@ -177,13 +174,6 @@ export default function TasksPage() {
     queryKey: taskKeys.detail(detailTaskId ?? ''),
     queryFn: () => tasksApi.get(detailTaskId!),
     enabled: !!detailTaskId,
-    refetchInterval: (query) => {
-      const task = query.state.data
-      if (task?.status === 'running' || task?.status === 'pending' || task?.status === 'waiting_human') {
-        return 5_000
-      }
-      return false
-    },
   })
 
   /* ─── Selected workflow schema ─── */
