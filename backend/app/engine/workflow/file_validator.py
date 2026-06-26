@@ -20,7 +20,6 @@ from loguru import logger
 
 from app.models.file_library import FileRef
 
-
 # ── 文件内容注入配置 ─────────────────────────────────────────────
 # 注入到变量池的单文件内容最大字符数；超出则截断并附加提示。
 # 50K 字符 ≈ 12K-25K tokens，对大多数 LLM 上下文窗口友好。

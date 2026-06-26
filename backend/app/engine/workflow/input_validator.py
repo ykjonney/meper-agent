@@ -17,13 +17,7 @@ from typing import Any
 
 def _is_empty(value: Any) -> bool:
     """判断值是否为「空」（用于 required 判断）。"""
-    if value is None:
-        return True
-    if value == "":
-        return True
-    if isinstance(value, list) and len(value) == 0:
-        return True
-    return False
+    return value is None or value == "" or (isinstance(value, list) and len(value) == 0)
 
 
 async def validate_input_variables(

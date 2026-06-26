@@ -295,8 +295,9 @@ def _read_via_sandbox(path: str, workspace: Workspace) -> str:
     When Docker is unavailable, SandboxExecutor falls back to subprocess
     which translates container paths to host paths before executing.
     """
-    from app.engine.tool.sandbox import SandboxExecutor
     import shlex
+
+    from app.engine.tool.sandbox import SandboxExecutor
 
     # SandboxExecutor falls back to subprocess if Docker is unavailable
     executor = SandboxExecutor()

@@ -19,14 +19,13 @@ Usage::
 """
 from __future__ import annotations
 
+# Regex to find ``{{...}}`` expressions
+import re
 from enum import StrEnum
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
-
-# Regex to find ``{{...}}`` expressions
-import re
 
 _EXPRESSION_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 
@@ -212,17 +211,17 @@ class WorkflowValidator:
 
     def _detect_cycle(self) -> list[str] | None:
         """Detect cycle in DAG using DFS. Returns the cycle path if found."""
-        WHITE, GRAY, BLACK = 0, 1, 2
-        color: dict[str, int] = {n.get("node_id", ""): WHITE for n in self.nodes}
+        white, gray, black = 0, 1, 2  # noqa: N806 — standard DFS color constants
+        color: dict[str, int] = {n.get("node_id", ""): white for n in self.nodes}
         parent: dict[str, str | None] = {n.get("node_id", ""): None for n in self.nodes}
 
         def dfs(node_id: str) -> list[str] | None:
-            color[node_id] = GRAY
+            color[node_id] = gray
             for edge in self._out_edges.get(node_id, []):
                 tgt = edge.get("target", "")
                 if not tgt or tgt not in color:
                     continue
-                if color[tgt] == GRAY:
+                if color[tgt] == gray:
                     # Found a cycle — reconstruct the path
                     cycle = [tgt, node_id]
                     current = parent.get(node_id)
@@ -231,17 +230,17 @@ class WorkflowValidator:
                         current = parent.get(current)
                     cycle.reverse()
                     return cycle
-                if color[tgt] == WHITE:
+                if color[tgt] == white:
                     parent[tgt] = node_id
                     result = dfs(tgt)
                     if result:
                         return result
-            color[node_id] = BLACK
+            color[node_id] = black
             return None
 
         for node in self.nodes:
             node_id = node.get("node_id", "")
-            if node_id and color.get(node_id) == WHITE:
+            if node_id and color.get(node_id) == white:
                 result = dfs(node_id)
                 if result:
                     return result
@@ -306,8 +305,7 @@ class WorkflowValidator:
                     continue
 
                 # Check if source is upstream (not self, not downstream)
-                if source != "input" and source != "system" and source != node_id:
-                    if source not in upstream:
+                if source not in {"input", "system", node_id} and source not in upstream:
                         issues.append(ValidationIssue(
                             severity=ValidationSeverity.ERROR,
                             code="FORWARD_REFERENCE",

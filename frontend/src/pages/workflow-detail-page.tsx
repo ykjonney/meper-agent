@@ -655,7 +655,7 @@ export default function WorkflowDetailPage() {
   /* ─── Mutations ─── */
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => workflowsApi.update(id!, data),
-    onSuccess: (result) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(id!) })
       queryClient.invalidateQueries({ queryKey: workflowKeys.lists() })
       setHasChanges(false)
