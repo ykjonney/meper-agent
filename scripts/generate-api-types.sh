@@ -10,7 +10,7 @@ cd "$PROJECT_ROOT/backend"
 uv run python scripts/generate_openapi.py
 
 echo "Generating TypeScript types..."
-cd "$PROJECT_ROOT/frontend"
+cd "$PROJECT_ROOT/frontend-studio"
 npx openapi-typescript ../backend/openapi.json -o src/types/api.ts
 
-echo "Done! Types written to frontend/src/types/api.ts"
+echo "Done! Types written to frontend-studio/src/types/api.ts"

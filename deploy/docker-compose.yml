@@ -4,6 +4,7 @@
 
 services:
   caddy:
+    image: ${CADDY_IMAGE:-deploy-caddy}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.caddy
@@ -16,6 +17,7 @@ services:
     restart: unless-stopped
 
   backend:
+    image: ${BACKEND_IMAGE:-deploy-backend}
     build:
       context: ../backend
       dockerfile: Dockerfile
@@ -49,6 +51,7 @@ services:
     restart: unless-stopped
 
   celery-worker:
+    image: ${BACKEND_IMAGE:-deploy-backend}  # 复用 backend 镜像
     build:
       context: ../backend
       dockerfile: Dockerfile
@@ -97,6 +100,7 @@ services:
   # One-time init service: create admin user
   # Run with: docker compose run --rm create-admin
   create-admin:
+    image: ${BACKEND_IMAGE:-deploy-backend}  # 复用 backend 镜像
     build:
       context: ../backend
       dockerfile: Dockerfile

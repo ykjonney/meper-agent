@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - backend/**
-      - frontend/**
+      - frontend-studio/**
       - deploy/**
 
 env:
@@ -39,7 +39,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:latest
 
   build-frontend:
-    name: Build frontend image
+    name: Build frontend-studio image
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,10 +55,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push frontend
+      - name: Build and push frontend-studio
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile.caddy
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend-studio:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend-studio:latest

@@ -19,14 +19,14 @@ uv sync
 echo "  Backend dependencies installed."
 
 # Frontend setup
-echo "[2/4] Setting up frontend (npm)..."
-cd "$PROJECT_ROOT/frontend"
+echo "[2/4] Setting up frontend-studio (npm)..."
+cd "$PROJECT_ROOT/frontend-studio"
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "  Created frontend/.env from .env.example"
+  echo "  Created frontend-studio/.env from .env.example"
 fi
 npm install
-echo "  Frontend dependencies installed."
+echo "  Frontend-studio dependencies installed."
 
 # Deploy setup
 echo "[3/4] Setting up deploy config..."
@@ -44,4 +44,4 @@ echo "Next steps:"
 echo "  - Start dev environment:    make dev"
 echo "  - Run tests:                make test"
 echo "  - View backend API docs:    http://localhost:8000/api/v1/docs"
-echo "  - View frontend:            http://localhost:5173"
+echo "  - View frontend-studio:     http://localhost:3000"
