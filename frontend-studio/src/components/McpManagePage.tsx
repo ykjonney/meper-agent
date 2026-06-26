@@ -358,11 +358,11 @@ export function McpManagePage() {
               </div>
               {form.auth_type !== 'none' && (
                 <Field label="认证配置 (JSON)">
-                  <textarea value={form.auth_config} onChange={(e) => setForm({ ...form, auth_config: e.target.value })} placeholder={'{\n  "key": "your-api-key"\n}'} rows="3" className={`${inputCls} font-mono resize-y`} />
+                  <textarea value={form.auth_config} onChange={(e) => setForm({ ...form, auth_config: e.target.value })} placeholder={'{\n  "key": "your-api-key"\n}'} rows={3} className={`${inputCls} font-mono resize-y`} />
                 </Field>
               )}
               <Field label="默认参数 (JSON，可选)">
-                <textarea value={form.default_params} onChange={(e) => setForm({ ...form, default_params: e.target.value })} placeholder="{}" rows="2" className={`${inputCls} font-mono resize-y`} />
+                <textarea value={form.default_params} onChange={(e) => setForm({ ...form, default_params: e.target.value })} placeholder="{}" rows={2} className={`${inputCls} font-mono resize-y`} />
               </Field>
               <div className="flex justify-end gap-3 pt-4 border-t border-[#27272a]">
                 <button type="button" onClick={() => { setCreating(false); setEditing(null); setError(null); }}
