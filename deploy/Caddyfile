@@ -2,20 +2,26 @@
 # Serves frontend static files and reverse proxies API
 
 :80 {
-	# Frontend static files
+	# Frontend static files root
 	root * /srv
 
-	# Backend API proxy
-	reverse_proxy /api/* backend:8000
+	# Backend API proxy (must be before try_files)
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:8000
+	}
 
 	# WebSocket proxy
-	reverse_proxy /ws/* backend:8000
+	@ws path /ws/*
+	handle @ws {
+		reverse_proxy backend:8000
+	}
 
-	# SPA fallback: try file first, then fall back to index.html
-	try_files {path} /index.html
-
-	# Serve files (with SPA fallback support)
-	file_server
+	# Static files (try file first, then fall back to index.html for SPA)
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 
 	# Logging
 	log {
