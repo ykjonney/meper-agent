@@ -18,11 +18,24 @@ class NotificationRepository:
     def _collection(self):
         return self._db[COLLECTION]
 
-    async def insert(self, notification: Notification) -> Notification:
-        """Insert a new notification."""
+    async def insert(self, notification: Notification) -> bool:
+        """Insert a new notification.
+
+        Returns:
+            True if a new document was inserted, False if a duplicate was
+            skipped (same ``user_id`` + ``related_task_id`` + ``kind``).
+        """
+        if notification.related_task_id:
+            existing = await self._collection().find_one({
+                "user_id": notification.user_id,
+                "related_task_id": notification.related_task_id,
+                "kind": notification.kind.value,
+            })
+            if existing:
+                return False
         doc = notification.model_dump(by_alias=True)
         await self._collection().insert_one(doc)
-        return notification
+        return True
 
     async def list_by_user(
         self,
@@ -49,6 +62,9 @@ class NotificationRepository:
             .limit(page_size)
         )
         items = await cursor.to_list(length=page_size)
+        for item in items:
+            if "_id" in item:
+                item["id"] = item.pop("_id")
         return {"total": total, "page": page, "page_size": page_size, "items": items}
 
     async def count_unread(self, user_id: str) -> int:

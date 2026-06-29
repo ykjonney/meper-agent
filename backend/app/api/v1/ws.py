@@ -30,10 +30,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
     """
     user_id = verify_ws_token(token)
     if user_id is None:
-        await websocket.close(code=4001, reason="Authentication failed")
+        await websocket.accept()
+        await websocket.close(code=4401, reason="Authentication failed")
         return
 
     manager = get_ws_manager()
+    await websocket.accept()
     await manager.connect(user_id, websocket)
     logger.info("ws_client_connected", user_id=user_id)
 

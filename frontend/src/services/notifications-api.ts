@@ -1,4 +1,4 @@
-import apiClient from './api-client'
+import { apiClient } from './api-client'
 
 export interface NotificationItem {
   id: string
@@ -21,19 +21,19 @@ export interface NotificationListResponse {
 
 export const notificationsApi = {
   list(params?: { page?: number; page_size?: number; read?: boolean; kind?: string }) {
-    return apiClient.get<NotificationListResponse>('/notifications', { params }).then((r) => r.data)
+    return apiClient.get<NotificationListResponse>('/api/v1/notifications', { params }).then((r) => r.data)
   },
 
   unreadCount() {
-    return apiClient.get<{ count: number }>('/notifications/unread-count').then((r) => r.data)
+    return apiClient.get<{ count: number }>('/api/v1/notifications/unread-count').then((r) => r.data)
   },
 
   markRead(id: string) {
-    return apiClient.patch(`/notifications/${id}/read`).then((r) => r.data)
+    return apiClient.patch(`/api/v1/notifications/${id}/read`).then((r) => r.data)
   },
 
   markAllRead() {
-    return apiClient.patch('/notifications/read-all').then((r) => r.data)
+    return apiClient.patch('/api/v1/notifications/read-all').then((r) => r.data)
   },
 }
 

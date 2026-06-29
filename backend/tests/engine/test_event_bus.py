@@ -106,6 +106,82 @@ class TestEventBusPublish:
         assert received[0].task_id == "task_001"
 
     @pytest.mark.asyncio
+    async def test_dedup_suppresses_burst_duplicate(self):
+        """Same event published twice in quick succession → handler called once."""
+        from datetime import UTC, datetime, timedelta
+
+        received = []
+
+        async def handler(event):
+            received.append(event)
+
+        self.bus.subscribe("task.completed", handler, handler_name="h1")
+
+        now = datetime.now(UTC)
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed",
+            task_id="task_001",
+            to_status="completed",
+            timestamp=now,
+        ))
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed",
+            task_id="task_001",
+            to_status="completed",
+            timestamp=now + timedelta(seconds=5),
+        ))
+
+        assert len(received) == 1
+
+    @pytest.mark.asyncio
+    async def test_dedup_allows_after_ttl_expiry(self):
+        """Same event after TTL window → handler called again."""
+        from datetime import UTC, datetime, timedelta
+
+        received = []
+
+        async def handler(event):
+            received.append(event)
+
+        self.bus.subscribe("task.completed", handler, handler_name="h1")
+
+        t0 = datetime.now(UTC)
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed",
+            task_id="task_001",
+            to_status="completed",
+            timestamp=t0,
+        ))
+        # Second publish 120s later — beyond the 60s TTL
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed",
+            task_id="task_001",
+            to_status="completed",
+            timestamp=t0 + timedelta(seconds=120),
+        ))
+
+        assert len(received) == 2
+
+    @pytest.mark.asyncio
+    async def test_dedup_distinct_tasks_not_blocked(self):
+        """Different task_ids → distinct event keys → both delivered."""
+        received = []
+
+        async def handler(event):
+            received.append(event.task_id)
+
+        self.bus.subscribe("task.completed", handler, handler_name="h1")
+
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed", task_id="task_a", to_status="completed",
+        ))
+        await self.bus.publish(TaskEvent(
+            event_type="task.completed", task_id="task_b", to_status="completed",
+        ))
+
+        assert received == ["task_a", "task_b"]
+
+    @pytest.mark.asyncio
     async def test_publish_delivers_to_wildcard(self):
         """Should deliver event to wildcard subscribers."""
         received = []

@@ -44,10 +44,16 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   addNotification: (notification: NotificationItem) => {
-    set((state) => ({
-      notifications: [notification, ...state.notifications].slice(0, 50),
-      unreadCount: state.unreadCount + 1,
-    }))
+    set((state) => {
+      // Deduplicate by ID — prevents duplicates from WS push + API list overlap
+      if (state.notifications.some((n) => n.id === notification.id)) {
+        return { unreadCount: state.unreadCount }
+      }
+      return {
+        notifications: [notification, ...state.notifications].slice(0, 50),
+        unreadCount: state.unreadCount + 1,
+      }
+    })
   },
 
   markAsRead: async (id: string) => {

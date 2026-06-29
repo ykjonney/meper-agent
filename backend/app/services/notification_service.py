@@ -99,12 +99,12 @@ class NotificationService:
                 related_task_id=event.task_id,
                 related_workflow_id=task.get("workflow_id", ""),
             )
-            await self._get_repo().insert(notification)
-
-            await ws_manager.send_to_user(user_id, {
-                "type": "notification",
-                "data": notification.model_dump(mode="json"),
-            })
+            is_new = await self._get_repo().insert(notification)
+            if is_new:
+                await ws_manager.send_to_user(user_id, {
+                    "type": "notification",
+                    "data": notification.model_dump(mode="json"),
+                })
 
     def _build_body(self, event: TaskEvent, task: dict) -> str:
         """Build human-readable notification body from event context."""

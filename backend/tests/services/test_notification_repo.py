@@ -25,10 +25,26 @@ class TestNotificationRepository:
             title="失败",
             body="测试",
         )
+        collection.find_one = AsyncMock(return_value=None)
         collection.insert_one.return_value = MagicMock(inserted_id=notif.id)
         result = await repo.insert(notif)
-        assert result == notif
+        assert result is True
         collection.insert_one.assert_awaited_once()
+
+    async def test_insert_duplicate_skipped(self, mock_db):
+        db, collection = mock_db
+        repo = NotificationRepository(db)
+        notif = Notification(
+            user_id="user_abc",
+            kind=NotificationKind.TASK_FAILED,
+            title="失败",
+            body="测试",
+            related_task_id="task_001",
+        )
+        collection.find_one = AsyncMock(return_value={"_id": "existing"})
+        result = await repo.insert(notif)
+        assert result is False
+        collection.insert_one.assert_not_awaited()
 
     async def test_list_by_user(self, mock_db):
         db, collection = mock_db
