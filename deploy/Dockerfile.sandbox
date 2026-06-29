@@ -54,8 +54,9 @@ RUN pip install --no-cache-dir \
     tabulate \
     rich
 
-# ── Create non-root user ─────────────────────────────────────────────────────
-RUN groupadd -r sandbox && useradd -r -g sandbox -m -s /bin/bash sandbox
+# Create non-root user (UID 1001 must match backend's appuser UID so that
+# files created by backend in shared volumes are accessible here).
+RUN groupadd -r -g 1001 sandbox && useradd -r -g sandbox -u 1001 -m -s /bin/bash sandbox
 
 # ── Workspace ─────────────────────────────────────────────────────────────────
 # /workspace is the mount point for the session workspace (tmp/ mounted rw).

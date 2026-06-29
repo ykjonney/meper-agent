@@ -23,8 +23,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create non-root user with explicit UID (must match sandbox user UID)
+RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 appuser
 
 # Copy the venv from builder
 COPY --from=builder /app/.venv /app/.venv
