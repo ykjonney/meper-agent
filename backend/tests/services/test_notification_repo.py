@@ -1,7 +1,7 @@
 """Tests for NotificationRepository."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from app.models.notification import Notification, NotificationKind
 from app.services.notification_repo import NotificationRepository
 

@@ -1,10 +1,9 @@
 """Tests for WebSocket endpoint."""
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
 from app.api.v1.ws import verify_ws_token
 from app.core.security import create_access_token, create_refresh_token
+from app.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -39,9 +38,6 @@ class TestVerifyWsToken:
 
     def test_expired_token(self):
         """Expired token should return None."""
-        import time
-        from app.core.security import decode_access_token
-
         # Create a token that expires immediately (not possible with current API)
         # Instead, test with a malformed token that looks expired
         result = verify_ws_token("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyX3Rlc3QiLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxfQ.fake")

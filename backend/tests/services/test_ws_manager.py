@@ -1,5 +1,4 @@
 """Tests for WebSocketConnectionManager."""
-import pytest
 from unittest.mock import AsyncMock
 
 from app.services.ws_manager import WebSocketConnectionManager

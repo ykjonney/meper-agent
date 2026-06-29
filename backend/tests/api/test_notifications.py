@@ -1,7 +1,7 @@
 """Tests for notification REST API endpoints."""
-import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from app.main import app
 
 
@@ -35,9 +35,9 @@ def override_auth():
 
 class TestNotificationAPI:
     async def test_list_notifications(self, client, override_auth):
-        with patch("app.api.v1.notifications.NotificationRepository") as MockRepo:
+        with patch("app.api.v1.notifications.NotificationRepository") as mock_repo:
             repo_instance = AsyncMock()
-            MockRepo.return_value = repo_instance
+            mock_repo.return_value = repo_instance
             repo_instance.list_by_user.return_value = {
                 "total": 0, "page": 1, "page_size": 20, "items": []
             }
@@ -48,26 +48,26 @@ class TestNotificationAPI:
             assert data["items"] == []
 
     async def test_unread_count(self, client, override_auth):
-        with patch("app.api.v1.notifications.NotificationRepository") as MockRepo:
+        with patch("app.api.v1.notifications.NotificationRepository") as mock_repo:
             repo_instance = AsyncMock()
-            MockRepo.return_value = repo_instance
+            mock_repo.return_value = repo_instance
             repo_instance.count_unread.return_value = 5
             resp = client.get("/api/v1/notifications/unread-count")
             assert resp.status_code == 200
             assert resp.json()["count"] == 5
 
     async def test_mark_read(self, client, override_auth):
-        with patch("app.api.v1.notifications.NotificationRepository") as MockRepo:
+        with patch("app.api.v1.notifications.NotificationRepository") as mock_repo:
             repo_instance = AsyncMock()
-            MockRepo.return_value = repo_instance
+            mock_repo.return_value = repo_instance
             repo_instance.mark_read.return_value = None
             resp = client.patch("/api/v1/notifications/notif_xxx/read")
             assert resp.status_code == 200
 
     async def test_mark_all_read(self, client, override_auth):
-        with patch("app.api.v1.notifications.NotificationRepository") as MockRepo:
+        with patch("app.api.v1.notifications.NotificationRepository") as mock_repo:
             repo_instance = AsyncMock()
-            MockRepo.return_value = repo_instance
+            mock_repo.return_value = repo_instance
             repo_instance.mark_all_read.return_value = None
             resp = client.patch("/api/v1/notifications/read-all")
             assert resp.status_code == 200
