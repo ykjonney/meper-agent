@@ -110,13 +110,13 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string }> = 
   human: { label: '人工审批', color: '#F97316', bg: '#FFF7ED' },
 }
 
-export function getTypeLabel(type: string): string {
+function getTypeLabel(type: string): string {
   return TYPE_META[type]?.label ?? type
 }
-export function getTypeColor(type: string): string {
+function getTypeColor(type: string): string {
   return TYPE_META[type]?.color ?? '#64748B'
 }
-export function getTypeBg(type: string): string {
+function getTypeBg(type: string): string {
   return TYPE_META[type]?.bg ?? '#F1F5F9'
 }
 

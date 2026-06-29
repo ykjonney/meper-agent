@@ -8,14 +8,12 @@ from app.api.v1.files import router as files_router
 from app.api.v1.health import router as health_router
 from app.api.v1.mcp import router as mcp_router
 from app.api.v1.models import router as models_router
-from app.api.v1.notifications import router as notifications_router
 from app.api.v1.roles import router as roles_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.workflow_registry import router as workflow_registry_router
 from app.api.v1.workflows import router as workflows_router
-from app.api.v1.ws import router as ws_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
@@ -31,5 +29,3 @@ api_v1_router.include_router(mcp_router)
 api_v1_router.include_router(roles_router)
 api_v1_router.include_router(workflow_registry_router)
 api_v1_router.include_router(workflows_router)
-api_v1_router.include_router(ws_router)
-api_v1_router.include_router(notifications_router)

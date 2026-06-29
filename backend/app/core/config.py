@@ -111,6 +111,11 @@ class Settings(BaseSettings):
     # When False (default for local dev), bash runs via subprocess.
     SANDBOX_ENABLED: bool = False
 
+    # When True, stream_agent uses the harness engine (agent_flow_harness graph
+    # + astream_events adapter) instead of the legacy react_executor.
+    # Default False — enable after validation. Tools/LLM/workspace stay the same.
+    USE_HARNESS_ENGINE: bool = False
+
     # Network mode for sandbox containers.
     # "none" = no network access (most secure, default)
     # "bridge" = standard Docker bridge network (allows outbound internet)

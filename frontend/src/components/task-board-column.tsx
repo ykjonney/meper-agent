@@ -21,7 +21,6 @@ export interface TaskBoardColumnProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
-  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -36,7 +35,6 @@ export function TaskBoardColumn({
   onCancel,
   onRetry,
   onDelete,
-  onApprovalSubmit,
   interveneLoading = false,
   deleteLoading = false,
 }: TaskBoardColumnProps) {
@@ -98,7 +96,6 @@ export function TaskBoardColumn({
               onCancel={onCancel}
               onRetry={onRetry}
               onDelete={onDelete}
-              onApprovalSubmit={onApprovalSubmit}
               interveneLoading={interveneLoading}
               deleteLoading={deleteLoading}
             />

@@ -6,13 +6,7 @@ Each Session gets an independent workspace directory tree::
         input/      ← user-uploaded attachments
         output/     ← Agent-generated downloadable files
         tmp/        ← bash execution working area (sandbox mount point)
-
-Task workspaces (Story 4-15) live alongside session workspaces::
-
-    {WORKSPACES_DIR}/{user_id}/tasks/{task_id}/
-        input/      ← (reserved for future)
-        output/     ← Agent node files registered to file_library on completion
-        tmp/        ← bash scratch for Agent tools
+            tasks/{task_id}/  ← Task sub-workspaces (inherit from Session)
 
 The workspace provides file isolation between users and sessions,
 preventing cross-contamination when multiple users run Agents concurrently.
@@ -31,43 +25,21 @@ from app.core.config import settings
 
 @dataclass(frozen=True)
 class Workspace:
-    """Resolved paths for a Session or Task workspace.
-
-    Story 4-15: Added ``scope`` to distinguish Session workspaces (lifecycle
-    tied to chat session) from Task workspaces (lifecycle tied to Task).
-    Defaults to ``"session"`` for backward compatibility — all existing
-    callers and test fixtures continue to work.
-    """
+    """Resolved paths for a Session workspace."""
 
     root: Path
     input_dir: Path
     output_dir: Path
     tmp_dir: Path
-    scope: str = "session"  # "session" | "task"
 
     @property
     def user_id(self) -> str:
-        """Extract user_id from the workspace path structure.
-
-        For session scope the path is ``.../{user_id}/{session_id}``; for
-        task scope the path is ``.../{user_id}/tasks/{task_id}``.  In both
-        cases the user_id is the *grandparent's* parent name (the directory
-        immediately under the workspaces root).
-        """
-        return self.root.parent.parent.name if self.scope == "task" else self.root.parent.name
+        """Extract user_id from the workspace path structure."""
+        return self.root.parent.name
 
     @property
     def session_id(self) -> str:
-        """Extract session_id from the workspace path structure (session only)."""
-        if self.scope != "session":
-            return ""
-        return self.root.name
-
-    @property
-    def task_id(self) -> str:
-        """Extract task_id from the workspace path structure (task only)."""
-        if self.scope != "task":
-            return ""
+        """Extract session_id from the workspace path structure."""
         return self.root.name
 
     def tasks_dir(self, task_id: str | None = None) -> Path:
@@ -123,60 +95,6 @@ class WorkspaceManager:
             "workspace_created",
             user_id=user_id,
             session_id=session_id,
-            path=str(ws.root),
-        )
-        return ws
-
-    @staticmethod
-    def get_task_workspace(user_id: str, task_id: str) -> Workspace:
-        """Return a :class:`Workspace` for a Task.
-
-        Story 4-15: Task workspaces are siblings of session workspaces
-        (``{root}/{user_id}/tasks/{task_id}/``), not nested under any
-        session. This keeps Agent node output file lifecycle tied to the
-        Task rather than any specific chat session.
-
-        Does **not** create the directories — call
-        :meth:`create_task_workspace` to ensure they exist on disk.
-
-        Args:
-            user_id: Owner user ID.
-            task_id: Task ID (Task._id, ULID).
-
-        Returns:
-            The :class:`Workspace` object (without creating directories).
-        """
-        root = WorkspaceManager._workspaces_root() / user_id / "tasks" / task_id
-        return Workspace(
-            root=root,
-            input_dir=root / "input",
-            output_dir=root / "output",
-            tmp_dir=root / "tmp",
-            scope="task",
-        )
-
-    @staticmethod
-    def create_task_workspace(user_id: str, task_id: str) -> Workspace:
-        """Create the workspace directory tree for a Task.
-
-        Idempotent — existing directories are not replaced.
-
-        Args:
-            user_id: Owner user ID.
-            task_id: Task ID (Task._id, ULID).
-
-        Returns:
-            The created :class:`Workspace` with ``scope='task'``.
-        """
-        ws = WorkspaceManager.get_task_workspace(user_id, task_id)
-
-        for d in (ws.input_dir, ws.output_dir, ws.tmp_dir):
-            d.mkdir(parents=True, exist_ok=True)
-
-        logger.info(
-            "task_workspace_created",
-            user_id=user_id,
-            task_id=task_id,
             path=str(ws.root),
         )
         return ws
@@ -352,12 +270,6 @@ class WorkspaceManager:
                 continue
             for session_dir in user_dir.iterdir():
                 if not session_dir.is_dir():
-                    continue
-                # Story 4-15: skip task workspace container — task workspaces
-                # have their own lifecycle and are not managed by this cleanup
-                # pass. They live at ``{user_dir}/tasks/{task_id}`` and are
-                # siblings of session workspaces, not children.
-                if session_dir.name == "tasks":
                     continue
 
                 # Get workspace mtime (latest modification in the tree)

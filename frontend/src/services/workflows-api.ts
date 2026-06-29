@@ -33,14 +33,6 @@ export interface NextNodeRef {
   condition?: string | null
 }
 
-/** A single validation issue returned from the backend. */
-export interface ValidationIssue {
-  severity: 'error' | 'warning' | 'info'
-  code: string
-  message: string
-  node_id?: string | null
-}
-
 export interface WorkflowSummary {
   id: string
   name: string
@@ -156,21 +148,6 @@ export const workflowsApi = {
     const res = await apiClient.post<WorkflowDetail>(
       `/api/v1/workflows/${encodeURIComponent(workflowId)}/archive`,
     )
-    return res.data
-  },
-
-  /**
-   * Validate a workflow template structure.
-   * POST /api/v1/workflows/{id}/validate
-   */
-  async validate(workflowId: string): Promise<{
-    workflow_id: string
-    is_valid: boolean
-    error_count: number
-    warning_count: number
-    issues: ValidationIssue[]
-  }> {
-    const res = await apiClient.post(`/api/v1/workflows/${encodeURIComponent(workflowId)}/validate`)
     return res.data
   },
 }

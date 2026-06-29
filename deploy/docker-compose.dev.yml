@@ -2,13 +2,12 @@
 # Usage: cd deploy && docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 services:
-  frontend-studio:
-    image: deploy-frontend-studio
+  frontend:
     build:
-      context: ../frontend-studio
+      context: ../frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "3000:3000"
+      - "5173:5173"
     environment:
       VITE_API_TARGET: http://backend:8000
     depends_on:

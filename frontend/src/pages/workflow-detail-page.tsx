@@ -24,7 +24,6 @@ import {
   Drawer,
   Alert,
   Divider,
-  Upload,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -34,10 +33,6 @@ import {
   PlayCircleOutlined,
   HistoryOutlined,
   ExclamationCircleOutlined,
-  EyeOutlined,
-  FileOutlined,
-  UploadOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons'
 import {
   workflowsApi,
@@ -47,12 +42,6 @@ import {
 } from '../services/workflows-api'
 import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
-import { tasksApi, type TaskOutputFile } from '../services/tasks-api'
-import { filesApi, getFileId } from '../services/files-api'
-import FileDownloadButton from '../components/file-download-button'
-import FilePreview from '../components/file-preview'
-import { getPreviewKind } from '../lib/file-preview'
-import { wsClient } from '../lib/ws-client'
 
 /* ─── Workflow Editor 组件 ─── */
 import WorkflowCanvas from '../features/workflow-editor/WorkflowCanvas'
@@ -68,16 +57,14 @@ function VariableFormField({
   variable,
   value,
   onChange,
-  disabled = false,
 }: {
   variable: VariableDefinition
   value: unknown
   onChange: (val: unknown) => void
-  disabled?: boolean
 }) {
   const label = variable.label || variable.name
   const desc = variable.description
-  const required = !!variable.constraints?.required
+  const required = variable.required
   const type = variable.type
 
   let input: React.ReactNode = null
@@ -188,110 +175,6 @@ function VariableFormField({
       }
       break
     }
-    case 'file': {
-      const multiple = variable.constraints?.multiple as boolean | undefined
-      const allowedExts = variable.constraints?.allowed_extensions as string[] | undefined
-      const maxSizeMb = variable.constraints?.max_size_mb as number | undefined
-
-      // Parse current value(s) to file info
-      const fileIds: string[] = Array.isArray(value)
-        ? value.map((v) => String(v))
-        : value
-          ? [String(value)]
-          : []
-
-      const accept = allowedExts?.map((ext) => ext.startsWith('.') ? ext : `.${ext}`).join(',') || undefined
-      const maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined
-
-      const handleUpload = async (file: File) => {
-        // Validate size
-        if (maxBytes && file.size > maxBytes) {
-          message.error(`文件 "${file.name}" 超过大小限制 (${maxSizeMb}MB)`)
-          return false
-        }
-
-        try {
-          const ref = await filesApi.upload(file, 'workflow_input')
-          const fileId = getFileId(ref)
-
-          if (multiple) {
-            const current = Array.isArray(value) ? value : []
-            onChange([...current, fileId])
-          } else {
-            onChange(fileId)
-          }
-          message.success(`文件 "${file.name}" 上传成功`)
-        } catch (err) {
-          const msg = err && typeof err === 'object' && 'message' in err
-            ? (err as { message: string }).message : '上传失败'
-          message.error(msg)
-        }
-        return false // Prevent default upload
-      }
-
-      const handleRemove = (fileId: string) => {
-        if (multiple) {
-          const current = Array.isArray(value) ? value : []
-          onChange(current.filter((id) => String(id) !== fileId))
-        } else {
-          onChange(null)
-        }
-      }
-
-      input = (
-        <div className="space-y-1.5">
-          <Upload
-            beforeUpload={handleUpload}
-            showUploadList={false}
-            accept={accept}
-            multiple={multiple}
-            disabled={disabled}
-          >
-            <Button icon={<UploadOutlined />} size="small" loading={disabled}>
-              {multiple ? '上传文件' : '选择文件'}
-            </Button>
-          </Upload>
-
-          {fileIds.length > 0 && (
-            <div className="space-y-1">
-              {fileIds.map((fileId) => (
-                <div
-                  key={fileId}
-                  className="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded text-xs"
-                >
-                  <FileOutlined className="text-orange-500" />
-                  <span className="flex-1 truncate font-mono" title={fileId}>
-                    {fileId}
-                  </span>
-                  <Tooltip title="移除">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<DeleteOutlined />}
-                      danger
-                      onClick={() => handleRemove(fileId)}
-                      disabled={disabled}
-                    />
-                  </Tooltip>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!multiple && fileIds.length > 0 && (
-            <p className="text-[10px] text-[#94A3B8]">
-              已选择 1 个文件
-            </p>
-          )}
-          {multiple && fileIds.length > 0 && (
-            <p className="text-[10px] text-[#94A3B8]">
-              已选择 {fileIds.length} 个文件
-            </p>
-          )}
-        </div>
-      )
-      break
-    }
     default:
       input = (
         <Input
@@ -370,40 +253,13 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
     const parsedInput: Record<string, unknown> = {}
     for (const v of variables) {
       const val = formValues[v.name]
-      const isEmpty = val === undefined || val === null || val === '' || (Array.isArray(val) && val.length === 0)
-      if (!isEmpty) {
+      if (val !== undefined && val !== null && val !== '') {
         parsedInput[v.name] = val
-      } else if (v.constraints?.required) {
+      } else if (v.required) {
         message.warning(`请填写必填项: ${v.label || v.name}`)
         return
       }
     }
-
-    // 1. 先验证工作流结构（不改变任何 UI 状态）
-    let validation
-    try {
-      validation = await workflowsApi.validate(workflowId)
-    } catch {
-      message.error('验证失败，请稍后重试')
-      return
-    }
-    if (!validation.is_valid) {
-      const errorMessages = validation.issues
-        .filter((i) => i.severity === 'error')
-        .map((i) => i.message)
-        .join('\n')
-      message.error(`工作流存在 ${validation.error_count} 个错误，请先修复：\n${errorMessages}`)
-      return
-    }
-    if (validation.warning_count > 0) {
-      const warnMessages = validation.issues
-        .filter((i) => i.severity === 'warning')
-        .map((i) => i.message)
-        .join('\n')
-      message.warning(`工作流有 ${validation.warning_count} 个警告：\n${warnMessages}`)
-    }
-
-    // 2. 验证通过，开始执行
     setRunning(true)
     setResult(null)
     try {
@@ -415,19 +271,8 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
       setResult({ taskId: task.id, status: task.status })
       message.success('任务创建成功，正在执行...')
 
-      // Wait for task completion via WS + HTTP fallback
-      await waitForTask(task.id)
-
-      // Fetch final result data
-      try {
-        const finalTask = await tasksApi.get(task.id)
-        setResult(prev => prev ? {
-          ...prev,
-          status: finalTask.status,
-          output: finalTask.output ?? null,
-          error: finalTask.error?.error_message ?? null,
-        } : prev)
-      } catch { /* ignore */ }
+      // 开始轮询
+      await pollTaskStatus(task.id)
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '运行失败'
@@ -437,40 +282,21 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
     }
   }
 
-  // Wait for task terminal state via WebSocket + HTTP fallback
-  const waitForTask = useCallback(async (taskId: string) => {
-    const { tasksApi: api } = await import('../services/tasks-api')
+  // Poll task status until terminal state
+  const pollTaskStatus = useCallback(async (taskId: string) => {
+    const { tasksApi } = await import('../services/tasks-api')
     const terminalStates = ['completed', 'failed', 'cancelled']
-
-    return new Promise<void>((resolve) => {
-      let done = false
-      const finish = () => {
-        if (done) return
-        done = true
-        unsub()
-        clearInterval(intervalId)
-        resolve()
+    const maxAttempts = 60
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      try {
+        const task = await tasksApi.get(taskId)
+        setResult(prev => prev ? { ...prev, status: task.status, output: task.output ?? null, error: task.error?.error_message ?? null } : prev)
+        if (terminalStates.includes(task.status)) return
+      } catch {
+        // 轮询失败不中断
       }
-
-      // Primary: WebSocket listener
-      const unsub = wsClient.on('task_status', (data: unknown) => {
-        const d = data as { task_id: string; status: string }
-        if (d.task_id === taskId && terminalStates.includes(d.status)) {
-          finish()
-        }
-      })
-
-      // Fallback: HTTP poll every 5s (less aggressive since WS is primary)
-      const intervalId = setInterval(async () => {
-        try {
-          const task = await api.get(taskId)
-          setResult(prev => prev ? { ...prev, status: task.status, output: task.output ?? null, error: task.error?.error_message ?? null } : prev)
-          if (terminalStates.includes(task.status)) {
-            finish()
-          }
-        } catch { /* ignore */ }
-      }, 5_000)
-    })
+    }
   }, [])
 
   const isTerminal = result && ['completed', 'failed', 'cancelled'].includes(result.status)
@@ -496,7 +322,6 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
                 variable={v}
                 value={formValues[v.name]}
                 onChange={(val) => setValue(v.name, val)}
-                disabled={running}
               />
             ))}
           </div>
@@ -569,11 +394,6 @@ function TestRunModal({ workflowId, workflowName, nodes, open, onClose }: {
                       {JSON.stringify(result.output, null, 2)}
                     </pre>
                   </div>
-                )}
-
-                {/* Story 4-15-UI: 输出文件列表（Agent 节点产物，仅 completed 状态拉取） */}
-                {result.status === 'completed' && (
-                  <TaskOutputFilesInline taskId={result.taskId} />
                 )}
               </div>
             }
@@ -654,13 +474,8 @@ export default function WorkflowDetailPage() {
   const [saving, setSaving] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
 
-  /* ─── Selected node ID for editing ─── */
-  // 只存储 ID，节点数据从 editNodes 中派生（避免 ReactFlow 替换节点对象时丢失选中状态）
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const selectedNode = useMemo(
-    () => editNodes.find((n) => n.node_id === selectedNodeId) ?? null,
-    [editNodes, selectedNodeId],
-  )
+  /* ─── Selected node for editing ─── */
+  const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
 
   /* ─── Query ─── */
   const { data: workflow, isLoading, isError } = useQuery({
@@ -891,7 +706,7 @@ export default function WorkflowDetailPage() {
   /* ─── Node operations ─── */
   const updateNode = useCallback((updated: WorkflowNode) => {
     setEditNodes((prev) => prev.map((n) => n.node_id === updated.node_id ? updated : n))
-    // selectedNodeId 不变，selectedNode 会从 editNodes 自动派生最新数据
+    setSelectedNode(updated)
     setHasChanges(true)
   }, [])
 
@@ -902,7 +717,7 @@ export default function WorkflowDetailPage() {
   }, [])
 
   const handleSelectNode = useCallback((node: WorkflowNode | null) => {
-    setSelectedNodeId(node?.node_id ?? null)
+    setSelectedNode(node)
   }, [])
 
   const handleDeleteNode = useCallback((nodeId: string) => {
@@ -923,7 +738,7 @@ export default function WorkflowDetailPage() {
         return n
       })
     })
-    setSelectedNodeId((prev) => prev === nodeId ? null : prev)
+    setSelectedNode((prev) => prev?.node_id === nodeId ? null : prev)
     setHasChanges(true)
   }, [])
 
@@ -1045,7 +860,7 @@ export default function WorkflowDetailPage() {
               <WorkflowCanvas
                 key={canvasKey}
                 workflowNodes={editNodes}
-                selectedNodeId={selectedNodeId}
+                selectedNodeId={selectedNode?.node_id ?? null}
                 onNodesChange={handleCanvasNodesChange}
                 onSelectNode={handleSelectNode}
               />
@@ -1055,7 +870,7 @@ export default function WorkflowDetailPage() {
             <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
               <div className="p-4">
                 <WorkflowNodeConfigPanel
-                  key={selectedNodeId ?? 'none'}
+                  key={selectedNode?.node_id ?? 'none'}
                   selectedNode={selectedNode}
                   allNodes={editNodes}
                   onNodeChange={updateNode}
@@ -1085,103 +900,4 @@ export default function WorkflowDetailPage() {
 
     </div>
   )
-}
-
-/**
- * TaskOutputFilesInline — 列出 task 的输出文件，每项支持就地折叠预览。
- *
- * 与 TaskResultCard 中的 TaskOutputFiles 同构（plan v2 决策：不复用公共组件）。
- * Story 4-15-UI
- */
-function TaskOutputFilesInline({ taskId }: { taskId: string }) {
-  const [files, setFiles] = useState<TaskOutputFile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      try {
-        const list = await tasksApi.listOutputs(taskId)
-        if (!cancelled) setFiles(list)
-      } catch (err) {
-        console.error('[list_task_outputs]', err)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    void run()
-    return () => {
-      cancelled = true
-    }
-  }, [taskId])
-
-  if (loading) {
-    return (
-      <div className="mt-2 text-xs text-[#64748B]">
-        <Spin size="small" className="mr-1" />
-        加载输出文件…
-      </div>
-    )
-  }
-
-  if (files.length === 0) return null
-
-  return (
-    <div className="mt-2">
-      <span className="text-[#64748B] text-xs">输出文件 ({files.length}):</span>
-      <ul className="mt-1 space-y-1">
-        {files.map(f => {
-          const previewable = getPreviewKind(f.mime_type) !== 'none'
-          const expanded = expandedId === f._id
-          return (
-            <li
-              key={f._id}
-              className="bg-gray-50 rounded px-2 py-1.5 text-xs border border-gray-200"
-            >
-              <div className="flex items-center gap-2">
-                <FileOutlined className="text-gray-500" />
-                <span
-                  className="flex-1 truncate text-gray-700"
-                  title={f.name}
-                >
-                  {f.name}
-                </span>
-                <span className="text-gray-400">{formatSize(f.size)}</span>
-                {previewable && (
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<EyeOutlined />}
-                    onClick={() =>
-                      setExpandedId(expanded ? null : f._id)
-                    }
-                  >
-                    {expanded ? '收起' : '预览'}
-                  </Button>
-                )}
-                <FileDownloadButton fileId={f._id} filename={f.name} />
-              </div>
-              {expanded && (
-                <div className="mt-1">
-                  <FilePreview
-                    fileId={f._id}
-                    filename={f.name}
-                    mime={f.mime_type}
-                  />
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-}
-
-/** 本地小工具 — 字节数转人类可读字符串 */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

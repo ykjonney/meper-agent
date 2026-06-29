@@ -83,7 +83,6 @@ export default function VariableListEditor({
       type: (draft.type as VariableTypeName) ?? 'text',
       constraints: draft.constraints ?? {},
       description: draft.description,
-      readonly: value[editingIndex ?? -1]?.readonly,
     }
 
     const newList = [...value]
@@ -132,38 +131,29 @@ export default function VariableListEditor({
       title: '操作',
       key: 'actions',
       width: 80,
-      render: (_: unknown, record: VariableDefinition) => {
-        if (record.readonly) {
-          return (
-            <Tooltip title="系统默认变量，不可编辑">
-              <span className="text-[10px] text-[#94A3B8]">系统</span>
-            </Tooltip>
-          )
-        }
-        return (
-          <div className="flex items-center gap-1">
-            <Tooltip title="编辑">
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => handleEdit(value.findIndex((v) => v === record))}
-                className="!text-[#64748B] !text-xs"
-              />
-            </Tooltip>
-            <Tooltip title="删除">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDelete(value.findIndex((v) => v === record))}
-                className="!text-xs"
-              />
-            </Tooltip>
-          </div>
-        )
-      },
+      render: (_: unknown, __: unknown, index: number) => (
+        <div className="flex items-center gap-1">
+          <Tooltip title="编辑">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(index)}
+              className="!text-[#64748B] !text-xs"
+            />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(index)}
+              className="!text-xs"
+            />
+          </Tooltip>
+        </div>
+      ),
     },
   ]
 

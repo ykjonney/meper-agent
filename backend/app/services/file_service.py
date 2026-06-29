@@ -115,21 +115,6 @@ class FileService:
             return None
         return FileRef(**doc)
 
-    async def load_content(self, file_id: str) -> tuple[FileRef, bytes] | None:
-        """按 ID 读取文件内容。
-
-        Args:
-            file_id: 文件 ID
-
-        Returns:
-            ``(FileRef, bytes)`` 元组，文件不存在返回 None
-        """
-        fref = await self.get(file_id)
-        if fref is None:
-            return None
-        data = await self._storage.load(fref.storage_key)
-        return fref, data
-
     async def list_by_owner(
         self, owner_user_id: str, page: int = 1, page_size: int = 20,
         status: str | None = None,

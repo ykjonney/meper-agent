@@ -16,7 +16,7 @@ help:
 
 # Install all project dependencies
 install:
-	cd backend && uv sync && cd ../frontend-studio && npm install
+	cd backend && uv sync && cd ../frontend && npm install
 
 # Start development environment (sandbox disabled, bash runs via subprocess)
 dev:
@@ -29,11 +29,11 @@ dev-sandbox: build-sandbox
 
 # Run all tests
 test:
-	cd backend && uv run pytest && cd ../frontend-studio && npm run test
+	cd backend && uv run pytest && cd ../frontend && npm run test
 
 # Run linters for all packages
 lint:
-	cd backend && uv run ruff check . && uv run mypy app && cd ../frontend-studio && npm run lint
+	cd backend && uv run ruff check . && uv run mypy app && cd ../frontend && npm run lint
 
 # Build all primary Docker images (backend, caddy, etc.)
 # NOTE: This does NOT build the sandbox image because it has `profiles: [tools]`.
@@ -60,4 +60,4 @@ deploy-check:
 
 # Generate OpenAPI types from backend spec
 generate-api:
-	cd backend && uv run python scripts/generate_openapi.py && cd ../frontend-studio && npx openapi-typescript ../backend/openapi.json -o src/types/api.ts
+	cd backend && uv run python scripts/generate_openapi.py && cd ../frontend && npx openapi-typescript ../backend/openapi.json -o src/types/api.ts

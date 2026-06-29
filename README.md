@@ -34,7 +34,7 @@ agent-flow/
 │   ├── tests/            # 测试套件
 │   ├── pyproject.toml    # Python 项目配置（uv）
 │   └── .env.example      # 环境变量模板
-├── frontend-studio/      # 前端应用
+├── frontend/             # 前端应用
 │   ├── src/
 │   │   ├── components/   # 通用组件
 │   │   ├── features/     # 功能模块（工作流编辑器等）
@@ -161,7 +161,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### 4. 启动前端
 
 ```bash
-cd frontend-studio
+cd frontend
 
 # 复制环境变量模板
 cp .env.example .env
@@ -220,7 +220,7 @@ npm run dev
 | `SANDBOX_CONTAINER_WORKSPACE_DIR` | 沙盒容器内工作区挂载点（一般无需修改） | `/workspace` |
 | `SANDBOX_CONTAINER_SKILLS_DIR` | 沙盒容器内 Skill 目录挂载点（一般无需修改） | `/data/skills` |
 
-### 前端（`frontend-studio/.env`）
+### 前端（`frontend/.env`）
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
@@ -435,7 +435,7 @@ pyright
 ### 前端
 
 ```bash
-cd frontend-studio
+cd frontend
 
 # 运行测试
 npm run test

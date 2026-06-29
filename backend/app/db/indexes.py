@@ -73,17 +73,6 @@ async def create_indexes() -> None:
     )
     logger.info("Created indexes: idx_file_usages_file_id, idx_file_usages_consumer, uq_file_usages_unique")
 
-    # Notifications collection
-    await db.notifications.create_index(
-        [("user_id", 1), ("created_at", -1)],
-        name="idx_notifications_user_created",
-    )
-    await db.notifications.create_index(
-        [("user_id", 1), ("read", 1)],
-        name="idx_notifications_user_read",
-    )
-    logger.info("Created indexes: idx_notifications_user_created, idx_notifications_user_read")
-
 
 if __name__ == "__main__":
     import asyncio

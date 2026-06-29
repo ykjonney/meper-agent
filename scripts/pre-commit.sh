@@ -9,8 +9,8 @@ echo "Running backend lint..."
 cd "$PROJECT_ROOT/backend"
 uv run ruff check .
 
-echo "Running frontend-studio lint..."
-cd "$PROJECT_ROOT/frontend-studio"
+echo "Running frontend lint..."
+cd "$PROJECT_ROOT/frontend"
 npm run lint
 
 echo "All checks passed!"

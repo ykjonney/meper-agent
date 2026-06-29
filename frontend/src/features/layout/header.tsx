@@ -2,16 +2,16 @@
  * Header — clean white top bar.
  */
 import { useLocation } from 'react-router-dom'
-import { Button, Avatar, Dropdown } from 'antd'
+import { Button, Avatar, Badge, Dropdown } from 'antd'
 import {
   SearchOutlined,
+  BellOutlined,
   QuestionCircleOutlined,
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
 } from '@ant-design/icons'
 import { MENU_ITEMS } from '../../config/menu'
-import NotificationCenter from '../../components/notification-center'
 
 export default function Header() {
   const location = useLocation()
@@ -40,7 +40,13 @@ export default function Header() {
           icon={<QuestionCircleOutlined />}
           className="!text-[#64748B] hover:!text-[#0F172A]"
         />
-        <NotificationCenter />
+        <Badge count={3} size="small" color="#F97316" offset={[-2, 2]}>
+          <Button
+            type="text"
+            icon={<BellOutlined />}
+            className="!text-[#64748B] hover:!text-[#0F172A]"
+          />
+        </Badge>
 
         <div className="w-px h-6 mx-3 bg-gray-200" />
 

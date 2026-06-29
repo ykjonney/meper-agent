@@ -279,15 +279,6 @@ class McpConnectionService:
         try:
             discovered = await mcp_client.discover_tools(doc)
         except Exception as exc:
-            # Unwrap asyncio.TaskGroup's ExceptionGroup so the API
-            # response carries the real underlying error instead of
-            # the opaque "unhandled errors in a TaskGroup (N sub-exception)".
-            if isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-                error_msg = " | ".join(
-                    f"{type(s).__name__}: {s}" for s in exc.exceptions
-                )
-            else:
-                error_msg = f"{type(exc).__name__}: {exc}"
             return {
                 "connection_id": connection_id,
                 "discovered": 0,
@@ -295,7 +286,7 @@ class McpConnectionService:
                 "updated": 0,
                 "deactivated": 0,
                 "tools": [],
-                "error": error_msg,
+                "error": str(exc),
             }
 
         tools_col = get_database()["tools"]

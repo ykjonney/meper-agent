@@ -152,11 +152,7 @@ async def update_workflow(
     workflow_id: str,
     body: WorkflowUpdate,
 ) -> WorkflowResponse:
-    """Update a Workflow template (name, description, nodes, edges, tags).
-
-    Validation is NOT performed here — use ``POST /{id}/validate`` for
-    on-demand checks (e.g. before a test run).
-    """
+    """Update a Workflow template (name, description, nodes, edges, tags)."""
     updates = body.model_dump(exclude_unset=True, exclude_none=True)
     # Pydantic v2 model_dump() 已递归序列化嵌套模型为 dict，无需再次转换
     doc = await WorkflowService.update(workflow_id, updates)
@@ -193,86 +189,5 @@ async def archive_workflow(workflow_id: str) -> WorkflowResponse:
     """Archive a Workflow template (published → archived)."""
     doc = await WorkflowService.archive(workflow_id)
     return _doc_to_full_response(doc)
-
-
-@router.post(
-    "/{workflow_id}/validate",
-    summary="Validate Workflow template structure",
-)
-async def validate_workflow(workflow_id: str) -> dict:
-    """Validate a Workflow template without executing it.
-
-    Performs static analysis to detect:
-    - DAG structure issues (cycles, orphan nodes, missing start/end)
-    - Invalid variable references ({{node.field}} syntax)
-    - Missing required node configuration fields
-    - Potential circular calls between Agent and Workflow
-
-    Returns validation result with errors, warnings, and info messages.
-    """
-    from app.engine.workflow.validator import validate_workflow_async
-    from app.services.workflow_service import WorkflowService
-
-    doc = await WorkflowService.get_or_404(workflow_id)
-    result = await validate_workflow_async(doc)
-
-    return {
-        "workflow_id": workflow_id,
-        "is_valid": result.is_valid,
-        "error_count": len(result.errors),
-        "warning_count": len(result.warnings),
-        "issues": [
-            {
-                "severity": issue.severity.value,
-                "code": issue.code,
-                "message": issue.message,
-                "node_id": issue.node_id,
-                "context": issue.context,
-            }
-            for issue in result.issues
-        ],
-    }
-
-
-@router.post(
-    "/validate",
-    summary="Validate Workflow template structure (inline)",
-)
-async def validate_workflow_inline(body: WorkflowCreate) -> dict:
-    """Validate a Workflow template before creating it.
-
-    Same as POST /{workflow_id}/validate but accepts the workflow
-    definition inline instead of loading from database.
-    """
-    from app.engine.workflow.validator import WorkflowValidator
-
-    # Build a temporary workflow doc from the request body
-    workflow_doc = {
-        "_id": "",
-        "name": body.name,
-        "description": body.description,
-        "nodes": [n.model_dump() for n in body.nodes] if body.nodes else [],
-        "edges": [e.model_dump() for e in body.edges] if body.edges else [],
-    }
-
-    validator = WorkflowValidator(workflow_doc)
-    result = validator.validate()  # Sync only — no DB access for inline
-
-    return {
-        "workflow_id": None,
-        "is_valid": result.is_valid,
-        "error_count": len(result.errors),
-        "warning_count": len(result.warnings),
-        "issues": [
-            {
-                "severity": issue.severity.value,
-                "code": issue.code,
-                "message": issue.message,
-                "node_id": issue.node_id,
-                "context": issue.context,
-            }
-            for issue in result.issues
-        ],
-    }
 
 

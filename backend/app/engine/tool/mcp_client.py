@@ -99,18 +99,12 @@ async def test_connection(
                 "error": "",
             }
     except Exception as exc:
-        logger.warning(
-            "mcp_connection_test_failed",
-            url=url,
-            protocol=protocol,
-            headers=_sanitize_headers(_build_headers(auth_type, auth_config or {})),
-            error=_summarize_exc(exc),
-        )
+        logger.warning("mcp_connection_test_failed", url=url, error=str(exc))
         return {
             "success": False,
             "server_info": {},
             "tool_count": 0,
-            "error": _summarize_exc(exc),
+            "error": str(exc),
         }
 
 
@@ -157,10 +151,7 @@ async def discover_tools(
         logger.error(
             "mcp_tool_discovery_failed",
             connection_id=connection_doc["_id"],
-            url=url,
-            protocol=protocol,
-            headers=_sanitize_headers(_build_headers(auth_type, auth_config or {})),
-            error=_summarize_exc(exc),
+            error=str(exc),
         )
         raise
 
@@ -180,15 +171,9 @@ def _build_headers(auth_type: str, auth_config: dict) -> dict[str, str]:
             headers[header_name] = api_key
 
     elif auth_type == "bearer_token":
-        # Accept either shape:
-        #   {"token": "<raw>"}            — legacy, wrap with "Bearer "
-        #   {"Authorization": "Bearer …"} — direct header passthrough
-        if "Authorization" in auth_config:
-            headers["Authorization"] = auth_config["Authorization"]
-        else:
-            token = auth_config.get("token", "")
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
+        token = auth_config.get("token", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
     elif auth_type == "basic":
         import base64
@@ -200,36 +185,3 @@ def _build_headers(auth_type: str, auth_config: dict) -> dict[str, str]:
             headers["Authorization"] = f"Basic {cred}"
 
     return headers
-
-
-def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Return a copy of *headers* with values masked for safe logging.
-
-    Short values (<=8 chars) are fully redacted; longer values keep the
-    first 4 and last 4 characters so operators can still recognise them.
-    """
-    if not headers:
-        return {}
-    sanitized: dict[str, str] = {}
-    for k, v in headers.items():
-        if len(v) <= 8:
-            sanitized[k] = "***"
-        else:
-            sanitized[k] = f"{v[:4]}***{v[-4:]}"
-    return sanitized
-
-
-def _summarize_exc(exc: BaseException) -> str:
-    """Format *exc*, unwrapping ``ExceptionGroup`` one level.
-
-    ``asyncio.TaskGroup`` raises ``ExceptionGroup`` whose ``str()`` is the
-    unhelpful ``"unhandled errors in a TaskGroup (N sub-exception(s))"``.
-    This helper exposes the real underlying exception(s) so logs are
-    actionable.
-    """
-    if isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-        parts = [f"{type(exc).__name__}"]
-        for sub in exc.exceptions:
-            parts.append(f"{type(sub).__name__}: {sub}")
-        return " | ".join(parts)
-    return f"{type(exc).__name__}: {exc}"

@@ -35,11 +35,6 @@ async def lifespan(app: FastAPI):
     from app.services.task_recovery import recover_waiting_human_tasks
     await recover_waiting_human_tasks()
 
-    # Initialize notification service (bridges EventBus → WebSocket + MongoDB)
-    from app.services.notification_service import NotificationService
-    notification_service = NotificationService()
-    notification_service.register()
-
     yield
 
     # Shutdown: gracefully close connections

@@ -1,5 +1,5 @@
 /**
- * HumanNodeConfig 组件测试 — 验证固定三个审批行为展示。
+ * HumanNodeConfig 组件测试 — 验证添加/删除选项不崩溃。
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest'
@@ -18,11 +18,12 @@ beforeAll(() => {
 const baseConfig = {
   title: '审批测试',
   description: '描述',
+  options: ['approve', 'reject'],
   timeout_minutes: 60,
   timeout_action: 'fail',
 }
 
-describe('HumanNodeConfig — 固定三个审批行为', () => {
+describe('HumanNodeConfig', () => {
   it('renders without crashing', () => {
     const { container } = render(
       <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
@@ -30,69 +31,103 @@ describe('HumanNodeConfig — 固定三个审批行为', () => {
     expect(container.querySelector('.space-y-3')).toBeTruthy()
   })
 
-  it('固定展示三个审批行为：通过 / 驳回 / 意见', () => {
-    const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
-    )
-    const text = container.textContent ?? ''
-    expect(text).toContain('通过')
-    expect(text).toContain('驳回')
-    expect(text).toContain('意见')
-  })
-
-  it('展示 variables key 说明文案', () => {
-    const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
-    )
-    const text = container.textContent ?? ''
-    expect(text).toContain('variables')
-    expect(text).toContain('human_decision_')
-  })
-
-  it('不出现"添加选项"按钮', () => {
-    const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
-    )
-    expect(container.querySelector('.ant-btn-link')).toBeNull()
-    expect(container.textContent).not.toContain('添加选项')
-  })
-
-  it('不出现"暂无选项"占位文案', () => {
-    const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
-    )
-    expect(container.textContent).not.toContain('暂无选项')
-  })
-
-  it('编辑 title 会触发 onChange', () => {
+  it('add option calls onChange with new empty option', () => {
     const onChange = vi.fn()
     const { container } = render(
       <HumanNodeConfig config={baseConfig} onChange={onChange} />,
     )
 
-    const titleInput = container.querySelector('input') as HTMLInputElement
-    expect(titleInput).toBeTruthy()
-    titleInput.focus()
-    // simulate change using native event
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      'value',
-    )?.set
-    nativeInputValueSetter?.call(titleInput, '新标题')
-    titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+    // The add button is the ant-btn-link with + icon
+    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
+    expect(addBtn).toBeTruthy()
+    addBtn.click()
 
-    expect(onChange).toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledTimes(1)
     const newConfig = onChange.mock.calls[0][0]
-    expect(newConfig.title).toBe('新标题')
+    expect(newConfig.options).toEqual(['approve', 'reject', ''])
   })
 
-  it('description 字段可编辑（TextArea）', () => {
+  it('remove option calls onChange without the removed item', () => {
     const onChange = vi.fn()
     const { container } = render(
       <HumanNodeConfig config={baseConfig} onChange={onChange} />,
     )
-    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
-    expect(textarea).toBeTruthy()
-    expect(textarea.value).toBe('描述')
+
+    // Delete buttons have ant-btn-dangerous class
+    const deleteBtns = container.querySelectorAll('.ant-btn-dangerous')
+    expect(deleteBtns.length).toBe(2)
+
+    ;(deleteBtns[0] as HTMLButtonElement).click()
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    const newConfig = onChange.mock.calls[0][0]
+    expect(newConfig.options).toEqual(['reject'])
+  })
+
+  it('add option then re-render does not crash', () => {
+    const onChange = vi.fn()
+    const { container, rerender } = render(
+      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
+    )
+
+    // Click add
+    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
+    addBtn.click()
+    const newConfig = onChange.mock.calls[0][0]
+
+    // Simulate parent re-render with new config (this is what happens in real app)
+    rerender(<HumanNodeConfig config={newConfig} onChange={onChange} />)
+
+    // Should now have 3 option inputs (antd Input renders as span.ant-input > input)
+    const optionInputs = container.querySelectorAll('input.font-mono, .font-mono input, input[placeholder*="选项"]')
+    expect(optionInputs.length).toBe(3)
+  })
+
+  it('remove option then re-render does not crash', () => {
+    const onChange = vi.fn()
+    const { container, rerender } = render(
+      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
+    )
+
+    // Click delete on first option
+    const deleteBtns = container.querySelectorAll('.ant-btn-dangerous')
+    ;(deleteBtns[1] as HTMLButtonElement).click()
+    const newConfig = onChange.mock.calls[0][0]
+
+    // Simulate parent re-render with new config
+    rerender(<HumanNodeConfig config={newConfig} onChange={onChange} />)
+
+    // Should now have 1 option input
+    const optionInputs = container.querySelectorAll('input.font-mono, .font-mono input, input[placeholder*="选项"]')
+    expect(optionInputs.length).toBe(1)
+  })
+
+  it('handles empty options array', () => {
+    const onChange = vi.fn()
+    const { container } = render(
+      <HumanNodeConfig config={{ ...baseConfig, options: [] }} onChange={onChange} />,
+    )
+
+    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
+    addBtn.click()
+
+    const newConfig = onChange.mock.calls[0][0]
+    expect(newConfig.options).toEqual([''])
+  })
+
+  it('handles non-array options gracefully', () => {
+    const onChange = vi.fn()
+    const { container } = render(
+      <HumanNodeConfig
+        config={{ options: 'corrupted' } as Record<string, unknown>}
+        onChange={onChange}
+      />,
+    )
+
+    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
+    addBtn.click()
+
+    const newConfig = onChange.mock.calls[0][0]
+    expect(Array.isArray(newConfig.options)).toBe(true)
   })
 })

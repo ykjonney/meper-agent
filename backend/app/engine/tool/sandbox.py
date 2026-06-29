@@ -136,34 +136,6 @@ class SandboxExecutor:
 
         return container_path
 
-    @staticmethod
-    def _translate_container_paths(command: str, workspace: Workspace) -> str:
-        """Rewrite sandbox-container paths in *command* to host paths.
-
-        When ``SANDBOX_ENABLED=True`` but Docker is unavailable, the LLM
-        may reference paths like ``/data/skills/...`` (skill container
-        path) or ``/workspace/...`` (workspace container path) in the
-        command.  Those paths only exist inside the sandbox container.
-        For the subprocess fallback we need to translate them to the
-        corresponding host paths.
-
-        Safe to call even when paths already match (local dev with no
-        separate container paths) — the replacement becomes a no-op.
-        """
-        # Skills: /data/skills → SKILLS_CONTAINER_DIR (host)
-        sk_container = settings.SANDBOX_CONTAINER_SKILLS_DIR
-        sk_host = os.path.expanduser(settings.SKILLS_CONTAINER_DIR)
-        if sk_container and sk_container != sk_host:
-            command = command.replace(sk_container, sk_host)
-
-        # Workspace: /workspace → workspace.root (host)
-        ws_container = settings.SANDBOX_CONTAINER_WORKSPACE_DIR
-        ws_host = str(workspace.root)
-        if ws_container and ws_container != ws_host:
-            command = command.replace(ws_container, ws_host)
-
-        return command
-
     # ── Docker execution ────────────────────────────────────────────────
 
     def _execute_docker(
@@ -303,17 +275,8 @@ class SandboxExecutor:
         """Fallback: run command via subprocess (no isolation).
 
         Used when SANDBOX_ENABLED=False (local dev) or Docker is unavailable.
-
-        Story 4-15 fix: When SANDBOX_ENABLED=True but Docker is not actually
-        running, the LLM may have been given container-internal paths (e.g.
-        ``/data/skills/...``) by the skill loader. Those paths don't exist on
-        the host, so we translate them to host paths before executing.
         """
         workspace.tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        # Translate container-internal paths to host paths so the command
-        # works when running directly on the host (subprocess fallback).
-        command = self._translate_container_paths(command, workspace)
 
         env = {**os.environ}
         if env_vars:

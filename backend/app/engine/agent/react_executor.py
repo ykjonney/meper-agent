@@ -7,7 +7,6 @@ a final text response or the iteration limit is reached.
 """
 from __future__ import annotations
 
-import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -147,7 +146,7 @@ async def _run_react_inner(
 
         for tc in response.tool_calls:
             tool_name = tc.get("name", "")
-            tool_args = _unwrap_raw_arguments(tc.get("args", {}))
+            tool_args = tc.get("args", {})
             tool_call_id = tc.get("id", f"call_{iteration}_{tool_name}")
 
             tool_fn = tool_map.get(tool_name)
@@ -162,13 +161,9 @@ async def _run_react_inner(
                 try:
                     result_content = await _execute_tool(tool_fn, tool_args)
                 except Exception as exc:
-                    # Log full tool args for debugging (Pydantic validation
-                    # errors often truncate the input value, hiding the real
-                    # cause — e.g. malformed arguments from the LLM).
                     logger.error(
                         "react_executor_tool_error",
                         tool_name=tool_name,
-                        tool_args=tool_args,
                         error=str(exc),
                         request_id=request_id,
                     )
@@ -220,151 +215,6 @@ def _setup_workspace_context(state: AgentState):
 def _build_tool_map(tools: list[Callable]) -> dict[str, StructuredTool]:
     """Convert a list of callables into a name -> StructuredTool map."""
     return {fn.name: fn for fn in tools if isinstance(fn, StructuredTool)}
-
-
-def _unwrap_raw_arguments(args: Any) -> Any:
-    """Unwrap DashScope/Anthropic-compat ``raw_arguments`` wrapper.
-
-    Some LLM providers (notably Qwen via DashScope's Anthropic-compatible
-    endpoint) serialise tool-call arguments as a single ``raw_arguments``
-    key containing a JSON string, e.g.::
-
-        {"raw_arguments": '{"path": "report.csv", "content": "..."}'}
-
-    instead of the expected structured dict.  This helper detects the
-    pattern and parses the inner JSON string back into a proper dict.
-
-    The inner string may contain literal newlines or other control
-    characters that are invalid in strict JSON, so we sanitise them
-    before parsing.
-
-    Returns *args* unchanged when the pattern does not match or parsing
-    fails.
-    """
-    if not isinstance(args, dict):
-        return args
-    if set(args.keys()) != {"raw_arguments"}:
-        return args
-    raw = args["raw_arguments"]
-    if not isinstance(raw, str):
-        return args
-
-    parsed = _try_parse_raw_json(raw)
-    if isinstance(parsed, dict):
-        return parsed
-    return args
-
-
-def _try_parse_raw_json(raw: str) -> Any:
-    """Try to parse *raw* as JSON, tolerating control chars and truncation.
-
-    LLM-generated JSON strings may have:
-    - Unescaped literal newlines / tabs inside string values
-    - Truncation due to ``max_tokens`` being reached mid-generation,
-      leaving strings and brackets unclosed
-
-    We first sanitise control characters, then attempt to repair
-    truncation by closing any open strings and brackets.
-    """
-    # Fast path: strict parse
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Step 1: escape literal control chars (walk char-by-char to preserve
-    # valid backslash escape sequences).
-    parts: list[str] = []
-    i = 0
-    while i < len(raw):
-        c = raw[i]
-        if c == "\\" and i + 1 < len(raw):
-            parts.append(c)
-            parts.append(raw[i + 1])
-            i += 2
-        elif ord(c) < 0x20:
-            if c == "\n":
-                parts.append("\\n")
-            elif c == "\r":
-                parts.append("\\r")
-            elif c == "\t":
-                parts.append("\\t")
-            else:
-                parts.append(f"\\u{ord(c):04x}")
-            i += 1
-        else:
-            parts.append(c)
-            i += 1
-
-    sanitised = "".join(parts)
-
-    # Step 2: try strict parse after control-char fix
-    try:
-        return json.loads(sanitised)
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Step 3: repair truncated JSON — close unclosed strings and brackets.
-    repaired = _repair_truncated_json(sanitised)
-    try:
-        return json.loads(repaired)
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-
-def _repair_truncated_json(s: str) -> str:
-    """Close unclosed strings and brackets in a truncated JSON string.
-
-    Walks *s* tracking the nesting stack.  If the string ends while
-    inside an open string or object/array, we append the necessary
-    closing characters to make it valid JSON.
-    """
-    stack: list[str] = []  # stack of '{', '[', '"'
-    in_string = False
-    i = 0
-    while i < len(s):
-        c = s[i]
-        if in_string:
-            if c == "\\":
-                i += 2  # skip escape sequence
-                continue
-            if c == '"':
-                in_string = False
-                if stack and stack[-1] == '"':
-                    stack.pop()
-        else:
-            if c == '"':
-                in_string = True
-                stack.append('"')
-            elif c == "{":
-                stack.append("{")
-            elif c == "[":
-                stack.append("[")
-            elif c == "}":
-                if stack and stack[-1] == "{":
-                    stack.pop()
-            elif c == "]":
-                if stack and stack[-1] == "[":
-                    stack.pop()
-        i += 1
-
-    # If we're still inside a string, close it
-    suffix = ""
-    if in_string:
-        suffix += '"'
-        if stack and stack[-1] == '"':
-            stack.pop()
-
-    # Close any open brackets (reverse order)
-    for opener in reversed(stack):
-        if opener == "{":
-            suffix += "}"
-        elif opener == "[":
-            suffix += "]"
-        elif opener == '"':
-            suffix += '"'
-
-    return s + suffix
 
 
 def _has_tool_calls(response: AIMessage) -> bool:
@@ -640,7 +490,7 @@ async def _run_streaming_inner(
         # Emit tool_call events for each call
         for tc in response.tool_calls:
             tool_name = tc.get("name", "")
-            tool_args = _unwrap_raw_arguments(tc.get("args", {}))
+            tool_args = tc.get("args", {})
             await on_event({
                 "type": "tool_call",
                 "tool_name": tool_name,
@@ -663,7 +513,6 @@ async def _run_streaming_inner(
                     logger.error(
                         "react_stream_tool_error",
                         tool_name=tool_name,
-                        tool_args=tool_args,
                         error=str(exc),
                         request_id=request_id,
                     )

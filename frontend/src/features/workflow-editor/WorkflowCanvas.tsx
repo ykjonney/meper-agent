@@ -36,7 +36,6 @@ import '@xyflow/react/dist/style.css'
 import WorkflowBaseNode from './custom-nodes/WorkflowBaseNode'
 import { DRAG_NODE_TYPE_KEY } from './WorkflowNodePalette'
 import { toXyflowNodes, type WorkflowNodeData, deriveXyflowEdgesFromNodes, syncEdgeChangesToNodes } from './utils/canvas-converters'
-import { getTypeLabel, getTypeColor, getTypeBg } from './utils/canvas-converters'
 import { generateNodeId, getDefaultNodeConfig } from './utils/node-defaults'
 import { NODE_TYPE_CONFIGS } from './utils/node-type-configs'
 import type { WorkflowNode } from '../../services/workflows-api'
@@ -99,8 +98,6 @@ export default function WorkflowCanvas({
   )
 
   // 同步外部 workflowNodes 到内部 xyflowNodes
-  // 关键：仅替换数据实际变化的节点对象，保留未变化节点的引用
-  // 这样 ReactFlow 不会因为所有节点对象都被替换而丢失内部状态（如选中）
   const prevSyncHashRef = useRef('')
   useEffect(() => {
     const hash = workflowNodes
@@ -108,51 +105,13 @@ export default function WorkflowCanvas({
       .join('|')
     if (hash !== prevSyncHashRef.current) {
       prevSyncHashRef.current = hash
-      setXyflowNodes((prev) => {
-        const updated = prev.map((existing) => {
-          const wn = workflowNodes.find((n) => n.node_id === existing.id)
-          if (!wn) return existing
-          const newData = {
-            workflowNode: wn,
-            typeLabel: getTypeLabel(wn.type),
-            typeColor: getTypeColor(wn.type),
-            typeBg: getTypeBg(wn.type),
-            label: wn.label || getTypeLabel(wn.type),
-            isSelected: wn.node_id === selectedNodeId,
-          }
-          // 引用相等时复用旧对象，避免 ReactFlow 不必要的重渲染
-          if (
-            existing.data.workflowNode === wn &&
-            existing.position.x === (wn.position?.x ?? 0) &&
-            existing.position.y === (wn.position?.y ?? 0) &&
-            existing.data.isSelected === newData.isSelected
-          ) {
-            return existing
-          }
-          return { ...existing, data: newData }
-        })
-        // 处理新增节点（prev 中不存在的）
-        const prevIds = new Set(prev.map((n) => n.id))
-        const newNodes = workflowNodes
-          .filter((wn) => !prevIds.has(wn.node_id))
-          .map((wn) => ({
-            id: wn.node_id,
-            type: 'workflow',
-            position: wn.position ?? { x: 0, y: 0 },
-            data: {
-              workflowNode: wn,
-              typeLabel: getTypeLabel(wn.type),
-              typeColor: getTypeColor(wn.type),
-              typeBg: getTypeBg(wn.type),
-              label: wn.label || getTypeLabel(wn.type),
-              isSelected: wn.node_id === selectedNodeId,
-            },
-          }))
-        // 处理删除节点（updated 中多余但 workflowNodes 中已不存在的）
-        const workflowIds = new Set(workflowNodes.map((n) => n.node_id))
-        const filtered = updated.filter((n) => workflowIds.has(n.id))
-        return [...filtered, ...newNodes]
-      })
+      const newNodes = toXyflowNodes(workflowNodes, selectedNodeId) as Node[]
+      setXyflowNodes((prev) =>
+        newNodes.map((nn) => {
+          const existing = prev.find((p) => p.id === nn.id)
+          return existing ? { ...nn, position: existing.position } : nn
+        }),
+      )
     }
   }, [workflowNodes, selectedNodeId])
 
