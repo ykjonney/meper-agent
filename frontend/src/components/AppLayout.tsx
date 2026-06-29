@@ -16,16 +16,16 @@ import {
   TeamOutlined,
   SettingOutlined,
   SearchOutlined,
-  BellOutlined,
   QuestionCircleOutlined,
   UserOutlined,
 } from '@ant-design/icons'
-import { Avatar, Badge, Dropdown } from 'antd'
+import { Avatar, Dropdown } from 'antd'
 import type { MenuProps } from 'antd'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuthStore } from '../stores/auth-store'
 import { authApi } from '../services/auth-api'
 import { LogoutOutlined } from '@ant-design/icons'
+import NotificationCenter from './notification-center'
 import type { ReactNode } from 'react'
 
 /* ─── System role display name mapping ─── */
@@ -233,11 +233,7 @@ export default function AppLayout() {
           <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-txt-3 hover:text-txt hover:bg-surface-muted transition-colors duration-150">
             <QuestionCircleOutlined />
           </button>
-          <Badge count={3} size="small" color={t.primary} offset={[-2, 2]}>
-            <button className="border-0 bg-transparent w-8 h-8 flex items-center justify-center rounded-md text-txt-3 hover:text-txt hover:bg-surface-muted transition-colors duration-150">
-              <BellOutlined />
-            </button>
-          </Badge>
+          <NotificationCenter />
           <div className="w-px h-6 mx-2 bg-line" />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-muted transition-colors duration-150 cursor-pointer">
