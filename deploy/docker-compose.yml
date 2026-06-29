@@ -75,7 +75,9 @@ services:
     restart: unless-stopped
 
   mongodb:
-    image: mongo:latest
+    # Pin to 7.0 — existing data volumes were created with FCV 7.0 and
+    # MongoDB 8.x refuses to start without an explicit upgrade procedure.
+    image: mongo:7.0
     ports:
       - "27017:27017"
     environment:
