@@ -45,20 +45,23 @@ jobs:
             echo "📥 Pulling latest code..."
             git pull origin main
 
+            # 进入 deploy 目录（.env 文件所在目录，docker compose 从当前目录读取 .env）
+            cd deploy
+
             # 登录阿里云容器镜像服务
             echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin ${{ secrets.ALIYUN_REGISTRY }}
 
             # 拉取最新镜像
             echo "📥 Pulling latest images..."
-            docker compose -f deploy/docker-compose.yml pull
+            docker compose pull
 
             # 停止旧服务（保留数据卷）
             echo "🛑 Stopping old services..."
-            docker compose -f deploy/docker-compose.yml down || true
+            docker compose down || true
 
             # 启动新服务
             echo "🚀 Starting new services..."
-            docker compose -f deploy/docker-compose.yml up -d
+            docker compose up -d
 
             # 等待服务启动
             echo "⏳ Waiting for services to start..."
@@ -70,7 +73,7 @@ jobs:
 
             # 显示服务状态
             echo "✅ Deployment complete!"
-            docker compose -f deploy/docker-compose.yml ps
+            docker compose ps
 
       - name: Health Check
         run: |
