@@ -19,6 +19,10 @@ FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
+# Install gosu for user switching at runtime
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
@@ -34,19 +38,23 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN mkdir -p /app/logs /data/workspaces /data/skills \
     && chown -R appuser:appuser /app /data
 
+# Copy and set entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Ensure the venv takes precedence on PATH
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
-
-# Switch to non-root
-USER appuser
 
 EXPOSE 8000
 
 # Healthcheck against the unauthenticated /health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import httpx, sys; sys.exit(0 if httpx.get('http://localhost:8000/health', timeout=3).status_code == 200 else 1)"
+
+# Entrypoint fixes volume permissions at runtime, then runs as appuser
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Start Uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
