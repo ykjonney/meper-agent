@@ -150,6 +150,10 @@ class EventBus:
         self._subscribers: dict[str, list[_HandlerWrapper]] = {}
         self._dead_letter_queue: list[DeadLetterRecord] = []
         self._max_dead_letter = 1000
+        # handler_name → {event_key: first_seen_timestamp}
+        self._processed: dict[str, dict[str, float]] = {}
+        self._max_processed = 10_000
+        self._dedup_ttl = 60.0  # seconds — only suppress burst duplicates
 
     # ── Subscription ──
 
@@ -202,6 +206,7 @@ class EventBus:
         - All matching handlers are invoked concurrently (via ``asyncio.gather``).
         - Each handler is retried up to MAX_RETRIES times.
         - Handlers that exhaust retries go to the dead-letter queue.
+        - Duplicate events (same identity per handler) are silently skipped.
 
         Args:
             event: The event to publish.
@@ -221,21 +226,43 @@ class EventBus:
             logger.debug("event_no_subscribers", event_type=event.event_type)
             return []
 
+        event_key = self._event_key(event)
+        now = event.timestamp.timestamp()
+
+        # Filter out recently-processed (handler, event) pairs within TTL window
+        to_invoke: list[_HandlerWrapper] = []
+        for h in handlers:
+            seen_at = self._processed.get(h.name, {}).get(event_key)
+            if seen_at is not None and (now - seen_at) < self._dedup_ttl:
+                logger.debug(
+                    "event_handler_skipped",
+                    handler=h.name,
+                    event_key=event_key,
+                    age_s=round(now - seen_at, 1),
+                )
+                continue
+            self._mark_processed(h.name, event_key, now)
+            to_invoke.append(h)
+
+        if not to_invoke:
+            logger.debug("event_all_handlers_dedup", event_type=event.event_type)
+            return []
+
         logger.debug(
             "event_publishing",
             event_type=event.event_type,
-            handler_count=len(handlers),
+            handler_count=len(to_invoke),
         )
 
         # Invoke all handlers concurrently
         results = await asyncio.gather(
-            *[h.invoke(event) for h in handlers],
+            *[h.invoke(event) for h in to_invoke],
             return_exceptions=True,
         )
 
         # Collect dead letters
         dead_letters: list[DeadLetterRecord] = []
-        for handler_wrapper, exc in zip(handlers, results, strict=True):
+        for handler_wrapper, exc in zip(to_invoke, results, strict=True):
             if isinstance(exc, Exception):
                 record = DeadLetterRecord(
                     event=event,
@@ -260,6 +287,36 @@ class EventBus:
             )
 
         return dead_letters
+
+    # ── Deduplication helpers ──
+
+    def _event_key(self, event: Event) -> str:
+        """Stable identity for an event.
+
+        TaskEvent uses ``event_type:task_id:to_status`` so the same logical
+        transition is recognised even if the object is re-created.  All other
+        events fall back to ``event_type:data`` which is safe for the small,
+        structured payloads we emit today.
+        """
+        if isinstance(event, TaskEvent):
+            return f"{event.event_type}:{event.task_id}:{event.to_status}"
+        return f"{event.event_type}:{event.data}"
+
+    def _mark_processed(self, handler_name: str, event_key: str, now: float) -> None:
+        """Record *event_key* as handled by *handler_name* at time *now*.
+
+        Entries older than ``_dedup_ttl`` are evicted opportunistically when
+        the per-handler dict exceeds ``_max_processed`` to bound memory.
+        """
+        if handler_name not in self._processed:
+            self._processed[handler_name] = {}
+        bucket = self._processed[handler_name]
+        bucket[event_key] = now
+        if len(bucket) > self._max_processed:
+            cutoff = now - self._dedup_ttl
+            self._processed[handler_name] = {
+                k: v for k, v in bucket.items() if v >= cutoff
+            }
 
     # ── Dead letter inspection ──
 

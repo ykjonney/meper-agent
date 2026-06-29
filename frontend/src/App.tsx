@@ -9,6 +9,10 @@ import '@xyflow/react/dist/style.css'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { AuthInitializer } from './components/AuthInitializer'
 import { routes } from './routes'
+import { useTaskRealtime } from './hooks/use-task-realtime'
+import { wsClient } from './lib/ws-client'
+import { useAuthStore } from './stores/auth-store'
+import { useNotificationStore } from './stores/notification-store'
 
 /** Hook: detect system prefers-color-scheme: dark */
 function usePrefersDark(): boolean {
@@ -33,6 +37,28 @@ function AppInner() {
   const { t } = useTheme()
   const element = useRoutes(routes)
   const isDark = usePrefersDark()
+
+  // Connect WebSocket when authenticated
+  const isAuthenticated = useAuthStore((s) => !!s.accessToken)
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      wsClient.resume()
+      wsClient.connect()
+    } else {
+      wsClient.disconnect()
+    }
+  }, [isAuthenticated])
+
+  // Bridge WS events to TanStack Query + Notification Store
+  useTaskRealtime()
+
+  // Load initial notification data
+  useEffect(() => {
+    if (isAuthenticated) {
+      useNotificationStore.getState().loadUnreadCount()
+    }
+  }, [isAuthenticated])
 
   return (
     <ConfigProvider
