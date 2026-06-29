@@ -1,44 +1,47 @@
-"""Tests for WebSocket endpoint."""
+"""Tests for WebSocket token verification.
+
+``verify_ws_token`` decodes a JWT from the connection query string.
+Under the new security module, ``decode_token`` *raises* ``UnauthorizedError``
+on expired/invalid tokens (instead of returning None), and the WS helper must
+translate that into ``None`` so the caller closes the connection. Only access
+tokens are accepted — refresh tokens must be rejected.
+"""
 import pytest
+
 from app.api.v1.ws import verify_ws_token
 from app.core.security import create_access_token, create_refresh_token
-from app.main import app
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 
 class TestVerifyWsToken:
     """Test the verify_ws_token function directly."""
 
     def test_valid_access_token(self):
-        """Valid access token should return user_id."""
+        """A valid access token returns the subject user_id."""
         token = create_access_token("user_test_123")
         result = verify_ws_token(token)
         assert result == "user_test_123"
 
     def test_invalid_token(self):
-        """Invalid token should return None."""
+        """A garbage token string returns None (no exception leaks)."""
         result = verify_ws_token("invalid_token_string")
         assert result is None
 
     def test_refresh_token_rejected(self):
-        """Refresh tokens should not be accepted for WebSocket auth."""
+        """Refresh tokens must not authenticate a WebSocket connection."""
         token = create_refresh_token("user_test_123")
         result = verify_ws_token(token)
         assert result is None
 
     def test_empty_token(self):
-        """Empty token should return None."""
+        """An empty token returns None."""
         result = verify_ws_token("")
         assert result is None
 
-    def test_expired_token(self):
-        """Expired token should return None."""
-        # Create a token that expires immediately (not possible with current API)
-        # Instead, test with a malformed token that looks expired
-        result = verify_ws_token("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyX3Rlc3QiLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxfQ.fake")
+    def test_malformed_jwt_returns_none(self):
+        """A token-shaped but unverifiable string returns None."""
+        result = verify_ws_token(
+            "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9."
+            "eyJzdWIiOiJ1c2VyX3Rlc3QiLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxfQ."
+            "fake"
+        )
         assert result is None

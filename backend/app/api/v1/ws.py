@@ -6,7 +6,8 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from app.core.security import decode_access_token
+from app.core.errors import UnauthorizedError
+from app.core.security import decode_token
 from app.services.ws_manager import get_ws_manager
 
 router = APIRouter(tags=["websocket"])
@@ -15,9 +16,19 @@ HEARTBEAT_INTERVAL = 30  # seconds
 
 
 def verify_ws_token(token: str) -> str | None:
-    """Verify JWT token from query param. Returns user_id or None."""
-    payload = decode_access_token(token)
-    if payload is None:
+    """Verify JWT token from query param. Returns user_id or None.
+
+    ``decode_token`` raises ``UnauthorizedError`` on expired/invalid tokens;
+    treat any such failure as "no user" so the caller rejects the connection.
+    """
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+    except UnauthorizedError:
+        return None
+    # WebSocket auth only accepts access tokens, not refresh tokens.
+    if payload.get("type") != "access":
         return None
     return payload.get("sub")
 

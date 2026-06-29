@@ -1,10 +1,16 @@
-"""Unit tests for :class:`SandboxExecutor` path translation."""
+"""Unit tests for :class:`SandboxExecutor` host-path translation.
+
+The harness-era sandbox replaced the old ``_translate_container_paths`` (which
+rewrote command strings) with ``_host_path`` — a static method that maps a
+container-internal directory to the corresponding host-side path via the
+``WORKSPACES_HOST_DIR`` / ``SKILLS_HOST_DIR`` settings. These tests cover
+``_host_path`` and the ``SandboxResult`` dataclass.
+"""
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
-from app.engine.tool.sandbox import SandboxExecutor
+from app.engine.tool.sandbox import SandboxExecutor, SandboxResult
 from app.engine.tool.workspace import Workspace
 
 
@@ -14,90 +20,69 @@ def _make_workspace(root: Path) -> Workspace:
         input_dir=root / "input",
         output_dir=root / "output",
         tmp_dir=root / "tmp",
-        scope="task",
     )
 
 
-class TestTranslateContainerPaths:
-    """Tests for ``SandboxExecutor._translate_container_paths``."""
+class TestHostPath:
+    """Tests for ``SandboxExecutor._host_path``."""
 
-    def test_noop_when_paths_match(self, tmp_path: Path) -> None:
-        """When container path == host path, command is unchanged."""
-        ws = _make_workspace(tmp_path)
-        with (
-            patch("app.engine.tool.sandbox.settings") as mock_settings,
-        ):
-            # Container and host paths are identical
-            mock_settings.SANDBOX_CONTAINER_SKILLS_DIR = "/data/skills"
-            mock_settings.SKILLS_CONTAINER_DIR = "/data/skills"
-            mock_settings.SANDBOX_CONTAINER_WORKSPACE_DIR = "/workspace"
+    def test_translate_workspaces_path(self, monkeypatch) -> None:
+        """A container workspace path is translated to the host workspace path."""
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.WORKSPACES_CONTAINER_DIR",
+            "/workspace",
+        )
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.WORKSPACES_HOST_DIR",
+            "/host/ws",
+        )
+        result = SandboxExecutor._host_path("/workspace/user1/sess1/tmp")
+        assert result == "/host/ws/user1/sess1/tmp"
 
-            result = SandboxExecutor._translate_container_paths(
-                "cd /data/skills/foo && python3 script.py",
-                ws,
-            )
+    def test_translate_skills_path(self, monkeypatch) -> None:
+        """A container skills path is translated to the host skills path."""
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.SKILLS_CONTAINER_DIR",
+            "/data/skills",
+        )
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.SKILLS_HOST_DIR",
+            "/host/skills",
+        )
+        result = SandboxExecutor._host_path("/data/skills/my-skill")
+        assert result == "/host/skills/my-skill"
 
-        # No translation because SKILLS paths match
-        assert result == "cd /data/skills/foo && python3 script.py"
+    def test_passthrough_when_container_equals_host(self, monkeypatch) -> None:
+        """Local dev: container dir == host dir, so the path is unchanged."""
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.WORKSPACES_CONTAINER_DIR",
+            "/workspace",
+        )
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.WORKSPACES_HOST_DIR",
+            "/workspace",
+        )
+        result = SandboxExecutor._host_path("/workspace/user1/sess1/tmp")
+        assert result == "/workspace/user1/sess1/tmp"
 
-    def test_translates_skills_path(self, tmp_path: Path) -> None:
-        """Container skills path is translated to host skills path."""
-        ws = _make_workspace(tmp_path)
-        with patch("app.engine.tool.sandbox.settings") as mock_settings:
-            mock_settings.SANDBOX_CONTAINER_SKILLS_DIR = "/data/skills"
-            mock_settings.SKILLS_CONTAINER_DIR = str(tmp_path / "skills")
-            mock_settings.SANDBOX_CONTAINER_WORKSPACE_DIR = "/workspace"
+    def test_passthrough_for_unrelated_path(self, monkeypatch) -> None:
+        """A path under neither container dir is returned unchanged."""
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.WORKSPACES_CONTAINER_DIR",
+            "/workspace",
+        )
+        monkeypatch.setattr(
+            "app.engine.tool.sandbox.settings.SKILLS_CONTAINER_DIR",
+            "/data/skills",
+        )
+        result = SandboxExecutor._host_path("/etc/passwd")
+        assert result == "/etc/passwd"
 
-            result = SandboxExecutor._translate_container_paths(
-                "cd /data/skills/my-skill && ls",
-                ws,
-            )
 
-        assert f"cd {tmp_path}/skills/my-skill && ls" == result
+class TestSandboxResult:
+    """Sanity checks on the SandboxResult dataclass defaults."""
 
-    def test_translates_workspace_path(self, tmp_path: Path) -> None:
-        """Container workspace path is translated to workspace.root."""
-        ws = _make_workspace(tmp_path)
-        with patch("app.engine.tool.sandbox.settings") as mock_settings:
-            mock_settings.SANDBOX_CONTAINER_SKILLS_DIR = "/data/skills"
-            mock_settings.SKILLS_CONTAINER_DIR = "/data/skills"
-            mock_settings.SANDBOX_CONTAINER_WORKSPACE_DIR = "/workspace"
-
-            result = SandboxExecutor._translate_container_paths(
-                "cat /workspace/output/report.txt",
-                ws,
-            )
-
-        assert f"cat {tmp_path}/output/report.txt" == result
-
-    def test_translates_both_in_single_command(self, tmp_path: Path) -> None:
-        """Multiple container paths in one command are all translated."""
-        ws = _make_workspace(tmp_path)
-        host_skills = str(tmp_path / "host_skills")
-        with patch("app.engine.tool.sandbox.settings") as mock_settings:
-            mock_settings.SANDBOX_CONTAINER_SKILLS_DIR = "/data/skills"
-            mock_settings.SKILLS_CONTAINER_DIR = host_skills
-            mock_settings.SANDBOX_CONTAINER_WORKSPACE_DIR = "/workspace"
-
-            result = SandboxExecutor._translate_container_paths(
-                "cp /data/skills/foo/data.csv /workspace/output/ && ls /workspace/tmp",
-                ws,
-            )
-
-        assert f"cp {host_skills}/foo/data.csv {tmp_path}/output/" in result
-        assert f"ls {tmp_path}/tmp" in result
-
-    def test_no_translation_when_no_container_paths(self, tmp_path: Path) -> None:
-        """Command with no container paths is unchanged."""
-        ws = _make_workspace(tmp_path)
-        with patch("app.engine.tool.sandbox.settings") as mock_settings:
-            mock_settings.SANDBOX_CONTAINER_SKILLS_DIR = "/data/skills"
-            mock_settings.SKILLS_CONTAINER_DIR = "/opt/skills"
-            mock_settings.SANDBOX_CONTAINER_WORKSPACE_DIR = "/workspace"
-
-            result = SandboxExecutor._translate_container_paths(
-                "echo hello world",
-                ws,
-            )
-
-        assert result == "echo hello world"
+    def test_defaults(self):
+        r = SandboxResult(stdout="ok", stderr="", exit_code=0)
+        assert r.timed_out is False
+        assert r.duration == 0.0
