@@ -38,10 +38,6 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN mkdir -p /app/logs /data/workspaces /data/skills \
     && chown -R appuser:appuser /app /data
 
-# Copy and set entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
 # Ensure the venv takes precedence on PATH
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -53,8 +49,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import httpx, sys; sys.exit(0 if httpx.get('http://localhost:8000/health', timeout=3).status_code == 200 else 1)"
 
-# Entrypoint fixes volume permissions at runtime, then runs as appuser
-ENTRYPOINT ["docker-entrypoint.sh"]
-
-# Start Uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Fix volume permissions at startup, then run as appuser
+CMD chown -R appuser:appuser /data/workspaces /data/skills /app/logs 2>/dev/null || true; \
+    exec gosu appuser uvicorn app.main:app --host 0.0.0.0 --port 8000
