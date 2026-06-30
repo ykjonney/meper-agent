@@ -11,6 +11,10 @@ WORKDIR /app
 # Leverage layer caching: copy lockfiles first
 COPY pyproject.toml uv.lock .python-version ./
 
+# The local harness package is an editable path dep (packages/harness), so its
+# source must be present before `uv sync --frozen` can resolve the install plan.
+COPY packages/harness packages/harness
+
 # Install production dependencies into the project virtualenv (no dev, no project itself yet)
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -24,6 +28,10 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy the venv from builder
 COPY --from=builder /app/.venv /app/.venv
+
+# The venv installs harness as editable (pointing at /app/packages/harness), so
+# the harness source must be present at runtime too.
+COPY packages/harness packages/harness
 
 # Copy application code
 COPY app/ app/
