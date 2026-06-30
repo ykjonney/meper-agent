@@ -1,9 +1,9 @@
-# CI Pipeline — runs on every PR and push to main
+# CI Pipeline — runs on every PR to main, and on push to main/dev
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
 
@@ -64,3 +64,33 @@ jobs:
 
       - name: Test (vitest)
         run: npm run test
+
+  harness:
+    name: Harness (lint + type + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/packages/harness
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      # Install against harness's own lockfile → a clean venv without app-layer
+      # deps, so guards like test_no_app_layer_imports_leak stay meaningful.
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check (mypy)
+        run: uv run mypy src
+
+      - name: Test (pytest)
+        run: uv run pytest -q
