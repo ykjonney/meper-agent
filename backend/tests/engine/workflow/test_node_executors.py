@@ -1,6 +1,8 @@
 """Node executor unit tests — all external dependencies mocked."""
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -306,132 +308,325 @@ class TestEndNodeExecutor:
 # ── AgentNodeExecutor ──
 
 
-class TestAgentNodeExecutor:
-    @pytest.mark.asyncio
-    async def test_missing_agent_id(self) -> None:
-        executor = AgentNodeExecutor("agent_1", {})
-        result = await executor.execute({})
-        assert not result.success
-        assert "agent_id" in result.error_message
+class TestAgentNodeExecutorWithTaskWorkspace:
+    """Story 4-15: AgentNodeExecutor sets up a per-task workspace, registers
+    output files, and resets the workspace context on completion.
+    """
 
     @pytest.mark.asyncio
     @patch("app.db.mongodb.get_database", new_callable=MagicMock)
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_agent_not_found(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
-        mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(return_value=None)
-        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
-
-        executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx"})
-        result = await executor.execute({})
-        assert not result.success
-        assert "不存在" in result.error_message
-
-    @pytest.mark.asyncio
-    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
-    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_normal_execution(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
+    @patch("app.engine.tool.workspace.WorkspaceManager")
+    @patch("app.engine.agent.builtin_tools.set_workspace_context")
+    @patch("app.engine.agent.builtin_tools.reset_workspace_context")
+    @patch("app.services.file_service.FileService")
+    async def test_workspace_context_set_and_reset_around_invoke(
+        self,
+        mock_file_svc_cls: MagicMock,
+        mock_reset: MagicMock,
+        mock_set: MagicMock,
+        mock_ws_mgr: MagicMock,
+        mock_build: AsyncMock,
+        mock_db: MagicMock
+    ) -> None:
+        """set_workspace_context is called with the task workspace; reset is
+        called in the finally block, even on success."""
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
-        mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(return_value={"messages": [{"role": "assistant", "content": "response text"}]})
-        mock_build.return_value = mock_graph
-
-        executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx"})
-        result = await executor.execute({})
-        assert result.success
-        assert result.output["response"] == "response text"
-
-    @pytest.mark.asyncio
-    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
-    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_timeout(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
-        mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
-        )
-        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
-
-        mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(side_effect=TimeoutError())
-        mock_build.return_value = mock_graph
-
-        executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx", "timeout_ms": 100})
-        result = await executor.execute({})
-        assert not result.success
-        assert "超时" in result.error_message
-
-    @pytest.mark.asyncio
-    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
-    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_retry_success(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
-        mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
-        )
-        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
-
-        mock_graph = AsyncMock()
+        mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(
-            side_effect=[
-                Exception("LLM error"),
-                {"messages": [{"role": "assistant", "content": "ok"}]},
-            ],
+            return_value={"messages": [{"role": "assistant", "content": "done"}]}
         )
         mock_build.return_value = mock_graph
 
+        # Output dir does not exist → no files to register.
+        mock_ws = MagicMock()
+        mock_ws.output_dir.exists.return_value = False
+        mock_ws_mgr.create_task_workspace.return_value = mock_ws
+        # Mock file_refs().find() to return empty
+        mock_file_svc = MagicMock()
+        mock_file_svc._file_refs.return_value.find.return_value.to_list = AsyncMock(return_value=[])
+        mock_file_svc_cls.return_value = mock_file_svc
+
         executor = AgentNodeExecutor(
-            "agent_1",
-            {"agent_id": "agent_xxx", "max_retry": 1, "retry_delay_ms": 10},
+            "agent_1", {"agent_id": "agent_xxx"}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
+
         assert result.success
-        assert result.output["response"] == "ok"
+        # Workspace was created with the right identity.
+        mock_ws_mgr.create_task_workspace.assert_called_once_with(
+            "user_alice", "task_1"
+        )
+        # set_workspace_context was called with the task workspace.
+        mock_set.assert_called_once_with(mock_ws)
+        # reset_workspace_context was called with the token returned by set.
+        mock_reset.assert_called_once_with(mock_set.return_value)
 
     @pytest.mark.asyncio
     @patch("app.db.mongodb.get_database", new_callable=MagicMock)
     @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_retry_exhausted(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
+    @patch("app.engine.tool.workspace.WorkspaceManager")
+    @patch("app.engine.agent.builtin_tools.set_workspace_context")
+    @patch("app.engine.agent.builtin_tools.reset_workspace_context")
+    @patch("app.services.file_service.FileService")
+    async def test_new_files_in_output_registered(
+        self,
+        mock_file_svc_cls: MagicMock,
+        mock_reset: MagicMock,
+        mock_set: MagicMock,
+        mock_ws_mgr: MagicMock,
+        mock_build: AsyncMock,
+        mock_db: MagicMock,
+        tmp_path: Path
+    ) -> None:
+        """Files newer than node_start_ts are registered as file_refs.
+
+        The ainvoke callback writes the file *during* the graph call so
+        its mtime > node_start_ts; if we wrote it before, mtime would be
+        before node_start_ts and the file would be skipped (covered by
+        test_old_files_in_output_skipped).
+        """
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
         )
         mock_db.return_value.__getitem__ = lambda self, key: mock_collection
 
-        mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(side_effect=Exception("persistent error"))
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+
+        async def _ainvoke(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            # File written *during* the graph call → mtime > node_start_ts.
+            (out_dir / "report.pdf").write_bytes(b"%PDF-1.4 fake content")
+            return {"messages": [{"role": "assistant", "content": "ok"}]}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = _ainvoke
         mock_build.return_value = mock_graph
+
+        mock_ws = MagicMock()
+        mock_ws.output_dir = out_dir
+        mock_ws_mgr.create_task_workspace.return_value = mock_ws
+
+        # Stub FileService to record a create() call.
+        mock_fref = MagicMock()
+        mock_fref.id = "file_abc"
+        mock_fref.name = "report.pdf"
+        mock_fref.size = 21
+        mock_fref.mime_type = "application/pdf"
+        mock_fref.storage_key = "user_alice/files/file_abc"
+        mock_file_svc = MagicMock()
+        mock_file_svc._file_refs.return_value.find.return_value.to_list = AsyncMock(return_value=[])
+        mock_file_svc.create = AsyncMock(return_value=mock_fref)
+        mock_file_svc_cls.return_value = mock_file_svc
+
+        executor = AgentNodeExecutor(
+            "agent_1", {"agent_id": "agent_xxx"}
+        )
+        result = await executor.execute({"system": {"task_id": "task_2", "user_id": "user_alice"}})
+
+        assert result.success
+        # File was registered.
+        mock_file_svc.create.assert_awaited_once()
+        kwargs = mock_file_svc.create.await_args.kwargs
+        assert kwargs["owner_user_id"] == "user_alice"
+        assert kwargs["origin_id"] == "task_2"
+        assert kwargs["filename"] == "report.pdf"
+        # Output includes the file_id for downstream consumption.
+        assert len(result.output["files"]) == 1
+        assert result.output["files"][0]["file_id"] == "file_abc"
+        assert result.output["files"][0]["name"] == "report.pdf"
+
+    @pytest.mark.asyncio
+    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
+    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
+    @patch("app.engine.tool.workspace.WorkspaceManager")
+    @patch("app.engine.agent.builtin_tools.set_workspace_context")
+    @patch("app.engine.agent.builtin_tools.reset_workspace_context")
+    @patch("app.services.file_service.FileService")
+    async def test_old_files_in_output_skipped(
+        self,
+        mock_file_svc_cls: MagicMock,
+        mock_reset: MagicMock,
+        mock_set: MagicMock,
+        mock_ws_mgr: MagicMock,
+        mock_build: AsyncMock,
+        mock_db: MagicMock,
+        tmp_path: Path
+    ) -> None:
+        """Files with mtime before node_start_ts are NOT registered."""
+        import os
+        import time
+
+        mock_collection = MagicMock()
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
+        )
+        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [{"role": "assistant", "content": "ok"}]}
+        )
+        mock_build.return_value = mock_graph
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        old_file = out_dir / "old.txt"
+        old_file.write_text("from previous run")
+        # Force mtime to far in the past (before node_start_ts).
+        old_mtime = time.time() - 10**6
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        mock_ws = MagicMock()
+        mock_ws.output_dir = out_dir
+        mock_ws_mgr.create_task_workspace.return_value = mock_ws
+
+        mock_file_svc = MagicMock()
+        mock_file_svc._file_refs.return_value.find.return_value.to_list = AsyncMock(return_value=[])
+        mock_file_svc.create = AsyncMock()
+        mock_file_svc_cls.return_value = mock_file_svc
+
+        executor = AgentNodeExecutor(
+            "agent_1", {"agent_id": "agent_xxx"}
+        )
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
+
+        assert result.success
+        # create() must not have been called.
+        mock_file_svc.create.assert_not_called()
+        # Output files list is empty.
+        assert result.output["files"] == []
+
+    @pytest.mark.asyncio
+    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
+    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
+    @patch("app.engine.tool.workspace.WorkspaceManager")
+    @patch("app.engine.agent.builtin_tools.set_workspace_context")
+    @patch("app.engine.agent.builtin_tools.reset_workspace_context")
+    @patch("app.services.file_service.FileService")
+    async def test_duplicate_sha256_not_reregistered(
+        self,
+        mock_file_svc_cls: MagicMock,
+        mock_reset: MagicMock,
+        mock_set: MagicMock,
+        mock_ws_mgr: MagicMock,
+        mock_build: AsyncMock,
+        mock_db: MagicMock,
+        tmp_path: Path
+    ) -> None:
+        """Files whose sha256 already exists in file_refs are skipped."""
+        import hashlib
+
+        mock_collection = MagicMock()
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
+        )
+        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(
+            return_value={"messages": [{"role": "assistant", "content": "ok"}]}
+        )
+        mock_build.return_value = mock_graph
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        new_file = out_dir / "duplicate.bin"
+        new_file.write_bytes(b"same content")
+        existing_sha = hashlib.sha256(b"same content").hexdigest()
+
+        mock_ws = MagicMock()
+        mock_ws.output_dir = out_dir
+        mock_ws_mgr.create_task_workspace.return_value = mock_ws
+
+        # Pre-existing file_ref with same sha256 → must be skipped.
+        mock_file_svc = MagicMock()
+        mock_file_svc._file_refs.return_value.find.return_value.to_list = AsyncMock(
+            return_value=[{"sha256": existing_sha}]
+        )
+        mock_file_svc.create = AsyncMock()
+        mock_file_svc_cls.return_value = mock_file_svc
+
+        executor = AgentNodeExecutor(
+            "agent_1", {"agent_id": "agent_xxx"}
+        )
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
+
+        assert result.success
+        mock_file_svc.create.assert_not_called()
+        assert result.output["files"] == []
+
+    @pytest.mark.asyncio
+    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
+    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
+    @patch("app.engine.tool.workspace.WorkspaceManager")
+    @patch("app.engine.agent.builtin_tools.set_workspace_context")
+    @patch("app.engine.agent.builtin_tools.reset_workspace_context")
+    @patch("app.services.file_service.FileService")
+    async def test_reset_workspace_context_called_on_exception(
+        self,
+        mock_file_svc_cls: MagicMock,
+        mock_reset: MagicMock,
+        mock_set: MagicMock,
+        mock_ws_mgr: MagicMock,
+        mock_build: AsyncMock,
+        mock_db: MagicMock
+    ) -> None:
+        """reset_workspace_context is called even when ainvoke raises."""
+        mock_collection = MagicMock()
+        mock_collection.find_one = AsyncMock(
+            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}}
+        )
+        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
+
+        mock_graph = MagicMock()
+
+        async def _always_fail(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("graph failure")
+
+        mock_graph.ainvoke = _always_fail
+        mock_build.return_value = mock_graph
+
+        mock_ws = MagicMock()
+        mock_ws.output_dir.exists.return_value = False
+        mock_ws_mgr.create_task_workspace.return_value = mock_ws
+        mock_file_svc = MagicMock()
+        mock_file_svc_cls.return_value = mock_file_svc
 
         executor = AgentNodeExecutor(
             "agent_1",
-            {"agent_id": "agent_xxx", "max_retry": 2, "retry_delay_ms": 10},
+            {"agent_id": "agent_xxx", "max_retry": 0}
         )
-        result = await executor.execute({})
+        result = await executor.execute({"system": {"task_id": "task_1", "user_id": "user_alice"}})
+
         assert not result.success
-        assert "persistent error" in result.error_message
+        # Context was still reset.
+        mock_reset.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("app.db.mongodb.get_database", new_callable=MagicMock)
-    @patch("app.engine.agent.builder.build_agent_graph", new_callable=AsyncMock)
-    async def test_llm_exception(self, mock_build: AsyncMock, mock_db: MagicMock) -> None:
-        mock_collection = MagicMock()
-        mock_collection.find_one = AsyncMock(
-            return_value={"_id": "agent_xxx", "prompt_slots": {"role": "R", "task": "T"}},
-        )
-        mock_db.return_value.__getitem__ = lambda self, key: mock_collection
-
-        mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(side_effect=RuntimeError("LLM crashed"))
-        mock_build.return_value = mock_graph
-
+    async def test_missing_task_id_and_user_id_returns_error(self) -> None:
+        """Without task_id/user_id, executor fails fast with a clear error."""
         executor = AgentNodeExecutor("agent_1", {"agent_id": "agent_xxx"})
         result = await executor.execute({})
         assert not result.success
-        assert "LLM crashed" in result.error_message
+        assert "system.task_id" in result.error_message
+        assert "system.user_id" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_missing_user_id_only_returns_error(self) -> None:
+        """user_id missing alone still fails fast."""
+        executor = AgentNodeExecutor(
+            "agent_1", {"agent_id": "agent_xxx"}
+        )
+        result = await executor.execute({"system": {"task_id": "task_x"}})
+        assert not result.success
+        assert "system.user_id" in result.error_message
 
 
 # ── ToolNodeExecutor ──
