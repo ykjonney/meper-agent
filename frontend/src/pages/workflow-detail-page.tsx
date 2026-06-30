@@ -24,6 +24,7 @@ import {
   Drawer,
   Alert,
   Divider,
+  Upload,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -33,7 +34,10 @@ import {
   PlayCircleOutlined,
   HistoryOutlined,
   ExclamationCircleOutlined,
+  UploadOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
+import { filesApi, getFileId } from '../services/files-api'
 import {
   workflowsApi,
   workflowKeys,
@@ -173,6 +177,89 @@ function VariableFormField({
           </select>
         )
       }
+      break
+    }
+    case 'file': {
+      const multiple = variable.constraints?.multiple as boolean | undefined
+      const allowedExts = variable.constraints?.allowed_extensions as string[] | undefined
+      const maxSizeMb = variable.constraints?.max_size_mb as number | undefined
+
+      // Parse current value(s) to file ids
+      const fileIds: string[] = Array.isArray(value)
+        ? value.map((v) => String(v))
+        : value
+          ? [String(value)]
+          : []
+
+      const accept = allowedExts?.map((ext) => ext.startsWith('.') ? ext : `.${ext}`).join(',') || undefined
+      const maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined
+
+      const handleUpload = async (file: File) => {
+        if (maxBytes && file.size > maxBytes) {
+          message.error(`文件 "${file.name}" 超过大小限制 (${maxSizeMb}MB)`)
+          return false
+        }
+        try {
+          const ref = await filesApi.upload(file, 'workflow_input')
+          const fileId = getFileId(ref)
+          if (multiple) {
+            const current = Array.isArray(value) ? value : []
+            onChange([...current, fileId])
+          } else {
+            onChange(fileId)
+          }
+          message.success(`文件 "${file.name}" 上传成功`)
+        } catch (err) {
+          const msg = err && typeof err === 'object' && 'message' in err
+            ? (err as { message: string }).message : '上传失败'
+          message.error(msg)
+        }
+        return false // Prevent default upload
+      }
+
+      const handleRemove = (fileId: string) => {
+        if (multiple) {
+          const current = Array.isArray(value) ? value : []
+          onChange(current.filter((id) => String(id) !== fileId))
+        } else {
+          onChange(null)
+        }
+      }
+
+      input = (
+        <div className="space-y-1.5">
+          <Upload
+            beforeUpload={handleUpload}
+            showUploadList={false}
+            accept={accept}
+            multiple={multiple}
+          >
+            <Button icon={<UploadOutlined />} size="small">
+              {multiple ? '上传文件' : '选择文件'}
+            </Button>
+          </Upload>
+          {fileIds.length > 0 && (
+            <div className="space-y-1">
+              {fileIds.map((fileId) => (
+                <div
+                  key={fileId}
+                  className="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded text-xs"
+                >
+                  <FileTextOutlined className="text-blue-500 shrink-0" />
+                  <span className="truncate flex-1">{fileId}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(fileId)}
+                    className="text-red-400 hover:text-red-600 shrink-0"
+                  >
+                    删除
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
       break
     }
     default:
