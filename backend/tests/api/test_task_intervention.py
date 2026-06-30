@@ -9,8 +9,7 @@ Adapted to the harness-era intervention contract:
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from app.core.security import create_access_token, get_current_user
+from app.core.security import get_current_user
 from app.main import app
 from app.schemas.user import UserResponse, UserStatus
 from fastapi.testclient import TestClient

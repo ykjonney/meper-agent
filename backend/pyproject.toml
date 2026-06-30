@@ -52,6 +52,8 @@ markers = [
 target-version = "py312"
 line-length = 88
 src = ["app", "tests"]
+# Exclude vendored/bundled sub-packages that carry their own lint config.
+exclude = ["packages"]
 
 [tool.ruff.lint]
 select = [
@@ -118,4 +120,4 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.uv.sources]
-agent-flow-harness = { path = "../packages/harness", editable = true }
+agent-flow-harness = { path = "packages/harness", editable = true }

@@ -1,12 +1,9 @@
 """harness_integration/stream.py 测试 — 验证 harness 引擎事件产出 + 工具替换。"""
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-
 from app.engine.harness_integration.stream import run_agent_streaming_harness
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 class _FakeLLM:

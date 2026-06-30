@@ -25,10 +25,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from agent_flow_harness.adapters.app_event import AppEvent
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
-
-    from agent_flow_harness.adapters.app_event import AppEvent
 
 
 # ===========================================================================
@@ -172,7 +171,7 @@ async def run_chat(
         ...
     """
     raise NotImplementedError("run_chat 待迁移接线")
-    yield  # noqa: make this an async generator for type checking  # pragma: no cover
+    yield  # make this an async generator for type checking  # pragma: no cover
 
 
 async def get_history(session_id: str) -> list[AppEvent]:

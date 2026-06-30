@@ -46,7 +46,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-flow-harness", editable = "../packages/harness" },
+    { name = "agent-flow-harness", editable = "packages/harness" },
     { name = "bcrypt", specifier = ">=4.3.0" },
     { name = "celery", specifier = ">=5.6.3" },
     { name = "cryptography", specifier = ">=45.0.0" },
@@ -82,7 +82,7 @@ dev = [
 [[package]]
 name = "agent-flow-harness"
 version = "0.1.0"
-source = { editable = "../packages/harness" }
+source = { editable = "packages/harness" }
 dependencies = [
     { name = "langchain-anthropic" },
     { name = "langchain-core" },

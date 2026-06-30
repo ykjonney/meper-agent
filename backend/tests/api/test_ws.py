@@ -6,7 +6,6 @@ on expired/invalid tokens (instead of returning None), and the WS helper must
 translate that into ``None`` so the caller closes the connection. Only access
 tokens are accepted — refresh tokens must be rejected.
 """
-import pytest
 
 from app.api.v1.ws import verify_ws_token
 from app.core.security import create_access_token, create_refresh_token

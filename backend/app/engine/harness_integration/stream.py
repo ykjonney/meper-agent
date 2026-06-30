@@ -11,8 +11,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -54,15 +55,15 @@ async def run_agent_streaming_harness(
         DockerSandbox,
         DockerSandboxConfig,
         SandboxContext,
-        set_sandbox_context,
         reset_sandbox_context,
+        set_sandbox_context,
     )
     from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
 
     from app.core.config import settings
     from app.engine.agent.builder import _resolve_execution_context
-    from app.engine.agent.react_executor import _setup_workspace_context
     from app.engine.agent.builtin_tools import reset_workspace_context
+    from app.engine.agent.react_executor import _setup_workspace_context
     from app.engine.checkpointer import get_checkpointer
 
     # 1. 复用 backend 现有的 LLM + tools + context_window
@@ -187,7 +188,7 @@ async def run_agent_streaming_harness(
     sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
     try:
         # 9. adapter: AppEvent(pydantic) → dict
-        async def _on_event_dict(app_event: "AppEvent") -> None:
+        async def _on_event_dict(app_event: AppEvent) -> None:
             await on_event(app_event.model_dump())
 
         # 10. astream_events → AppEvent → on_event
