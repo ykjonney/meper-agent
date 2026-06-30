@@ -444,10 +444,7 @@ def _extract_content_artifact_text(result: Any) -> str:
     handled here.
     """
     # ainvoke returns a plain list; direct call returns (content, artifact)
-    if isinstance(result, tuple):
-        content = result[0]
-    else:
-        content = result
+    content = result[0] if isinstance(result, tuple) else result
 
     if not isinstance(content, list):
         return str(content)
