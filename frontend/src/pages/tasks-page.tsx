@@ -36,6 +36,7 @@ import {
 } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 import { TaskBoardColumn } from '../components/task-board-column'
+import { TaskOutputFiles } from '../components/task-result-card'
 import { parseBackendDate } from '../lib/format'
 
 /* ─── helpers ─── */
@@ -746,6 +747,11 @@ export default function TasksPage() {
                   })()}
                 </div>
               </section>
+            )}
+
+            {/* 输出文件（completed 时展示） */}
+            {taskDetail.status === 'completed' && (
+              <TaskOutputFiles taskId={taskDetail.id} />
             )}
 
             {/* Intervention actions（waiting_human 显示批准/驳回） */}
