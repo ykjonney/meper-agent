@@ -135,7 +135,20 @@ class WorkflowEngine:
         self._migrate_edges_to_next_nodes()
 
         # Initialise variable pool
-        self._pool = VariablePool(initial={"input": task_doc.get("input", {})})
+        # Story 4-15: Inject task-level system variables so that all nodes
+        # can access task_id / user_id / workflow_id via variables['system'].
+        # This replaces the old per-entry-point constructor injection via
+        # BaseNodeExecutor(task_id=..., user_id=...).
+        self._pool = VariablePool(
+            initial={
+                "input": task_doc.get("input", {}),
+                "system": {
+                    "task_id": task_doc["_id"],
+                    "user_id": task_doc.get("created_by", ""),
+                    "workflow_id": workflow_doc.get("_id", ""),
+                },
+            }
+        )
         self._completed_nodes.clear()
 
         # Mark Task as running
