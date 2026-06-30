@@ -439,10 +439,28 @@ async def dispatch_workflow(
             })
 
         input_data = dict(params) if params else {}
+
+        # Resolve the real user behind this chat so task lifecycle notifications
+        # (e.g. task.waiting_human on a Human node) are addressed to them.
+        # The agent acts on the user's behalf, but created_by must be the user_id
+        # — otherwise NotificationService delivers to a non-existent "agent" user.
+        # See NotificationService._on_event which reads task.created_by as user_id.
+        # Imported lazily to avoid a circular import (builtin_tools imports this
+        # module's _TASK_TOOLS at top level).
+        from app.engine.agent.builtin_tools import _get_workspace
+
+        actor_id = "agent"
+        try:
+            ws = _get_workspace()
+            if ws is not None and getattr(ws, "user_id", ""):
+                actor_id = ws.user_id
+        except Exception:
+            pass
+
         doc = await TaskService.create_task(
             workflow_id=entry.get("workflow_id") or entry.get("_id", ""),
             input_data=input_data,
-            created_by="agent",
+            created_by=actor_id,
             created_by_type="agent",
         )
 

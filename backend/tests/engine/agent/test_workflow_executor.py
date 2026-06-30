@@ -473,3 +473,52 @@ class TestDispatchWorkflow:
             mock_create.assert_awaited_once()
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["input_data"] == {"source": "mysql_db"}
+
+    @pytest.mark.asyncio
+    async def test_dispatch_uses_real_user_id_from_workspace(self):
+        """Regression: chat-triggered dispatch must set created_by to the real
+        user_id (from workspace context), NOT the literal "agent".
+
+        Otherwise task lifecycle notifications (e.g. task.waiting_human on a
+        Human node) are addressed to a non-existent "agent" user and the real
+        user never receives them.
+        """
+        from types import SimpleNamespace
+
+        fake_workspace = SimpleNamespace(user_id="user_real_123", session_id="sess_1")
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=_FAKE_WORKFLOW_ENTRY,
+        ), patch(
+            "app.engine.agent.workflow_executor.TaskService.create_task",
+            AsyncMock(return_value=_FAKE_TASK),
+        ) as mock_create, patch(
+            "app.engine.agent.builtin_tools._get_workspace",
+            return_value=fake_workspace,
+        ):
+            await dispatch_workflow.ainvoke({"workflow_name": "数据拉取"})
+
+            mock_create.assert_awaited_once()
+            call_kwargs = mock_create.call_args.kwargs
+            # created_by MUST be the real user, not "agent"
+            assert call_kwargs["created_by"] == "user_real_123"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_falls_back_to_agent_when_no_workspace(self):
+        """When no workspace context is available (e.g. non-chat invocation),
+        created_by falls back to "agent" so the tool still works."""
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=_FAKE_WORKFLOW_ENTRY,
+        ), patch(
+            "app.engine.agent.workflow_executor.TaskService.create_task",
+            AsyncMock(return_value=_FAKE_TASK),
+        ) as mock_create, patch(
+            "app.engine.agent.builtin_tools._get_workspace",
+            return_value=None,
+        ):
+            await dispatch_workflow.ainvoke({"workflow_name": "数据拉取"})
+
+            mock_create.assert_awaited_once()
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["created_by"] == "agent"
