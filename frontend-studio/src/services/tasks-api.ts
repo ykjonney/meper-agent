@@ -275,10 +275,19 @@ export const tasksApi = {
    * Story 4-15-UI: 前端查看/下载 Agent 节点产出到 file_library 的文件
    */
   async listOutputs(taskId: string): Promise<TaskOutputFile[]> {
-    const res = await apiClient.get<TaskOutputFile[]>(
-      `/api/v1/tasks/${encodeURIComponent(taskId)}/outputs`,
-    )
-    return res.data
+    try {
+      const res = await apiClient.get<TaskOutputFile[]>(
+        `/api/v1/tasks/${encodeURIComponent(taskId)}/outputs`,
+      )
+      return res.data
+    } catch (err) {
+      // 404 = 该任务暂无产物文件（后端对无产物任务返回 404），语义化为空列表，不当作错误
+      const status =
+        (err as { statusCode?: number })?.statusCode ??
+        (err as { response?: { status?: number } })?.response?.status
+      if (status === 404) return []
+      throw err
+    }
   },
 
   /**
