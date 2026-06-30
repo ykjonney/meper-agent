@@ -8,11 +8,15 @@
  * - 进度区（仅 progress 存在时渲染）：「已执行 N 个节点」+ 4px 高脉动条
  *   - running 时动画推移
  *   - waiting_human 时静态满格（紫色）
+ * - 等待审批（仅 waiting_human 且非终态）：「通过/驳回」两枚快捷按钮
  * - 底部：耗时 · 创建时间
  * - hover 时右上角浮出操作按钮（取消/重试/删除，按状态条件渲染）
  */
-import { Tag, Tooltip } from 'antd'
+import { useState } from 'react'
+import { Button, Modal, Tag, Tooltip } from 'antd'
 import {
+  CheckOutlined,
+  CloseCircleOutlined,
   StopOutlined,
   RedoOutlined,
   DeleteOutlined,
@@ -28,9 +32,14 @@ export interface TaskBoardCardProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
+  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
+
+// Brand accent for primary approval actions. Imported by the task detail
+// drawer (tasks-page.tsx) so the two surfaces stay in sync.
+export const APPROVAL_ACCENT = '#8B5CF6'
 
 function formatDuration(startIso: string, endIso?: string | null) {
   if (!startIso) return '-'
@@ -62,6 +71,7 @@ export function TaskBoardCard({
   onCancel,
   onRetry,
   onDelete,
+  onApprovalSubmit,
   interveneLoading = false,
   deleteLoading = false,
 }: TaskBoardCardProps) {
@@ -71,6 +81,36 @@ export function TaskBoardCard({
   const isWaitingHuman = status === 'waiting_human'
   const showProgress = !!progress && (isRunning || isWaitingHuman)
   const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled'
+
+  // BOARD_CARD_QUICK_APPROVE / BOARD_CARD_QUICK_REJECT — 看板内嵌审批弹窗
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false)
+  const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
+  const [approvalComment, setApprovalComment] = useState('')
+
+  const openApproval = (action: 'approve' | 'reject') => {
+    setApprovalAction(action)
+    setApprovalComment('')
+    setApprovalModalOpen(true)
+  }
+
+  const closeApproval = () => {
+    if (interveneLoading) return
+    setApprovalModalOpen(false)
+    setApprovalAction(null)
+    setApprovalComment('')
+  }
+
+  const submitApproval = () => {
+    if (!approvalAction || interveneLoading) return
+    onApprovalSubmit?.(task, approvalAction, approvalComment)
+    // Defer closing the modal until the mutation completes; the parent's
+    // onSuccess / onError will trigger query invalidation and a re-render with
+    // the task no longer in `waiting_human`, which hides the card. The parent
+    // also flips `interveneLoading` back to false, at which point the user
+    // (or the card's remount) can close the modal cleanly. We do not close
+    // eagerly here because a failed mutation would leave the user thinking
+    // their action succeeded.
+  }
 
   return (
     <div
@@ -169,6 +209,34 @@ export function TaskBoardCard({
           </div>
         )}
 
+        {/* 等待审批快捷入口（仅 waiting_human 且非终态时显示） */}
+        {isWaitingHuman && !isTerminal && onApprovalSubmit && (
+          <div
+            className="flex items-center gap-1.5 mb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              type="primary"
+              size="small"
+              icon={<CheckOutlined />}
+              onClick={() => openApproval('approve')}
+              loading={interveneLoading}
+              style={{ backgroundColor: APPROVAL_ACCENT, borderColor: APPROVAL_ACCENT }}
+            >
+              通过
+            </Button>
+            <Button
+              danger
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => openApproval('reject')}
+              loading={interveneLoading}
+            >
+              驳回
+            </Button>
+          </div>
+        )}
+
         {/* 底部：耗时 · 创建时间 */}
         <div className="flex items-center justify-between text-[10px] text-txt-muted">
           <span>{formatDuration(task.created_at, task.updated_at)}</span>
@@ -184,6 +252,36 @@ export function TaskBoardCard({
           100% { transform: translateX(300%); width: 40%; }
         }
       `}</style>
+
+      {/* ApprovalModal：看板内嵌审批弹窗，提交后由父级（tasks-page）统一调 interveneMutation */}
+      <Modal
+        title={approvalAction === 'reject' ? '驳回审批' : '通过审批'}
+        open={approvalModalOpen}
+        onCancel={closeApproval}
+        onOk={submitApproval}
+        okText="确认"
+        cancelText="取消"
+        confirmLoading={interveneLoading}
+        okButtonProps={{
+          danger: approvalAction === 'reject',
+          style:
+            approvalAction === 'approve'
+              ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+              : undefined,
+        }}
+        destroyOnClose
+      >
+        <div className="py-2">
+          <label className="block text-sm text-[#0F172A] mb-1.5">comment（可选）</label>
+          <textarea
+            value={approvalComment}
+            onChange={(e) => setApprovalComment(e.target.value)}
+            placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
+            rows={3}
+            className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none"
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

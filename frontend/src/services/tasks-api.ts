@@ -174,7 +174,9 @@ export interface TaskCreatePayload {
 
 export interface TaskIntervenePayload {
   action: string
+  /** @deprecated use comment */
   reason?: string
+  comment?: string
   version: number
 }
 
@@ -195,6 +197,25 @@ export interface WorkflowRegistryEntry {
   version: string
   tags: string[]
   published: boolean
+}
+
+/**
+ * Task 输出文件（snake_case，与后端 FileRefResponse 对齐）。
+ * Story 4-15-UI：前端查看/下载 Agent 节点产出的文件。
+ */
+export interface TaskOutputFile {
+  _id: string
+  owner_user_id: string
+  storage_key: string
+  name: string
+  size: number
+  mime_type: string
+  sha256: string
+  origin_kind: string
+  origin_id: string
+  status: string
+  created_at: string
+  updated_at: string
 }
 
 /* ─── API methods ─── */
@@ -245,6 +266,18 @@ export const tasksApi = {
    */
   async remove(taskId: string): Promise<void> {
     await apiClient.delete(`/api/v1/tasks/${encodeURIComponent(taskId)}`)
+  },
+
+  /**
+   * List files registered to a task.
+   * GET /api/v1/tasks/{id}/outputs
+   * Story 4-15-UI: 前端查看/下载 Agent 节点产出的文件
+   */
+  async listOutputs(taskId: string): Promise<TaskOutputFile[]> {
+    const { data } = await apiClient.get<TaskOutputFile[]>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/outputs`
+    )
+    return data
   },
 
   /**
