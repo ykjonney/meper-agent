@@ -15,7 +15,7 @@
 - [ ] Code compiles / builds without errors
 - [ ] Linting passes (`make lint`)
 - [ ] Tests pass (`make test`)
-- [ ] New code follows project conventions (see ARCHITECTURE.md)
+- [ ] New code follows project conventions
 
 ## Test Plan
 
