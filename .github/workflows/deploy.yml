@@ -1,4 +1,5 @@
-# Manual deployment workflow
+# Manual deployment workflow — 在 GitHub Actions 页面点 "Run workflow" 触发,
+# 自动 SSH 到阿里云 ECS 执行部署(pull 镜像 + 重启 + 健康检查)。
 name: Deploy
 
 on:
@@ -7,7 +8,7 @@ on:
       environment:
         description: 'Target environment'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
           - staging
@@ -19,35 +20,69 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment }}
+    name: Deploy to Aliyun ECS
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Print deploy info
+      - name: Deploy to Aliyun ECS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ALIYUN_ECS_HOST }}
+          username: ${{ secrets.ALIYUN_ECS_USERNAME }}
+          key: ${{ secrets.ALIYUN_ECS_SSH_KEY }}
+          port: ${{ secrets.ALIYUN_ECS_PORT }}
+          script: |
+            set -e
+
+            # 进入项目目录
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # 拉取最新代码(确保 docker-compose.yml 等配置文件是最新的)
+            echo "📥 Pulling latest code..."
+            git pull origin main
+
+            # 登录阿里云容器镜像服务
+            echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin ${{ secrets.ALIYUN_REGISTRY }}
+
+            # 拉取最新镜像
+            echo "📥 Pulling latest images..."
+            docker compose -f deploy/docker-compose.yml pull
+
+            # 停止旧服务(保留数据卷)
+            echo "🛑 Stopping old services..."
+            docker compose -f deploy/docker-compose.yml down || true
+
+            # 启动新服务
+            echo "🚀 Starting new services..."
+            docker compose -f deploy/docker-compose.yml up -d
+
+            # 等待服务启动
+            echo "⏳ Waiting for services to start..."
+            sleep 10
+
+            # 清理未使用的镜像
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            # 显示服务状态
+            echo "✅ Deployment complete!"
+            docker compose -f deploy/docker-compose.yml ps
+
+      - name: Health Check
         run: |
-          echo "Environment: ${{ github.event.inputs.environment }}"
-          echo "Image tag: ${{ github.event.inputs.image_tag }}"
-          echo ""
-          echo "To deploy manually, SSH into the target server and run:"
-          echo "  cd /opt/agent-flow"
-          echo "  export IMAGE_TAG=${{ github.event.inputs.image_tag }}"
-          echo "  docker compose -f deploy/docker-compose.yml pull"
-          echo "  docker compose -f deploy/docker-compose.yml up -d"
-          echo ""
-          echo "Automated SSH deployment will be added when infrastructure is ready."
+          echo "🔍 Performing health checks..."
+          sleep 20
 
-      # TODO: Add SSH deployment steps when target infrastructure is provisioned
-      # - name: Deploy via SSH
-      #   uses: appleboy/ssh-action@v1
-      #   with:
-      #     host: ${{ secrets.DEPLOY_HOST }}
-      #     username: ${{ secrets.DEPLOY_USER }}
-      #     key: ${{ secrets.DEPLOY_SSH_KEY }}
-      #     script: |
-      #       cd /opt/agent-flow
-      #       export IMAGE_TAG=${{ github.event.inputs.image_tag }}
-      #       docker compose -f deploy/docker-compose.yml pull
-      #       docker compose -f deploy/docker-compose.yml up -d
+          # 检查后端健康
+          echo "Checking backend health..."
+          curl -f http://${{ secrets.ALIYUN_ECS_HOST }}:8000/health || exit 1
+
+          # 检查前端
+          echo "Checking frontend..."
+          curl -f http://${{ secrets.ALIYUN_ECS_HOST }} || exit 1
+
+          echo "✅ All health checks passed!"
