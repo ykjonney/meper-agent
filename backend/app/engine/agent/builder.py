@@ -672,6 +672,33 @@ def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
 # Preview / Dry-run — inspect assembled prompt & tools without invoking LLM
 # ---------------------------------------------------------------------------
 
+# Tools that drive workflow / task orchestration. Both are injected by the
+# backend (``workflow_executor._TASK_TOOLS``), never via MCP.
+_WORKFLOW_TOOL_NAMES = {"propose_workflow", "dispatch_workflow"}
+_TASK_TOOL_NAMES = {
+    "task_query", "task_list", "task_intervene",
+    "cancel_task", "get_task_timeline", "update_task_variables",
+}
+
+
+def _classify_tool_type(name: str) -> str:
+    """Classify a tool into its origin type for preview/labelling.
+
+    Classification is *positive*: each known origin is identified explicitly.
+    The only reliable MCP signal is the ``mcp__`` name prefix applied by the
+    langchain MCP adapter. Anything else is a built-in / backend-shipped tool.
+
+    Returns one of ``"skill" | "mcp" | "builtin" | "workflow"`` — the set of
+    types the frontend (``ToolPreview.type``) recognises.
+    """
+    if name == "load_skill":
+        return "skill"
+    if name in _WORKFLOW_TOOL_NAMES or name in _TASK_TOOL_NAMES:
+        return "workflow"
+    if name.startswith("mcp__"):
+        return "mcp"
+    return "builtin"
+
 
 async def preview_agent(
     agent: dict,
@@ -711,15 +738,7 @@ async def preview_agent(
 
     # --- Classify tools for preview ---
     tool_previews: list[dict] = []
-    summary: dict[str, int] = {"total": len(all_tools), "skill": 0, "mcp": 0, "builtin": 0, "task": 0}
-
-    # Build lookup sets for classification
-    builtin_names_set = set(agent.get("builtin_config") or [])
-    task_tool_names = {
-        "task_query", "task_list", "task_intervene",
-        "cancel_task", "get_task_timeline", "update_task_variables",
-        "dispatch_workflow",
-    }
+    summary: dict[str, int] = {"total": len(all_tools), "skill": 0, "mcp": 0, "builtin": 0, "workflow": 0}
 
     for t in all_tools:
         if isinstance(t, StructuredTool):
@@ -734,19 +753,9 @@ async def preview_agent(
                 else:
                     t_schema = {}
 
-            # Classify by origin
-            if t_name == "load_skill":
-                t_type = "skill"
-                t_source = "skill_loader"
-            elif t_name in task_tool_names:
-                t_type = "task"
-                t_source = t_name
-            elif t_name in builtin_names_set:
-                t_type = "builtin"
-                t_source = t_name
-            else:
-                t_type = "mcp"
-                t_source = t_name
+            # Classify by origin (positive checks, MCP only by name prefix)
+            t_type = _classify_tool_type(t_name)
+            t_source = "skill_loader" if t_type == "skill" else t_name
 
             summary[t_type] = summary.get(t_type, 0) + 1
             tool_previews.append({

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from app.engine.agent.builder import (
+    _classify_tool_type,
     _make_skill_loader,
     _resolve_builtin_tools,
     _resolve_tools,
@@ -290,3 +291,68 @@ class TestDispatchWorkflowPresence:
         result = _resolve_builtin_tools({"builtin_config": []})
         names = {t.name for t in result}
         assert "dispatch_workflow" in names
+
+
+# ---------------------------------------------------------------------------
+# _classify_tool_type — preview tool origin classification
+#
+# Regression guard: built-in / workflow tools that are NOT listed in an agent's
+# ``builtin_config`` whitelist used to fall through to "mcp", mislabelling them
+# in the preview UI. Classification must be positive (MCP only by ``mcp__``
+# name prefix) so backend-shipped tools are never shown as MCP.
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyToolType:
+    """_classify_tool_type tests."""
+
+    def test_builtin_file_tools_are_builtin(self) -> None:
+        """bash / read / write / write_to_output are built-in, never MCP —
+        even when absent from the agent's builtin_config whitelist."""
+        for name in ("bash", "read", "write", "write_to_output"):
+            assert _classify_tool_type(name) == "builtin", name
+
+    def test_write_to_output_not_mcp_regression(self) -> None:
+        """Regression: write_to_output was mislabelled as MCP in preview."""
+        assert _classify_tool_type("write_to_output") != "mcp"
+
+    def test_propose_workflow_is_workflow_not_mcp(self) -> None:
+        """Regression: propose_workflow was mislabelled as MCP in preview."""
+        assert _classify_tool_type("propose_workflow") == "workflow"
+
+    def test_dispatch_workflow_is_workflow_not_task(self) -> None:
+        """dispatch_workflow should classify as 'workflow' (frontend-recognised
+        type), not the unrecognised 'task' label."""
+        assert _classify_tool_type("dispatch_workflow") == "workflow"
+
+    def test_task_tools_are_workflow(self) -> None:
+        """Task management tools classify as 'workflow' (orchestration group)."""
+        for name in (
+            "task_query", "task_list", "task_intervene",
+            "cancel_task", "update_task_variables",
+        ):
+            assert _classify_tool_type(name) == "workflow", name
+
+    def test_skill_loader_is_skill(self) -> None:
+        assert _classify_tool_type("load_skill") == "skill"
+
+    def test_mcp_tools_by_prefix(self) -> None:
+        """Only tools with the ``mcp__`` name prefix are MCP."""
+        assert _classify_tool_type("mcp__mes__custom_table_create") == "mcp"
+        assert _classify_tool_type("mcp__server__tool") == "mcp"
+
+    def test_unknown_builtin_falls_back_to_builtin_not_mcp(self) -> None:
+        """Any unrecognised backend-shipped StructuredTool defaults to
+        'builtin', never 'mcp' (the old, buggy fallback)."""
+        assert _classify_tool_type("some_future_builtin_tool") == "builtin"
+
+    def test_only_four_frontend_types_returned(self) -> None:
+        """Returned types must be in the set the frontend recognises:
+        skill | mcp | builtin | workflow (no 'task' etc.)."""
+        valid = {"skill", "mcp", "builtin", "workflow"}
+        samples = [
+            "load_skill", "bash", "write_to_output", "propose_workflow",
+            "dispatch_workflow", "task_list", "mcp__s__t", "unknown_tool",
+        ]
+        for name in samples:
+            assert _classify_tool_type(name) in valid, name
