@@ -32,6 +32,10 @@ import { UserManagement } from './components/UserManagement';
 import { SystemSettings } from './components/SystemSettings';
 import { ModelsPage } from './components/ModelsPage';
 import { ProfilePage } from './components/ProfilePage';
+import { NotificationCenter } from './components/notification-center';
+import { useTaskRealtime } from './hooks/use-task-realtime';
+import { wsClient } from './lib/ws-client';
+import { useNotificationStore } from './stores/notification-store';
 import type { Agent } from './types';
 
 /**
@@ -148,6 +152,24 @@ export default function App() {
     () => boardBadgeQueries.reduce((sum, q) => sum + (q.data ?? 0), 0),
     [boardBadgeQueries],
   );
+
+  // ── Realtime: WS task_status → react-query invalidate; WS notification → store ──
+  // Mounted once at the App root; safe to call every render (it no-ops internally
+  // until wsClient.connect() is driven by the isAuthenticated effect below).
+  useTaskRealtime();
+
+  // WS lifecycle follows auth state — connect on login, disconnect on logout.
+  // Initial unread count is loaded once the user enters the main UI.
+  const loadUnreadCount = useNotificationStore((s) => s.loadUnreadCount);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      wsClient.disconnect();
+      return;
+    }
+    wsClient.resume();
+    wsClient.connect();
+    loadUnreadCount();
+  }, [isAuthenticated, loadUnreadCount]);
 
   const permissions = authUser?.permissions ?? [];
   const has = (perm?: string) => !perm || permissions.includes(perm);
@@ -339,6 +361,19 @@ export default function App() {
               VM Live
             </span>
           </div>
+
+          {/* 通知中心：铃铛 + 未读角标 + 下拉面板（点击通知跳转任务协作看板并 highlight） */}
+          <NotificationCenter
+            onNavigateTask={(taskId) => {
+              setActiveTab('board');
+              setActiveTraceTask(null);
+              // Highlight via the TaskBoard trace drawer: fetch the task, then
+              // open its trace playback view (existing highlight mechanism).
+              tasksApi.get(taskId).then((task) => setActiveTraceTask(task)).catch(() => {
+                // Task may be unavailable; still switch to the board.
+              });
+            }}
+          />
         </header>
 
         <div id="content_stage" className={`flex-1 ${
