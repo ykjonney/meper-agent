@@ -13,23 +13,23 @@
  * 详情查询与卡片共用 taskKeys.detail(id) 缓存，running/pending/waiting_human 时 5s 轮询。
  * 干预（cancel/retry/approve/reject/resume）交由父级 mutation 统一处理。
  */
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  X, Ban, RotateCcw, Trash2, Check, AlertTriangle, ListTree, Share2,
+  X, Ban, RotateCcw, Trash2, Check, AlertTriangle,
 } from 'lucide-react'
 import {
   tasksApi, taskKeys,
   type TaskSummary, type TaskDetail,
 } from '../../services/tasks-api'
+import { agentApi, agentKeys } from '../../services/agent-api'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
 import { Button, Modal, Spin } from '../ui'
 import { TaskOutputFiles } from './TaskOutputFiles'
 import { TaskFlowTimeline } from './TaskFlowTimeline'
 import { TaskFlowGraph } from './TaskFlowGraph'
 import { APPROVAL_ACCENT } from './TaskBoardCard'
-
-type FlowView = 'timeline' | 'graph'
+import { DataView, DataViewEnhanceProvider } from './DataView'
 
 export interface TaskDetailDrawerProps {
   taskId: string | null
@@ -82,8 +82,18 @@ export function TaskDetailDrawer({
     },
   })
 
-  // 执行流程视图切换（默认时间线；切到图时才懒加载）
-  const [flowView, setFlowView] = useState<FlowView>('timeline')
+  // 预加载 Agent 列表，建立 agent_id → 名称映射（供 DataView 把 agent_id 渲染成名称）
+  const { data: agentListData } = useQuery({
+    queryKey: agentKeys.lists(),
+    queryFn: () => agentApi.list({ page_size: 100 }),
+    enabled: open && !!taskId,
+    staleTime: 60_000,
+  })
+  const agentNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const a of agentListData?.items ?? []) map[a.id] = a.name
+    return map
+  }, [agentListData])
 
   // 审批弹窗
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
@@ -121,7 +131,8 @@ export function TaskDetailDrawer({
   const useResume = taskDetail?.status === 'waiting_human' && humanOptions.length === 0
 
   return (
-    <div className="w-full max-w-xl border-l border-[#27272a] h-full flex flex-col bg-[#121214] shadow-2xl fixed right-0 top-0 z-40 animate-slide-left">
+    <DataViewEnhanceProvider agentNameMap={agentNameMap}>
+    <div className="w-full max-w-[min(92vw,1080px)] border-l border-[#27272a] h-full flex flex-col bg-[#121214] shadow-2xl fixed right-0 top-0 z-40 animate-slide-left">
       {/* ── Header ── */}
       <div className="flex items-center justify-between border-b border-[#27272a] px-5 py-3.5 shrink-0">
         <div className="min-w-0">
@@ -213,10 +224,10 @@ export function TaskDetailDrawer({
         )}
 
         {!isLoading && taskDetail && (
-          <div className="flex flex-col gap-6">
-            {/* 错误提示（failed 时置顶醒目） */}
+          <div className="@container grid grid-cols-1 @[900px]:grid-cols-[1.35fr_1fr] gap-6">
+            {/* 错误提示（failed 时置顶醒目，横跨双栏） */}
             {taskDetail.error && (
-              <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 flex gap-2">
+              <div className="@[900px]:col-span-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 flex gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-rose-400">执行错误</div>
@@ -232,9 +243,9 @@ export function TaskDetailDrawer({
               </div>
             )}
 
-            {/* 审批信息（waiting_human 时展示决策上下文） */}
+            {/* 审批信息（waiting_human 时展示决策上下文，横跨双栏） */}
             {taskDetail.status === 'waiting_human' && taskDetail.checkpoint && (
-              <section>
+              <section className="@[900px]:col-span-2">
                 <SectionTitle>
                   <AlertTriangle className="w-3.5 h-3.5 inline mr-1 -mt-0.5" style={{ color: APPROVAL_ACCENT }} />
                   审批信息
@@ -269,9 +280,7 @@ export function TaskDetailDrawer({
                           {upstreamVars.map(([key, value]) => (
                             <div key={key}>
                               <div className="text-[11px] text-[#71717a] font-medium mb-0.5">{key}</div>
-                              <pre className="text-[10px] bg-[#09090b] rounded p-2 overflow-x-auto text-[#d4d4d8] border border-[#27272a] max-h-32">
-                                {JSON.stringify(value, null, 2)}
-                              </pre>
+                              <DataView value={value} context="approval_upstream" showRaw={false} />
                             </div>
                           ))}
                         </div>
@@ -282,67 +291,50 @@ export function TaskDetailDrawer({
               </section>
             )}
 
-            {/* 执行流程：双视图切换 */}
-            <section>
-              <div className="flex items-center justify-between mb-3">
-                <SectionTitle>
-                  执行流程 <span className="font-normal text-[#71717a]">({taskDetail.timeline?.length ?? 0})</span>
-                </SectionTitle>
-                {/* 视图切换 tab */}
-                <div className={`flex items-center gap-0.5 p-0.5 rounded-md border ${
-                  theme === 'dark' ? 'bg-[#09090b] border-[#27272a]' : 'bg-slate-100 border-slate-200'
-                }`}>
-                  <ViewTab active={flowView === 'timeline'} onClick={() => setFlowView('timeline')} icon={<ListTree className="w-3 h-3" />} label="时间线" theme={theme} />
-                  <ViewTab active={flowView === 'graph'} onClick={() => setFlowView('graph')} icon={<Share2 className="w-3 h-3" />} label="流程图" theme={theme} />
-                </div>
-              </div>
-              {flowView === 'timeline'
-                ? <TaskFlowTimeline task={taskDetail} theme={theme} />
-                : <TaskFlowGraph task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
-              }
-            </section>
-
-            {/* 产物（completed/running 均展示，空列表自然不显示） */}
-            {(taskDetail.status === 'completed' || taskDetail.status === 'running') && (
+            {/* 左栏：执行流程（流程图 + 时间线，平铺不再切换） */}
+            <div className="flex flex-col gap-6 min-w-0">
               <section>
-                <SectionTitle>产物</SectionTitle>
-                <TaskOutputFiles taskId={taskDetail.id} />
+                <SectionTitle>流程图</SectionTitle>
+                <TaskFlowGraph task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
               </section>
-            )}
+              <section>
+                <SectionTitle>
+                  时间线 <span className="font-normal text-[#71717a]">({taskDetail.timeline?.length ?? 0})</span>
+                </SectionTitle>
+                <TaskFlowTimeline task={taskDetail} theme={theme} />
+              </section>
+            </div>
 
-            {/* 基本信息 */}
-            <section>
-              <SectionTitle>基本信息</SectionTitle>
-              <div className="space-y-2.5">
-                <InfoRow label="ID" value={taskDetail.id} mono />
-                <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
-                <InfoRow label="创建者" value={creatorLabel ? creatorLabel(taskDetail.created_by, taskDetail.created_by_type) : (taskDetail.created_by || '系统')} />
-                <InfoRow label="版本" value={`v${taskDetail.version}`} />
-                <InfoRow label="创建时间" value={formatDateTime(taskDetail.created_at)} />
-                <InfoRow label="更新时间" value={formatDateTime(taskDetail.updated_at)} />
-              </div>
-            </section>
+            {/* 右栏：基本信息 + 输入参数 + 产物 */}
+            <div className="flex flex-col gap-6 min-w-0">
+              <section>
+                <SectionTitle>基本信息</SectionTitle>
+                <div className="space-y-2.5">
+                  <InfoRow label="ID" value={taskDetail.id} mono />
+                  <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
+                  <InfoRow label="创建者" value={creatorLabel ? creatorLabel(taskDetail.created_by, taskDetail.created_by_type) : (taskDetail.created_by || '系统')} />
+                  <InfoRow label="版本" value={`v${taskDetail.version}`} />
+                  <InfoRow label="创建时间" value={formatDateTime(taskDetail.created_at)} />
+                  <InfoRow label="更新时间" value={formatDateTime(taskDetail.updated_at)} />
+                </div>
+              </section>
 
-            {/* 输入参数 */}
-            <section>
-              <SectionTitle>输入参数</SectionTitle>
-              <div className="space-y-1.5">
-                {(() => {
-                  const entries = Object.entries(taskDetail.input ?? {})
-                  if (entries.length === 0) {
-                    return <div className="text-xs text-[#71717a] italic">无</div>
-                  }
-                  return entries.map(([k, v]) => (
-                    <div key={k} className="flex gap-2 text-xs">
-                      <span className="text-[#a1a1aa] font-medium shrink-0 min-w-[80px]">{k}</span>
-                      <span className="text-[#d4d4d8] break-all">
-                        {typeof v === 'string' ? v : JSON.stringify(v)}
-                      </span>
-                    </div>
-                  ))
-                })()}
-              </div>
-            </section>
+              <section>
+                <SectionTitle>输入参数</SectionTitle>
+                {Object.keys(taskDetail.input ?? {}).length === 0 ? (
+                  <div className="text-xs text-[#71717a] italic">无</div>
+                ) : (
+                  <DataView value={taskDetail.input} context="task_input" showRaw={false} />
+                )}
+              </section>
+
+              {(taskDetail.status === 'completed' || taskDetail.status === 'running') && (
+                <section>
+                  <SectionTitle>产物</SectionTitle>
+                  <TaskOutputFiles taskId={taskDetail.id} />
+                </section>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -376,35 +368,11 @@ export function TaskDetailDrawer({
         </div>
       </Modal>
     </div>
+    </DataViewEnhanceProvider>
   )
 }
 
 /* ─── 子组件 ─── */
-
-function ViewTab({ active, onClick, icon, label, theme = 'dark' }: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  theme?: 'light' | 'dark'
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
-        active
-          ? theme === 'dark'
-            ? 'bg-[#27272a] text-[#fafafa]'
-            : 'bg-white text-slate-900 shadow-sm'
-          : theme === 'dark'
-            ? 'text-[#71717a] hover:text-[#fafafa]'
-            : 'text-slate-500 hover:text-slate-800'
-      }`}
-    >
-      {icon} {label}
-    </button>
-  )
-}
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (

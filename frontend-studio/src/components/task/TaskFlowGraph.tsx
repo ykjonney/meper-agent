@@ -108,7 +108,7 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
             ? '无法解析工作流模板（注册表数据缺失）'
             : `工作流模板 ${templateId} 不存在或已被删除`}
         </span>
-        <span className="text-[10px] text-[#52525b]">请切回「流程时间线」查看执行进度</span>
+        <span className="text-[10px] text-[#52525b]">请查看下方时间线了解执行进度</span>
       </div>
     )
   }
