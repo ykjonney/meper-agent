@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import operator
 import re
 from typing import Any
 
@@ -33,6 +34,17 @@ _JSON_PATTERN = re.compile(r"^\s*[\[{]")
 
 # Regex to strip markdown code blocks
 _MARKDOWN_CODE_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```")
+
+# Comparison operators supported in expression evaluation, mapped to their
+# implementations. Defined at module level (not rebuilt on every call).
+_COMPARISON_OPS: dict[str, Any] = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">=": operator.ge,
+    "<=": operator.le,
+    ">": operator.gt,
+    "<": operator.lt,
+}
 
 
 def _try_parse_json(value: Any) -> Any:
@@ -154,20 +166,9 @@ class ExpressionEngine:
                     left_val = self._parse_value(left)
                     right_val = self._parse_value(right)
 
-                    # Evaluate the comparison
+                    # Evaluate the comparison via the module-level operator table.
                     try:
-                        if op == "==":
-                            return left_val == right_val
-                        elif op == "!=":
-                            return left_val != right_val
-                        elif op == ">=":
-                            return left_val >= right_val
-                        elif op == "<=":
-                            return left_val <= right_val
-                        elif op == ">":
-                            return left_val > right_val
-                        elif op == "<":
-                            return left_val < right_val
+                        return _COMPARISON_OPS[op](left_val, right_val)
                     except TypeError:
                         # Type mismatch in comparison, return original
                         pass
