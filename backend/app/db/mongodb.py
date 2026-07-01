@@ -11,10 +11,17 @@ _client: AsyncIOMotorClient | None = None
 
 
 def get_mongodb_client() -> AsyncIOMotorClient:
-    """Return the process-wide async MongoDB client (lazy-initialized)."""
+    """Return the process-wide async MongoDB client (lazy-initialized).
+
+    ``tz_aware=True`` ensures datetimes read back from MongoDB carry UTC
+    timezone info (``+00:00``). Without it, PyMongo returns naive UTC
+    datetimes whose ``isoformat()`` lacks a zone indicator, so the frontend
+    (JS ``new Date()``) misinterprets them as local time — shifting every
+    timestamp by the user's UTC offset (e.g. -8h for Asia/Shanghai).
+    """
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.MONGODB_URI)
+        _client = AsyncIOMotorClient(settings.MONGODB_URI, tz_aware=True)
     return _client
 
 
