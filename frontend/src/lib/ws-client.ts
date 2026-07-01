@@ -32,9 +32,6 @@ export class WsClient {
   /** Set when the backend rejected the connection (4401). Pauses auto-reconnect
    * until a fresh token arrives via reconnectWithFreshToken(). */
   private authFailed = false
-  /** Tracks the token currently used by the active connection, so callers can
-   * detect when the store's token differs (i.e. it has been refreshed). */
-  private activeToken: string | null = null
 
   connect(): void {
     if (this.disposed) return
@@ -81,7 +78,6 @@ export class WsClient {
   }
 
   private openWithToken(token: string): void {
-    this.activeToken = token
     const url = `${ENV.WS_BASE_URL}/api/v1/ws?token=${token}`
     this.ws = new WebSocket(url)
 
@@ -109,7 +105,6 @@ export class WsClient {
 
     this.ws.onclose = (event: CloseEvent) => {
       this.ws = null
-      this.activeToken = null
       // If the backend rejected our token, DON'T auto-reconnect with the same
       // (expired) token — that loops. Wait for reconnectWithFreshToken().
       if (event.code === WS_AUTH_FAILED_CODE) {
@@ -142,7 +137,6 @@ export class WsClient {
     }
     this.ws?.close()
     this.ws = null
-    this.activeToken = null
   }
 
   /** Resume the client after disconnect — resets disposed flag. */
