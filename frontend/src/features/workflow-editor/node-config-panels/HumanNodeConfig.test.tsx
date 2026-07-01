@@ -1,9 +1,12 @@
 /**
- * HumanNodeConfig 组件测试 — 验证添加/删除选项不崩溃。
+ * HumanNodeConfig 组件测试 — 验证固定审批行为的渲染与字段联动。
+ *
+ * 注意:组件已重构为系统固定三个审批行为(approve/reject/comment),
+ * 不再有自定义 options,故不再测试添加/删除选项。
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, fireEvent } from '@testing-library/react'
 import HumanNodeConfig from './HumanNodeConfig'
 
 // antd components require ResizeObserver
@@ -15,119 +18,93 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver
 })
 
-const baseConfig = {
-  title: '审批测试',
-  description: '描述',
-  options: ['approve', 'reject'],
-  timeout_minutes: 60,
-  timeout_action: 'fail',
-}
-
 describe('HumanNodeConfig', () => {
   it('renders without crashing', () => {
     const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={vi.fn()} />,
+      <HumanNodeConfig config={{}} onChange={vi.fn()} />,
     )
     expect(container.querySelector('.space-y-3')).toBeTruthy()
   })
 
-  it('add option calls onChange with new empty option', () => {
+  it('renders the three fixed approval behaviors (approve/reject/comment)', () => {
+    const { container } = render(
+      <HumanNodeConfig config={{}} onChange={vi.fn()} />,
+    )
+    // 三个 Tag(通过/驳回/意见),文案在 Tag 文本节点中
+    const tags = container.querySelectorAll('.ant-tag')
+    expect(tags.length).toBe(3)
+    const tagTexts = Array.from(tags).map((t) => t.textContent)
+    expect(tagTexts).toContain('通过')
+    expect(tagTexts).toContain('驳回')
+    expect(tagTexts).toContain('意见')
+  })
+
+  it('editing title calls onChange with new title', () => {
     const onChange = vi.fn()
     const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
+      <HumanNodeConfig config={{ title: '旧标题' }} onChange={onChange} />,
     )
+    // 标题是第一个 Input(<input>),TextArea 是 <textarea>
+    const titleInput = container.querySelector('input:not([type="number"])') as HTMLInputElement
+    expect(titleInput.value).toBe('旧标题')
 
-    // The add button is the ant-btn-link with + icon
-    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
-    expect(addBtn).toBeTruthy()
-    addBtn.click()
-
+    fireEvent.change(titleInput, { target: { value: '新标题' } })
     expect(onChange).toHaveBeenCalledTimes(1)
-    const newConfig = onChange.mock.calls[0][0]
-    expect(newConfig.options).toEqual(['approve', 'reject', ''])
+    expect(onChange.mock.calls[0][0].title).toBe('新标题')
   })
 
-  it('remove option calls onChange without the removed item', () => {
+  it('editing description calls onChange with new description', () => {
     const onChange = vi.fn()
     const { container } = render(
-      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
+      <HumanNodeConfig config={{ description: '旧描述' }} onChange={onChange} />,
     )
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    expect(textarea.value).toBe('旧描述')
 
-    // Delete buttons have ant-btn-dangerous class
-    const deleteBtns = container.querySelectorAll('.ant-btn-dangerous')
-    expect(deleteBtns.length).toBe(2)
-
-    ;(deleteBtns[0] as HTMLButtonElement).click()
-
+    fireEvent.change(textarea, { target: { value: '新描述' } })
     expect(onChange).toHaveBeenCalledTimes(1)
-    const newConfig = onChange.mock.calls[0][0]
-    expect(newConfig.options).toEqual(['reject'])
+    expect(onChange.mock.calls[0][0].description).toBe('新描述')
   })
 
-  it('add option then re-render does not crash', () => {
-    const onChange = vi.fn()
-    const { container, rerender } = render(
-      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
-    )
-
-    // Click add
-    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
-    addBtn.click()
-    const newConfig = onChange.mock.calls[0][0]
-
-    // Simulate parent re-render with new config (this is what happens in real app)
-    rerender(<HumanNodeConfig config={newConfig} onChange={onChange} />)
-
-    // Should now have 3 option inputs (antd Input renders as span.ant-input > input)
-    const optionInputs = container.querySelectorAll('input.font-mono, .font-mono input, input[placeholder*="选项"]')
-    expect(optionInputs.length).toBe(3)
-  })
-
-  it('remove option then re-render does not crash', () => {
-    const onChange = vi.fn()
-    const { container, rerender } = render(
-      <HumanNodeConfig config={baseConfig} onChange={onChange} />,
-    )
-
-    // Click delete on first option
-    const deleteBtns = container.querySelectorAll('.ant-btn-dangerous')
-    ;(deleteBtns[1] as HTMLButtonElement).click()
-    const newConfig = onChange.mock.calls[0][0]
-
-    // Simulate parent re-render with new config
-    rerender(<HumanNodeConfig config={newConfig} onChange={onChange} />)
-
-    // Should now have 1 option input
-    const optionInputs = container.querySelectorAll('input.font-mono, .font-mono input, input[placeholder*="选项"]')
-    expect(optionInputs.length).toBe(1)
-  })
-
-  it('handles empty options array', () => {
+  it('editing timeout_minutes calls onChange with parsed number', () => {
     const onChange = vi.fn()
     const { container } = render(
-      <HumanNodeConfig config={{ ...baseConfig, options: [] }} onChange={onChange} />,
+      <HumanNodeConfig config={{ timeout_minutes: 30 }} onChange={onChange} />,
     )
+    const numberInput = container.querySelector('input[type="number"]') as HTMLInputElement
+    expect(numberInput.value).toBe('30')
 
-    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
-    addBtn.click()
-
-    const newConfig = onChange.mock.calls[0][0]
-    expect(newConfig.options).toEqual([''])
+    fireEvent.change(numberInput, { target: { value: '90' } })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange.mock.calls[0][0].timeout_minutes).toBe(90)
   })
 
-  it('handles non-array options gracefully', () => {
+  it('timeout_minutes falls back to 60 when input is empty/invalid', () => {
     const onChange = vi.fn()
     const { container } = render(
-      <HumanNodeConfig
-        config={{ options: 'corrupted' } as Record<string, unknown>}
-        onChange={onChange}
-      />,
+      <HumanNodeConfig config={{ timeout_minutes: 30 }} onChange={onChange} />,
     )
+    const numberInput = container.querySelector('input[type="number"]') as HTMLInputElement
+    fireEvent.change(numberInput, { target: { value: '' } })
+    expect(onChange.mock.calls[0][0].timeout_minutes).toBe(60)
+  })
 
-    const addBtn = container.querySelector('.ant-btn-link') as HTMLButtonElement
-    addBtn.click()
+  it('uses default values when config is empty', () => {
+    const { container } = render(
+      <HumanNodeConfig config={{}} onChange={vi.fn()} />,
+    )
+    const numberInput = container.querySelector('input[type="number"]') as HTMLInputElement
+    expect(numberInput.value).toBe('60') // 默认超时 60 分钟
+  })
 
-    const newConfig = onChange.mock.calls[0][0]
-    expect(Array.isArray(newConfig.options)).toBe(true)
+  it('handles null-ish config gracefully without crashing', () => {
+    expect(() =>
+      render(
+        <HumanNodeConfig
+          config={{ options: 'corrupted' } as Record<string, unknown>}
+          onChange={vi.fn()}
+        />,
+      ),
+    ).not.toThrow()
   })
 })
