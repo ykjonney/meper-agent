@@ -37,7 +37,8 @@ class HumanNodeExecutor(BaseNodeExecutor):
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
         title = self.node_config.get("title", "人工审批")
         description = self.node_config.get("description", "")
-        options = self.node_config.get("options", ["approve", "reject"])
+        # 系统固定提供 approve/reject 选项，当 options 为空时使用默认值
+        options = self.node_config.get("options") or ["approve", "reject"]
 
         # 前端传入 timeout_minutes，后端统一转换为 ms
         timeout_ms = self.node_config.get("timeout_ms", 0)

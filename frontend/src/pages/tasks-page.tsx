@@ -84,7 +84,7 @@ export default function TasksPage() {
 
   /* ─── Approval modal state ─── */
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
-  const [approvalReason, setApprovalReason] = useState('')
+  const [approvalComment, setApprovalComment] = useState('')
   const [approvalTask, setApprovalTask] = useState<TaskSummary | TaskDetail | null>(null)
 
   /* ─── 6 列并发列表查询（按 status 分桶） ─── */
@@ -201,8 +201,8 @@ export default function TasksPage() {
 
   /* ─── Mutation: intervene (cancel / retry / approve / reject) ─── */
   const interveneMutation = useMutation({
-    mutationFn: ({ taskId, action, version, reason }: { taskId: string; action: string; version: number; reason?: string }) =>
-      tasksApi.intervene(taskId, { action, version, reason }),
+    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: string }) =>
+      tasksApi.intervene(taskId, { action, version, comment }),
     onSuccess: () => {
       message.success('操作成功')
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
@@ -281,13 +281,13 @@ export default function TasksPage() {
   const handleApprove = useCallback((task: TaskSummary | TaskDetail) => {
     setApprovalAction('approve')
     setApprovalTask(task)
-    setApprovalReason('')
+    setApprovalComment('')
   }, [])
 
   const handleReject = useCallback((task: TaskSummary | TaskDetail) => {
     setApprovalAction('reject')
     setApprovalTask(task)
-    setApprovalReason('')
+    setApprovalComment('')
   }, [])
 
   const handleApprovalConfirm = useCallback(() => {
@@ -296,17 +296,17 @@ export default function TasksPage() {
       taskId: approvalTask.id,
       action: approvalAction,
       version: approvalTask.version,
-      reason: approvalReason || undefined,
+      comment: approvalComment || undefined,
     })
     setApprovalAction(null)
     setApprovalTask(null)
-    setApprovalReason('')
-  }, [approvalAction, approvalTask, approvalReason, interveneMutation])
+    setApprovalComment('')
+  }, [approvalAction, approvalTask, approvalComment, interveneMutation])
 
   const handleApprovalCancel = useCallback(() => {
     setApprovalAction(null)
     setApprovalTask(null)
-    setApprovalReason('')
+    setApprovalComment('')
   }, [])
 
   const handleDelete = useCallback((task: TaskSummary) => {
@@ -319,6 +319,16 @@ export default function TasksPage() {
       onOk: () => deleteMutation.mutate(task.id),
     })
   }, [deleteMutation])
+
+  // 看板卡片上的快捷审批（通过/驳回 + 评论）
+  const handleCardApproval = useCallback((task: TaskSummary, action: 'approve' | 'reject', comment: string) => {
+    interveneMutation.mutate({
+      taskId: task.id,
+      action,
+      version: task.version,
+      comment: comment || undefined,
+    })
+  }, [interveneMutation])
 
   const handleCardClick = useCallback((task: TaskSummary) => {
     setDetailTaskId(task.id)
@@ -414,6 +424,7 @@ export default function TasksPage() {
                 onCancel={handleCancel}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
+                onApprovalSubmit={handleCardApproval}
                 interveneLoading={interveneMutation.isPending}
                 deleteLoading={deleteMutation.isPending}
               />
@@ -783,7 +794,7 @@ export default function TasksPage() {
                           taskId: taskDetail.id,
                           action: 'resume',
                           version: taskDetail.version,
-                          reason: '',
+                          comment: '',
                         })}
                         loading={interveneMutation.isPending}
                       >
@@ -868,8 +879,8 @@ export default function TasksPage() {
           <div>
             <label className="block text-sm text-[#0F172A] mb-1.5">审批意见（可选）</label>
             <Input.TextArea
-              value={approvalReason}
-              onChange={(e) => setApprovalReason(e.target.value)}
+              value={approvalComment}
+              onChange={(e) => setApprovalComment(e.target.value)}
               placeholder="请输入审批意见..."
               rows={3}
             />

@@ -17,6 +17,7 @@ Safety:
 from __future__ import annotations
 
 import ast
+import json
 import re
 from typing import Any
 
@@ -26,6 +27,46 @@ from loguru import logger
 
 # Regex to find all ``{{...}}`` expressions in a string
 _EXPRESSION_PATTERN = re.compile(r"\{\{(.+?)\}\}")
+
+# Regex to detect JSON-like strings (starts with { or [)
+_JSON_PATTERN = re.compile(r"^\s*[\[{]")
+
+# Regex to strip markdown code blocks
+_MARKDOWN_CODE_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```")
+
+
+def _try_parse_json(value: Any) -> Any:
+    """Try to parse a string as JSON. Returns the original value if parsing fails."""
+    if not isinstance(value, str):
+        return value
+
+    # Strip markdown code blocks if present
+    match = _MARKDOWN_CODE_BLOCK.search(value)
+    if match:
+        value = match.group(1).strip()
+
+    # Quick check: does it look like JSON?
+    if not _JSON_PATTERN.match(value):
+        return value
+
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return value
+
+
+def _deep_parse_json_strings(obj: Any) -> Any:
+    """Recursively parse JSON strings in a dict/list structure."""
+    if isinstance(obj, dict):
+        return {k: _deep_parse_json_strings(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_deep_parse_json_strings(item) for item in obj]
+    elif isinstance(obj, str):
+        parsed = _try_parse_json(obj)
+        if isinstance(parsed, (dict, list)):
+            return _deep_parse_json_strings(parsed)
+        return parsed
+    return obj
 
 
 class ExpressionEngine:
@@ -39,7 +80,8 @@ class ExpressionEngine:
     """
 
     def __init__(self, variables: dict[str, Any]) -> None:
-        self._variables = variables
+        # Pre-parse JSON strings in variables to enable nested field access
+        self._variables = _deep_parse_json_strings(variables)
         self._env = self._build_env()
 
     @staticmethod
@@ -63,10 +105,13 @@ class ExpressionEngine:
         Returns:
             The resolved value. If *template* contains only a single expression,
             returns the resolved value directly (not wrapped in a string).
+            If the resolved string contains comparison operators (==, !=, >, <, etc.),
+            evaluates the comparison and returns a boolean.
             Otherwise, returns the string with expressions substituted.
         """
         if not template or not _EXPRESSION_PATTERN.search(template):
-            return template
+            # No {{...}} expressions — check if it's a plain comparison
+            return self._try_eval_comparison(template)
 
         stripped = template.strip()
 
@@ -78,10 +123,91 @@ class ExpressionEngine:
         # General path: substitute all expressions within the string
         try:
             jinja_template = self._env.from_string(template)
-            return jinja_template.render(self._variables)
+            rendered = jinja_template.render(self._variables)
         except Exception:
             logger.warning("expression_render_failed", template=template[:100])
             return template
+
+        # After substitution, check if result contains comparison operators
+        return self._try_eval_comparison(rendered)
+
+    def _try_eval_comparison(self, expr: str) -> Any:
+        """Try to evaluate a string as a comparison expression.
+
+        Supports: ==, !=, >=, <=, >, <
+        Returns the boolean result if it's a comparison, otherwise returns the original string.
+        """
+        if not isinstance(expr, str):
+            return expr
+
+        # Comparison operators in order of precedence (longer operators first)
+        operators = ["==", "!=", ">=", "<=", ">", "<"]
+
+        for op in operators:
+            if op in expr:
+                parts = expr.split(op, 1)
+                if len(parts) == 2:
+                    left = parts[0].strip()
+                    right = parts[1].strip()
+
+                    # Try to parse both sides as Python literals
+                    left_val = self._parse_value(left)
+                    right_val = self._parse_value(right)
+
+                    # Evaluate the comparison
+                    try:
+                        if op == "==":
+                            return left_val == right_val
+                        elif op == "!=":
+                            return left_val != right_val
+                        elif op == ">=":
+                            return left_val >= right_val
+                        elif op == "<=":
+                            return left_val <= right_val
+                        elif op == ">":
+                            return left_val > right_val
+                        elif op == "<":
+                            return left_val < right_val
+                    except TypeError:
+                        # Type mismatch in comparison, return original
+                        pass
+
+                # Only evaluate the first matching operator
+                break
+
+        return expr
+
+    def _parse_value(self, s: str) -> Any:
+        """Parse a string value into its Python type.
+
+        Handles: strings (quoted), numbers, booleans, null/None.
+        """
+        s = s.strip()
+
+        # Quoted string
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            return s[1:-1]
+
+        # Boolean
+        if s.lower() == "true":
+            return True
+        if s.lower() == "false":
+            return False
+
+        # Null/None
+        if s.lower() in ("null", "none"):
+            return None
+
+        # Number
+        try:
+            if "." in s:
+                return float(s)
+            return int(s)
+        except ValueError:
+            pass
+
+        # Return as string (unquoted)
+        return s
 
     def resolve_bool(self, template: str) -> bool:
         """Resolve an expression and coerce the result to bool.

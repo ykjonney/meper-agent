@@ -51,10 +51,10 @@ export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
     { name: 'condition', label: '条件表达式', type: 'string', description: '触发该分支的条件' },
   ],
   human: [
-    { name: 'status', label: '审批状态', type: 'string', description: 'approved / rejected / timeout' },
-    { name: 'title', label: '审批标题', type: 'string', description: '审批请求的标题' },
-    { name: 'description', label: '审批描述', type: 'string', description: '审批请求的详细描述' },
-    { name: 'options', label: '可选选项', type: 'object', description: '审批的可选项目列表' },
+    { name: 'decision', label: '审批决定', type: 'string', description: 'approve / reject' },
+    { name: 'comment', label: '审批意见', type: 'string', description: '审批人填写的意见' },
+    { name: 'approver', label: '审批人', type: 'string', description: '审批人用户 ID' },
+    { name: 'decided_at', label: '审批时间', type: 'string', description: '审批完成时间' },
   ],
   parallel: [
     { name: 'branches', label: '分支列表', type: 'object', description: '所有分支的执行结果' },

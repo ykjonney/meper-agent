@@ -114,7 +114,8 @@ class WorkflowValidator:
         # Modern next_nodes config
         for node in self.nodes:
             node_id = node.get("node_id", "")
-            next_nodes = node.get("config", {}).get("next_nodes", [])
+            config = node.get("config", {})
+            next_nodes = config.get("next_nodes", [])
             for next_node in next_nodes:
                 if isinstance(next_node, dict):
                     tgt = next_node.get("target", "")
@@ -124,6 +125,29 @@ class WorkflowValidator:
                     edge = {"source": node_id, "target": tgt}
                     self._out_edges.setdefault(node_id, []).append(edge)
                     self._in_edges.setdefault(tgt, []).append(edge)
+
+            # Gateway: conditions[*].target and default_branch
+            if node.get("type") == "gateway":
+                for cond in config.get("conditions", []):
+                    tgt = cond.get("target", "") if isinstance(cond, dict) else ""
+                    if tgt:
+                        edge = {"source": node_id, "target": tgt}
+                        self._out_edges.setdefault(node_id, []).append(edge)
+                        self._in_edges.setdefault(tgt, []).append(edge)
+                default_branch = config.get("default_branch", "")
+                if default_branch:
+                    edge = {"source": node_id, "target": default_branch}
+                    self._out_edges.setdefault(node_id, []).append(edge)
+                    self._in_edges.setdefault(default_branch, []).append(edge)
+
+            # Parallel: branches[*].start_node
+            if node.get("type") == "parallel":
+                for branch in config.get("branches", []):
+                    tgt = branch.get("start_node", "") if isinstance(branch, dict) else ""
+                    if tgt:
+                        edge = {"source": node_id, "target": tgt}
+                        self._out_edges.setdefault(node_id, []).append(edge)
+                        self._in_edges.setdefault(tgt, []).append(edge)
 
     def validate(self) -> ValidationResult:
         """Run all validation checks and return the result.
