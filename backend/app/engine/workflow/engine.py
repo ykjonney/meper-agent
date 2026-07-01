@@ -769,11 +769,26 @@ class WorkflowEngine:
 
 
 def _summarise_output(output: dict[str, Any], max_len: int = 200) -> str:
-    """Create a short summary of a node's output for timeline logging."""
-    text = str(output)
-    if len(text) > max_len:
-        return text[:max_len] + "..."
-    return text
+    """Create a short summary of a node's output for timeline logging.
+
+    优先提取常见文本字段（agent 的 response / tool 的 result 等），避免
+    str(dict) 产生带单引号的 Python repr（前端既无法解析也不美观）。
+    """
+    for key in ("response", "answer", "result", "output", "content", "message", "text"):
+        v = output.get(key)
+        if isinstance(v, str) and v.strip():
+            return v[:max_len] + ("..." if len(v) > max_len else "")
+    # 次选：dict 里第一个有意义的字符串值
+    for v in output.values():
+        if isinstance(v, str) and v.strip():
+            return v[:max_len] + ("..." if len(v) > max_len else "")
+    # 回退：JSON 字符串（双引号，前端可结构化解析），而非 str() 的单引号 repr
+    try:
+        import json
+        text = json.dumps(output, ensure_ascii=False, default=str)
+    except Exception:
+        text = str(output)
+    return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
 def _strip_file_content(obj: Any) -> Any:

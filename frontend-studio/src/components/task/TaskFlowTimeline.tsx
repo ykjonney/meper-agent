@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { TaskDetail, TimelineEvent } from '../../services/tasks-api'
 import { getNodeExecState, type NodeExecState, type NodeStageInfo } from './task-flow-utils'
+import { DataView } from './DataView'
 
 /* ─── 节点类型 → 图标 / 中文标签（与 WorkflowDesigner 的 NODE_TYPE_CONFIGS 对齐） ─── */
 
@@ -115,7 +116,7 @@ export interface TaskFlowTimelineProps {
 
 export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps) {
   const stages = useMemo<NodeStageInfo[]>(() => buildStages(task), [task])
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
   // 生命周期里程碑：创建 / 终态（完成·失败·取消）
   const createdEvt = task.timeline.find((e) => e.event_type === 'created' || e.event_type === 'started')
@@ -143,7 +144,7 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
       {stages.map((stage) => {
         const state = stage.state
         const meta = STATE_META[state]
-        const isExpanded = expandedId === stage.nodeId
+        const isExpanded = expandedIds.has(stage.nodeId)
         const nodeLabel = stage.label || (NODE_TYPE_LABEL[stage.nodeType] ?? stage.nodeType)
         const output = task.variables?.[stage.nodeId]
         return (
@@ -158,7 +159,14 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
 
             {/* 阶段卡片 */}
             <div
-              onClick={() => setExpandedId(isExpanded ? null : stage.nodeId)}
+              onClick={() =>
+                setExpandedIds((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(stage.nodeId)) next.delete(stage.nodeId)
+                  else next.add(stage.nodeId)
+                  return next
+                })
+              }
               className={`rounded-lg border px-3 py-2 transition-colors cursor-pointer ${
                 state === 'executing'
                   ? 'border-[#3B82F6]/50 bg-[#3B82F6]/5'
@@ -216,20 +224,15 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
                               )}
                             </div>
                             {hasData && (
-                              <details className="mt-0.5 group">
-                                <summary className={`cursor-pointer hover:text-[#1E5EFF] list-none flex items-center gap-1 ${mutedText}`}
-                                  style={{ fontSize: 10 }}>
-                                  <ChevronRight className="w-2.5 h-2.5 group-open:hidden" />
-                                  <ChevronRight className="w-2.5 h-2.5 hidden group-open:inline rotate-90" />
+                              <details className="mt-1 group rounded-lg border border-[#27272a] bg-[#09090b] overflow-hidden">
+                                <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium ${mutedText} hover:text-[#1E5EFF] hover:bg-[#18181b]/40 transition-colors [&::-webkit-details-marker]:hidden`}>
+                                  <ChevronRight className="w-3 h-3 shrink-0 group-open:hidden" />
+                                  <ChevronRight className="w-3 h-3 shrink-0 hidden group-open:inline rotate-90" />
                                   详细数据
                                 </summary>
-                                <pre className={`rounded p-2 mt-1 overflow-x-auto max-h-32 font-mono ${
-                                  theme === 'dark'
-                                    ? 'bg-[#09090b] text-[#a1a1aa] border border-[#27272a]'
-                                    : 'bg-slate-50 text-slate-600 border border-slate-200'
-                                }`} style={{ fontSize: 10 }}>
-                                  {JSON.stringify(evt.data, null, 2)}
-                                </pre>
+                                <div className="p-2.5 border-t border-[#27272a]">
+                                  <DataView value={evt.data} context="event_data" showRaw={false} />
+                                </div>
                               </details>
                             )}
                           </div>
@@ -244,13 +247,9 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
                     {output === undefined ? (
                       <div className={`text-[10px] italic ${mutedText}`}>无</div>
                     ) : (
-                      <pre className={`rounded p-2 overflow-x-auto max-h-40 font-mono ${
-                        theme === 'dark'
-                          ? 'bg-[#09090b] text-[#d4d4d8] border border-[#27272a]'
-                          : 'bg-slate-50 text-slate-700 border border-slate-200'
-                      }`} style={{ fontSize: 10 }}>
-                        {typeof output === 'string' ? output : JSON.stringify(output, null, 2)}
-                      </pre>
+                      <div className="rounded-lg border border-[#27272a] bg-[#09090b] p-2.5">
+                        <DataView value={output} context="node_output" nodeType={stage.nodeType} showRaw={false} />
+                      </div>
                     )}
                   </div>
                 </div>
