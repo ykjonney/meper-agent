@@ -614,6 +614,21 @@ class TaskService:
                 details={"task_id": task_id},
             )
 
+        # Sync checkpoint.variable_snapshot so resume_from_checkpoint
+        # picks up the latest variable values (e.g. human decision data).
+        # This avoids the bug where resume loads the stale snapshot saved
+        # when the human node first paused.
+        updated_vars = updated.get("variables") or {}
+        checkpoint_sync: dict[str, Any] = {}
+        for _key in variables:
+            if _key in updated_vars:
+                checkpoint_sync[f"checkpoint.variable_snapshot.{_key}"] = updated_vars[_key]
+        if checkpoint_sync:
+            await TaskService._collection().update_one(
+                {"_id": task_id},
+                {"$set": checkpoint_sync},
+            )
+
         return updated
 
     # ------------------------------------------------------------------

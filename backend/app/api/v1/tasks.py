@@ -243,9 +243,18 @@ async def intervene_task(
                 "approver": current_user.id,
                 "decided_at": utc_now().isoformat(),
             }
+            # Merge decision fields into the human node's own variable key
+            # so that ``{{node_id.comment}}`` resolves correctly after resume.
+            current_node_vars = dict(
+                (doc.get("variables") or {}).get(human_node_id) or {}
+            )
+            current_node_vars.update(decision_data)
             await TaskService.update_variables(
                 task_id=task_id,
-                variables={f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data},
+                variables={
+                    f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
+                    human_node_id: current_node_vars,
+                },
                 version=doc.get("version", 1),
                 reason=body.comment,
                 triggered_by=current_user.id,
@@ -290,9 +299,18 @@ async def intervene_task(
                 "approver": current_user.id,
                 "decided_at": utc_now().isoformat(),
             }
+            # Merge decision fields into the human node's own variable key
+            # so that ``{{node_id.comment}}`` resolves correctly after resume.
+            current_node_vars = dict(
+                (doc.get("variables") or {}).get(human_node_id) or {}
+            )
+            current_node_vars.update(decision_data)
             await TaskService.update_variables(
                 task_id=task_id,
-                variables={f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data},
+                variables={
+                    f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
+                    human_node_id: current_node_vars,
+                },
                 version=doc.get("version", 1),
                 reason=body.comment,
                 triggered_by=current_user.id,
