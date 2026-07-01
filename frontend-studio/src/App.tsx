@@ -171,6 +171,27 @@ export default function App() {
     loadUnreadCount();
   }, [isAuthenticated, loadUnreadCount]);
 
+  // Keep the WS connection in sync with access-token refreshes.
+  //
+  // Background: axios refreshes the access token lazily (only when an HTTP
+  // request hits 401). The WS client reconnecting blindly after a 4401 close
+  // would re-use the still-stale token in the store and loop connect→reject
+  // until some unrelated HTTP request happened to refresh it. By subscribing
+  // to the store's accessToken here, the moment a refresh lands we hand the
+  // fresh token straight to the WS client and it reconnects immediately.
+  useEffect(() => {
+    let lastToken = useAuthStore.getState().accessToken;
+    return useAuthStore.subscribe((state) => {
+      const nextToken = state.accessToken;
+      if (nextToken && nextToken !== lastToken) {
+        lastToken = nextToken;
+        // Only act when authenticated — disconnect/logout clears the token and
+        // the isAuthenticated effect above handles teardown.
+        wsClient.reconnectWithFreshToken(nextToken);
+      }
+    });
+  }, []);
+
   const permissions = authUser?.permissions ?? [];
   const has = (perm?: string) => !perm || permissions.includes(perm);
 
