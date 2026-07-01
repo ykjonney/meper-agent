@@ -17,14 +17,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: '0.0.0.0',
-      // HMR settings for Docker
-      hmr: {
-        host: 'localhost',
-      },
+      // Let HMR connect to whatever host:port the page was loaded from so it
+      // works via localhost AND IP/domain access (don't hardcode 'localhost').
       proxy: {
         '/api/': {
           target: apiTarget,
           changeOrigin: true,
+          // The WebSocket endpoint lives at /api/v1/ws, so /api must upgrade.
+          ws: true,
         },
         '/ws/': {
           target: apiTarget.replace('http', 'ws'),
