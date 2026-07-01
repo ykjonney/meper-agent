@@ -12,7 +12,7 @@
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
-import { Select } from '../../../components/ui'
+import { Select, Tag } from '../../../components/ui'
 
 interface Props {
   config: Record<string, unknown>
@@ -57,19 +57,19 @@ export default function HumanNodeConfig({ config, onChange }: Props) {
         <label className="block text-xs text-slate-400 mb-1.5">审批行为</label>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">通过</span>
+            <Tag color="success">通过</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人点击后，任务继续执行，decision=<code className="font-mono text-[#a78bfa]">approve</code>
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-400">驳回</span>
+            <Tag color="error">驳回</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人点击后，任务标记为 FAILED，decision=<code className="font-mono text-[#a78bfa]">reject</code>
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/20 text-purple-400">意见</span>
+            <Tag color="purple">意见</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人在通过/驳回时填写，可空，comment 写入 variables
             </span>
