@@ -17,6 +17,8 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
+  useCallback,
   forwardRef,
   type ReactNode,
   type CSSProperties,
@@ -26,6 +28,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 
 /* ─── Input ─── */
 
@@ -551,20 +554,77 @@ interface TooltipProps {
 
 export function Tooltip({ title, children }: TooltipProps) {
   const [show, setShow] = useState(false)
+  const triggerRef = useRef<HTMLSpanElement>(null)
+  const tipRef = useRef<HTMLDivElement>(null)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  // 与 Popover 同理：portal 到主题根，脱离父级 overflow 裁剪并回到 .theme-light 作用域
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
+  }, [])
+
+  const measure = useCallback(() => {
+    const trig = triggerRef.current
+    if (!trig) return
+    const r = trig.getBoundingClientRect()
+    const w = tipRef.current?.offsetWidth ?? 160
+    const h = tipRef.current?.offsetHeight ?? 0
+    const GAP = 6
+    const M = 8
+    // 默认在触发器上方居中
+    let top = r.top - h - GAP
+    let left = r.left + r.width / 2 - w / 2
+    // 上方放不下且下方够 → 翻到下方
+    if (top < M && r.bottom + h + GAP <= window.innerHeight - M) {
+      top = r.bottom + GAP
+    }
+    if (top + h > window.innerHeight - M) top = Math.max(M, window.innerHeight - h - M)
+    if (top < M) top = M
+    left = Math.max(M, Math.min(left, window.innerWidth - w - M))
+    setCoords({ top, left })
+  }, [])
+
+  useEffect(() => {
+    if (!show) return
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [show, measure])
+
+  useLayoutEffect(() => {
+    if (!show) return
+    measure()
+  }, [show, measure, title])
+
   return (
     <span
+      ref={triggerRef}
       className="relative inline-flex"
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
     >
       {children}
-      {show && title && (
-        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-40 px-2 py-1
-          rounded bg-[#0F172A] text-white text-[11px] whitespace-pre-wrap max-w-xs pointer-events-none
-          shadow-lg leading-relaxed">
-          {title}
-        </span>
-      )}
+      {show &&
+        title &&
+        createPortal(
+          <div
+            ref={tipRef}
+            style={
+              coords
+                ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 210 }
+                : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 210 }
+            }
+            className="px-2.5 py-1.5 rounded bg-[#18181b] border border-[#27272a] text-[#fafafa]
+              text-[11px] whitespace-pre-wrap max-w-xs shadow-lg leading-relaxed pointer-events-none"
+          >
+            {title}
+          </div>,
+          portalTarget ?? document.body,
+        )}
     </span>
   )
 }
@@ -583,44 +643,134 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
   const [internalOpen, setInternalOpen] = useState(false)
   const isControlled = open !== undefined
   const isOpen = isControlled ? open : internalOpen
-  const ref = useRef<HTMLDivElement>(null)
 
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | null>(null)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  // portal 到主题根容器（App root 上的 .theme-light/.theme-dark），让浮层回到主题作用域：
+  // 否则脱离 .theme-light 后，index.css 的亮色覆写对浮层失效（亮色下仍显示暗色）。
+  // fixed 定位相对视口，不会被该容器的 overflow-hidden 裁剪。
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
   useEffect(() => {
-    if (!isOpen) return
-    if (trigger !== 'click') return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        if (isControlled) onOpenChange?.(false)
-        else setInternalOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [isOpen, trigger, isControlled, onOpenChange])
+    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
+  }, [])
 
   const toggle = (next: boolean) => {
     if (isControlled) onOpenChange?.(next)
     else setInternalOpen(next)
   }
 
-  const eventProps =
-    trigger === 'hover'
-      ? { onMouseEnter: () => toggle(true), onMouseLeave: () => toggle(false) }
-      : { onClick: () => toggle(!isOpen) }
+  const clearCloseTimer = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+  const scheduleClose = () => {
+    clearCloseTimer()
+    closeTimer.current = window.setTimeout(() => toggle(false), 120)
+  }
+
+  // 浮层 fixed 定位渲染到 body，脱离配置面板等祖先的 overflow 裁剪与层叠上下文
+  const measure = useCallback(() => {
+    const trig = triggerRef.current
+    if (!trig) return
+    const r = trig.getBoundingClientRect()
+    const popW = popoverRef.current?.offsetWidth ?? 240
+    const popH = popoverRef.current?.offsetHeight ?? 0
+    const GAP = 4
+    const M = 8
+    // 默认右下展开：浮层右边对齐触发器右边，顶部贴触发器下方
+    let top = r.bottom + GAP
+    let left = r.right - popW
+    // 下方放不下且上方够 → 翻到上方
+    if (top + popH > window.innerHeight - M && r.top - popH - GAP >= M) {
+      top = r.top - popH - GAP
+    }
+    // 垂直夹在视口内
+    if (top + popH > window.innerHeight - M) top = Math.max(M, window.innerHeight - popH - M)
+    if (top < M) top = M
+    // 水平夹在视口内
+    left = Math.max(M, Math.min(left, window.innerWidth - popW - M))
+    setCoords({ top, left })
+  }, [])
+
+  // 打开时：初始定位 + 监听滚动(capture)/resize 实时跟随
+  useEffect(() => {
+    if (!isOpen) return
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [isOpen, measure])
+
+  // 浮层挂载/内容变化后拿到真实尺寸再做边界翻转（paint 前同步，避免闪烁）
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    measure()
+  }, [isOpen, measure, content, title])
+
+  useEffect(() => () => clearCloseTimer(), [])
+
+  // click 模式：点外部关闭（portal 浮层纳入判断，避免点浮层被误判为 outside）
+  useEffect(() => {
+    if (!isOpen || trigger !== 'click') return
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (
+        (triggerRef.current && triggerRef.current.contains(t)) ||
+        (popoverRef.current && popoverRef.current.contains(t))
+      ) {
+        return
+      }
+      if (isControlled) onOpenChange?.(false)
+      else setInternalOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isOpen, trigger, isControlled, onOpenChange])
+
+  const isHover = trigger === 'hover'
+  const triggerProps = isHover
+    ? {
+        onMouseEnter: () => {
+          clearCloseTimer()
+          toggle(true)
+        },
+        onMouseLeave: scheduleClose,
+      }
+    : { onClick: () => toggle(!isOpen) }
 
   return (
-    <div ref={ref} className="relative inline-flex" {...eventProps}>
+    <div ref={triggerRef} className="relative inline-flex" {...triggerProps}>
       {children}
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-1 z-40 min-w-[220px] bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]">
-          {title && (
-            <div className="px-3 py-2 border-b border-[#27272a] text-xs font-medium text-[#fafafa]">
-              {title}
-            </div>
-          )}
-          <div className="p-2.5">{content}</div>
-        </div>
-      )}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={
+              coords
+                ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 200 }
+                : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 200 }
+            }
+            className="min-w-[220px] max-w-[360px] bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]"
+            {...(isHover
+              ? { onMouseEnter: clearCloseTimer, onMouseLeave: scheduleClose }
+              : {})}
+          >
+            {title && (
+              <div className="px-3 py-2 border-b border-[#27272a] text-xs font-medium text-[#fafafa]">
+                {title}
+              </div>
+            )}
+            <div className="p-2.5">{content}</div>
+          </div>,
+          portalTarget ?? document.body,
+        )}
     </div>
   )
 }

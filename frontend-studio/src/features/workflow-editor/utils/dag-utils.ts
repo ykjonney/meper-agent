@@ -2,6 +2,7 @@
  * DAG 工具函数（从 nodes 推导拓扑关系，无需独立 edges）。
  */
 import type { WorkflowNode, NextNodeRef } from '../../../services/workflows-api'
+import { NODE_TYPE_CONFIGS } from './node-type-configs'
 
 /**
  * 从所有节点构建"反向邻接表"——谁连向我。
@@ -114,5 +115,8 @@ export function getNodeOptions(
 ): Array<{ value: string; label: string }> {
   return nodes
     .filter((n) => n.node_id !== excludeId)
-    .map((n) => ({ value: n.node_id, label: n.label || n.node_id }))
+    .map((n) => ({
+      value: n.node_id,
+      label: n.label || NODE_TYPE_CONFIGS[n.type]?.label || n.node_id,
+    }))
 }
