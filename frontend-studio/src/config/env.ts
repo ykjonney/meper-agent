@@ -16,9 +16,23 @@ function required(current: string | undefined, fallback: string): string {
   return current
 }
 
+/**
+ * Derive a DIRECT WebSocket URL to the backend (port 8000).
+ *
+ * Connects directly to the backend rather than through the Vite proxy, which
+ * imposes a ~60s idle disconnect on WebSocket connections. WS has no CORS
+ * restriction, so a direct connection works. Uses the page's hostname (not
+ * localhost) so IP/domain access reaches the right machine.
+ */
+function defaultWsBaseUrl(): string {
+  if (typeof window === 'undefined') return 'ws://localhost:8000'
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${window.location.hostname}:8000`
+}
+
 export const ENV = {
   // Empty in dev (service paths are already /api/v1/...; proxy handles them).
   // Absolute origin only for prod builds (e.g. https://api.example.com).
   API_BASE_URL: required(import.meta.env.VITE_API_BASE_URL, ''),
-  WS_BASE_URL: required(import.meta.env.VITE_WS_BASE_URL, 'ws://localhost:8000'),
+  WS_BASE_URL: required(import.meta.env.VITE_WS_BASE_URL, defaultWsBaseUrl()),
 } as const

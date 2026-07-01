@@ -11,8 +11,12 @@
  * EMPTY in dev — setting it to `/api/v1` would double the prefix and 404 every
  * request. Only set VITE_API_BASE_URL to an absolute origin for prod builds.
  *
- * WS_BASE_URL is derived from the current page location so it works regardless
- * of whether the app is reached via localhost, an IP, or a domain (HTTP or HTTPS).
+ * WS_BASE_URL connects DIRECTLY to the backend (port 8000), NOT through the
+ * Vite proxy. WebSocket connections routed through Vite's http-proxy get cut
+ * by the proxy's idle timeout (~60s), causing a connect→disconnect loop. WS
+ * has no CORS restriction, so a direct connection is both possible and more
+ * reliable. The host is taken from the page location (not hardcoded localhost)
+ * so it works via localhost, an IP, or a domain.
  */
 function required(current: string | undefined, fallback: string): string {
   if (current === undefined || current === '') return fallback
@@ -20,25 +24,25 @@ function required(current: string | undefined, fallback: string): string {
 }
 
 /**
- * Derive a WebSocket base URL from the current page location.
+ * Derive a DIRECT WebSocket URL to the backend (port 8000).
  *
- * - https://host:port  → wss://host:port
- * - http://host:port   → ws://host:port
+ * - https://host  → wss://host:8000
+ * - http://host   → ws://host:8000
  *
- * Keeps the same host:port the page was loaded from so the request reaches the
- * Vite proxy (dev) or the reverse proxy (prod) instead of a hardcoded
- * `localhost:8000` that only works on the developer's machine.
+ * Uses the page's hostname (not localhost) so IP/domain access reaches the
+ * backend on the same machine, and port 8000 (not the page port) to bypass
+ * the Vite proxy entirely — avoiding its ~60s WebSocket idle disconnect.
  */
 function defaultWsBaseUrl(): string {
   if (typeof window === 'undefined') return 'ws://localhost:8000'
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}`
+  return `${proto}//${window.location.hostname}:8000`
 }
 
 export const ENV = {
   // Empty in dev (service paths are already /api/v1/...; proxy handles them).
   // Absolute origin only for prod builds (e.g. https://api.example.com).
   API_BASE_URL: required(import.meta.env.VITE_API_BASE_URL, ''),
-  // Derived from page location so IP/domain access works without config.
+  // Direct connection to backend:8000, bypassing the Vite proxy.
   WS_BASE_URL: required(import.meta.env.VITE_WS_BASE_URL, defaultWsBaseUrl()),
 } as const
