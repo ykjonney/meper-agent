@@ -85,6 +85,13 @@ function parseVariables(text: string): ParsedVariable[] {
   return result
 }
 
+/** 把 node_id（如 node_xxx_a3b2）缩成短码，便于在弹窗里区分同类节点 */
+function shortNodeId(nodeId: string): string {
+  const parts = nodeId.split('_')
+  const tail = parts.length > 1 ? parts[parts.length - 1] : nodeId
+  return tail.slice(-4)
+}
+
 /* ─── 字段类型转换 ─── */
 
 /**
@@ -315,8 +322,11 @@ export default function VariableSelector({
                 <span className="text-xs font-medium text-[#fafafa] truncate">
                   {group.nodeLabel}
                 </span>
-                <span className="text-[10px] text-[#71717a] font-mono ml-auto shrink-0">
-                  {group.nodeId}
+                <span
+                  className="text-[10px] text-[#71717a] font-mono ml-auto shrink-0 cursor-help"
+                  title={`节点 ID：${group.nodeId}`}
+                >
+                  #{shortNodeId(group.nodeId)}
                 </span>
               </div>
               {/* 字段 Tag 列表 */}
