@@ -120,12 +120,21 @@ export const toolsApi = {
   },
 
   /**
-   * Upload Skill files (single or directory).
+   * Upload Skill files (single files or a whole directory).
    * POST /api/v1/tools/upload
+   *
+   * The backend groups files into directory-mode tools by the `/` in each
+   * part's filename. For folder uploads (input[webkitdirectory]) each File
+   * carries `webkitRelativePath` like "my-skill/SKILL.md" — pass it as the
+   * third append() arg so the filename keeps the path. Loose files have an
+   * empty webkitRelativePath and fall back to `name` (single-file mode).
    */
   async upload(files: File[]): Promise<ToolUploadResult> {
     const formData = new FormData()
-    files.forEach((f) => formData.append('files', f))
+    files.forEach((f) => {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+      formData.append('files', f, rel)
+    })
     const res = await apiClient.post<ToolUploadResult>('/api/v1/tools/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

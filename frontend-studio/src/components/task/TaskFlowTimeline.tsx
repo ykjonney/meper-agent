@@ -111,6 +111,23 @@ function nodeEventLabel(evt: TimelineEvent): string {
     : meta.label
 }
 
+/**
+ * 已被上层消费、展开后纯冗余的事件 data 字段：
+ * - node_id / node_type / node_label：阶段卡片的标题、图标、状态徽标已完整展示
+ * - output_summary：完整输出已在「节点输出」分区渲染（仅当该节点取不到完整输出时，
+ *   output_summary 才作为唯一线索保留，不计入冗余）
+ */
+const REDUNDANT_EVENT_DATA_KEYS = new Set(['node_id', 'node_type', 'node_label'])
+
+/** 事件 data 是否还有「有信息量」的字段值得展开「详细数据」。 */
+function eventHasMeaningfulData(evt: TimelineEvent, nodeOutputExists: boolean): boolean {
+  const keys = Object.keys(evt.data ?? {})
+  if (keys.length === 0) return false
+  return keys.some((k) =>
+    k === 'output_summary' ? !nodeOutputExists : !REDUNDANT_EVENT_DATA_KEYS.has(k),
+  )
+}
+
 export interface TaskFlowTimelineProps {
   task: TaskDetail
   theme?: 'light' | 'dark'
@@ -238,7 +255,10 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                       {stage.events.map((evt, idx) => {
                         const emeta = EVENT_META[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
                         const label = nodeEventLabel(evt)
-                        const hasData = Object.keys(evt.data ?? {}).length > 0
+                        // 薄字段过滤：node_start/node_complete 的 node_id/node_type 已在阶段卡片
+                        // 消费、output_summary 已在「节点输出」分区渲染，仅剩这些的事件不再展开
+                        // 详细数据（节点无完整输出时 output_summary 仍保留作唯一线索）。
+                        const hasData = eventHasMeaningfulData(evt, output !== undefined)
                         return (
                           <div key={idx} className="text-[10px]">
                             <div className="flex items-baseline gap-1.5 flex-wrap">

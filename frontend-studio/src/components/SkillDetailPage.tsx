@@ -100,7 +100,10 @@ function DirectoryEditor({ toolId }: { toolId: string }) {
       {/* Editor */}
       <div className="flex-1 min-w-0">
         {selectedPath ? (
-          <FileEditor toolId={toolId} filePath={selectedPath} />
+          // key=filePath forces a fresh instance per file so the editor's
+          // local/loaded state resets on switch — otherwise the previous
+          // file's content sticks and is wrongly flagged as an edit.
+          <FileEditor key={selectedPath} toolId={toolId} filePath={selectedPath} />
         ) : (
           <div className="flex items-center justify-center h-full text-[#52525b] text-sm border border-[#27272a] rounded-xl bg-[#18181b]">
             选择左侧文件查看内容
