@@ -63,7 +63,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, permission: 'execution:read:own' },
   { id: 'agents', label: '智能体', icon: Bot, permission: 'agent:read' },
   { id: 'models', label: '模型配置', icon: Server, permission: 'model:read' },
-  { id: 'workflows', label: '标准工艺路线', icon: Layers, permission: 'workflow:read' },
+  { id: 'workflows', label: 'AI 工作路线', icon: Layers, permission: 'workflow:read' },
   { id: 'tools', label: '内置工具', icon: Wrench, permission: 'tool:read' },
   { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
   { id: 'skills', label: '技能商店', icon: Sparkles, permission: 'tool:read' },
@@ -246,6 +246,11 @@ export default function App() {
       setActiveTab(visibleNav[0]?.id ?? 'chat');
     }
   }, [visibleNav, activeTab]);
+
+  // 进入工作流编辑器时自动收缩主菜单，给三栏编辑区让出空间（离开不自动恢复）
+  useEffect(() => {
+    if (openWorkflow) setCollapsed(true);
+  }, [openWorkflow]);
 
   // Auth gate: AuthInitializer (mounted in main.tsx) drives the refresh-check
   // window and the initializing spinner; here we only branch on the resolved
