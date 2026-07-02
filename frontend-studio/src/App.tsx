@@ -135,7 +135,8 @@ export default function App() {
 
   // 任务协作看板 badge：聚合“活跃”状态（待执行 + 执行中 + 等待人工）的任务数。
   // 复用与 TaskBoard 相同的 taskKeys.list({status}) 缓存键，列表打开后两侧共享缓存、
-  // 数字始终一致；后台轮询保证菜单数字随任务流转自动刷新。
+  // 数字始终一致；刷新由 WebSocket 的 task_status 事件 invalidate 驱动（见
+  // use-task-realtime），不做定时轮询。
   const BOARD_BADGE_STATUSES: TaskStatusValue[] = ['pending', 'running', 'waiting_human'];
   const boardBadgeQueries = useQueries({
     queries: BOARD_BADGE_STATUSES.map((status) => ({
@@ -145,7 +146,6 @@ export default function App() {
       // 用列表 total 作为该状态计数（任务量不大时 page_size=50 足够准确）。
       select: (res: { total: number }) => res.total,
       staleTime: 30_000,
-      refetchInterval: 30_000,
     })),
   });
   const activeTaskCount = useMemo(

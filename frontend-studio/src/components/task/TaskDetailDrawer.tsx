@@ -10,7 +10,8 @@
  * - 产物（completed/running 均展示 Agent 节点产出文件，复用对话预览能力）
  * - 基本信息 + 输入参数
  *
- * 详情查询与卡片共用 taskKeys.detail(id) 缓存，running/pending/waiting_human 时 5s 轮询。
+ * 详情查询与卡片共用 taskKeys.detail(id) 缓存；刷新由 WebSocket 的 task_status 事件
+ * invalidate 驱动（见 use-task-realtime），不做定时轮询。
  * 干预（cancel/retry/approve/reject/resume）交由父级 mutation 统一处理。
  */
 import { useState, useMemo } from 'react'
@@ -73,13 +74,7 @@ export function TaskDetailDrawer({
     queryKey: taskKeys.detail(taskId ?? ''),
     queryFn: () => tasksApi.get(taskId!),
     enabled: !!taskId && open,
-    refetchInterval: (query) => {
-      const task = query.state.data
-      if (task?.status === 'running' || task?.status === 'pending' || task?.status === 'waiting_human') {
-        return 5_000
-      }
-      return false
-    },
+    // 刷新由 WebSocket task_status 事件 invalidate 驱动（use-task-realtime），不轮询。
   })
 
   // 预加载 Agent 列表，建立 agent_id → 名称映射（供 DataView 把 agent_id 渲染成名称）

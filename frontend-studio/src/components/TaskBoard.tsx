@@ -5,8 +5,9 @@
  *
  * 设计要点：
  * - 6 列状态分桶：pending / running / waiting_human / completed / failed / cancelled
- * - 列表查询：useQueries 并发发起 6 次 list（按 status，page=1, page_size=50，5s 轮询）
- * - 节点进度：仅对 running / waiting_human 两列拉详情（5s 轮询，上限 20 个）
+ * - 列表查询：useQueries 并发发起 6 次 list（按 status，page=1, page_size=50）
+ *   刷新由 WebSocket 的 task_status 事件 invalidate 驱动（见 use-task-realtime），不做定时轮询
+ * - 节点进度：仅对 running / waiting_human 两列拉详情（staleTime 3s，上限 20 个）
  * - 详情查询与详情 Drawer 共用 taskKeys.detail(id) 缓存
  * - 搜索改为纯前端过滤（task.id / workflow_id includes）
  * - workflowNameMap：始终拉一次 workflow 列表，把 workflow_id 解析成可读名称
@@ -47,12 +48,11 @@ export function TaskBoard({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
   /* ─── Detail drawer state ─── */
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
 
-  /* ─── 6 列并发列表查询（按 status 分桶，5s 轮询） ─── */
+  /* ─── 6 列并发列表查询（按 status 分桶，刷新由 WS task_status 事件驱动） ─── */
   const boardQueries = useQueries({
     queries: BOARD_STATUSES.map((status) => ({
       queryKey: taskKeys.list({ status, page: 1, page_size: 50 }),
       queryFn: () => tasksApi.list({ status, page: 1, page_size: 50 }),
-      refetchInterval: 5_000,
     })),
   })
 
@@ -69,7 +69,7 @@ export function TaskBoard({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
 
   const boardLoading = boardQueries.some((q) => q.isLoading)
 
-  /* ─── 收集 active 任务，批量拉详情（5s 轮询，上限 20 个） ─── */
+  /* ─── 收集 active 任务，批量拉详情（staleTime 3s，上限 20 个） ─── */
   const MAX_PROGRESS_TASKS = 20
   const ACTIVE_STATUSES: TaskStatusValue[] = ['running', 'waiting_human']
   const activeTasksForDetail = useMemo(() => {
@@ -88,7 +88,6 @@ export function TaskBoard({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
     queries: activeTasksForDetail.map((task) => ({
       queryKey: taskKeys.detail(task.id),
       queryFn: () => tasksApi.get(task.id),
-      refetchInterval: 5_000,
       staleTime: 3_000,
     })),
   })
