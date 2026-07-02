@@ -8,8 +8,8 @@ import pytest
 from app.models.task import TaskStatus, utc_now
 from app.services.task_recovery import (
     _execute_timeout_action,
-    recover_waiting_human_tasks,
     recover_orphan_running_tasks,
+    recover_waiting_human_tasks,
 )
 
 
