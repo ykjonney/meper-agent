@@ -31,7 +31,9 @@ import type { WorkflowNode } from '../services/types'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
 import WorkflowCanvas from '../features/workflow-editor/WorkflowCanvas'
 import WorkflowNodeConfigPanel from '../features/workflow-editor/WorkflowNodeConfigPanel'
+import ExecuteInputDialog from '../features/workflow-editor/ExecuteInputDialog'
 import { validateWorkflow } from '../features/workflow-editor/utils/workflow-validator'
+import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
 import { Button, Select, Tag, Input } from './ui'
 
 /* ─── helpers ─── */
@@ -189,6 +191,10 @@ export function WorkflowDesigner({
   const [trackingTask, setTrackingTask] = useState<TaskDetail | null>(null)
   const [traceOpen, setTraceOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 执行参数输入弹窗（开始节点声明了 output_variables 时先收集输入）
+  const [execInputOpen, setExecInputOpen] = useState(false)
+  const [execInputVariables, setExecInputVariables] = useState<VariableDefinition[]>([])
 
   /* ─── 工作流列表 ─── */
   const { data: listData, isLoading: listLoading } = useQuery({
@@ -366,6 +372,27 @@ export function WorkflowDesigner({
     [stopPolling],
   )
 
+  /** 真正发起执行：创建任务 + 轮询 + 打开追踪弹窗 */
+  const runWorkflow = useCallback(
+    async (input: Record<string, unknown>) => {
+      if (!selectedWorkflowId) return
+      setExecuting(true)
+      setTraceOpen(true)
+      try {
+        const task = await tasksApi.create({
+          workflow_id: selectedWorkflowId,
+          input,
+        })
+        setTrackingTask(task)
+        pollTask(task.id)
+      } catch (err) {
+        setExecuting(false)
+        setExecError(err instanceof Error ? err.message : '创建执行任务失败')
+      }
+    },
+    [selectedWorkflowId, pollTask],
+  )
+
   const handleExecute = useCallback(async () => {
     if (!selectedWorkflowId || !workflowDetail) return
     if (workflowDetail.status !== 'published') {
@@ -373,20 +400,27 @@ export function WorkflowDesigner({
       return
     }
     setExecError(null)
-    setExecuting(true)
-    setTraceOpen(true)
-    try {
-      const task = await tasksApi.create({
-        workflow_id: selectedWorkflowId,
-        input: {},
-      })
-      setTrackingTask(task)
-      pollTask(task.id)
-    } catch (err) {
-      setExecuting(false)
-      setExecError(err instanceof Error ? err.message : '创建执行任务失败')
+
+    // 开始节点是否声明了输入变量 —— 有则先弹窗收集，无则直接执行
+    const startNode = nodes.find((n) => n.type === 'start')
+    const outputVars = (startNode?.config?.output_variables as VariableDefinition[] | undefined) ?? []
+    const hasInput = Array.isArray(outputVars) && outputVars.length > 0
+    if (hasInput) {
+      setExecInputVariables(outputVars)
+      setExecInputOpen(true)
+      return
     }
-  }, [selectedWorkflowId, workflowDetail, pollTask])
+    runWorkflow({})
+  }, [selectedWorkflowId, workflowDetail, nodes, runWorkflow])
+
+  /** 执行参数弹窗提交 */
+  const handleExecInputSubmit = useCallback(
+    (values: Record<string, unknown>) => {
+      setExecInputOpen(false)
+      runWorkflow(values)
+    },
+    [runWorkflow],
+  )
 
   const closeTrace = useCallback(() => {
     setTraceOpen(false)
@@ -572,6 +606,14 @@ export function WorkflowDesigner({
       {traceOpen && (
         <TaskTraceModal task={trackingTask} onClose={closeTrace} />
       )}
+
+      {/* 执行参数输入弹窗 */}
+      <ExecuteInputDialog
+        open={execInputOpen}
+        variables={execInputVariables}
+        onCancel={() => setExecInputOpen(false)}
+        onSubmit={handleExecInputSubmit}
+      />
     </div>
   )
 }

@@ -18,6 +18,8 @@ import {
   ChevronRight, Clock, CheckCircle2, XCircle, Loader2, CircleDot, Flag,
 } from 'lucide-react'
 import type { TaskDetail, TimelineEvent } from '../../services/tasks-api'
+import { useQuery } from '@tanstack/react-query'
+import { workflowsApi, workflowKeys } from '../../services/workflows-api'
 import { getNodeExecState, type NodeExecState, type NodeStageInfo } from './task-flow-utils'
 import { DataView } from './DataView'
 
@@ -112,11 +114,34 @@ function nodeEventLabel(evt: TimelineEvent): string {
 export interface TaskFlowTimelineProps {
   task: TaskDetail
   theme?: 'light' | 'dark'
+  /** 把 task.workflow_id（可能是 registry id wfr_...）解析为可拉 /workflows/{id} 的模板 id（wf_...），与 TaskFlowGraph 同源 */
+  resolveTemplateId?: (maybeRegistryId: string) => string
 }
 
-export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps) {
+export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: TaskFlowTimelineProps) {
   const stages = useMemo<NodeStageInfo[]>(() => buildStages(task), [task])
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  // 拉工作流定义取节点名（node_id → label）。与 TaskFlowGraph 共用 workflowKeys.detail 缓存，
+  // 同一抽屉内不会额外打请求；拉不到（模板被删/解析失败）则回退到类型名。
+  const templateId = useMemo(
+    () => (resolveTemplateId ? resolveTemplateId(task.workflow_id) : task.workflow_id),
+    [task.workflow_id, resolveTemplateId],
+  )
+  const { data: wf } = useQuery({
+    queryKey: workflowKeys.detail(templateId),
+    queryFn: () => workflowsApi.get(templateId),
+    enabled: !!templateId,
+    staleTime: 60_000,
+    retry: 1,
+  })
+  const nodeNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const n of wf?.nodes ?? []) {
+      if (n.node_id && n.label) map.set(n.node_id, n.label)
+    }
+    return map
+  }, [wf])
 
   // 生命周期里程碑：创建 / 终态（完成·失败·取消）
   const createdEvt = task.timeline.find((e) => e.event_type === 'created' || e.event_type === 'started')
@@ -145,7 +170,7 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
         const state = stage.state
         const meta = STATE_META[state]
         const isExpanded = expandedIds.has(stage.nodeId)
-        const nodeLabel = stage.label || (NODE_TYPE_LABEL[stage.nodeType] ?? stage.nodeType)
+        const nodeLabel = nodeNameMap.get(stage.nodeId) || stage.label || (NODE_TYPE_LABEL[stage.nodeType] ?? stage.nodeType)
         const output = task.variables?.[stage.nodeId]
         return (
           <div key={stage.nodeId} className="relative py-1.5">
@@ -224,7 +249,7 @@ export function TaskFlowTimeline({ task, theme = 'dark' }: TaskFlowTimelineProps
                               )}
                             </div>
                             {hasData && (
-                              <details className="mt-1 group rounded-lg border border-[#27272a] bg-[#09090b] overflow-hidden">
+                              <details open className="mt-1 group rounded-lg border border-[#27272a] bg-[#09090b] overflow-hidden">
                                 <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium ${mutedText} hover:text-[#1E5EFF] hover:bg-[#18181b]/40 transition-colors [&::-webkit-details-marker]:hidden`}>
                                   <ChevronRight className="w-3 h-3 shrink-0 group-open:hidden" />
                                   <ChevronRight className="w-3 h-3 shrink-0 hidden group-open:inline rotate-90" />

@@ -152,7 +152,7 @@ export function AgentEditorPage({
           <div>
             <div className="flex items-center gap-2 text-xs text-[#71717a]">
               <Bot className="w-3.5 h-3.5" />
-              <span>Agent 智能空间</span><span>/</span>
+              <span>智能体</span><span>/</span>
               <span className="text-white font-semibold">{form.name || '未命名'}</span>
             </div>
             <h2 className="text-sm font-bold text-white mt-0.5">编辑 Agent 配置</h2>
