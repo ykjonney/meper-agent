@@ -97,6 +97,21 @@ class WorkflowRegistryService:
         )
 
     @staticmethod
+    async def delete_by_workflow_id(workflow_id: str) -> bool:
+        """Delete the registry entry for a workflow template.
+
+        Called when a workflow template is deleted, so the published-workflow
+        list does not keep an orphan index that 404s on open.
+
+        Returns:
+            True if a registry entry was removed, False if none existed.
+        """
+        result = await WorkflowRegistryService._collection().delete_many(
+            {"workflow_id": workflow_id}
+        )
+        return result.deleted_count > 0
+
+    @staticmethod
     async def get_by_name(name: str) -> dict | None:
         """Get a registry entry by workflow name."""
         return await WorkflowRegistryService._collection().find_one({"name": name})
