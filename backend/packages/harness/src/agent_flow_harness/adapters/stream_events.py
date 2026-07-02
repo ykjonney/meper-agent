@@ -66,6 +66,13 @@ async def stream_events_to_app_events(
     """
     accumulator = _StreamingAccumulator(enable_thinking=enable_thinking)
 
+    # 缓冲 on_chat_model_end 解析出的 tool_calls。LangGraph 的事件顺序是
+    # on_chat_model_end(含 tool_calls) → on_tool_start → on_tool_end,但前端
+    # 状态机要求 tool_call_start 先于 tool_call(前端靠 tool_call_start 创建
+    # pending 条目,再用 tool_call 填充)。因此把 tool_call 延迟到 on_tool_start
+    # 时成对发出(tool_call_start → tool_call),与老引擎顺序一致。
+    pending_tool_calls: list[dict[str, Any]] = []
+
     async for event in astream_iter:
         kind = event.get("event")
         data = event.get("data") or {}
@@ -88,11 +95,51 @@ async def stream_events_to_app_events(
 
         elif kind == "on_chat_model_end":
             output = data.get("output")
-            await _emit_model_end(output, on_event, enable_thinking=enable_thinking)
+            # 只发 thinking + final_answer;tool_call 缓冲到 pending_tool_calls,
+            # 等对应 on_tool_start 时再按正确顺序发出。
+            if output is not None:
+                if enable_thinking:
+                    reasoning = _extract_thinking_content(output)
+                    if reasoning:
+                        await on_event(ThinkingEvent(content=reasoning))
+                content = _extract_text_content(output)
+                if content:
+                    await on_event(FinalAnswerEvent(content=content))
+                pending_tool_calls = [
+                    {
+                        "tool_name": tc.get("name", ""),
+                        "args": tc.get("args") or {},
+                        "id": tc.get("id", ""),
+                    }
+                    for tc in _iter_tool_calls(output)
+                ]
             accumulator.reset()
 
         elif kind == "on_tool_start":
+            tool_name = event.get("name") or ""
             await on_event(ToolCallStartEvent())
+            # 发出对应的 tool_call(若有缓冲)。按 tool_name 匹配;匹配不上则
+            # 发首个未发出的(兜底)。这保证 tool_call_start 永远先于 tool_call。
+            emitted = False
+            for i, tc in enumerate(pending_tool_calls):
+                if tc["tool_name"] == tool_name:
+                    await on_event(
+                        ToolCallEvent(
+                            tool_name=tc["tool_name"],
+                            args=tc["args"],
+                            id=tc["id"],
+                        )
+                    )
+                    pending_tool_calls.pop(i)
+                    emitted = True
+                    break
+            if not emitted and pending_tool_calls:
+                tc = pending_tool_calls.pop(0)
+                await on_event(
+                    ToolCallEvent(
+                        tool_name=tc["tool_name"], args=tc["args"], id=tc["id"],
+                    )
+                )
 
         elif kind == "on_tool_end":
             output = data.get("output")
