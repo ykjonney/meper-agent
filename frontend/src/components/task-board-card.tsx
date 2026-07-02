@@ -295,9 +295,30 @@ export function TaskBoardCard({
         }}
         destroyOnClose
       >
-        <div className="py-2">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-sm text-[#0F172A]">comment（可选）</label>
+        <div className="py-2 space-y-3">
+          {/* 审核信息：审批人在同一界面看到要审什么，再做通过/驳回决策 */}
+          {(() => {
+            const ctx = task.checkpoint?.human_context
+            if (!ctx) return null
+            return (
+              <div className="border border-line rounded-lg p-3 bg-[#F8FAFC]">
+                {ctx.title && (
+                  <div className="text-sm font-medium text-[#0F172A] mb-1.5">{ctx.title}</div>
+                )}
+                {ctx.description && (
+                  <div className="text-xs text-[#475569] whitespace-pre-wrap break-words leading-relaxed">
+                    {ctx.description}
+                  </div>
+                )}
+                {!ctx.title && !ctx.description && (
+                  <div className="text-xs text-[#94A3B8] italic">该审批节点未配置说明</div>
+                )}
+              </div>
+            )
+          })()}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm text-[#0F172A]">comment（可选）</label>
             <Segmented
               size="small"
               value={commentMode}
@@ -321,6 +342,7 @@ export function TaskBoardCard({
             rows={3}
             className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none font-mono"
           />
+          </div>
         </div>
       </Modal>
     </div>

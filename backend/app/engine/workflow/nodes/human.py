@@ -35,8 +35,17 @@ class HumanNodeExecutor(BaseNodeExecutor):
     """
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
-        title = self.node_config.get("title", "人工审批")
-        description = self.node_config.get("description", "")
+        raw_title = self.node_config.get("title", "人工审批")
+        raw_description = self.node_config.get("description", "")
+
+        # 解析 title/description 里的变量引用 {{node.field}}，让审批人能看到
+        # 上游节点的实际输出（如诊断结果、告警详情），而非固定的字面文案。
+        from app.engine.workflow.expression import ExpressionEngine
+
+        engine = ExpressionEngine(variables)
+        title = self._resolve_to_str(engine, raw_title)
+        description = self._resolve_to_str(engine, raw_description)
+
         # 系统固定提供 approve/reject 选项，当 options 为空时使用默认值
         options = self.node_config.get("options") or ["approve", "reject"]
 
@@ -70,6 +79,28 @@ class HumanNodeExecutor(BaseNodeExecutor):
                 "node_id": self.node_id,
             },
         )
+
+    @staticmethod
+    def _resolve_to_str(engine: "ExpressionEngine", raw: Any) -> str:
+        """把模板值解析为字符串，供审批展示。
+
+        - 非字符串原样返回（转 str）。
+        - 字符串经 ExpressionEngine 解析变量引用；若解析出 dict/list（上游返回
+          JSON 的常见情况），归一化为 JSON 文本，避免审批描述里出现 Python
+          repr（单引号、True 大写）。
+        """
+        if not isinstance(raw, str):
+            return str(raw)
+        if not raw:
+            return ""
+        resolved = engine.resolve(raw)
+        if resolved is None:
+            return ""
+        if isinstance(resolved, (dict, list)):
+            import json
+
+            return json.dumps(resolved, ensure_ascii=False, default=str)
+        return str(resolved)
 
 
 class HumanTimeoutMonitor:

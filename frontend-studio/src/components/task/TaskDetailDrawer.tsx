@@ -373,6 +373,26 @@ export function TaskDetailDrawer({
               ? `确定通过任务「${taskDetail?.id.slice(-8)}」并继续执行吗？`
               : `确定驳回任务「${taskDetail?.id.slice(-8)}」吗？任务将被标记为失败。`}
           </p>
+          {/* 审核信息：与通过/驳回同界面，审批人据此决策 */}
+          {(() => {
+            const ctx = taskDetail?.checkpoint?.human_context
+            if (!ctx) return null
+            return (
+              <div className="border border-[#27272a] rounded-lg p-3 bg-[#18181b]">
+                {ctx.title && (
+                  <div className="text-sm font-medium text-[#fafafa] mb-1.5">{ctx.title}</div>
+                )}
+                {ctx.description && (
+                  <div className="text-xs text-[#a1a1aa] whitespace-pre-wrap break-words leading-relaxed">
+                    {ctx.description}
+                  </div>
+                )}
+                {!ctx.title && !ctx.description && (
+                  <div className="text-xs text-[#71717a] italic">该审批节点未配置说明</div>
+                )}
+              </div>
+            )
+          })()}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>

@@ -301,9 +301,30 @@ export function TaskBoardCard({
         cancelText="取消"
         okButtonProps={{ disabled: interveneLoading }}
       >
-        <div className="py-2">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>
+        <div className="py-2 space-y-3">
+          {/* 审核信息：审批人在同一界面看到要审什么，再做通过/驳回决策 */}
+          {(() => {
+            const ctx = task.checkpoint?.human_context
+            if (!ctx) return null
+            return (
+              <div className="border border-[#27272a] rounded-lg p-3 bg-[#18181b]">
+                {ctx.title && (
+                  <div className="text-sm font-medium text-[#fafafa] mb-1.5">{ctx.title}</div>
+                )}
+                {ctx.description && (
+                  <div className="text-xs text-[#a1a1aa] whitespace-pre-wrap break-words leading-relaxed">
+                    {ctx.description}
+                  </div>
+                )}
+                {!ctx.title && !ctx.description && (
+                  <div className="text-xs text-[#71717a] italic">该审批节点未配置说明</div>
+                )}
+              </div>
+            )
+          })()}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>
             <div className="flex items-center gap-0.5 bg-[#27272a] rounded-md p-0.5">
               <button
                 type="button"
@@ -342,6 +363,7 @@ export function TaskBoardCard({
             rows={3}
             className={`w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none ${commentMode === 'json' ? 'font-mono' : ''}`}
           />
+          </div>
         </div>
       </Modal>
     </div>
