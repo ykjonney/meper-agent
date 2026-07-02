@@ -117,7 +117,7 @@ export function TaskBoardCard({
         let parsed: unknown
         try {
           parsed = JSON.parse(trimmed)
-        } catch (e) {
+        } catch {
           message.error('JSON 格式错误，请检查输入')
           return
         }

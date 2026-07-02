@@ -590,10 +590,10 @@ async def invoke_agent(
     )
 
     request_id = str(uuid.uuid4())
-    from app.core.config import settings
-
     # Build system prompt with tool declarations
     from langchain_core.messages import SystemMessage
+
+    from app.core.config import settings
 
     system_text = await build_system_prompt(exec_doc)
 

@@ -890,6 +890,8 @@ def _gateway_compare(actual: Any, expected: Any, op: str) -> bool:
     - unknown operator: no-match (returns ``False``).
     """
     if op in ("==", "!="):
+        a: Any
+        e: Any
         if isinstance(actual, str) and isinstance(expected, str):
             a, e = actual.lower(), expected.lower()
         elif isinstance(expected, bool):

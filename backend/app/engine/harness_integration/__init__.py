@@ -23,8 +23,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from agent_flow_harness.adapters.app_event import AppEvent
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
@@ -158,7 +156,12 @@ async def resolve_harness_context(
         SkillManager,
         UsageMiddleware,
     )
-    from agent_flow_harness.sandbox import DockerSandbox, DockerSandboxConfig, SandboxContext, set_sandbox_context
+    from agent_flow_harness.sandbox import (
+        DockerSandbox,
+        DockerSandboxConfig,
+        SandboxContext,
+        set_sandbox_context,
+    )
     from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
 
     from app.core.config import settings
@@ -319,9 +322,9 @@ async def run_chat(
     """
     from agent_flow_harness import build_agent_graph, build_config
     from agent_flow_harness.adapters import stream_events_to_app_events
+    from agent_flow_harness.sandbox import reset_sandbox_context  # noqa: F401
 
     from app.engine.agent.builtin_tools import reset_workspace_context  # noqa: F401
-    from agent_flow_harness.sandbox import reset_sandbox_context  # noqa: F401
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     try:

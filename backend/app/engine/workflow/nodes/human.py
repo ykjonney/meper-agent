@@ -14,6 +14,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.engine.workflow.expression import ExpressionEngine
 from app.engine.workflow.node_executor import BaseNodeExecutor, NodeResult
 from app.models.task import TaskStatus
 from app.services.task_service import TaskService
@@ -40,8 +41,6 @@ class HumanNodeExecutor(BaseNodeExecutor):
 
         # 解析 title/description 里的变量引用 {{node.field}}，让审批人能看到
         # 上游节点的实际输出（如诊断结果、告警详情），而非固定的字面文案。
-        from app.engine.workflow.expression import ExpressionEngine
-
         engine = ExpressionEngine(variables)
         title = self._resolve_to_str(engine, raw_title)
         description = self._resolve_to_str(engine, raw_description)
@@ -81,7 +80,7 @@ class HumanNodeExecutor(BaseNodeExecutor):
         )
 
     @staticmethod
-    def _resolve_to_str(engine: "ExpressionEngine", raw: Any) -> str:
+    def _resolve_to_str(engine: ExpressionEngine, raw: Any) -> str:
         """把模板值解析为字符串，供审批展示。
 
         - 非字符串原样返回（转 str）。

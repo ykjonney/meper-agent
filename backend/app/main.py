@@ -33,8 +33,8 @@ async def lifespan(app: FastAPI):
 
     # Recover waiting_human tasks from previous server instance
     from app.services.task_recovery import (
-        recover_waiting_human_tasks,
         recover_orphan_running_tasks,
+        recover_waiting_human_tasks,
     )
     await recover_waiting_human_tasks()
     # Clean up running tasks orphaned by the previous process crash/restart.
