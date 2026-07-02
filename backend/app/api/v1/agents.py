@@ -590,8 +590,7 @@ async def invoke_agent(
     )
 
     request_id = str(uuid.uuid4())
-    graph = await build_agent_graph(exec_doc, enable_thinking=body.enable_thinking)
-    config = {"configurable": {"thread_id": session_id}}
+    from app.core.config import settings
 
     # Build system prompt with tool declarations
     from langchain_core.messages import SystemMessage
@@ -633,7 +632,17 @@ async def invoke_agent(
         "session_id": session_id,
         "user_id": user.id,
     }
-    result = await graph.ainvoke(initial_state, config=config)
+    if settings.USE_HARNESS_ENGINE:
+        from app.engine.harness_integration import run_once
+
+        result = await run_once(
+            exec_doc, initial_state,
+            enable_thinking=body.enable_thinking,
+        )
+    else:
+        graph = await build_agent_graph(exec_doc, enable_thinking=body.enable_thinking)
+        config = {"configurable": {"thread_id": session_id}}
+        result = await graph.ainvoke(initial_state, config=config)
 
     # Extract the final answer text from the last AIMessage
     output_text = _extract_final_answer(result.get("messages", []))
