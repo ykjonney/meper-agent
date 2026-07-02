@@ -6,6 +6,9 @@
  *   2. reject   — 驳回
  *   3. comment  — 审批人留言（可选，approval 时给出意见）
  *
+ * 审批标题 / 描述支持变量引用 {{node.field}}，运行时由 HumanNodeExecutor
+ * 解析后展示给审批人，让审批人看到上游节点的实际输出。
+ *
  * 审批结果以 {decision, comment, approver, decided_at} 结构写入
  *   variables[human_decision_<node_id>]
  * 供下游 Gateway 节点条件分支消费。
@@ -13,10 +16,14 @@
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
 import { Select, Tag } from '../../../components/ui'
+import VariableSelector from '../VariableSelector'
+import type { WorkflowNode } from '../../../services/workflows-api'
 
 interface Props {
   config: Record<string, unknown>
   onChange: (c: Record<string, unknown>) => void
+  currentNodeId: string
+  allNodes: WorkflowNode[]
 }
 
 const TIMEOUT_ACTIONS = [
@@ -26,29 +33,33 @@ const TIMEOUT_ACTIONS = [
   { label: '标记失败', value: 'fail' },
 ]
 
-export default function HumanNodeConfig({ config, onChange }: Props) {
+export default function HumanNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
   return (
     <div className="space-y-3">
-      {/* ── 审批标题 ── */}
+      {/* ── 审批标题（支持变量引用） ── */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">审批标题</label>
-        <input
-          className="w-full px-2 py-1.5 rounded border border-[#27272a] bg-[#121214] text-[#fafafa] text-sm focus:outline-none focus:border-[#8B5CF6]"
+        <VariableSelector
           value={typeof config?.title === 'string' ? config.title : ''}
-          onChange={(e) => onChange({ ...(config ?? {}), title: e.target.value })}
+          onChange={(val) => onChange({ ...(config ?? {}), title: val })}
+          currentNodeId={currentNodeId}
+          allNodes={allNodes}
           placeholder="请审批以下内容"
+          textarea={false}
+          rows={1}
         />
       </div>
 
-      {/* ── 审批描述 ── */}
+      {/* ── 审批描述（支持变量引用，可插入上游节点输出） ── */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">审批描述</label>
-        <textarea
-          className="w-full px-2 py-1.5 rounded border border-[#27272a] bg-[#121214] text-[#fafafa] text-sm resize-y focus:outline-none focus:border-[#8B5CF6]"
+        <VariableSelector
           value={typeof config?.description === 'string' ? config.description : ''}
-          onChange={(e) => onChange({ ...(config ?? {}), description: e.target.value })}
+          onChange={(val) => onChange({ ...(config ?? {}), description: val })}
+          currentNodeId={currentNodeId}
+          allNodes={allNodes}
           rows={3}
-          placeholder="描述需要人工审批的内容..."
+          placeholder="描述需要人工审批的内容，可插入上游节点变量，如：请审核 {{node_id.field}}"
         />
       </div>
 

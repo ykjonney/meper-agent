@@ -52,7 +52,7 @@ function NodeConfigPanel({ node, allNodes, onNodeChange }: NodePanelProps) {
     case 'parallel':
       return <ParallelNodeConfig config={node.config} onChange={handleConfigChange} />
     case 'human':
-      return <HumanNodeConfig config={node.config} onChange={handleConfigChange} />
+      return <HumanNodeConfig {...commonProps} />
     default:
       return (
         <div>
