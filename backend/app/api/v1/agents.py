@@ -847,6 +847,8 @@ async def stream_agent(
                 request_id=request_id,
                 error=str(exc),
             )
+            _logger.exception("agent_stream_error_traceback")
+
             await event_queue.put(
                 f"data: {_safe_json({'type': 'error', 'content': str(exc)})}\n\n"
             )
