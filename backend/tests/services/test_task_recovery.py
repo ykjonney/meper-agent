@@ -9,6 +9,7 @@ from app.models.task import TaskStatus, utc_now
 from app.services.task_recovery import (
     _execute_timeout_action,
     recover_waiting_human_tasks,
+    recover_orphan_running_tasks,
 )
 
 
@@ -178,3 +179,70 @@ class TestExecuteTimeoutAction:
             call_kwargs = mock_transition.call_args.kwargs
             assert call_kwargs["to_status"] == TaskStatus.RUNNING
             mock_resume.assert_called_once_with("task_1")
+
+
+class TestRecoverOrphanRunningTasks:
+    """Test recover_orphan_running_tasks function."""
+
+    @pytest.mark.asyncio
+    async def test_no_orphans(self) -> None:
+        """No running tasks → nothing to do."""
+        # to_list 是 async 方法，用 AsyncMock 返回空列表
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+
+        with patch("app.services.task_recovery.get_database") as mock_db:
+            mock_collection = MagicMock()
+            mock_db.return_value = {"tasks": mock_collection}
+            mock_collection.find = MagicMock(return_value=mock_cursor)
+            with patch("app.services.task_recovery._mark_orphan_running_failed", new_callable=AsyncMock) as mock_mark:
+                await recover_orphan_running_tasks()
+                mock_mark.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_orphan_marked_failed_with_stuck_node(self) -> None:
+        """running 孤儿任务被标记 failed，且从 timeline 推断卡住节点。"""
+        old_time = utc_now() - timedelta(minutes=30)
+        task_doc = {
+            "_id": "task_orphan",
+            "status": TaskStatus.RUNNING.value,
+            "updated_at": old_time,
+            "timeline": [
+                {"event_type": "node_complete", "data": {"node_id": "node_a", "node_type": "agent"}},
+                {"event_type": "node_start", "data": {"node_id": "node_b", "node_type": "gateway"}},
+            ],
+        }
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[task_doc])
+
+        with patch("app.services.task_recovery.get_database") as mock_db:
+            mock_collection = MagicMock()
+            mock_db.return_value = {"tasks": mock_collection}
+            mock_collection.find = MagicMock(return_value=mock_cursor)
+            with patch("app.services.task_recovery._mark_orphan_running_failed", new_callable=AsyncMock) as mock_mark:
+                await recover_orphan_running_tasks()
+                mock_mark.assert_called_once()
+                call_kwargs = mock_mark.call_args.kwargs
+                assert call_kwargs["task_id"] == "task_orphan"
+                # 最后一条是 node_start node_b → 它就是卡住的节点
+                assert call_kwargs["node_id"] == "node_b"
+                assert call_kwargs["node_type"] == "gateway"
+
+    @pytest.mark.asyncio
+    async def test_recent_running_not_swept(self) -> None:
+        """updated_at 在宽限期内（刚启动）的 running 任务不被清理。"""
+        # to_list 返回空（因为查询条件 updated_at < cutoff 过滤掉了近期任务）
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+
+        with patch("app.services.task_recovery.get_database") as mock_db:
+            mock_collection = MagicMock()
+            mock_db.return_value = {"tasks": mock_collection}
+            mock_collection.find = MagicMock(return_value=mock_cursor)
+            with patch("app.services.task_recovery._mark_orphan_running_failed", new_callable=AsyncMock) as mock_mark:
+                await recover_orphan_running_tasks()
+                mock_mark.assert_not_called()
+                # 验证查询带了 updated_at < cutoff 条件
+                find_kwargs = mock_collection.find.call_args.args[0]
+                assert "updated_at" in find_kwargs
+                assert "$lt" in find_kwargs["updated_at"]

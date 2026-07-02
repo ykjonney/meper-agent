@@ -32,8 +32,15 @@ async def lifespan(app: FastAPI):
     await RoleService.init_system_roles()
 
     # Recover waiting_human tasks from previous server instance
-    from app.services.task_recovery import recover_waiting_human_tasks
+    from app.services.task_recovery import (
+        recover_waiting_human_tasks,
+        recover_orphan_running_tasks,
+    )
     await recover_waiting_human_tasks()
+    # Clean up running tasks orphaned by the previous process crash/restart.
+    # run_and_persist executes workflows as in-process asyncio tasks, so a
+    # process death orphans every running task — sweep them on startup.
+    await recover_orphan_running_tasks()
 
     # Initialize notification service (bridges EventBus → WebSocket + MongoDB)
     from app.services.notification_service import NotificationService

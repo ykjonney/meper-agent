@@ -3,6 +3,12 @@
 On startup, scans for tasks stuck in waiting_human status and:
 1. Executes timeout_action for already-timed-out tasks
 2. Restarts timeout monitors for tasks with remaining time
+
+Also cleans up orphan ``running`` tasks left behind by a process restart:
+``run_and_persist`` runs the workflow as an in-process ``asyncio`` task, so a
+crash/restart orphans every task still in ``running``. Only ``human`` nodes
+persist a checkpoint, so such tasks cannot be resumed from their break point
+and are marked ``failed``.
 """
 from __future__ import annotations
 
@@ -12,6 +18,11 @@ from loguru import logger
 
 from app.db.mongodb import get_database
 from app.models.task import TaskStatus, utc_now
+
+# running 任务要被视为孤儿，其 updated_at 必须早于「现在 - 此阈值」。
+# 阈值留出余量，避免误伤本进程刚启动时正在执行的任务（例如 lifespan 之前
+# 由定时调度触发、或上一进程退出与本进程启动几乎同时发生的边界情况）。
+ORPHAN_RUNNING_GRACE_SECONDS = 60
 
 
 async def recover_waiting_human_tasks() -> None:
@@ -158,3 +169,102 @@ async def _restart_timeout_monitor(
         timeout_ms=timeout_ms,
         timeout_action=timeout_action,
     )
+
+
+async def recover_orphan_running_tasks() -> None:
+    """Mark ``running`` tasks orphaned by a previous process as ``failed``.
+
+    On startup, any task still in ``running`` is an orphan: its execution
+    coroutine lived in the previous process and is gone. Only ``human`` nodes
+    persist a checkpoint (see ``engine._execute_node``), so a ``running`` task
+    interrupted mid-``agent``/``gateway``/``tool`` node has no resumable state
+    and would otherwise sit in ``running`` forever.
+
+    To avoid racing with tasks that the *current* process legitimately started
+    during/just before lifespan, only tasks whose ``updated_at`` is older than
+    ``ORPHAN_RUNNING_GRACE_SECONDS`` are swept.
+    """
+    db = get_database()
+    from datetime import timedelta
+
+    cutoff = utc_now() - timedelta(seconds=ORPHAN_RUNNING_GRACE_SECONDS)
+
+    cursor = db["tasks"].find(
+        {"status": TaskStatus.RUNNING.value, "updated_at": {"$lt": cutoff}},
+        {"_id": 1, "timeline": {"$slice": -3}, "updated_at": 1},
+    )
+    orphans = await cursor.to_list(length=None)
+    if not orphans:
+        logger.debug("recover_orphan_running_tasks_none_found")
+        return
+
+    logger.warning("recover_orphan_running_tasks_starting", count=len(orphans))
+
+    for doc in orphans:
+        task_id = doc["_id"]
+        # 从 timeline 末尾推断卡住的节点（最后一条 node_start 无对应 node_complete）
+        stuck_node_id = ""
+        stuck_node_type = ""
+        timeline = doc.get("timeline") or []
+        for ev in reversed(timeline):
+            data = ev.get("data") or {}
+            if ev.get("event_type") == "node_start":
+                stuck_node_id = data.get("node_id", "")
+                stuck_node_type = data.get("node_type", "")
+                break
+
+        await _mark_orphan_running_failed(
+            task_id=task_id,
+            node_id=stuck_node_id,
+            node_type=stuck_node_type,
+        )
+
+
+async def _mark_orphan_running_failed(
+    task_id: str,
+    node_id: str,
+    node_type: str,
+) -> None:
+    """Transition an orphaned running task to ``failed`` with a clear error."""
+    now = utc_now()
+    db = get_database()
+    res = await db["tasks"].update_one(
+        {"_id": task_id, "status": TaskStatus.RUNNING.value},
+        {
+            "$set": {
+                "status": TaskStatus.FAILED.value,
+                "error": {
+                    "node_id": node_id,
+                    "node_type": node_type,
+                    "error_message": "执行中断：后端进程重启导致运行时协程丢失（僵尸任务自动恢复）",
+                    "error_code": "ORPHAN_RUNNING_TASK",
+                    "timestamp": now,
+                },
+                "updated_at": now,
+            },
+            "$inc": {"version": 1},
+            "$push": {
+                "timeline": {
+                    "timestamp": now,
+                    "event_type": "failed",
+                    "data": {
+                        "message": "僵尸任务清理：进程重启后 running 状态无协程推进，标记为失败",
+                        "node_id": node_id,
+                        "node_type": node_type,
+                        "recovery": True,
+                    },
+                    "actor": "system",
+                }
+            },
+        },
+    )
+    if res.modified_count:
+        logger.warning(
+            "orphan_running_task_marked_failed",
+            task_id=task_id,
+            node_id=node_id,
+            node_type=node_type,
+        )
+    else:
+        # 状态已被其他路径推进（例如人工/超时已转移），跳过
+        logger.info("orphan_running_task_skipped", task_id=task_id)
