@@ -329,8 +329,12 @@ async def run_chat(
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     try:
         session_id = state.get("session_id", "")
-        checkpointer = get_checkpointer()
-        graph = build_agent_graph(hctx["agent_doc"], checkpointer=checkpointer)
+        # 端点每次请求已全量重建历史 messages 喂入 state(经 MessageService +
+        # _history_to_langchain_messages),因此 graph 跑无状态模式(checkpointer=None)。
+        # 若用进程级 checkpointer,它会按 thread_id=session_id 累积历史请求的
+        # messages,与端点重建的历史叠加,产生重复/非连续 SystemMessage,触发
+        # "Received multiple non-consecutive system messages" 错误。
+        graph = build_agent_graph(hctx["agent_doc"], checkpointer=None)
         config = build_config(
             hctx["agent_doc"],
             hctx["llm"],
@@ -377,15 +381,16 @@ async def run_once(
     Returns:
         harness graph 执行后的最终 state(含 messages / step_count 等)。
     """
-    from agent_flow_harness import build_agent_graph, build_config, run_agent
+    from agent_flow_harness import build_agent_graph, build_config
 
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, workspace=workspace,
     )
     try:
         session_id = state.get("session_id", "")
-        checkpointer = get_checkpointer()
-        graph = build_agent_graph(hctx["agent_doc"], checkpointer=checkpointer)
+        # 同 run_chat:端点全量喂历史,checkpointer=None 避免 thread 累积导致
+        # 重复/非连续 SystemMessage。
+        graph = build_agent_graph(hctx["agent_doc"], checkpointer=None)
         config = build_config(
             hctx["agent_doc"],
             hctx["llm"],
@@ -394,7 +399,7 @@ async def run_once(
             middlewares=hctx["middlewares"],
             thread_id=session_id,
         )
-        return await run_agent(graph, state, config=config)
+        return await graph.ainvoke(state, config=config)
     finally:
         release_harness_context(hctx)
 
