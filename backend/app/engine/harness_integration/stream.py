@@ -188,8 +188,15 @@ async def run_agent_streaming_harness(
     sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
     try:
         # 9. adapter: AppEvent(pydantic) → dict
+        #    ErrorEvent 的字段是 {message, source}，但应用层/前端契约
+        #    （老引擎 + chat-panel.tsx）用的是 {content}。这里把 message
+        #    重映射为 content，使 harness 路径的 error 事件与老引擎一致，
+        #    前端零改动。source 保留供日志/调试。
         async def _on_event_dict(app_event: AppEvent) -> None:
-            await on_event(app_event.model_dump())
+            data = app_event.model_dump()
+            if data.get("type") == "error":
+                data["content"] = data.pop("message", "")
+            await on_event(data)
 
         # 10. astream_events → AppEvent → on_event
         event_stream = graph.astream_events(state, config=config, version="v2")
