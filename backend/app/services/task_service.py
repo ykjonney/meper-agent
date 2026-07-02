@@ -74,6 +74,20 @@ class TaskService:
                 message="workflow_id 不能为空",
             )
 
+        # 校验 workflow 模板存在，避免创建指向已删除/不存在模板的僵尸 task
+        # （模板不存在时 engine.run_and_persist 会加载失败，但 task 已写入
+        # pending 且不会被清理，造成永久卡死）。
+        db = get_database()
+        workflow_exists = await db["workflows"].find_one(
+            {"_id": workflow_id}, {"_id": 1}
+        )
+        if not workflow_exists:
+            raise ValidationError(
+                code="WORKFLOW_NOT_FOUND",
+                message=f"工作流模板 {workflow_id} 不存在，无法创建任务",
+                details={"workflow_id": workflow_id},
+            )
+
         # Build initial timeline
         now = utc_now()
         initial_timeline = [
