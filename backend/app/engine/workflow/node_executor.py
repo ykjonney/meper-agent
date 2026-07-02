@@ -344,7 +344,14 @@ class AgentNodeExecutor(BaseNodeExecutor):
         task_workspace = WorkspaceManager.create_task_workspace(
             user_id, task_id,
         )
-        workspace_token = set_workspace_context(task_workspace)
+        from app.core.config import settings
+
+        if settings.USE_HARNESS_ENGINE:
+            # harness 路径:workspace 注入由 run_once 内部的 resolve_harness_context
+            # 接管(传入 task_workspace),无需在此手动 set_workspace_context。
+            workspace_token = None
+        else:
+            workspace_token = set_workspace_context(task_workspace)
         node_start_ts = _time.time()
         logger.info(
             "agent_node_workspace_set",
@@ -358,13 +365,30 @@ class AgentNodeExecutor(BaseNodeExecutor):
         try:
             for attempt in range(1 + max_retry):
                 try:
-                    result = await asyncio.wait_for(
-                        graph.ainvoke(
-                            {"messages": initial_messages},
-                            config={"configurable": {"thread_id": _thread_id}},
-                        ),
-                        timeout=timeout_ms / 1000,
-                    )
+                    if settings.USE_HARNESS_ENGINE:
+                        from app.engine.harness_integration import run_once
+
+                        result = await asyncio.wait_for(
+                            run_once(
+                                agent_doc,
+                                {
+                                    "messages": initial_messages,
+                                    "session_id": _thread_id,
+                                    "user_id": user_id,
+                                    "agent_id": agent_id,
+                                },
+                                workspace=task_workspace,
+                            ),
+                            timeout=timeout_ms / 1000,
+                        )
+                    else:
+                        result = await asyncio.wait_for(
+                            graph.ainvoke(
+                                {"messages": initial_messages},
+                                config={"configurable": {"thread_id": _thread_id}},
+                            ),
+                            timeout=timeout_ms / 1000,
+                        )
                     output_content = ""
                     if result.get("messages"):
                         last_msg = result["messages"][-1]

@@ -250,6 +250,8 @@
 - **问题**：AgentNodeExecutor 依赖 task 专属 output/，harness 工具经 Sandbox 写入需正确 mount。
 - **方案**：Adapter 的 `run_agent_node` 配置 DockerSandbox mounts 时，把 task workspace 的 input/output/tmp 都挂上（参考 stream.py:160-164 的 mounts 配置）。**配置层解决**。
 
+**已解决（阶段3）**：`resolve_harness_context` 新增 `workspace` 可选参数，workflow agent 节点传入 task workspace 后，sandbox 的 work_dir/mounts 自动用 task workspace 的 tmp/input/output 路径，`set_workspace_context` 也由 Adapter 内部接管。AgentNodeExecutor 在 `USE_HARNESS_ENGINE=True` 时调 `run_once(workspace=task_workspace)`，不再手动设 workspace contextvar。
+
 ### [GAP-6] MCP 工具缓存
 - **问题**：backend 有 `mcp_tool_cache`（5min TTL，进程级），harness `McpToolLoader` 每次重新连接。
 - **影响**：性能。MCP 连接建立开销大。

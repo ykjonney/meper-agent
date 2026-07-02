@@ -132,6 +132,7 @@ async def resolve_harness_context(
     state: dict,
     *,
     enable_thinking: bool = False,
+    workspace: Any | None = None,
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
@@ -141,6 +142,11 @@ async def resolve_harness_context(
       ③ Skill(load_skill)+ MCP — harness SkillManager / McpToolLoader
 
     同时构造 sandbox、workspace contextvar、agent_doc、middlewares。
+
+    Args:
+        workspace: 可选,workflow agent 节点传入已创建的 task workspace。
+            为 None 时(默认,stream/invoke 路径)从 state 的 session_id/user_id
+            自动创建 session workspace。
 
     Returns:
         dict 含 keys: agent_doc, llm, tools, sandbox, sb_token, ws_token,
@@ -157,7 +163,7 @@ async def resolve_harness_context(
 
     from app.core.config import settings
     from app.engine.agent.builder import _resolve_execution_context
-    from app.engine.agent.builtin_tools import reset_workspace_context
+    from app.engine.agent.builtin_tools import set_workspace_context
     from app.engine.agent.react_executor import _setup_workspace_context
 
     # 1. 复用 backend 现有的 LLM + tools + context_window
@@ -239,21 +245,34 @@ async def resolve_harness_context(
     )
 
     # 7. workspace(backend 的,用于 backend 工具的 contextvar + sandbox work_dir)
-    ws_token = _setup_workspace_context(state)
-
-    session_id = state.get("session_id", "")
-    user_id = state.get("user_id", "")
-    work_dir = Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "tmp"
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    sandbox = DockerSandbox(
-        sandbox_id=f"{session_id}",
-        work_dir=work_dir,
-        mounts={
+    #    workspace 优先级:显式传入(task workspace)> 从 state 自动建(session workspace)
+    if workspace is not None:
+        ws_token = set_workspace_context(workspace)
+        work_dir = workspace.tmp_dir
+        work_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_mounts = {
+            "tmp": workspace.tmp_dir,
+            "input": workspace.input_dir,
+            "output": workspace.output_dir,
+        }
+        sandbox_id = f"{state.get('session_id') or workspace.root.name}"
+    else:
+        ws_token = _setup_workspace_context(state)
+        session_id = state.get("session_id", "")
+        user_id = state.get("user_id", "")
+        work_dir = Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "tmp"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_mounts = {
             "tmp": work_dir,
             "input": Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "input",
             "output": Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "output",
-        },
+        }
+        sandbox_id = f"{session_id}"
+
+    sandbox = DockerSandbox(
+        sandbox_id=sandbox_id,
+        work_dir=work_dir,
+        mounts=sandbox_mounts,
         config=sandbox_config,
         timeout=settings.SANDBOX_TIMEOUT,
     )
@@ -343,17 +362,23 @@ async def run_once(
     state: dict,
     *,
     enable_thinking: bool = False,
+    workspace: Any | None = None,
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
     替换 ``build_agent_graph`` + ``graph.ainvoke`` 路径。
+
+    Args:
+        workspace: 可选,workflow agent 节点传入 task workspace。
 
     Returns:
         harness graph 执行后的最终 state(含 messages / step_count 等)。
     """
     from agent_flow_harness import build_agent_graph, build_config, run_agent
 
-    hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    hctx = await resolve_harness_context(
+        agent, state, enable_thinking=enable_thinking, workspace=workspace,
+    )
     try:
         session_id = state.get("session_id", "")
         checkpointer = get_checkpointer()
