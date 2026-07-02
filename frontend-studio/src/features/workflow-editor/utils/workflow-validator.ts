@@ -49,6 +49,7 @@ export const VALIDATION_ERROR_CODES = {
   AGENT_MISSING_QUERY: 'AGENT_MISSING_QUERY',
   TOOL_MISSING_ID: 'TOOL_MISSING_ID',
   GATEWAY_NO_CONDITIONS: 'GATEWAY_NO_CONDITIONS',
+  GATEWAY_INVALID_CONDITION: 'GATEWAY_INVALID_CONDITION',
   HUMAN_MISSING_TITLE: 'HUMAN_MISSING_TITLE',
   VARIABLE_INVALID_NODE: 'VARIABLE_INVALID_NODE',
   VARIABLE_INVALID_FIELD: 'VARIABLE_INVALID_FIELD',
@@ -238,6 +239,47 @@ function validateNodeConfigs(nodes: WorkflowNode[]): ValidationError[] {
             code: VALIDATION_ERROR_CODES.GATEWAY_NO_CONDITIONS,
             message: `网关节点 "${nodeLabel}" 至少需要 1 个条件分支`,
             nodeId: node.node_id,
+          })
+        } else {
+          const validOperators = new Set(['==', '!=', '>', '<', '>=', '<=', 'contains', 'not_contains'])
+          // 比较符号黑名单：expression 不允许内联比较，必须用「判断符」下拉选择
+          const comparisonSymbols = ['==', '!=', '>=', '<=', '>', '<']
+          // 合法 expression：strip 后是单一变量引用 {{ xxx }}
+          const singleVarRe = /^\{\{.+\}\}$/
+          ;(conditions as Array<Record<string, unknown>>).forEach((cond, idx) => {
+            const expression = (cond.expression as string) ?? ''
+            const op = (cond.operator as string) ?? ''
+            const target = (cond.target as string) ?? ''
+            const trimmedExpr = expression.trim()
+            // 缺失字段校验
+            const missing: string[] = []
+            if (!trimmedExpr) missing.push('表达式')
+            // operator 缺省视为合法（向后兼容默认 ==）；仅当显式填写且不在白名单时报错
+            if (op && !validOperators.has(op)) missing.push('判断符')
+            if (!target) missing.push('目标节点')
+            if (missing.length > 0) {
+              issues.push({
+                id: `gateway_invalid_condition_${node.node_id}_${idx}`,
+                category: 'config',
+                level: 'error',
+                code: VALIDATION_ERROR_CODES.GATEWAY_INVALID_CONDITION,
+                message: `网关节点 "${nodeLabel}" 条件 #${idx + 1} 缺少：${missing.join('、')}`,
+                nodeId: node.node_id,
+              })
+            }
+            // 防内联校验：expression 必须是单一变量引用，禁止内联比较符号或多表达式
+            const hasSymbol = comparisonSymbols.some((sym) => trimmedExpr.includes(sym))
+            const isSingleVar = singleVarRe.test(trimmedExpr)
+            if (trimmedExpr && (hasSymbol || !isSingleVar)) {
+              issues.push({
+                id: `gateway_invalid_expression_${node.node_id}_${idx}`,
+                category: 'config',
+                level: 'error',
+                code: VALIDATION_ERROR_CODES.GATEWAY_INVALID_CONDITION,
+                message: `网关节点 "${nodeLabel}" 条件 #${idx + 1} 表达式必须是单一变量引用（如 {{ node_id.field }}），请勿内联比较符号，比较逻辑请用「判断符」下拉选择`,
+                nodeId: node.node_id,
+              })
+            }
           })
         }
         break

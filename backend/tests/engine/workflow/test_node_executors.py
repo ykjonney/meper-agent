@@ -840,6 +840,155 @@ class TestGatewayNodeExecutor:
         assert result.success
         assert result.selected_branch == "node_3"
 
+    # ── operator + 大小写不敏感 ──
+
+    @pytest.mark.asyncio
+    async def test_operator_case_insensitive_eq(self) -> None:
+        """== 对字符串大小写不敏感：'APPROVE' 匹配 expected 'approve'。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ human_1.decision }}", "operator": "==", "expected": "approve", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"human_1": {"decision": "APPROVE"}})
+        assert result.success
+        assert result.selected_branch == "node_3"
+
+    @pytest.mark.asyncio
+    async def test_operator_case_insensitive_ne(self) -> None:
+        """!= 对字符串大小写不敏感：'Approve' != 'reject' → 命中。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ human_1.decision }}", "operator": "!=", "expected": "reject", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"human_1": {"decision": "Approve"}})
+        assert result.success
+        assert result.selected_branch == "node_3"
+
+    @pytest.mark.asyncio
+    async def test_operator_gt(self) -> None:
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.count }}", "operator": ">", "expected": 10, "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"node_1": {"count": 42}})
+        assert result.selected_branch == "node_3"
+        result_miss = await executor.execute({"node_1": {"count": 5}})
+        assert result_miss.selected_branch == "node_5"
+
+    @pytest.mark.asyncio
+    async def test_operator_lt(self) -> None:
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.count }}", "operator": "<", "expected": 10, "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"node_1": {"count": 5}})
+        assert result.selected_branch == "node_3"
+
+    @pytest.mark.asyncio
+    async def test_operator_gte_and_lte(self) -> None:
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.count }}", "operator": ">=", "expected": 10, "target": "node_3"},
+                {"expression": "{{ node_1.count }}", "operator": "<=", "expected": 10, "target": "node_4"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        # count == 10 → 第一个 >= 命中（first-match-wins）
+        result = await executor.execute({"node_1": {"count": 10}})
+        assert result.selected_branch == "node_3"
+
+    @pytest.mark.asyncio
+    async def test_operator_default_back_compat(self) -> None:
+        """condition 不带 operator 字段，行为同 ==（向后兼容）。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.status }}", "expected": "ok", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"node_1": {"status": "ok"}})
+        assert result.selected_branch == "node_3"
+        # 大小写不敏感同样生效（默认 == 走同一逻辑）
+        result_ci = await executor.execute({"node_1": {"status": "OK"}})
+        assert result_ci.selected_branch == "node_3"
+
+    # ── contains / not_contains（字符串子串 + 列表元素，大小写不敏感）──
+
+    @pytest.mark.asyncio
+    async def test_operator_contains_string_substring(self) -> None:
+        """contains：字符串子串匹配，大小写不敏感。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.text }}", "operator": "contains", "expected": "heavy", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        # 子串 + 大小写不敏感：actual 含 "HEAVY"，expected "heavy" 命中
+        result = await executor.execute({"node_1": {"text": "weight=HEAVY, ok"}})
+        assert result.selected_branch == "node_3"
+        # 不含子串 → 走 fallback
+        result_miss = await executor.execute({"node_1": {"text": "light"}})
+        assert result_miss.selected_branch == "node_5"
+
+    @pytest.mark.asyncio
+    async def test_operator_not_contains_string(self) -> None:
+        """not_contains：不含子串时命中。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.text }}", "operator": "not_contains", "expected": "error", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"node_1": {"text": "all good"}})
+        assert result.selected_branch == "node_3"
+        result_miss = await executor.execute({"node_1": {"text": "has ERROR here"}})
+        assert result_miss.selected_branch == "node_5"
+
+    @pytest.mark.asyncio
+    async def test_operator_contains_list_element(self) -> None:
+        """contains：actual 为列表时做元素包含（等值）。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.tags }}", "operator": "contains", "expected": "vip", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        result = await executor.execute({"node_1": {"tags": ["new", "vip", "active"]}})
+        assert result.selected_branch == "node_3"
+        result_miss = await executor.execute({"node_1": {"tags": ["new", "normal"]}})
+        assert result_miss.selected_branch == "node_5"
+
+    @pytest.mark.asyncio
+    async def test_operator_contains_type_mismatch_no_match(self) -> None:
+        """contains：actual 类型不匹配（非 str/list）时视为不包含，不抛错。"""
+        config = {
+            "conditions": [
+                {"expression": "{{ node_1.count }}", "operator": "contains", "expected": "5", "target": "node_3"},
+            ],
+            "default_branch": "node_5",
+        }
+        executor = GatewayNodeExecutor("gw_1", config)
+        # actual 是 int，类型不匹配 → 不包含 → 走 fallback（不抛异常）
+        result = await executor.execute({"node_1": {"count": 42}})
+        assert result.selected_branch == "node_5"
+
 
 # ── ParallelNodeExecutor ──
 
