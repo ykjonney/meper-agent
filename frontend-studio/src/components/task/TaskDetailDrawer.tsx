@@ -319,7 +319,7 @@ export function TaskDetailDrawer({
                 <SectionTitle>
                   时间线 <span className="font-normal text-[#71717a]">({taskDetail.timeline?.length ?? 0})</span>
                 </SectionTitle>
-                <TaskFlowTimeline task={taskDetail} theme={theme} />
+                <TaskFlowTimeline task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
               </section>
             </div>
 

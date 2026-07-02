@@ -206,7 +206,7 @@ export function McpManagePage() {
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Plug className="w-5 h-5 text-indigo-400" />
-            MCP 连接管理
+            外部工具接入
           </h2>
           <p className="text-xs text-[#71717a] mt-1">
             管理 Model Context Protocol 连接：测试连通、发现工具、配置认证。

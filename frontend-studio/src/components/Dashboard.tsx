@@ -83,7 +83,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
         <div className="absolute top-0 right-0 w-80 h-40 bg-indigo-500/10 blur-[80px] rounded-full pointer-events-none" />
         <div className="space-y-1 relative z-10">
           <h1 className="text-xl font-bold text-[#fafafa] tracking-tight flex items-center gap-2 font-sans">
-            控制台仪表盘 <span className="text-xl">📊</span>
+            仪表盘 <span className="text-xl">📊</span>
           </h1>
           <p className="text-[#a1a1aa] text-xs max-w-xl">
             聚合自 /tasks/stats、/agents、/tasks。当前并发上限 {maxConcurrent}，运行中 {running}，待执行 {pending}。

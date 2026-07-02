@@ -3,8 +3,8 @@
  *
  * 布局（对齐旧版 frontend/src/components/task-board-card.tsx，适配 studio 暗色风）：
  * - 左侧 3px 状态色条（style.accent）
- * - 顶部：任务 ID（截断 + mono）+ 状态 Tag
- * - 次行：工作流名称（优先用 workflowName，回退 workflow_id）
+ * - 顶部：工作流名称 + 触发时间戳（主标题）+ 状态 Tag
+ * - 次行：任务 ID（灰色 mono，技术标识）
  * - 进度区（仅 progress 存在且 running/waiting_human 时渲染）：
  *   「已执行 N 个节点」+ 4px 高脉动条
  *   - running 时动画推移
@@ -15,7 +15,7 @@
  * - 整卡 onClick → 打开详情抽屉
  */
 import { useState } from 'react'
-import { Check, X, RotateCcw, Trash2, Ban, FileText, User } from 'lucide-react'
+import { Check, X, RotateCcw, Trash2, Ban, Hash, User } from 'lucide-react'
 import type { TaskSummary, NodeProgress, TaskStatusValue, CommentValue } from '../../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
 import { Button, Modal, Tag, Tooltip } from '../ui'
@@ -64,6 +64,18 @@ function formatTime(iso: string): string {
   if (hours < 24) return `${hours} 小时前`
   const days = Math.floor(hours / 24)
   return `${days} 天前`
+}
+
+/** 创建时间 → 紧凑时间戳（MM-DD HH:mm），用作卡片主标题区分同工作流的多次任务 */
+function formatTimestamp(iso: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return ''
+  }
 }
 
 export function TaskBoardCard({
@@ -176,11 +188,16 @@ export function TaskBoardCard({
       </div>
 
       <div className="pl-3 pr-3 py-2.5">
-        {/* 顶部：任务 ID（截断 mono）+ 状态 Tag */}
+        {/* 顶部：工作流名称 + 触发时间戳（主标题）+ 状态 Tag */}
         <div className="flex items-center justify-between gap-2 mb-1.5">
-          <span className="text-[11px] font-mono text-[#a1a1aa] truncate flex-1 min-w-0">
-            {task.id.slice(-12)}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className="text-xs font-medium text-[#fafafa] truncate">
+              {workflowName ?? task.workflow_id}
+            </span>
+            <span className="text-[10px] text-[#71717a] font-mono shrink-0">
+              {formatTimestamp(task.created_at)}
+            </span>
+          </div>
           <Tag
             color={style.color}
             className="!inline-flex !items-center !gap-1 !px-1.5 !py-0 !text-[10px] !rounded !shrink-0"
@@ -189,10 +206,10 @@ export function TaskBoardCard({
           </Tag>
         </div>
 
-        {/* 次行：工作流名称（灰色） */}
-        <div className="text-xs text-[#d4d4d8] truncate mb-1.5 flex items-center gap-1">
-          <FileText className="w-3 h-3 text-[#71717a] shrink-0" />
-          <span className="truncate">{workflowName ?? task.workflow_id}</span>
+        {/* 次行：任务 ID（灰色 mono，技术标识） */}
+        <div className="text-[11px] text-[#71717a] truncate mb-1.5 flex items-center gap-1">
+          <Hash className="w-3 h-3 text-[#52525b] shrink-0" />
+          <span className="truncate font-mono">{task.id.slice(-12)}</span>
         </div>
 
         {/* 创作者（灰色小字，解析为可读 name） */}

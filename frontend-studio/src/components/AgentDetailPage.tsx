@@ -98,7 +98,7 @@ export function AgentDetailPage({
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-[#71717a]">
-              <span>Agent 智能空间</span><span>/</span>
+              <span>智能体</span><span>/</span>
               <span className="text-white font-semibold truncate">{agent.name}</span>
             </div>
             <p className="text-[11px] text-[#52525b] mt-0.5">左侧配置 · 右侧实时对话测试</p>
