@@ -756,6 +756,8 @@ async def stream_agent(
 
     async def _run_agent():
         """Background task: execute the streaming REACT loop."""
+        from app.core.config import settings
+
         initial_messages_stream: list = []
         if system_text:
             initial_messages_stream.append(SystemMessage(content=system_text))
@@ -808,11 +810,21 @@ async def stream_agent(
             "user_id": user.id,
         }
         try:
-            result = await run_agent_streaming(
-                exec_doc, initial_state,
-                on_event=_on_event,
-                enable_thinking=body.enable_thinking,
-            )
+            if settings.USE_HARNESS_ENGINE:
+                from app.engine.harness_integration.stream import (
+                    run_agent_streaming_harness,
+                )
+                result = await run_agent_streaming_harness(
+                    exec_doc, initial_state,
+                    on_event=_on_event,
+                    enable_thinking=body.enable_thinking,
+                )
+            else:
+                result = await run_agent_streaming(
+                    exec_doc, initial_state,
+                    on_event=_on_event,
+                    enable_thinking=body.enable_thinking,
+                )
             _logger.info(
                 "agent_stream_completed",
                 agent_id=agent_id,
