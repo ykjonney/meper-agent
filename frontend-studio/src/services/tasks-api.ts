@@ -172,11 +172,22 @@ export interface TaskCreatePayload {
   scheduled_at?: string | null
 }
 
+/**
+ * comment 支持三种形态（与后端 _normalize_comment 对齐）：
+ * - string：纯文本（老用法，向后兼容）
+ * - { type: 'text', value: string }：文本
+ * - { type: 'json', value: unknown }：结构化数据，value 原样存入 variables，
+ *   下游可用 {{node.comment.field}} 钻取
+ */
+export type CommentValue =
+  | string
+  | { type: 'text'; value: string }
+  | { type: 'json'; value: unknown }
+
 export interface TaskIntervenePayload {
   action: string
   reason?: string
-  /** Approval / rejection comment (used by approve / reject interventions). */
-  comment?: string
+  comment?: CommentValue
   version: number
 }
 

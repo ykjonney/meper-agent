@@ -25,7 +25,12 @@ class TaskIntervene(BaseModel):
     action: str = Field(..., pattern=r"^(approve|reject|skip|retry|pause|resume|cancel|update_variables)$")
     # Deprecated: use comment; reason kept for backward compat
     reason: str | None = None
-    comment: str | None = None
+    # comment 支持三种形态（向后兼容）：
+    # - str: 纯文本（老用法）
+    # - {"type": "text", "value": "..."}: 文本
+    # - {"type": "json", "value": {...}}: 结构化数据，value 原样存入 variables，
+    #   下游可用 {{node.comment.field}} 钻取
+    comment: str | dict[str, Any] | None = None
     version: int = Field(..., ge=1)
 
 

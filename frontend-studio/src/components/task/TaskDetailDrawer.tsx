@@ -21,11 +21,12 @@ import {
 } from 'lucide-react'
 import {
   tasksApi, taskKeys,
-  type TaskSummary, type TaskDetail,
+  type TaskSummary, type TaskDetail, type CommentValue,
 } from '../../services/tasks-api'
 import { agentApi, agentKeys } from '../../services/agent-api'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
 import { Button, Modal, Spin } from '../ui'
+import { toast } from '../ui/toast'
 import { TaskOutputFiles } from './TaskOutputFiles'
 import { TaskFlowTimeline } from './TaskFlowTimeline'
 import { TaskFlowGraph } from './TaskFlowGraph'
@@ -47,8 +48,8 @@ export interface TaskDetailDrawerProps {
   /** resume：waiting_human 无人工 options 时推进继续执行（对齐 legacy-antd） */
   onResume?: (task: TaskSummary | TaskDetail) => void
   onDelete?: (task: TaskSummary | TaskDetail) => void
-  onApprove?: (task: TaskSummary | TaskDetail, comment: string) => void
-  onReject?: (task: TaskSummary | TaskDetail, comment: string) => void
+  onApprove?: (task: TaskSummary | TaskDetail, comment: CommentValue) => void
+  onReject?: (task: TaskSummary | TaskDetail, comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -93,27 +94,49 @@ export function TaskDetailDrawer({
   // 审批弹窗
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（与看板卡片弹窗保持一致）
+  const [approvalCommentMode, setApprovalCommentMode] = useState<'text' | 'json'>('text')
 
   const openApproval = (action: 'approve' | 'reject') => {
     setApprovalAction(action)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }
 
   const closeApproval = () => {
     if (interveneLoading) return
     setApprovalAction(null)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }
 
   const submitApproval = () => {
     if (!approvalAction || !taskDetail || interveneLoading) return
-    if (approvalAction === 'approve') {
-      onApprove?.(taskDetail, approvalComment)
+    // 按 mode 组装 comment
+    let comment: CommentValue
+    if (approvalCommentMode === 'json') {
+      const trimmed = approvalComment.trim()
+      if (!trimmed) {
+        comment = { type: 'json', value: '' }
+      } else {
+        try {
+          comment = { type: 'json', value: JSON.parse(trimmed) }
+        } catch {
+          toast.error('JSON 格式错误，请检查输入')
+          return
+        }
+      }
     } else {
-      onReject?.(taskDetail, approvalComment)
+      comment = { type: 'text', value: approvalComment }
+    }
+    if (approvalAction === 'approve') {
+      onApprove?.(taskDetail, comment)
+    } else {
+      onReject?.(taskDetail, comment)
     }
     setApprovalAction(null)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }
 
   if (!open || !taskId) return null
@@ -351,13 +374,45 @@ export function TaskDetailDrawer({
               : `确定驳回任务「${taskDetail?.id.slice(-8)}」吗？任务将被标记为失败。`}
           </p>
           <div>
-            <label className="block text-xs text-[#a1a1aa] mb-1.5">comment（可选）</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>
+              <div className="flex items-center gap-0.5 bg-[#27272a] rounded-md p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setApprovalCommentMode('text')}
+                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
+                    approvalCommentMode === 'text'
+                      ? 'bg-[#52525b] text-[#fafafa]'
+                      : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                  }`}
+                >
+                  文本
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalCommentMode('json')}
+                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
+                    approvalCommentMode === 'json'
+                      ? 'bg-[#52525b] text-[#fafafa]'
+                      : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                  }`}
+                >
+                  JSON
+                </button>
+              </div>
+            </div>
             <textarea
               value={approvalComment}
               onChange={(e) => setApprovalComment(e.target.value)}
-              placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
+              placeholder={
+                approvalCommentMode === 'json'
+                  ? '{"score": 8, "note": "ok"}'
+                  : approvalAction === 'reject'
+                    ? '建议填写驳回原因（可选）'
+                    : '审批意见（可选）'
+              }
               rows={3}
-              className="w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none"
+              className={`w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none ${approvalCommentMode === 'json' ? 'font-mono' : ''}`}
             />
           </div>
         </div>

@@ -18,7 +18,7 @@ import { Plus, Search, Loader2, Bolt, AlertTriangle, CheckCircle, XCircle } from
 import {
   tasksApi, taskKeys,
   type TaskSummary, type TaskStatusValue, type TaskDetail, type NodeProgress,
-  BOARD_STATUSES, parseNodeProgress, type WorkflowRegistryEntry,
+  type CommentValue, BOARD_STATUSES, parseNodeProgress, type WorkflowRegistryEntry,
 } from '../services/tasks-api'
 import { userApi } from '../services/user-api'
 import { useAuthStore } from '../stores/auth-store'
@@ -169,7 +169,7 @@ export function TaskBoard({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
   })
 
   const intervene = useMutation({
-    mutationFn: (vars: { taskId: string; action: string; version: number; comment?: string }) =>
+    mutationFn: (vars: { taskId: string; action: string; version: number; comment?: CommentValue }) =>
       tasksApi.intervene(vars.taskId, { action: vars.action, version: vars.version, comment: vars.comment }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskKeys.lists() })
@@ -218,16 +218,20 @@ export function TaskBoard({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
     intervene.mutate({ taskId: task.id, action: 'retry', version: task.version })
   }, [intervene])
 
-  const handleApprovalSubmit = useCallback((task: TaskSummary | TaskDetail, action: 'approve' | 'reject', comment: string) => {
-    intervene.mutate({ taskId: task.id, action, version: task.version, comment: comment || undefined })
+  // comment 空判：text 模式空字符串时省略（后端默认归一化为 ""），其余（含 json）透传
+  const isCommentEmpty = (c: CommentValue | undefined): boolean =>
+    !c || (typeof c === 'string' && !c) || (typeof c === 'object' && c.type === 'text' && !c.value)
+
+  const handleApprovalSubmit = useCallback((task: TaskSummary | TaskDetail, action: 'approve' | 'reject', comment: CommentValue) => {
+    intervene.mutate({ taskId: task.id, action, version: task.version, comment: isCommentEmpty(comment) ? undefined : comment })
   }, [intervene])
 
-  const handleApprove = useCallback((task: TaskSummary | TaskDetail, comment: string) => {
-    intervene.mutate({ taskId: task.id, action: 'approve', version: task.version, comment: comment || undefined })
+  const handleApprove = useCallback((task: TaskSummary | TaskDetail, comment: CommentValue) => {
+    intervene.mutate({ taskId: task.id, action: 'approve', version: task.version, comment: isCommentEmpty(comment) ? undefined : comment })
   }, [intervene])
 
-  const handleReject = useCallback((task: TaskSummary | TaskDetail, comment: string) => {
-    intervene.mutate({ taskId: task.id, action: 'reject', version: task.version, comment: comment || undefined })
+  const handleReject = useCallback((task: TaskSummary | TaskDetail, comment: CommentValue) => {
+    intervene.mutate({ taskId: task.id, action: 'reject', version: task.version, comment: isCommentEmpty(comment) ? undefined : comment })
   }, [intervene])
 
   // resume：waiting_human 且 checkpoint 无人工决策 options 时，推进继续执行（对齐 legacy-antd）。

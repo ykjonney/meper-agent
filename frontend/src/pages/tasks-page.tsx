@@ -10,7 +10,7 @@
  */
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
-import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert } from 'antd'
+import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented } from 'antd'
 import {
   StopOutlined,
   RedoOutlined,
@@ -31,6 +31,7 @@ import {
   type TaskStatusValue,
   type TaskDetail,
   type NodeProgress,
+  type CommentValue,
   BOARD_STATUSES,
   parseNodeProgress,
 } from '../services/tasks-api'
@@ -85,6 +86,8 @@ export default function TasksPage() {
   /* ─── Approval modal state ─── */
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（与看板卡片弹窗保持一致）
+  const [approvalCommentMode, setApprovalCommentMode] = useState<'text' | 'json'>('text')
   const [approvalTask, setApprovalTask] = useState<TaskSummary | TaskDetail | null>(null)
 
   /* ─── 6 列并发列表查询（按 status 分桶） ─── */
@@ -201,7 +204,7 @@ export default function TasksPage() {
 
   /* ─── Mutation: intervene (cancel / retry / approve / reject) ─── */
   const interveneMutation = useMutation({
-    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: string }) =>
+    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: CommentValue }) =>
       tasksApi.intervene(taskId, { action, version, comment }),
     onSuccess: () => {
       message.success('操作成功')
@@ -282,31 +285,52 @@ export default function TasksPage() {
     setApprovalAction('approve')
     setApprovalTask(task)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
 
   const handleReject = useCallback((task: TaskSummary | TaskDetail) => {
     setApprovalAction('reject')
     setApprovalTask(task)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
+
+  // 把当前 comment 输入按模式组装为 CommentValue，返回 null 表示解析失败需阻断
+  const buildComment = useCallback((): CommentValue | null => {
+    if (approvalCommentMode === 'json') {
+      const trimmed = approvalComment.trim()
+      if (!trimmed) return { type: 'json', value: '' }
+      try {
+        return { type: 'json', value: JSON.parse(trimmed) }
+      } catch {
+        message.error('JSON 格式错误，请检查输入')
+        return null
+      }
+    }
+    return { type: 'text', value: approvalComment }
+  }, [approvalCommentMode, approvalComment])
 
   const handleApprovalConfirm = useCallback(() => {
     if (!approvalAction || !approvalTask) return
+    const comment = buildComment()
+    if (comment === null) return // JSON 解析失败，已提示，阻断提交
     interveneMutation.mutate({
       taskId: approvalTask.id,
       action: approvalAction,
       version: approvalTask.version,
-      comment: approvalComment || undefined,
+      comment,
     })
     setApprovalAction(null)
     setApprovalTask(null)
     setApprovalComment('')
-  }, [approvalAction, approvalTask, approvalComment, interveneMutation])
+    setApprovalCommentMode('text')
+  }, [approvalAction, approvalTask, buildComment, interveneMutation])
 
   const handleApprovalCancel = useCallback(() => {
     setApprovalAction(null)
     setApprovalTask(null)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
 
   const handleDelete = useCallback((task: TaskSummary) => {
@@ -321,12 +345,12 @@ export default function TasksPage() {
   }, [deleteMutation])
 
   // 看板卡片上的快捷审批（通过/驳回 + 评论）
-  const handleCardApproval = useCallback((task: TaskSummary, action: 'approve' | 'reject', comment: string) => {
+  const handleCardApproval = useCallback((task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => {
     interveneMutation.mutate({
       taskId: task.id,
       action,
       version: task.version,
-      comment: comment || undefined,
+      comment,
     })
   }, [interveneMutation])
 
@@ -877,12 +901,28 @@ export default function TasksPage() {
               : `确定驳回任务「${approvalTask?.id}」吗？任务将被标记为失败。`}
           </p>
           <div>
-            <label className="block text-sm text-[#0F172A] mb-1.5">审批意见（可选）</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm text-[#0F172A]">审批意见（可选）</label>
+              <Segmented
+                size="small"
+                value={approvalCommentMode}
+                onChange={(val) => setApprovalCommentMode(val as 'text' | 'json')}
+                options={[
+                  { label: '文本', value: 'text' },
+                  { label: 'JSON', value: 'json' },
+                ]}
+              />
+            </div>
             <Input.TextArea
               value={approvalComment}
               onChange={(e) => setApprovalComment(e.target.value)}
-              placeholder="请输入审批意见..."
+              placeholder={
+                approvalCommentMode === 'json'
+                  ? '{"score": 8, "note": "ok"}'
+                  : '请输入审批意见...'
+              }
               rows={3}
+              className={approvalCommentMode === 'json' ? 'font-mono' : ''}
             />
           </div>
         </div>

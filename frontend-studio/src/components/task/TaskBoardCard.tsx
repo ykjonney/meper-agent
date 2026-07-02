@@ -16,9 +16,10 @@
  */
 import { useState } from 'react'
 import { Check, X, RotateCcw, Trash2, Ban, FileText, User } from 'lucide-react'
-import type { TaskSummary, NodeProgress, TaskStatusValue } from '../../services/tasks-api'
+import type { TaskSummary, NodeProgress, TaskStatusValue, CommentValue } from '../../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
 import { Button, Modal, Tag, Tooltip } from '../ui'
+import { toast } from '../ui/toast'
 
 /** 审批主色（通过按钮），与详情抽屉保持一致 */
 export const APPROVAL_ACCENT = '#8B5CF6'
@@ -34,7 +35,7 @@ export interface TaskBoardCardProps {
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
   /** 看板内嵌审批：交由父级统一调 interveneMutation */
-  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
+  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -89,10 +90,13 @@ export function TaskBoardCard({
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（显式选择，避免隐式脆弱解析）
+  const [commentMode, setCommentMode] = useState<'text' | 'json'>('text')
 
   const openApproval = (action: 'approve' | 'reject') => {
     setApprovalAction(action)
     setApprovalComment('')
+    setCommentMode('text')
     setApprovalModalOpen(true)
   }
 
@@ -101,11 +105,28 @@ export function TaskBoardCard({
     setApprovalModalOpen(false)
     setApprovalAction(null)
     setApprovalComment('')
+    setCommentMode('text')
   }
 
   const submitApproval = () => {
     if (!approvalAction || interveneLoading) return
-    onApprovalSubmit?.(task, approvalAction, approvalComment)
+    let comment: CommentValue
+    if (commentMode === 'json') {
+      const trimmed = approvalComment.trim()
+      if (!trimmed) {
+        comment = { type: 'json', value: '' }
+      } else {
+        try {
+          comment = { type: 'json', value: JSON.parse(trimmed) }
+        } catch {
+          toast.error('JSON 格式错误，请检查输入')
+          return
+        }
+      }
+    } else {
+      comment = { type: 'text', value: approvalComment }
+    }
+    onApprovalSubmit?.(task, approvalAction, comment)
     // 不立即关闭：等父级 mutation 完成后任务状态变更，卡片消失；失败时 loading 复位可重试。
   }
 
@@ -264,13 +285,45 @@ export function TaskBoardCard({
         okButtonProps={{ disabled: interveneLoading }}
       >
         <div className="py-2">
-          <label className="block text-xs text-[#a1a1aa] mb-1.5">comment（可选）</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>
+            <div className="flex items-center gap-0.5 bg-[#27272a] rounded-md p-0.5">
+              <button
+                type="button"
+                onClick={() => setCommentMode('text')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
+                  commentMode === 'text'
+                    ? 'bg-[#52525b] text-[#fafafa]'
+                    : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                }`}
+              >
+                文本
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommentMode('json')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
+                  commentMode === 'json'
+                    ? 'bg-[#52525b] text-[#fafafa]'
+                    : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                }`}
+              >
+                JSON
+              </button>
+            </div>
+          </div>
           <textarea
             value={approvalComment}
             onChange={(e) => setApprovalComment(e.target.value)}
-            placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
+            placeholder={
+              commentMode === 'json'
+                ? '{"score": 8, "note": "ok"}'
+                : approvalAction === 'reject'
+                  ? '建议填写驳回原因（可选）'
+                  : '审批意见（可选）'
+            }
             rows={3}
-            className="w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none"
+            className={`w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none ${commentMode === 'json' ? 'font-mono' : ''}`}
           />
         </div>
       </Modal>

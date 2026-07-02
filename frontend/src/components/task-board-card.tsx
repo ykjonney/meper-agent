@@ -13,7 +13,7 @@
  * - hover 时右上角浮出操作按钮（取消/重试/删除，按状态条件渲染）
  */
 import { useState } from 'react'
-import { Button, Modal, Tag, Tooltip } from 'antd'
+import { Button, Modal, Segmented, Tag, Tooltip, message } from 'antd'
 import {
   CheckOutlined,
   CloseCircleOutlined,
@@ -21,7 +21,7 @@ import {
   RedoOutlined,
   DeleteOutlined,
 } from '@ant-design/icons'
-import type { TaskSummary, NodeProgress, TaskStatusValue } from '../services/tasks-api'
+import type { TaskSummary, NodeProgress, TaskStatusValue, CommentValue } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 
 export interface TaskBoardCardProps {
@@ -32,7 +32,7 @@ export interface TaskBoardCardProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
-  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
+  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -86,10 +86,13 @@ export function TaskBoardCard({
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（显式选择，避免隐式脆弱解析）
+  const [commentMode, setCommentMode] = useState<'text' | 'json'>('text')
 
   const openApproval = (action: 'approve' | 'reject') => {
     setApprovalAction(action)
     setApprovalComment('')
+    setCommentMode('text')
     setApprovalModalOpen(true)
   }
 
@@ -98,11 +101,32 @@ export function TaskBoardCard({
     setApprovalModalOpen(false)
     setApprovalAction(null)
     setApprovalComment('')
+    setCommentMode('text')
   }
 
   const submitApproval = () => {
     if (!approvalAction || interveneLoading) return
-    onApprovalSubmit?.(task, approvalAction, approvalComment)
+    let comment: CommentValue
+    if (commentMode === 'json') {
+      // JSON 模式：解析校验，失败阻断提交
+      const trimmed = approvalComment.trim()
+      if (!trimmed) {
+        // 空内容统一按无 comment 处理（传空字符串让后端归一化为 ""）
+        comment = { type: 'json', value: '' }
+      } else {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(trimmed)
+        } catch (e) {
+          message.error('JSON 格式错误，请检查输入')
+          return
+        }
+        comment = { type: 'json', value: parsed }
+      }
+    } else {
+      comment = { type: 'text', value: approvalComment }
+    }
+    onApprovalSubmit?.(task, approvalAction, comment)
     // Defer closing the modal until the mutation completes; the parent's
     // onSuccess / onError will trigger query invalidation and a re-render with
     // the task no longer in `waiting_human`, which hides the card. The parent
@@ -272,13 +296,30 @@ export function TaskBoardCard({
         destroyOnClose
       >
         <div className="py-2">
-          <label className="block text-sm text-[#0F172A] mb-1.5">comment（可选）</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm text-[#0F172A]">comment（可选）</label>
+            <Segmented
+              size="small"
+              value={commentMode}
+              onChange={(val) => setCommentMode(val as 'text' | 'json')}
+              options={[
+                { label: '文本', value: 'text' },
+                { label: 'JSON', value: 'json' },
+              ]}
+            />
+          </div>
           <textarea
             value={approvalComment}
             onChange={(e) => setApprovalComment(e.target.value)}
-            placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
+            placeholder={
+              commentMode === 'json'
+                ? '{"score": 8, "note": "ok"}'
+                : approvalAction === 'reject'
+                  ? '建议填写驳回原因（可选）'
+                  : '审批意见（可选）'
+            }
             rows={3}
-            className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none"
+            className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none font-mono"
           />
         </div>
       </Modal>

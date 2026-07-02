@@ -45,7 +45,7 @@ export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
   ],
   human: [
     { name: 'decision', label: '审批决定', type: 'string', description: 'approve / reject' },
-    { name: 'comment', label: '审批意见', type: 'string', description: '审批人填写的意见' },
+    { name: 'comment', label: '审批意见', type: 'any', description: '审批意见（文本或结构化数据，JSON 模式下可用 {{node.comment.field}} 钻取）' },
     { name: 'approver', label: '审批人', type: 'string', description: '审批人用户 ID' },
     { name: 'decided_at', label: '审批时间', type: 'string', description: '审批完成时间' },
   ],
