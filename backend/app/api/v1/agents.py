@@ -626,9 +626,10 @@ async def invoke_agent(
 
     system_text = await build_system_prompt(exec_doc)
 
+    # checkpointer 模式:SystemMessage 用固定 id 覆盖,只喂本轮增量
     initial_messages: list = []
     if system_text:
-        initial_messages.append(SystemMessage(content=system_text))
+        initial_messages.append(SystemMessage(content=system_text, id="sys"))
 
     # Build user message with file attachments
     user_content = body.input
@@ -647,6 +648,19 @@ async def invoke_agent(
         pass  # File embedding is best-effort
 
     initial_messages.append({"role": "user", "content": user_content})
+
+    # Load legacy history records (for migration only)
+    legacy_records: list[dict] = []
+    if session_id and settings.MIGRATE_LEGACY_SESSIONS:
+        try:
+            from app.services.session_service import MessageService
+            legacy_records = await MessageService.list_messages(session_id)
+            legacy_records = [
+                r for r in legacy_records
+                if r.get("content") != body.input or r.get("role") != "user"
+            ]
+        except Exception:
+            pass
 
     initial_state = {
         "messages": initial_messages,
@@ -667,6 +681,7 @@ async def invoke_agent(
         result = await run_once(
             exec_doc, initial_state,
             enable_thinking=body.enable_thinking,
+            legacy_records=legacy_records,
         )
     else:
         graph = await build_agent_graph(exec_doc, enable_thinking=body.enable_thinking)
@@ -790,27 +805,28 @@ async def stream_agent(
         """Background task: execute the streaming REACT loop."""
         from app.core.config import settings
 
+        # checkpointer 模式:端点只喂本轮增量(System+User)。
+        # 历史由 checkpointer 从 thread 自动恢复。
+        # SystemMessage 用固定 id="sys" 每轮覆盖(避免非连续 system 累积)。
+        # 老session兼容:MIGRATE_LEGACY_SESSIONS=True 时传 legacy_records 给 run_chat。
         initial_messages_stream: list = []
         if system_text:
-            initial_messages_stream.append(SystemMessage(content=system_text))
+            initial_messages_stream.append(SystemMessage(content=system_text, id="sys"))
 
-        # Load session history so the LLM sees previous turns
-        if session_id:
+        # Load legacy history records (for migration only, not fed to LLM)
+        legacy_records: list[dict] = []
+        if session_id and settings.MIGRATE_LEGACY_SESSIONS:
             try:
-                history_records = await MessageService.list_messages(session_id)
+                legacy_records = await MessageService.list_messages(session_id)
                 # Filter out the message we just added (current user input)
-                history_records = [
-                    r for r in history_records
+                legacy_records = [
+                    r for r in legacy_records
                     if r.get("content") != body.input or r.get("role") != "user"
                 ]
-                history_msgs = await _history_to_langchain_messages(history_records)
-                initial_messages_stream.extend(history_msgs)
             except Exception:
-                pass  # History loading is best-effort
+                pass  # best-effort
 
         # Build user message content — embed uploaded file contents directly
-        # so the agent can see them without needing a separate tool call.
-        # Priority: file_ids (rich metadata) → file_paths (fallback, no ID).
         user_content = body.input
         try:
             if body.file_ids:
@@ -850,6 +866,7 @@ async def stream_agent(
                     exec_doc, initial_state,
                     on_event=_on_event,
                     enable_thinking=body.enable_thinking,
+                    legacy_records=legacy_records,
                 )
             else:
                 result = await run_agent_streaming(

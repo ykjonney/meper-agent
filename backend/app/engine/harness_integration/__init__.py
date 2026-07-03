@@ -305,17 +305,45 @@ def release_harness_context(hctx: dict) -> None:
         reset_workspace_context(hctx["ws_token"])
 
 
+async def _maybe_migrate_legacy(graph, config, legacy_records: list[dict] | None) -> None:
+    """灌入老session历史到 thread(仅当 MIGRATE_LEGACY_SESSIONS 且 thread 空)。
+
+    老session的 MessageRecord 历史被重建为 LangChain messages 并写入 thread
+    checkpoint。之后 thread 非空,后续请求走新路径(只喂增量)。
+    """
+    if not legacy_records:
+        return
+    from app.core.config import settings
+
+    if not settings.MIGRATE_LEGACY_SESSIONS:
+        return
+    # 检查 thread 是否已有 checkpoint
+    state = await graph.aget_state(config)
+    if state.values:  # thread 非空,已迁移过
+        return
+    from app.engine.harness_integration.history import rebuild_messages_from_records
+
+    rebuilt = await rebuild_messages_from_records(legacy_records)
+    if rebuilt:
+        await graph.aupdate_state(config, {"messages": rebuilt})
+
+
 async def run_chat(
     agent: dict,
     state: dict,
     on_event,
     *,
     enable_thinking: bool = False,
+    legacy_records: list[dict] | None = None,
 ) -> dict:
     """装配 + 执行 harness graph,通过 on_event 推送 AppEvent dict。
 
     替换 agents.py stream 端点的执行段。on_event 接收 **dict** 格式的 AppEvent
     (与老引擎一致,ErrorEvent 的 message 已重映射为 content)。
+
+    Args:
+        legacy_records: 老session的 MessageRecord 列表(可选)。当
+            ``MIGRATE_LEGACY_SESSIONS=True`` 且 thread 为空时,首次灌入历史。
 
     Returns:
         含 step_count 的 dict(端点仅用于日志)。
@@ -329,9 +357,6 @@ async def run_chat(
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     try:
         session_id = state.get("session_id", "")
-        # checkpointer 始终启用(默认 MemorySaver,应用层覆盖为 MongoDB)。
-        # 端点只喂本轮增量(System+User),历史由 thread 自动恢复。
-        # SystemMessage 用固定 id="sys" 每轮覆盖,避免非连续 system 累积。
         graph = build_agent_graph(
             hctx["agent_doc"], checkpointer=get_checkpointer(),
             middleware=hctx["middlewares"], tools=hctx["tools"],
@@ -344,6 +369,9 @@ async def run_chat(
             middlewares=hctx["middlewares"],
             thread_id=session_id,
         )
+
+        # 老session兼容:首次访问时灌入历史(thread 空才灌)
+        await _maybe_migrate_legacy(graph, config, legacy_records)
 
         async def _on_event_dict(app_event: AppEvent) -> None:
             data = app_event.model_dump()
@@ -371,6 +399,7 @@ async def run_once(
     *,
     enable_thinking: bool = False,
     workspace: Any | None = None,
+    legacy_records: list[dict] | None = None,
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
@@ -378,6 +407,7 @@ async def run_once(
 
     Args:
         workspace: 可选,workflow agent 节点传入 task workspace。
+        legacy_records: 可选,老session历史(灌入 thread)。
 
     Returns:
         harness graph 执行后的最终 state(含 messages / step_count 等)。
@@ -389,7 +419,6 @@ async def run_once(
     )
     try:
         session_id = state.get("session_id", "")
-        # checkpointer 始终启用,与 run_chat 一致。
         graph = build_agent_graph(
             hctx["agent_doc"], checkpointer=get_checkpointer(),
             middleware=hctx["middlewares"], tools=hctx["tools"],
@@ -402,6 +431,7 @@ async def run_once(
             middlewares=hctx["middlewares"],
             thread_id=session_id,
         )
+        await _maybe_migrate_legacy(graph, config, legacy_records)
         return await graph.ainvoke(state, config=config)
     finally:
         release_harness_context(hctx)

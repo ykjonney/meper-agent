@@ -24,6 +24,7 @@ async def run_agent_streaming_harness(
     state: dict[str, Any],
     on_event: StreamCallback,
     enable_thinking: bool = False,
+    legacy_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """用 harness graph 执行 REACT 循环，通过 on_event 推送 AppEvent dict。
 
@@ -36,6 +37,7 @@ async def run_agent_streaming_harness(
         state: 初始 AgentState（含 messages / session_id / user_id）。
         on_event: 异步回调，接收 **dict** 格式的 AppEvent（与老引擎一致）。
         enable_thinking: 是否启用 LLM 推理模式。
+        legacy_records: 老session历史(可选,灌入 thread)。
 
     Returns:
         含 step_count 的 dict（端点仅用于日志，不依赖返回值拿最终文本）。
@@ -45,6 +47,7 @@ async def run_agent_streaming_harness(
     result = await run_chat(
         agent, state, on_event,
         enable_thinking=enable_thinking,
+        legacy_records=legacy_records,
     )
     logger.info(
         "harness_stream_completed",
