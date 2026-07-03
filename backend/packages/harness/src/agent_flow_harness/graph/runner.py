@@ -69,7 +69,7 @@ def build_config(
     tools: Any | None = None,
     registry: ToolRegistry | None = None,
     middlewares: Any | None = None,
-    recursion_limit: int = 50,
+    recursion_limit: int = 75,
 ) -> dict[str, Any]:
     """Build a ``RunnableConfig`` for the agent graph.
 

@@ -334,7 +334,10 @@ async def run_chat(
         # 若用进程级 checkpointer,它会按 thread_id=session_id 累积历史请求的
         # messages,与端点重建的历史叠加,产生重复/非连续 SystemMessage,触发
         # "Received multiple non-consecutive system messages" 错误。
-        graph = build_agent_graph(hctx["agent_doc"], checkpointer=None)
+        graph = build_agent_graph(
+            hctx["agent_doc"], checkpointer=None,
+            middleware=hctx["middlewares"], tools=hctx["tools"],
+        )
         config = build_config(
             hctx["agent_doc"],
             hctx["llm"],
@@ -390,7 +393,10 @@ async def run_once(
         session_id = state.get("session_id", "")
         # 同 run_chat:端点全量喂历史,checkpointer=None 避免 thread 累积导致
         # 重复/非连续 SystemMessage。
-        graph = build_agent_graph(hctx["agent_doc"], checkpointer=None)
+        graph = build_agent_graph(
+            hctx["agent_doc"], checkpointer=None,
+            middleware=hctx["middlewares"], tools=hctx["tools"],
+        )
         config = build_config(
             hctx["agent_doc"],
             hctx["llm"],

@@ -144,10 +144,18 @@ async def stream_events_to_app_events(
         elif kind == "on_tool_end":
             output = data.get("output")
             tool_name = event.get("name") or "unknown"
+            # Extract content: ToolMessage may stringify with metadata if we
+            # naively str() it; use .content when available.
+            if output is None:
+                content = ""
+            elif hasattr(output, "content"):
+                content = str(output.content)
+            else:
+                content = str(output)
             await on_event(
                 ToolResultEvent(
                     tool_name=tool_name,
-                    content="" if output is None else str(output),
+                    content=content,
                 )
             )
 
