@@ -440,6 +440,60 @@ async def run_once(
         release_harness_context(hctx)
 
 
+async def run_chat_resume(
+    agent: dict,
+    state: dict,
+    on_event,
+    answer: str,
+    *,
+    enable_thinking: bool = False,
+) -> dict:
+    """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。
+
+    与 run_chat 共享装配逻辑,但 astream_events 的输入是
+    ``Command(resume=answer)`` 而非 state。
+    """
+    from langgraph.types import Command
+
+    from agent_flow_harness import build_agent_graph, build_config
+    from agent_flow_harness.adapters import stream_events_to_app_events
+
+    hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    try:
+        session_id = state.get("session_id", "")
+        graph = build_agent_graph(
+            hctx["agent_doc"], checkpointer=get_checkpointer(),
+            middleware=hctx["middlewares"], tools=hctx["tools"],
+        )
+        config = build_config(
+            hctx["agent_doc"],
+            hctx["llm"],
+            tools=hctx["tools"],
+            context_window=hctx["context_window"],
+            middlewares=hctx["middlewares"],
+            thread_id=session_id,
+        )
+
+        async def _on_event_dict(app_event: AppEvent) -> None:
+            data = app_event.model_dump()
+            if data.get("type") == "error":
+                data["content"] = data.pop("message", "")
+            await on_event(data)
+
+        event_stream = graph.astream_events(
+            Command(resume=answer), config=config, version="v2",
+        )
+        await stream_events_to_app_events(
+            event_stream,
+            _on_event_dict,
+            enable_thinking=enable_thinking,
+        )
+    finally:
+        release_harness_context(hctx)
+
+    return {"step_count": 0}
+
+
 async def get_history(session_id: str) -> list[AppEvent]:
     """从 thread 读取历史 messages,转成 AppEvent 列表。
 
@@ -506,5 +560,6 @@ __all__ = [
     "resolve_middleware",
     "resolve_tools",
     "run_chat",
+    "run_chat_resume",
     "run_once",
 ]

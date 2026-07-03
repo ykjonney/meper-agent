@@ -17,6 +17,7 @@ from app.schemas.execution import (
     ExecutionResponse,
     PreviewRequest,
     PreviewResponse,
+    ResumeRequest,
 )
 from app.schemas.user import UserResponse
 from app.services.agent_service import AgentService
@@ -920,6 +921,119 @@ async def stream_agent(
         """SSE generator: yields events from the queue."""
         # Start agent execution in background
         task = asyncio.create_task(_run_agent())
+        try:
+            while True:
+                item = await event_queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Request-Id": request_id,
+            "X-Session-Id": session_id,
+        },
+    )
+
+
+@router.post(
+    "/{agent_id}/resume",
+    summary="Resume an interrupted Agent (SSE stream)",
+    responses={
+        403: {"description": "Forbidden — viewer+ role required"},
+        404: {"description": "Agent not found"},
+    },
+)
+async def resume_agent(
+    agent_id: str,
+    body: ResumeRequest,
+    user: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+):
+    """Resume an agent that was paused via interrupt (ask_clarification).
+
+    Streams the continued execution via SSE, same event format as /stream.
+    """
+    import asyncio
+    import uuid
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services.session_service import MessageService
+
+    exec_doc = await AgentService.get_agent(agent_id)
+    if exec_doc is None:
+        raise NotFoundError(
+            code="AGENT_NOT_FOUND",
+            message=f"Agent {agent_id} 不存在",
+        )
+
+    request_id = str(uuid.uuid4())
+    session_id = body.session_id
+
+    # Persist the user's answer as a user message
+    await MessageService.add_message(
+        session_id=session_id,
+        role="user",
+        content=body.answer,
+    )
+
+    event_queue: asyncio.Queue[str | None] = asyncio.Queue()
+    collected_timeline: list[dict] = []
+
+    async def _on_event(event: dict) -> None:
+        collected_timeline.append(event)
+        await event_queue.put(f"data: {_safe_json(event)}\n\n")
+
+    async def _run_resume():
+        from loguru import logger as _logger
+
+        from app.engine.harness_integration import run_chat_resume
+
+        # Build a minimal state for resolve_harness_context (session/user identity)
+        state = {
+            "messages": [],
+            "agent_id": agent_id,
+            "session_id": session_id,
+            "user_id": user.id,
+        }
+        try:
+            await run_chat_resume(
+                exec_doc, state, _on_event, body.answer,
+                enable_thinking=body.enable_thinking,
+            )
+        except Exception as exc:
+            _logger.error("agent_resume_error", agent_id=agent_id, error=str(exc))
+            _logger.exception("agent_resume_error_traceback")
+            await event_queue.put(
+                f"data: {_safe_json({'type': 'error', 'content': str(exc)})}\n\n"
+            )
+        finally:
+            persistence_timeline = [
+                e for e in collected_timeline
+                if e.get("type") not in ("text_delta", "thinking_delta", "tool_call_start", "interrupt")
+            ]
+            if persistence_timeline:
+                try:
+                    await MessageService.add_message(
+                        session_id=session_id,
+                        role="agent",
+                        timeline_entries=persistence_timeline,
+                    )
+                except Exception as exc:
+                    _logger.error("agent_resume_persist_error", error=str(exc))
+            await event_queue.put(
+                f"data: {_safe_json({'done': True, 'request_id': request_id, 'session_id': session_id})}\n\n"
+            )
+            await event_queue.put(None)
+
+    async def _event_stream():
+        task = asyncio.create_task(_run_resume())
         try:
             while True:
                 item = await event_queue.get()
