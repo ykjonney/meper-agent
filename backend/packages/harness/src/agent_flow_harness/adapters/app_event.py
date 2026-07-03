@@ -85,6 +85,22 @@ class ToolResultEvent(_Base):
     content: str
 
 
+class InterruptEvent(_Base):
+    """Agent paused via ``interrupt()`` and is awaiting a human response.
+
+    Emitted when the graph encounters an ``interrupt()`` call (e.g.
+    ``ask_clarification``). The host should display the question to the user
+    and resume the graph with ``Command(resume=answer)``.
+    """
+
+    type: Literal["interrupt"] = "interrupt"
+    question: str
+    clarification_type: str = "missing_info"
+    context: str | None = None
+    options: list[str] | None = None
+    interrupt_id: str = ""
+
+
 class ErrorEvent(_Base):
     """A terminal error from the LLM, a tool, or the graph itself."""
 
@@ -101,6 +117,7 @@ AppEvent = Union[
     ToolCallStartEvent,
     ToolCallEvent,
     ToolResultEvent,
+    InterruptEvent,
     ErrorEvent,
 ]
 """Discriminated union of all application-layer events."""
@@ -109,6 +126,7 @@ AppEvent = Union[
 __all__ = [
     "AppEvent",
     "ErrorEvent",
+    "InterruptEvent",
     "TextDeltaEvent",
     "TextEvent",
     "ThinkingDeltaEvent",

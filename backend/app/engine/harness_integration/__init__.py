@@ -178,6 +178,9 @@ async def resolve_harness_context(
         for name in ("bash", "read", "write", "glob", "grep")
         if name in BUILTIN_TOOLS
     ]
+    # ask_clarification: agent 中途追问用户(interrupt),需要 checkpointer 支持
+    if "ask_clarification" in BUILTIN_TOOLS:
+        harness_file_tools.append(BUILTIN_TOOLS["ask_clarification"])
     backend_only_tools = [
         t for t in ctx.tools
         if getattr(t, "name", "") not in _BACKEND_BUILTIN_TOOLS_TO_REPLACE

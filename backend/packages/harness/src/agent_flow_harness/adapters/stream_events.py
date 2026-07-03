@@ -25,6 +25,7 @@ import structlog
 
 from agent_flow_harness.adapters.app_event import (
     ErrorEvent,
+    InterruptEvent,
     TextDeltaEvent,
     TextEvent,
     ThinkingDeltaEvent,
@@ -168,6 +169,25 @@ async def stream_events_to_app_events(
             await on_event(
                 ErrorEvent(message=_error_message(data), source="tool")
             )
+
+        elif kind == "on_chain_end":
+            # Detect graph-level interrupt (ask_clarification etc.).
+            # LangGraph surfaces an interrupt as a top-level on_chain_end
+            # whose output dict carries a ``__interrupt__`` key.
+            output = data.get("output")
+            if isinstance(output, dict):
+                interrupts = output.get("__interrupt__")
+                if interrupts:
+                    for intr in interrupts:
+                        payload = getattr(intr, "value", intr) or {}
+                        if isinstance(payload, dict):
+                            await on_event(InterruptEvent(
+                                question=payload.get("question", ""),
+                                clarification_type=payload.get("type", "missing_info"),
+                                context=payload.get("context"),
+                                options=payload.get("options"),
+                                interrupt_id=getattr(intr, "id", "") or "",
+                            ))
 
 
 # ---------------------------------------------------------------------------
