@@ -329,13 +329,11 @@ async def run_chat(
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     try:
         session_id = state.get("session_id", "")
-        # 端点每次请求已全量重建历史 messages 喂入 state(经 MessageService +
-        # _history_to_langchain_messages),因此 graph 跑无状态模式(checkpointer=None)。
-        # 若用进程级 checkpointer,它会按 thread_id=session_id 累积历史请求的
-        # messages,与端点重建的历史叠加,产生重复/非连续 SystemMessage,触发
-        # "Received multiple non-consecutive system messages" 错误。
+        # checkpointer 始终启用(默认 MemorySaver,应用层覆盖为 MongoDB)。
+        # 端点只喂本轮增量(System+User),历史由 thread 自动恢复。
+        # SystemMessage 用固定 id="sys" 每轮覆盖,避免非连续 system 累积。
         graph = build_agent_graph(
-            hctx["agent_doc"], checkpointer=None,
+            hctx["agent_doc"], checkpointer=get_checkpointer(),
             middleware=hctx["middlewares"], tools=hctx["tools"],
         )
         config = build_config(
@@ -391,10 +389,9 @@ async def run_once(
     )
     try:
         session_id = state.get("session_id", "")
-        # 同 run_chat:端点全量喂历史,checkpointer=None 避免 thread 累积导致
-        # 重复/非连续 SystemMessage。
+        # checkpointer 始终启用,与 run_chat 一致。
         graph = build_agent_graph(
-            hctx["agent_doc"], checkpointer=None,
+            hctx["agent_doc"], checkpointer=get_checkpointer(),
             middleware=hctx["middlewares"], tools=hctx["tools"],
         )
         config = build_config(

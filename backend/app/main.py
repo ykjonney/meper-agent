@@ -22,6 +22,20 @@ setup_logging()
 async def lifespan(app: FastAPI):
     """Manage startup/shutdown lifecycle for external connections."""
     # Startup: connections are lazy-initialized on first use
+    # Configure harness checkpointer with MongoDB (overrides the default
+    # MemorySaver) so thread state persists across restarts.
+    try:
+        from agent_flow_harness import build_mongo_saver, configure_checkpointer
+        from app.db.mongodb import get_mongodb_client
+
+        saver = build_mongo_saver(
+            client=get_mongodb_client().delegate,
+            db_name=settings.MONGODB_DB_NAME,
+        )
+        configure_checkpointer(saver, overwrite=True)
+    except Exception:
+        pass  # Fall back to harness default MemorySaver
+
     # Start the Task scheduler for timed/scheduled workflow execution
     scheduler = get_scheduler()
     await scheduler.start()
