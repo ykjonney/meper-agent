@@ -251,10 +251,13 @@ async def _history_to_langchain_messages(records: list[dict]) -> list:
                             "id": tc.get("id", "") or f"call_{j}",
                         })
                         j += 1
-                    result.append(AIMessage(
-                        content=text_content,
-                        tool_calls=tool_calls or None,
-                    ))
+                    if tool_calls:
+                        result.append(AIMessage(
+                            content=text_content,
+                            tool_calls=tool_calls,
+                        ))
+                    else:
+                        result.append(AIMessage(content=text_content))
                     i = j
                 elif etype == "tool_call":
                     # tool_call not preceded by text — still emit a merged
