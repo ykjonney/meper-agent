@@ -2,23 +2,57 @@
  * WorkflowNodePalette — 左侧拖拽节点面板。
  *
  * Dify 风格：列出所有可添加的节点类型，支持拖拽到 canvas。
- * 每个节点显示为带彩色图标的卡片。
+ * 展开态：彩色图标 + 名称 + 描述卡片。
+ * 收缩态：仅彩色图标（垂直），hover 出 Tooltip 显示名称+描述。
+ * 外层背景/边框由父容器提供，本组件只负责内容。
  */
 import type { DragEvent } from 'react'
+import { Tooltip } from '../../components/ui'
 import { NODE_TYPE_CONFIGS, NODE_TYPE_KEYS } from './utils/node-type-configs'
 
 /* ─── Drag data key ─── */
 export const DRAG_NODE_TYPE_KEY = 'application/x-workflow-node-type'
 
-export default function WorkflowNodePalette() {
+interface WorkflowNodePaletteProps {
+  /** 收缩态：仅显示图标列 + Tooltip。 */
+  collapsed?: boolean
+}
+
+export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodePaletteProps) {
   const handleDragStart = (e: DragEvent<HTMLDivElement>, type: string) => {
     e.dataTransfer.setData(DRAG_NODE_TYPE_KEY, type)
     e.dataTransfer.effectAllowed = 'copy'
   }
 
+  // 收缩态：窄列，仅图标，Tooltip 补全名称/描述
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-1 py-2">
+        {NODE_TYPE_KEYS.map((type) => {
+          const cfg = NODE_TYPE_CONFIGS[type]
+          return (
+            <Tooltip key={type} title={`${cfg.label}：${cfg.description}`}>
+              <div
+                draggable
+                onDragStart={(e) => handleDragStart(e, type)}
+                className="w-9 h-9 flex items-center justify-center rounded-md cursor-grab active:cursor-grabbing hover:bg-[#1E5EFF]/10 transition-colors"
+              >
+                <span
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-xs"
+                  style={{ color: cfg.color, backgroundColor: cfg.bg }}
+                >
+                  {cfg.icon}
+                </span>
+              </div>
+            </Tooltip>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-[#18181b] border-r border-[#27272a] p-3 overflow-y-auto">
-      <div className="text-xs font-medium text-[#fafafa] mb-3">节点类型</div>
+    <div className="p-3 overflow-y-auto scrollbar-custom">
       <div className="space-y-1.5">
         {NODE_TYPE_KEYS.map((type) => {
           const cfg = NODE_TYPE_CONFIGS[type]

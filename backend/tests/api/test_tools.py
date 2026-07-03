@@ -223,6 +223,81 @@ class TestUploadTools:
         assert len(data["errors"]) == 1
         assert data["errors"][0]["filename"] == "bad.md"
 
+    def test_upload_directory_success(self, client: TestClient, auth_admin):
+        """Directory mode: files grouped by dir prefix → one tool via
+        create_tool_from_directory."""
+        from app.engine.tool.skill_parser import (
+            ParsedSkill,
+            ParsedSkillDirectory,
+            SkillFileEntry,
+        )
+
+        parsed_dir = ParsedSkillDirectory(
+            parsed=ParsedSkill(name="my-skill", description="d", instructions="# Body"),
+            files=[SkillFileEntry(path="SKILL.md", content="x", size=1)],
+        )
+        with (
+            patch("app.engine.tool.skill_parser.parse_skill_directory", return_value=parsed_dir) as mock_parse,
+            patch.object(ToolService, "create_tool_from_directory", new_callable=AsyncMock) as mock_create,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
+        ):
+            mock_create.return_value = _fake_doc(name="my-skill")
+            resp = client.post(
+                "/api/v1/tools/upload",
+                files=[
+                    ("files", ("my-skill/SKILL.md", _VALID_SKILL_MD, "text/markdown")),
+                    ("files", ("my-skill/steps/step.md", _VALID_SKILL_MD, "text/markdown")),
+                ],
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert len(data["created"]) == 1
+        assert len(data["errors"]) == 0
+        # Directory mode: both files passed as one valid_files map, dir_name tagged
+        valid_files = mock_parse.call_args.args[0]
+        assert "my-skill/SKILL.md" in valid_files
+        assert "my-skill/steps/step.md" in valid_files
+        assert mock_create.call_args.args[1] == "my-skill"
+
+    def test_upload_directory_skips_binary(self, client: TestClient, auth_admin):
+        """A binary file in the dir is skipped (decode error) without failing
+        the whole directory; remaining text files still create the tool."""
+        from app.engine.tool.skill_parser import (
+            ParsedSkill,
+            ParsedSkillDirectory,
+            SkillFileEntry,
+        )
+
+        parsed_dir = ParsedSkillDirectory(
+            parsed=ParsedSkill(name="my-skill", description="d", instructions="# Body"),
+            files=[SkillFileEntry(path="SKILL.md", content="x", size=1)],
+        )
+        binary = b"\x89PNG\r\n\x1a\n\x00\x00\x00"
+        with (
+            patch("app.engine.tool.skill_parser.parse_skill_directory", return_value=parsed_dir) as mock_parse,
+            patch.object(ToolService, "create_tool_from_directory", new_callable=AsyncMock) as mock_create,
+            patch("app.api.v1.tools.list_skill_files", return_value=[]),
+        ):
+            mock_create.return_value = _fake_doc(name="my-skill")
+            resp = client.post(
+                "/api/v1/tools/upload",
+                files=[
+                    ("files", ("my-skill/SKILL.md", _VALID_SKILL_MD, "text/markdown")),
+                    ("files", ("my-skill/logo.png", binary, "image/png")),
+                ],
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert len(data["created"]) == 1  # SKILL.md still created
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["filename"] == "my-skill/logo.png"
+        # Binary file was separated out before parsing
+        valid_files = mock_parse.call_args.args[0]
+        assert "my-skill/SKILL.md" in valid_files
+        assert "my-skill/logo.png" not in valid_files
+
     def test_upload_no_auth(self, client: TestClient):
         resp = client.post(
             "/api/v1/tools/upload",
