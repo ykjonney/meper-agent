@@ -11,8 +11,8 @@ Public surface:
 from agent_flow_harness.adapters.app_event import (
     AppEvent,
     ErrorEvent,
-    FinalAnswerDeltaEvent,
-    FinalAnswerEvent,
+    TextDeltaEvent,
+    TextEvent,
     ThinkingDeltaEvent,
     ThinkingEvent,
     ToolCallEvent,
@@ -28,9 +28,9 @@ from agent_flow_harness.adapters.stream_events import (
 __all__ = [
     "AppEvent",
     "ErrorEvent",
-    "FinalAnswerDeltaEvent",
-    "FinalAnswerEvent",
     "OnEventCallback",
+    "TextDeltaEvent",
+    "TextEvent",
     "ThinkingDeltaEvent",
     "ThinkingEvent",
     "ToolCallEvent",

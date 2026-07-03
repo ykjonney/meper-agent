@@ -22,7 +22,7 @@ export interface MessageRecord {
   _id: string
   session_id: string
   role: 'user' | 'agent'
-  content: string
+  content?: string
   /** Structured timeline events stored in agent messages */
   timeline_entries: TimelineEntryData[]
   /** File IDs attached to this message */
@@ -55,7 +55,7 @@ export interface ChatFileUploadResponse {
 }
 
 export interface TimelineEntryData {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'tool' | 'final_answer'
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'tool' | 'text'
   content?: string
   tool_name?: string
   args?: Record<string, unknown>

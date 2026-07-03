@@ -160,7 +160,7 @@ class MessageService:
     async def add_message(
         session_id: str,
         role: str,
-        content: str,
+        content: str = "",
         timeline_entries: list[dict] | None = None,
         file_ids: list[str] | None = None,
     ) -> dict:
@@ -169,7 +169,8 @@ class MessageService:
         Args:
             session_id: Parent session ID.
             role: 'user' or 'agent'.
-            content: Message text.
+            content: Message text (user messages). Agent messages omit this
+                and store text in ``timeline_entries`` instead.
             timeline_entries: Structured timeline events (for agent messages).
             file_ids: Associated FileRef IDs for uploaded attachments.
 
@@ -183,15 +184,19 @@ class MessageService:
             timeline_entries=timeline_entries or [],
             file_ids=file_ids or [],
         )
+        # Agent messages do not store a top-level ``content`` field — their
+        # text lives inside ``timeline_entries`` (type="text" entries). Omit
+        # the key entirely so agent docs have no content field at all.
         doc = {
             "_id": msg.id,
             "session_id": msg.session_id,
             "role": msg.role,
-            "content": msg.content,
             "timeline_entries": msg.timeline_entries,
             "file_ids": msg.file_ids,
             "created_at": msg.created_at,
         }
+        if role == "user":
+            doc["content"] = msg.content
 
         await MessageService._collection().insert_one(doc)
 

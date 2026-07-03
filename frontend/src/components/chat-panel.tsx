@@ -55,7 +55,7 @@ import TaskResultCard, { type TaskResult } from './task-result-card'
 
 /* ─── Types ─── */
 
-export type TimelineEntryType = 'thinking' | 'tool' | 'final_answer' | 'error'
+export type TimelineEntryType = 'thinking' | 'tool' | 'text' | 'error'
 
 export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
 
@@ -185,8 +185,8 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       })
     } else if (e.type === 'thinking') {
       result.push({ id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' })
-    } else if (e.type === 'final_answer') {
-      result.push({ id: `h-fa-${i}`, type: 'final_answer', content: e.content ?? '' })
+    } else if (e.type === 'text') {
+      result.push({ id: `h-fa-${i}`, type: 'text', content: e.content ?? '' })
     } else if (e.type === 'tool_call_start') {
       // Transient streaming event — skip in history (no UI representation needed)
     } else {
@@ -273,10 +273,10 @@ export default function ChatPanel({
         if (m.id !== agentMsgId) return m
         const tl = [...(m.timeline ?? [])]
         const existingId = textEntryIdRef.current
-        if (existingId && tl.length > 0 && tl[tl.length - 1].id === existingId && tl[tl.length - 1].type === 'final_answer') {
+        if (existingId && tl.length > 0 && tl[tl.length - 1].id === existingId && tl[tl.length - 1].type === 'text') {
           // Fast path: ref matches last entry — append directly
           tl[tl.length - 1] = { ...tl[tl.length - 1], content: tl[tl.length - 1].content + delta }
-        } else if (textStartedRef.current && tl.length > 0 && tl[tl.length - 1].type === 'final_answer') {
+        } else if (textStartedRef.current && tl.length > 0 && tl[tl.length - 1].type === 'text') {
           // Same LLM output phase (no tool_call in between) — merge into last text entry
           const lastIdx = tl.length - 1
           tl[lastIdx] = { ...tl[lastIdx], content: tl[lastIdx].content + delta }
@@ -284,7 +284,7 @@ export default function ChatPanel({
         } else {
           // Genuinely new text block (first delta, or after tool_call)
           const newId = generateId()
-          tl.push({ id: newId, type: 'final_answer', content: delta })
+          tl.push({ id: newId, type: 'text', content: delta })
           textEntryIdRef.current = newId
           textStartedRef.current = true
         }
@@ -584,7 +584,7 @@ export default function ChatPanel({
               const eventType = (event as { type: string }).type
 
               // Token-level streaming: batch delta text via RAF
-              if (eventType === 'final_answer_delta') {
+              if (eventType === 'text_delta') {
                 const delta = (event as { content: string }).content
                 appendDelta(agentMsgId, delta)
               } else if (eventType === 'error') {
@@ -926,8 +926,8 @@ export default function ChatPanel({
                   </div>
                 )}
 
-                {/* Agent message — always show when there is content or timeline */}
-                {msg.role === 'agent' && (msg.content || (msg.timeline && msg.timeline.length > 0)) && (
+                {/* Agent message — show when there is a timeline to render */}
+                {msg.role === 'agent' && msg.timeline && msg.timeline.length > 0 && (
                   <div className="flex items-start gap-3">
                     <Avatar
                       size={32}
@@ -939,7 +939,7 @@ export default function ChatPanel({
                         {/* Render ALL entries (text, tools, thinking) in chronological order */}
                         {msg.timeline && msg.timeline.length > 0 && msg.timeline.map((entry, idx) => {
                           const isLast = idx === msg.timeline!.length - 1
-                          if (entry.type === 'final_answer') {
+                          if (entry.type === 'text') {
                             return (
                               <div key={entry.id} className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
                                 <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
@@ -962,14 +962,6 @@ export default function ChatPanel({
                             />
                           )
                         })}
-                        {/* Backward compat: render msg.content for old messages without final_answer in timeline */}
-                        {msg.content && (!msg.timeline || !msg.timeline.some((e) => e.type === 'final_answer')) && (
-                          <div className="rounded-xl rounded-tl-sm px-4 py-2.5 bg-[#F8FAFC] border border-gray-100">
-                            <div className="text-sm leading-relaxed text-[#0F172A] whitespace-pre-wrap">
-                              {msg.content}
-                            </div>
-                          </div>
-                        )}
                       </div>
                       <div className="text-[10px] text-[#94A3B8] mt-2">{msg.time}</div>
                     </div>
@@ -978,11 +970,10 @@ export default function ChatPanel({
               </div>
             ))}
 
-            {/* Streaming indicator — show when last agent message has no content yet */}
+            {/* Streaming indicator — show when last agent message has no timeline yet */}
             {isStreaming &&
               messages.length > 0 &&
               messages[messages.length - 1].role === 'agent' &&
-              !messages[messages.length - 1].content &&
               !messages[messages.length - 1].timeline?.length && (
                 <div className="flex items-start gap-3">
                   <Avatar

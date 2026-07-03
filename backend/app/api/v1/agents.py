@@ -193,9 +193,17 @@ async def _render_files_by_paths(
 async def _history_to_langchain_messages(records: list[dict]) -> list:
     """Convert persisted session messages to LangChain message objects.
 
-    Reconstructs tool_call → tool_result → final_answer sequences from
-    ``timeline_entries`` so the LLM sees full multi-turn context including
-    previous tool invocations and workflow previews.
+    Reconstructs the LangChain message sequence from ``timeline_entries``
+    so the LLM sees full multi-turn context including previous tool
+    invocations and workflow previews.
+
+    **Merging rule**: a ``text`` block and the ``tool_call``(s) immediately
+    following it belong to the same LLM call and are merged into **one**
+    ``AIMessage(content=text, tool_calls=[...])``. This matches how the
+    REACT loop actually executes — a single LLM response can carry both
+    text and tool calls. Splitting them into separate AIMessages (as the
+    old implementation did) violates the message structure expected by
+    Anthropic-compatible endpoints.
 
     For user messages with ``file_ids``, the file content is re-injected
     into the message so the LLM retains context across turns.
@@ -203,7 +211,6 @@ async def _history_to_langchain_messages(records: list[dict]) -> list:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     result: list = []
-    call_idx = 0
 
     for record in records:
         role = record.get("role", "")
@@ -223,41 +230,60 @@ async def _history_to_langchain_messages(records: list[dict]) -> list:
             if content:
                 result.append(HumanMessage(content=content))
         elif role == "agent":
-            if not timeline:
-                # Plain text-only response (before timeline support)
-                if content:
-                    result.append(AIMessage(content=content))
-                continue
-
-            # Reconstruct from timeline entries in order
-            for entry in timeline:
+            # Walk the timeline entries, merging text + adjacent tool_calls
+            # into a single AIMessage per LLM call.
+            i = 0
+            while i < len(timeline):
+                entry = timeline[i]
                 etype = entry.get("type", "")
-                if etype == "tool_call":
-                    call_idx += 1
-                    tid = f"history_call_{call_idx}"
-                    result.append(
-                        AIMessage(
-                            content="",
-                            tool_calls=[{
-                                "name": entry.get("tool_name", ""),
-                                "args": entry.get("args", {}),
-                                "id": tid,
-                            }],
-                        )
-                    )
+
+                if etype == "text":
+                    # Start a new AIMessage with this text, then absorb any
+                    # immediately-following tool_call entries.
+                    text_content = entry.get("content", "")
+                    tool_calls: list[dict] = []
+                    j = i + 1
+                    while j < len(timeline) and timeline[j].get("type") == "tool_call":
+                        tc = timeline[j]
+                        tool_calls.append({
+                            "name": tc.get("tool_name", ""),
+                            "args": tc.get("args", {}),
+                            "id": tc.get("id", "") or f"call_{j}",
+                        })
+                        j += 1
+                    result.append(AIMessage(
+                        content=text_content,
+                        tool_calls=tool_calls or None,
+                    ))
+                    i = j
+                elif etype == "tool_call":
+                    # tool_call not preceded by text — still emit a merged
+                    # AIMessage (content="", tool_calls=[...]).
+                    tool_calls = [{
+                        "name": entry.get("tool_name", ""),
+                        "args": entry.get("args", {}),
+                        "id": entry.get("id", "") or f"call_{i}",
+                    }]
+                    j = i + 1
+                    while j < len(timeline) and timeline[j].get("type") == "tool_call":
+                        tc = timeline[j]
+                        tool_calls.append({
+                            "name": tc.get("tool_name", ""),
+                            "args": tc.get("args", {}),
+                            "id": tc.get("id", "") or f"call_{j}",
+                        })
+                        j += 1
+                    result.append(AIMessage(content="", tool_calls=tool_calls))
+                    i = j
                 elif etype == "tool_result":
-                    tid = f"history_call_{call_idx}"
-                    result.append(
-                        ToolMessage(
-                            content=entry.get("content", ""),
-                            tool_call_id=tid,
-                        )
-                    )
-                elif etype == "final_answer":
-                    result.append(
-                        AIMessage(content=entry.get("content", ""))
-                    )
-                # thinking entries are skipped — they're informational only
+                    result.append(ToolMessage(
+                        content=entry.get("content", ""),
+                        tool_call_id=entry.get("id", "") or f"call_{i}",
+                    ))
+                    i += 1
+                else:
+                    # thinking / unknown — skip (not reconstructed for LLM).
+                    i += 1
 
     return result
 
@@ -644,10 +670,11 @@ async def invoke_agent(
         config = {"configurable": {"thread_id": session_id}}
         result = await graph.ainvoke(initial_state, config=config)
 
-    # Extract the final answer text from the last AIMessage
+    # Extract the final answer text from the last AIMessage (for the HTTP
+    # response only — agent messages no longer store a top-level content).
     output_text = _extract_final_answer(result.get("messages", []))
 
-    # Persist the agent message (text + structured timeline events)
+    # Persist the agent message — full trace in timeline_entries, no content.
     timeline_entries = _messages_to_timeline_entries(
         result.get("messages", []),
         enable_thinking=body.enable_thinking,
@@ -655,7 +682,6 @@ async def invoke_agent(
     await MessageService.add_message(
         session_id=session_id,
         role="agent",
-        content=output_text,
         timeline_entries=timeline_entries,
     )
 
@@ -748,19 +774,13 @@ async def stream_agent(
 
     event_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-    # Accumulate events for message persistence
+    # Accumulate events for message persistence (agent messages store their
+    # full execution trace in timeline_entries — no top-level content field).
     collected_timeline: list[dict] = []
-    collected_text_parts: list[str] = []
 
     async def _on_event(event: dict) -> None:
         """Callback: push REACT executor events to the SSE queue."""
         collected_timeline.append(event)
-        if event.get("type") == "final_answer_delta":
-            collected_text_parts.append(event.get("content", ""))
-        elif event.get("type") == "final_answer":
-            # Final answer not collected as text (already in deltas) but
-            # kept in timeline for non-streaming clients / history replay
-            pass
         await event_queue.put(f"data: {_safe_json(event)}\n\n")
 
     async def _run_agent():
@@ -853,19 +873,19 @@ async def stream_agent(
                 f"data: {_safe_json({'type': 'error', 'content': str(exc)})}\n\n"
             )
         finally:
-            # Persist the agent message
-            agent_text = "".join(collected_text_parts) if collected_text_parts else ""
-            # Deduplicate timeline: keep only consolidated events (not deltas)
+            # Persist the agent message — no top-level content; the full
+            # execution trace (text blocks, tool calls, thinking) is stored
+            # in timeline_entries. Delta/start events are transient and
+            # filtered out before persistence.
             persistence_timeline = [
                 e for e in collected_timeline
-                if e.get("type") not in ("final_answer_delta", "thinking_delta", "tool_call_start")
+                if e.get("type") not in ("text_delta", "thinking_delta", "tool_call_start")
             ]
-            if agent_text or persistence_timeline:
+            if persistence_timeline:
                 try:
                     await MessageService.add_message(
                         session_id=session_id,
                         role="agent",
-                        content=agent_text,
                         timeline_entries=persistence_timeline,
                     )
                 except Exception as exc:
@@ -961,26 +981,21 @@ def _messages_to_sse_events(
             for t in thinking_parts:
                 events.append({"type": "thinking", "content": t})
 
+            # Text block — emitted before tool calls (matches REACT semantics:
+            # the LLM produces text + tool_calls in a single AIMessage).
+            if text_parts:
+                events.append({"type": "text", "content": "\n".join(text_parts)})
+            elif isinstance(msg.content, str) and msg.content.strip() and not msg.tool_calls:
+                events.append({"type": "text", "content": msg.content})
+
             if msg.tool_calls:
                 for tc in msg.tool_calls:
                     events.append({
                         "type": "tool_call",
                         "tool_name": tc.get("name", ""),
                         "args": tc.get("args", {}),
+                        "id": tc.get("id", ""),
                     })
-
-            if msg.tool_calls:
-                pass
-            elif text_parts:
-                events.append({
-                    "type": "final_answer",
-                    "content": "\n".join(text_parts),
-                })
-            elif isinstance(msg.content, str) and msg.content.strip():
-                events.append({
-                    "type": "final_answer",
-                    "content": msg.content,
-                })
 
         elif isinstance(msg, ToolMessage):
             events.append({

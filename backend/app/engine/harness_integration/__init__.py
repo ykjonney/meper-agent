@@ -433,8 +433,8 @@ def app_event_to_timeline_entry(event: AppEvent) -> dict:
     if t == "tool_result":
         return {"type": "tool_result", "tool_name": data.get("tool_name"),
                 "content": data.get("content", "")}
-    if t == "final_answer":
-        return {"type": "final_answer", "content": data.get("content", "")}
+    if t == "text":
+        return {"type": "text", "content": data.get("content", "")}
     if t == "thinking":
         return {"type": "thinking", "content": data.get("content", "")}
     # 兜底:原样返回
@@ -448,17 +448,12 @@ def app_events_to_message(
 ) -> dict:
     """AppEvent 列表 → MessageRecord 形状(兼容前端 historyToMessages)。
 
-    把 events 经 app_event_to_timeline_entry 转成 timeline_entries,
-    并提取最后一个 final_answer 的 content 作为消息正文。
+    把 events 经 app_event_to_timeline_entry 转成 timeline_entries。
+    agent 消息不再存 content 字段(正文只在 timeline 的 text 条目里);
+    user 消息正文在顶层 content。
     """
     timeline = [app_event_to_timeline_entry(e) for e in events]
-    content = ""
-    for e in reversed(events):
-        data = e.model_dump() if hasattr(e, "model_dump") else dict(e)
-        if data.get("type") == "final_answer":
-            content = data.get("content", "")
-            break
-    return {"role": role, "content": content, "timeline_entries": timeline}
+    return {"role": role, "timeline_entries": timeline}
 
 
 

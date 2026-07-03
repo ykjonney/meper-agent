@@ -801,13 +801,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
             }
             break;
           }
-          case 'final_answer_delta':
+          case 'text_delta':
             finalText += evt.content;
             setLiveMessages((prev) =>
               updateMsg(prev, agentMsgId, { status: undefined, content: finalText }),
             );
             break;
-          case 'final_answer':
+          case 'text':
             finalText = evt.content;
             setLiveMessages((prev) =>
               updateMsg(prev, agentMsgId, { status: undefined, content: finalText }),
@@ -819,7 +819,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
             break;
         }
       }
-      // If the stream ended without a final_answer, show whatever accumulated.
+      // If the stream ended without a text block, show whatever accumulated.
       setLiveMessages((prev) =>
         updateMsg(prev, agentMsgId, {
           status: undefined,

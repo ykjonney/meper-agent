@@ -36,17 +36,29 @@ class ThinkingEvent(_Base):
     content: str
 
 
-class FinalAnswerDeltaEvent(_Base):
-    """Incremental answer token streamed from the LLM."""
+class TextDeltaEvent(_Base):
+    """Incremental text token streamed from the LLM.
 
-    type: Literal["final_answer_delta"] = "final_answer_delta"
+    Each delta is a small fragment of the assistant text produced during a
+    single LLM output phase (one ``on_chat_model_stream`` chunk). The host
+    concatenates them to reconstruct the full text block for display.
+    """
+
+    type: Literal["text_delta"] = "text_delta"
     content: str
 
 
-class FinalAnswerEvent(_Base):
-    """Complete answer text (or persisted intermediate text before tool calls)."""
+class TextEvent(_Base):
+    """Complete text block emitted once at ``on_chat_model_end``.
 
-    type: Literal["final_answer"] = "final_answer"
+    A single LLM call may produce text before/without tool calls; this event
+    carries that complete text. The name ``text`` (rather than
+    ``final_answer``) reflects that the content is any assistant text block —
+    a transitional remark before a tool call, a post-tool summary, or the
+    terminal answer — not necessarily the final reply.
+    """
+
+    type: Literal["text"] = "text"
     content: str
 
 
@@ -84,8 +96,8 @@ class ErrorEvent(_Base):
 AppEvent = Union[
     ThinkingDeltaEvent,
     ThinkingEvent,
-    FinalAnswerDeltaEvent,
-    FinalAnswerEvent,
+    TextDeltaEvent,
+    TextEvent,
     ToolCallStartEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -97,8 +109,8 @@ AppEvent = Union[
 __all__ = [
     "AppEvent",
     "ErrorEvent",
-    "FinalAnswerDeltaEvent",
-    "FinalAnswerEvent",
+    "TextDeltaEvent",
+    "TextEvent",
     "ThinkingDeltaEvent",
     "ThinkingEvent",
     "ToolCallEvent",

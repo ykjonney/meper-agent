@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agent_flow_harness.adapters.app_event import (
-    FinalAnswerEvent,
+    TextEvent,
     ThinkingEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -49,16 +49,16 @@ def messages_to_app_events(
     Reconstruction rules (symmetric with ``stream_events_to_app_events``):
 
     * ``HumanMessage`` → no event (it is a turn separator).
-    * ``AIMessage`` with text **and** ``tool_calls`` → ``FinalAnswerEvent``
+    * ``AIMessage`` with text **and** ``tool_calls`` → ``TextEvent``
       (intermediate text persisted) followed by one ``ToolCallEvent`` per call.
     * ``AIMessage`` with only ``tool_calls`` → one ``ToolCallEvent`` per call.
-    * ``AIMessage`` with only text → ``FinalAnswerEvent`` (the final answer).
+    * ``AIMessage`` with only text → ``TextEvent`` (the final answer).
     * ``AIMessage`` with thinking blocks (``enable_thinking``) →
       ``ThinkingEvent`` (full reasoning, emitted before the answer).
     * ``ToolMessage`` → ``ToolResultEvent``.
 
     Events that are **never** reconstructed (purely streaming/transient):
-    ``tool_call_start``, ``thinking_delta``, ``final_answer_delta``, ``error``.
+    ``tool_call_start``, ``thinking_delta``, ``text_delta``, ``error``.
 
     Args:
         messages: The ``messages`` list from a thread checkpoint state.
@@ -103,12 +103,12 @@ def _emit_ai_message(
         if reasoning:
             events.append(ThinkingEvent(content=reasoning))
 
-    # 2. Final answer — emitted whenever there is text content, *including*
+    # 2. Text — emitted whenever there is text content, *including*
     #    the "intermediate text persisted" case (content + tool_calls), so the
     #    output matches stream_events_to_app_events exactly.
     text = _extract_text_content(msg)
     if text:
-        events.append(FinalAnswerEvent(content=text))
+        events.append(TextEvent(content=text))
 
     # 3. One tool_call per resolved call.
     for j, tc in enumerate(_iter_tool_calls(msg)):
