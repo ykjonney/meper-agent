@@ -1,6 +1,6 @@
-import { useState, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Compass } from 'lucide-react';
+import { Search, Compass, FolderUp } from 'lucide-react';
 import { toolsApi, toolKeys } from '../services/tools-api';
 import { toStudioSkill } from '../services/adapters';
 import type { Skill } from '../types';
@@ -31,6 +31,17 @@ export function SkillsStore({ onOpenSkill }: { onOpenSkill?: (skill: Skill) => v
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Folder-upload input: webkitdirectory is a non-standard attribute, so set
+  // it via ref on mount (avoids TS gaps + React unknown-attribute warnings).
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (el) {
+      el.setAttribute('webkitdirectory', '');
+      el.setAttribute('directory', '');
+    }
+  }, []);
+
   // Client-side store metadata (gap). Reset on remount; keyed by tool id.
   const [clientMeta, setClientMeta] = useState<Record<string, ClientMeta>>({});
   const setMeta = (id: string, patch: Partial<ClientMeta>) =>
@@ -51,7 +62,7 @@ export function SkillsStore({ onOpenSkill }: { onOpenSkill?: (skill: Skill) => v
     mutationFn: (files: File[]) => toolsApi.upload(files),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: toolKeys.all });
-      setNotice(`已上传 ${res.created.length} 个 Skill 文件${res.errors.length ? `（${res.errors.length} 个失败）` : ''}`);
+      setNotice(`已上传 ${res.created.length} 个 Skill${res.errors.length ? `（${res.errors.length} 项跳过/失败）` : ''}`);
       setError(null);
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : '上传失败'),
@@ -97,6 +108,11 @@ export function SkillsStore({ onOpenSkill }: { onOpenSkill?: (skill: Skill) => v
           <label className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow transition cursor-pointer flex items-center gap-1">
             上传 Markdown Skill
             <input type="file" accept=".md,.markdown" multiple className="hidden" onChange={handleUpload} />
+          </label>
+          <label className="px-3 py-1.5 text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded-xl shadow transition cursor-pointer flex items-center gap-1">
+            <FolderUp className="w-3.5 h-3.5" />
+            上传 Skill 文件夹
+            <input ref={folderInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
           </label>
           <div className="relative">
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />

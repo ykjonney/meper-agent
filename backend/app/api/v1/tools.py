@@ -161,14 +161,17 @@ async def upload_tools(
             file_contents[filename] = f"__size_error__: {len(content_bytes)}"
             continue
 
-        file_contents[filename] = content_bytes.decode("utf-8")
+        try:
+            file_contents[filename] = content_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            file_contents[filename] = f"__decode_error__: {exc}"
 
     created: list[ToolResponse] = []
     errors: list[ToolUploadErrorItem] = []
 
     # Process directory groups
     processed_dirs: set[str] = set()
-    for filename, content in file_contents.items():
+    for filename, _content in file_contents.items():
         parts = filename.split("/")
         if len(parts) < 2 or not parts[0]:
             continue
@@ -184,27 +187,32 @@ async def upload_tools(
             if fn.startswith(f"{dir_name}/")
         }
 
-        # Check if any file had read/size error
-        error_file = next(
-            ((fn, content) for fn, content in dir_files.items() if content.startswith("__")),
-            None,
-        )
-        if error_file:
-            fn, err_content = error_file
-            if err_content.startswith("__read_error__"):
-                errors.append(ToolUploadErrorItem(filename=fn, error=err_content.replace("__read_error__: ", "")))
-            elif err_content.startswith("__size_error__"):
+        # Separate problem files (read/size/decode) from valid text files.
+        # Problem files are reported per-file and skipped; the remaining
+        # valid files still form the Skill (graceful skip, not whole-dir fail).
+        valid_files: dict[str, str] = {}
+        for fn, c in dir_files.items():
+            if c.startswith("__read_error__"):
+                errors.append(ToolUploadErrorItem(filename=fn, error=c.replace("__read_error__: ", "")))
+            elif c.startswith("__size_error__"):
                 errors.append(
                     ToolUploadErrorItem(
                         filename=fn,
-                        error=f"文件过大（>1MB）：{err_content.replace('__size_error__: ', '')} bytes",
+                        error=f"文件过大（>1MB）：{c.replace('__size_error__: ', '')} bytes",
                     )
                 )
-            processed_dirs.add(dir_name)
-            continue
+            elif c.startswith("__decode_error__"):
+                errors.append(
+                    ToolUploadErrorItem(
+                        filename=fn,
+                        error="非 UTF-8 文本文件（可能是二进制），已跳过",
+                    )
+                )
+            else:
+                valid_files[fn] = c
 
-        # Check total directory size
-        total_bytes = sum(len(c.encode("utf-8")) for c in dir_files.values())
+        # Check total directory size (valid files only)
+        total_bytes = sum(len(c.encode("utf-8")) for c in valid_files.values())
         if total_bytes > MAX_DIRECTORY_SIZE:
             errors.append(
                 ToolUploadErrorItem(
@@ -217,7 +225,7 @@ async def upload_tools(
 
         # Parse directory
         try:
-            parsed_dir = parse_skill_directory(dir_files, dir_name)
+            parsed_dir = parse_skill_directory(valid_files, dir_name)
             doc = await ToolService.create_tool_from_directory(parsed_dir, dir_name)
             created.append(_doc_to_response(doc))
             processed_dirs.add(dir_name)
@@ -245,6 +253,14 @@ async def upload_tools(
                 ToolUploadErrorItem(
                     filename=filename,
                     error=f"文件过大（>1MB）：{content.replace('__size_error__: ', '')} bytes",
+                )
+            )
+            continue
+        if content.startswith("__decode_error__"):
+            errors.append(
+                ToolUploadErrorItem(
+                    filename=filename,
+                    error="非 UTF-8 文本文件（可能是二进制），无法解析",
                 )
             )
             continue

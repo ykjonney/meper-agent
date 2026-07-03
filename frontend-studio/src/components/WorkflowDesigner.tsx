@@ -14,7 +14,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, Save, Upload, Loader2, X, Clock, Pencil } from 'lucide-react'
+import { Play, Save, Upload, Loader2, X, Clock, Pencil, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import {
   workflowsApi,
   workflowKeys,
@@ -34,7 +34,8 @@ import WorkflowNodeConfigPanel from '../features/workflow-editor/WorkflowNodeCon
 import ExecuteInputDialog from '../features/workflow-editor/ExecuteInputDialog'
 import { validateWorkflow } from '../features/workflow-editor/utils/workflow-validator'
 import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
-import { Button, Select, Tag, Input } from './ui'
+import { Button, Tag, Input } from './ui'
+import { toast } from './ui/toast'
 
 /* ─── helpers ─── */
 
@@ -185,6 +186,8 @@ export function WorkflowDesigner({
   // instead of the stale workflowDetail.name so the workflow can be renamed.
   const [nameDraft, setNameDraft] = useState('')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  // 左侧节点类型面板收缩态（收缩后仅图标列 + Tooltip）
+  const [paletteCollapsed, setPaletteCollapsed] = useState(true)
   const [dirtySinceLoad, setDirtySinceLoad] = useState(false)
 
   // 执行任务追踪弹窗 + 轮询
@@ -313,8 +316,16 @@ export function WorkflowDesigner({
   const handlePublish = useCallback(() => {
     if (!selectedWorkflowId) return
     if (hasUnsavedChanges) return // 校验会拦截，这里双保险
+    if (validation?.errors.length) {
+      const errs = validation.errors.slice(0, 3).map((e) => e.message).join('；')
+      toast.error(
+        `无法发布：${validation.errors.length} 个错误${errs ? `：${errs}` : ''}`,
+        { duration: 0 },
+      )
+      return
+    }
     publishMutation.mutate()
-  }, [selectedWorkflowId, hasUnsavedChanges, publishMutation])
+  }, [selectedWorkflowId, hasUnsavedChanges, validation, publishMutation])
 
   /* ─── 新建工作流 ─── */
   const createMutation = useMutation({
@@ -342,7 +353,6 @@ export function WorkflowDesigner({
   }, [])
 
   const [executing, setExecuting] = useState(false)
-  const [execError, setExecError] = useState<string | null>(null)
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -365,7 +375,7 @@ export function WorkflowDesigner({
         } catch (err) {
           stopPolling()
           setExecuting(false)
-          setExecError(err instanceof Error ? err.message : '轮询任务失败')
+          toast.error(err instanceof Error ? err.message : '轮询任务失败', { duration: 0 })
         }
       }, 2000)
     },
@@ -387,7 +397,7 @@ export function WorkflowDesigner({
         pollTask(task.id)
       } catch (err) {
         setExecuting(false)
-        setExecError(err instanceof Error ? err.message : '创建执行任务失败')
+        toast.error(err instanceof Error ? err.message : '创建执行任务失败', { duration: 0 })
       }
     },
     [selectedWorkflowId, pollTask],
@@ -396,10 +406,9 @@ export function WorkflowDesigner({
   const handleExecute = useCallback(async () => {
     if (!selectedWorkflowId || !workflowDetail) return
     if (workflowDetail.status !== 'published') {
-      setExecError('只有已发布的工作流才能执行，请先发布')
+      toast.error('只有已发布的工作流才能执行，请先发布', { duration: 0 })
       return
     }
-    setExecError(null)
 
     // 开始节点是否声明了输入变量 —— 有则先弹窗收集，无则直接执行
     const startNode = nodes.find((n) => n.type === 'start')
@@ -432,66 +441,8 @@ export function WorkflowDesigner({
 
   /* ─── render ─── */
   return (
-    <div className="space-y-4">
-      {/* 顶栏：选择器 + 新建 */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center p-4 bg-[#18181b] rounded-2xl border border-[#27272a] gap-3">
-        <div className="flex items-center gap-2.5">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="p-1.5 rounded-lg text-[#71717a] hover:text-[#fafafa] hover:bg-[#27272a] transition cursor-pointer"
-              title="返回列表"
-            >
-              <X size={16} />
-            </button>
-          )}
-          <div className="w-8 h-8 rounded-lg bg-[#1E5EFF]/10 flex items-center justify-center">
-            <span className="text-[#1E5EFF] font-bold text-sm">WF</span>
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-[#fafafa]">工作流编排</h2>
-            <p className="text-[11px] text-[#71717a]">@xyflow/react 可视化编辑 · 真实后端对接</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* 可编辑工作流名称 — 仅在有选中工作流时显示。改名置脏标记，
-              统一走保存按钮落库（避免输入即触发请求）。 */}
-          {selectedWorkflowId && (
-            <div className="flex items-center gap-1.5 px-2 h-8 rounded-lg bg-[#18181b] border border-[#27272a] focus-within:border-[#1E5EFF]/60 transition-colors">
-              <Pencil size={13} className="text-[#71717a] shrink-0" />
-              <input
-                value={nameDraft}
-                onChange={(e) => {
-                  setNameDraft(e.target.value)
-                  setHasUnsavedChanges(true)
-                  setDirtySinceLoad(true)
-                }}
-                placeholder="工作流名称"
-                title="修改工作流名称（保存后生效）"
-                className="w-[200px] bg-transparent text-xs text-[#fafafa] placeholder-[#52525b] focus:outline-none font-medium"
-              />
-            </div>
-          )}
-          <Select
-            value={selectedWorkflowId ?? null}
-            onChange={(v) => setSelectedWorkflowId(v || null)}
-            disabled={listLoading}
-            placeholder={listLoading ? '加载中...' : workflows.length === 0 ? '暂无工作流' : '— 选择工作流 —'}
-            className="min-w-[240px]"
-            options={workflows.map((w) => ({
-              value: w.id,
-              label: `${w.name} (${w.node_count} 节点 · ${STATUS_LABEL[w.status]?.text ?? w.status})`,
-            }))}
-          />
-
-          <Button type="primary" icon={<Plus size={14} />} onClick={handleCreate} loading={createMutation.isPending}>
-            新建
-          </Button>
-        </div>
-      </div>
-
-      {/* 主体 */}
+    <div className="flex flex-col h-full gap-4">
+      {/* 主体（顶栏已移除：选择器/新建下线，关闭按钮并入画布左上浮动栏）*/}
       {!selectedWorkflowId ? (
         <div className="bg-[#18181b] rounded-2xl border border-[#27272a] p-16 text-center text-sm text-[#71717a]">
           {listLoading ? '加载工作流列表...' : '请新建或选择一个工作流开始编辑'}
@@ -503,83 +454,77 @@ export function WorkflowDesigner({
         </div>
       ) : (
         <>
-          {/* 操作栏 */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-[#18181b] rounded-xl border border-[#27272a]">
-            <div className="flex items-center gap-2">
-              {workflowDetail && (
-                <Tag color={STATUS_LABEL[currentStatus ?? 'draft']?.color ?? '#64748B'}>
-                  {STATUS_LABEL[currentStatus ?? 'draft']?.text ?? currentStatus}
-                </Tag>
-              )}
-              {workflowDetail && (
-                <span className="text-[11px] text-[#71717a]">
-                  v{workflowDetail.version} · {nodes.length} 节点
-                </span>
-              )}
-              {hasUnsavedChanges && (
-                <Tag color="#F59E0B">未保存</Tag>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                icon={<Save size={14} />}
-                onClick={handleSave}
-                loading={saveMutation.isPending}
-                disabled={!hasUnsavedChanges}
+          {/* 三栏编辑器（flex：Palette 可收缩、ConfigPanel 未选中时隐藏，画布占满中间）*/}
+          <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
+            {/* 左：Palette（可收缩）*/}
+            <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`}>
+              <button
+                onClick={() => setPaletteCollapsed((v) => !v)}
+                title={paletteCollapsed ? '展开节点类型' : '收起节点类型'}
+                className="shrink-0 flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer border-b border-[#27272a]"
               >
-                保存
-              </Button>
-              <Button
-                type="primary"
-                icon={<Upload size={14} />}
-                onClick={handlePublish}
-                loading={publishMutation.isPending}
-                disabled={hasUnsavedChanges || !isDraftOrPublished(currentStatus ?? '')}
-              >
-                发布
-              </Button>
-              <Button
-                type="primary"
-                icon={executing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                onClick={handleExecute}
-                disabled={!canExecute}
-              >
-                {executing ? '执行中' : '执行'}
-              </Button>
-            </div>
-          </div>
-
-          {/* 校验提示 */}
-          {validation && validation.errors.length > 0 && (
-            <div className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[11px]">
-              <div className="text-red-400 font-medium mb-1">无法发布（{validation.errors.length} 个错误）：</div>
-              <ul className="list-disc list-inside text-red-400 space-y-0.5">
-                {validation.errors.slice(0, 5).map((e) => (
-                  <li key={e.id}>{e.message}</li>
-                ))}
-                {validation.errors.length > 5 && (
-                  <li className="text-red-400/70">...还有 {validation.errors.length - 5} 个错误</li>
+                {paletteCollapsed ? (
+                  <ChevronsRight className="w-3.5 h-3.5 mx-auto" />
+                ) : (
+                  <>
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                    <span>节点类型</span>
+                  </>
                 )}
-              </ul>
-            </div>
-          )}
-
-          {execError && (
-            <div className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[11px] text-red-400">
-              执行错误：{execError}
-            </div>
-          )}
-
-          {/* 三栏编辑器 — 比例 2/6/4：右栏配置区加宽，方便编辑节点配置 */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 h-[640px]">
-            {/* 左：Palette */}
-            <div className="xl:col-span-2 bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden">
-              <WorkflowNodePalette />
+              </button>
+              <div className="flex-1 overflow-y-auto scrollbar-custom">
+                <WorkflowNodePalette collapsed={paletteCollapsed} />
+              </div>
             </div>
 
-            {/* 中：Canvas */}
-            <div className="xl:col-span-6 bg-[#09090b] rounded-xl border border-[#27272a] overflow-hidden">
+            {/* 中：Canvas + 浮动操作栏（画布左上角，不占顶部行）*/}
+            <div className="flex-1 min-w-0 relative bg-[#09090b] rounded-xl border border-[#27272a] overflow-hidden">
+              <div className="absolute top-3 left-3 z-20 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#18181b]/80 backdrop-blur border border-[#27272a] shadow-lg">
+                {/* 关闭编辑（返回列表）*/}
+                {onBack && (
+                  <button
+                    onClick={onBack}
+                    title="关闭编辑"
+                    className="p-1 rounded-md text-[#71717a] hover:text-[#fafafa] hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+                {/* 名称（保存后生效）*/}
+                <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-[#121214] border border-[#27272a] focus-within:border-[#1E5EFF]/60 transition-colors">
+                  <Pencil size={12} className="text-[#71717a] shrink-0" />
+                  <input
+                    value={nameDraft}
+                    onChange={(e) => {
+                      setNameDraft(e.target.value)
+                      setHasUnsavedChanges(true)
+                      setDirtySinceLoad(true)
+                    }}
+                    placeholder="工作流名称"
+                    title="修改工作流名称（保存后生效）"
+                    className="w-32 bg-transparent text-xs text-[#fafafa] placeholder-[#52525b] focus:outline-none font-medium"
+                  />
+                </div>
+                {/* 当前状态 */}
+                {workflowDetail && (
+                  <Tag color={STATUS_LABEL[currentStatus ?? 'draft']?.color ?? '#64748B'}>
+                    {STATUS_LABEL[currentStatus ?? 'draft']?.text ?? currentStatus}
+                  </Tag>
+                )}
+                {workflowDetail && (
+                  <span className="text-[10px] text-[#71717a] whitespace-nowrap">v{workflowDetail.version} · {nodes.length}节点</span>
+                )}
+                {hasUnsavedChanges && <Tag color="#F59E0B">未保存</Tag>}
+                <Button size="small" icon={<Save size={13} />} onClick={handleSave} loading={saveMutation.isPending} disabled={!hasUnsavedChanges}>
+                  保存
+                </Button>
+                <Button size="small" type="primary" icon={<Upload size={13} />} onClick={handlePublish} loading={publishMutation.isPending} disabled={hasUnsavedChanges || !isDraftOrPublished(currentStatus ?? '')}>
+                  发布
+                </Button>
+                <Button size="small" type="primary" icon={executing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} onClick={handleExecute} disabled={!canExecute}>
+                  {executing ? '执行中' : '执行'}
+                </Button>
+              </div>
               <WorkflowCanvas
                 workflowNodes={nodes}
                 selectedNodeId={selectedNode?.node_id ?? null}
@@ -589,15 +534,17 @@ export function WorkflowDesigner({
               />
             </div>
 
-            {/* 右：ConfigPanel（加宽至 1/3 宽，编辑配置更顺手） */}
-            <div className="xl:col-span-4 overflow-y-auto">
-              <WorkflowNodeConfigPanel
-                selectedNode={selectedNode}
-                allNodes={nodes}
-                onNodeChange={handleNodeChange}
-                onNodeDelete={handleNodeDelete}
-              />
-            </div>
+            {/* 右：ConfigPanel（仅选中节点时渲染；未选中时画布占满）*/}
+            {selectedNode && (
+              <div className="shrink-0 w-96 overflow-y-auto scrollbar-custom">
+                <WorkflowNodeConfigPanel
+                  selectedNode={selectedNode}
+                  allNodes={nodes}
+                  onNodeChange={handleNodeChange}
+                  onNodeDelete={handleNodeDelete}
+                />
+              </div>
+            )}
           </div>
         </>
       )}

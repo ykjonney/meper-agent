@@ -339,6 +339,7 @@
 .theme-light .bg-indigo-700,
 .theme-light .bg-emerald-600,
 .theme-light .bg-emerald-600\/80,
+.theme-light .bg-sky-600,
 .theme-light .bg-rose-600,
 .theme-light .bg-rose-500,
 .theme-light .bg-red-500 {
@@ -553,5 +554,66 @@
 }
 .theme-light .prose-chat tr:nth-child(2n) td {
   background: rgba(226, 232, 240, 0.35);
+}
+
+/* ==========================================
+   VARIABLE CHIPS (VariableChipEditor)
+   contentEditable 编辑器内的变量占位 chip。chip 由命令式 DOM 创建
+   (document.createElement) 而非 React 渲染，故样式集中定义在此处，
+   不依赖 Tailwind 对动态字符串的扫描。dark-native + .theme-light 覆盖，
+   与 app 其余部分一致。
+   ========================================== */
+.var-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 1px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid rgba(30, 94, 255, 0.4);
+  background-color: rgba(30, 94, 255, 0.15);
+  color: #9ec5ff;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: var(--font-sans);
+  vertical-align: baseline;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.var-chip > .var-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.var-chip > .var-chip-short {
+  font-size: 9px;
+  opacity: 0.7;
+  font-family: var(--font-mono);
+}
+/* Empty-editor placeholder */
+.var-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #52525b;
+  pointer-events: none;
+}
+.theme-light .var-chip {
+  background-color: rgba(238, 242, 255, 0.9); /* indigo-50 */
+  border-color: #c7d2fe; /* indigo-200 */
+  color: #4338ca; /* indigo-700 */
+}
+.theme-light .var-chip > .var-chip-short {
+  color: #6366f1; /* indigo-500 */
+  opacity: 1;
+}
+.theme-light .var-editor:empty::before {
+  color: #94a3b8;
 }
 

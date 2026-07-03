@@ -2,19 +2,19 @@
  * VariableSelector — 变量选择器组件（增强版）。
  *
  * 功能：
- * 1. 文本输入框 + 「选择变量」按钮
- * 2. 点击按钮弹出选择面板，按上游节点分组展示可用字段
- * 3. 每个字段显示为可点击的 Tag，点击插入 `{{node_id.field}}`
- * 4. 已插入的变量以 Tag 展示在按钮旁（可删除）
- * 5. 变量总数显示在按钮上
- * 6. 每个字段 Tag 显示类型图标 + 颜色（v2 新增）
- * 7. 优先读取 config.output_variables（用户自定义），无则 fallback 到静态表（v2 新增）
+ * 1. contentEditable 编辑器 + 「选择变量」按钮 + 「放大编辑」按钮
+ * 2. 选中的变量在编辑器内显示为带类型样式的 chip（label · 短节点号），
+ *    Backspace 整体删除；对外 value 仍是 `{{node_id.field}}` 字符串
+ * 3. 点击「选择变量」弹出面板，按上游节点分组展示可用字段
+ * 4. 点击「放大」打开大号编辑弹窗，弹窗内仍可选变量
+ * 5. 每个字段 Tag 显示类型图标 + 颜色（v2）
+ * 6. 优先读取 config.output_variables（用户自定义），无则 fallback 到静态表（v2）
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
 import { useState, useMemo, useRef, useCallback, Fragment } from 'react'
-import { Button, Popover, Tag, Input, Badge, Tooltip } from '../../components/ui'
-import { Code } from 'lucide-react'
+import { Button, Popover, Tag, Badge, Tooltip, Modal } from '../../components/ui'
+import { Code, Maximize2 } from 'lucide-react'
 import type { WorkflowNode } from '../../services/workflows-api'
 import { computeUpstreamNodes } from './utils/dag-utils'
 import { getEffectiveOutputVariables } from './utils/node-output-variables'
@@ -26,11 +26,15 @@ import {
   getTypeLabel,
   formatConstraints,
 } from './utils/variable-types'
+import VariableChipEditor, {
+  type VariableChipEditorHandle,
+  type VariableChipMeta,
+} from './VariableChipEditor'
 
 /* ─── Types ─── */
 
 export interface VariableSelectorProps {
-  /** 当前文本值 */
+  /** 当前文本值（`文本{{node_id.field}}`） */
   value: string
   /** 值变更回调 */
   onChange: (value: string) => void
@@ -40,9 +44,9 @@ export interface VariableSelectorProps {
   allNodes: WorkflowNode[]
   /** 占位符文本 */
   placeholder?: string
-  /** 文本域行数 */
+  /** 多行编辑器行数（仅影响最小高度） */
   rows?: number
-  /** 是否多行文本域 */
+  /** 是否多行（false=单行 chip 编辑器） */
   textarea?: boolean
   /** 标签文本 */
   label?: string
@@ -63,29 +67,7 @@ interface UpstreamField {
   constraints: Record<string, unknown> | null
 }
 
-/* ─── 解析已插入的变量 ─── */
-
-const VARIABLE_REGEX = /\{\{(\w+)\.(\w+)\}\}/g
-
-interface ParsedVariable {
-  raw: string
-  nodeId: string
-  field: string
-  index: number
-}
-
-function parseVariables(text: string): ParsedVariable[] {
-  const result: ParsedVariable[] = []
-  let match: RegExpExecArray | null
-  let idx = 0
-  VARIABLE_REGEX.lastIndex = 0
-  while ((match = VARIABLE_REGEX.exec(text)) !== null) {
-    result.push({ raw: match[0], nodeId: match[1], field: match[2], index: idx++ })
-  }
-  return result
-}
-
-/** 把 node_id（如 node_xxx_a3b2）缩成短码，便于在弹窗里区分同类节点 */
+/** 把 node_id（如 node_xxx_a3b2）缩成短码，便于在 chip / 弹窗里区分同类节点 */
 function shortNodeId(nodeId: string): string {
   const parts = nodeId.split('_')
   const tail = parts.length > 1 ? parts[parts.length - 1] : nodeId
@@ -181,7 +163,11 @@ export default function VariableSelector({
   required = false,
 }: VariableSelectorProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [enlargeOpen, setEnlargeOpen] = useState(false)
+  const [enlargeValue, setEnlargeValue] = useState('')
+
+  const editorRef = useRef<VariableChipEditorHandle>(null)
+  const modalEditorRef = useRef<VariableChipEditorHandle>(null)
 
   /* ─── 计算上游节点分组 ─── */
   const upstreamGroups = useMemo<UpstreamGroup[]>(() => {
@@ -208,49 +194,58 @@ export default function VariableSelector({
     return groups
   }, [currentNodeId, allNodes])
 
+  /* ─── chip 显示元信息：key=`${nodeId}.${field}` ─── */
+  const varMeta = useMemo<Map<string, VariableChipMeta>>(() => {
+    const m = new Map<string, VariableChipMeta>()
+    for (const g of upstreamGroups) {
+      const short = shortNodeId(g.nodeId)
+      for (const f of g.fields) {
+        const ti = getTypeDisplayInfo(f.type)
+        m.set(`${g.nodeId}.${f.name}`, {
+          label: f.label,
+          color: ti.color,
+          icon: ti.icon,
+          short,
+        })
+      }
+    }
+    return m
+  }, [upstreamGroups])
+
   /* ─── 可用变量总数 ─── */
   const totalAvailableVars = useMemo(
     () => upstreamGroups.reduce((sum, g) => sum + g.fields.length, 0),
     [upstreamGroups],
   )
 
-  /* ─── 插入变量 ─── */
-  const handleInsertVariable = useCallback(
-    (nodeId: string, field: string) => {
-      const variable = `{{${nodeId}.${field}}}`
-      const ta = inputRef.current
-      if (ta) {
-        const start = ta.selectionStart ?? value.length
-        const end = ta.selectionEnd ?? value.length
-        const newValue = value.substring(0, start) + variable + value.substring(end)
-        onChange(newValue)
-        requestAnimationFrame(() => {
-          const pos = start + variable.length
-          ta.setSelectionRange(pos, pos)
-          ta.focus()
-        })
-      } else {
-        onChange(value ? `${value}\n${variable}` : variable)
-      }
-      setPopoverOpen(false)
-    },
-    [value, onChange],
-  )
+  /* ─── 插入变量（行内编辑器） ─── */
+  const handleInsertVariable = useCallback((nodeId: string, field: string) => {
+    editorRef.current?.insertAtCursor(nodeId, field)
+    setPopoverOpen(false)
+  }, [])
 
-  /* ─── 已解析的变量列表 ─── */
-  const parsedVars = useMemo(() => parseVariables(value), [value])
+  /* ─── 插入变量（放大弹窗编辑器） ─── */
+  const handleInsertInModal = useCallback((nodeId: string, field: string) => {
+    modalEditorRef.current?.insertAtCursor(nodeId, field)
+  }, [])
 
-  /* ─── 删除指定变量 ─── */
-  const handleRemoveVariable = useCallback(
-    (parsed: ParsedVariable) => {
-      const newValue = value.replace(parsed.raw, '').trim()
-      onChange(newValue)
-    },
-    [value, onChange],
-  )
+  /* ─── 放大弹窗开关 ─── */
+  const openEnlarge = useCallback(() => {
+    setEnlargeValue(value)
+    setEnlargeOpen(true)
+  }, [value])
+
+  const confirmEnlarge = useCallback(() => {
+    onChange(enlargeValue)
+    setEnlargeOpen(false)
+  }, [enlargeValue, onChange])
 
   /* ─── 渲染字段 Tag ─── */
-  const renderFieldTag = (field: UpstreamField, group: UpstreamGroup) => {
+  const renderFieldTag = (
+    field: UpstreamField,
+    group: UpstreamGroup,
+    onInsert: (nodeId: string, field: string) => void,
+  ) => {
     const typeInfo = getTypeDisplayInfo(field.type)
     const tooltipContent = (
       <div className="text-[11px]">
@@ -281,11 +276,8 @@ export default function VariableSelector({
         <Tag
           className="!m-0 !cursor-pointer !text-[11px] !px-1.5 !py-0.5 !rounded hover:!opacity-80 transition-opacity !inline-flex !items-center !gap-1"
           color="blue"
-          onClick={() => handleInsertVariable(group.nodeId, field.name)}
+          onClick={() => onInsert(group.nodeId, field.name)}
         >
-          {/* 类型图标 */}
-          {/* 类型图标 */}
-          {/* 类型图标 */}
           <span
             className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[8px] font-bold text-white shrink-0"
             style={{ backgroundColor: typeInfo.color }}
@@ -298,9 +290,12 @@ export default function VariableSelector({
     )
   }
 
-  /* ─── Popover 内容 ─── */
-  const popoverContent = (
-    <div className="w-72 max-h-72 overflow-y-auto">
+  /* ─── 变量选择面板（行内 Popover 与放大弹窗共用） ─── */
+  const renderUpstreamGroups = (
+    onInsert: (nodeId: string, field: string) => void,
+    containerCls = 'w-72 max-h-72',
+  ) => (
+    <div className={`overflow-y-auto scrollbar-custom ${containerCls}`}>
       {upstreamGroups.length === 0 ? (
         <div className="text-xs text-[#71717a] text-center py-4">
           <Code className="text-base mb-2 block mx-auto" size={18} />
@@ -332,7 +327,9 @@ export default function VariableSelector({
               {/* 字段 Tag 列表 */}
               <div className="flex flex-wrap gap-1.5">
                 {group.fields.map((field) => (
-                  <Fragment key={field.name}>{renderFieldTag(field, group)}</Fragment>
+                  <Fragment key={field.name}>
+                    {renderFieldTag(field, group, onInsert)}
+                  </Fragment>
                 ))}
               </div>
             </div>
@@ -342,99 +339,93 @@ export default function VariableSelector({
     </div>
   )
 
-  /* ─── 已使用变量数量（去重） ─── */
-  const uniqueUsedCount = useMemo(
-    () => new Set(parsedVars.map((p) => `${p.nodeId}.${p.field}`)).size,
-    [parsedVars],
+  const popoverTitle = (
+    <div className="flex items-center justify-between text-xs">
+      <span className="font-medium text-[#fafafa]">选择变量</span>
+      <span className="text-[#71717a]">
+        {totalAvailableVars > 0
+          ? `${upstreamGroups.length} 个节点 · ${totalAvailableVars} 个字段`
+          : '无可用变量'}
+      </span>
+    </div>
   )
 
   return (
     <div className="space-y-1.5">
-      {/* 顶栏：label + 选择变量按钮 */}
-      <div className="flex items-center justify-between">
+      {/* 顶栏：label + 选择变量 + 放大 */}
+      <div className="flex items-center justify-between gap-2">
         {label && (
-          <label className="text-xs text-slate-400">
+          <label className="text-xs text-slate-400 shrink-0">
             {label}
             {required && <span className="text-red-500 ml-0.5">*</span>}
           </label>
         )}
-        <Popover
-          content={popoverContent}
-          trigger="click"
-          open={popoverOpen}
-          onOpenChange={setPopoverOpen}
-          title={
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-[#fafafa]">选择变量</span>
-              <span className="text-[#71717a]">
-                {totalAvailableVars > 0
-                  ? `${upstreamGroups.length} 个节点 · ${totalAvailableVars} 个字段`
-                  : '无可用变量'}
-              </span>
-            </div>
-          }
-        >
-          <Button
-            className="!text-[11px] !flex !items-center !gap-1"
-            icon={<Code size={12} />}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <Popover
+            content={renderUpstreamGroups(handleInsertVariable)}
+            trigger="click"
+            open={popoverOpen}
+            onOpenChange={setPopoverOpen}
+            title={popoverTitle}
           >
-            选择变量
-            {totalAvailableVars > 0 && (
-              <Badge
-                count={totalAvailableVars}
-                size="small"
-                className="!ml-0.5"
-              />
-            )}
+            <Button
+              className="!text-[11px] !flex !items-center !gap-1"
+              icon={<Code size={12} />}
+            >
+              选择变量
+              {totalAvailableVars > 0 && (
+                <Badge count={totalAvailableVars} size="small" className="!ml-0.5" />
+              )}
+            </Button>
+          </Popover>
+          <Button
+            className="!flex !items-center !gap-1 !text-[11px] !px-2"
+            icon={<Maximize2 size={12} />}
+            onClick={openEnlarge}
+            title="放大编辑"
+          >
+            放大
           </Button>
-        </Popover>
-      </div>
-
-      {/* 文本输入框 */}
-      <div className="relative">
-        {textarea ? (
-          <Input.TextArea
-            ref={inputRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            rows={rows}
-            className="font-mono text-xs"
-            placeholder={placeholder}
-          />
-        ) : (
-          <Input
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="font-mono text-xs"
-            placeholder={placeholder}
-          />
-        )}
-      </div>
-
-      {/* 已插入变量 Tag 列表 */}
-      {parsedVars.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-[#71717a] shrink-0">
-            已用变量 ({uniqueUsedCount})：
-          </span>
-          {Array.from(
-            new Map<string, ParsedVariable>(
-              parsedVars.map((p) => [`${p.nodeId}.${p.field}`, p]),
-            ).entries(),
-          ).map(([key, pv]) => (
-            <Fragment key={key}>
-              <Tag
-                className="!m-0 !text-[10px] !px-1.5 !py-0 !rounded !flex !items-center !gap-0.5"
-                color="processing"
-                closable
-                onClose={() => handleRemoveVariable(pv)}
-              >
-                <span className="font-mono">{pv.nodeId}.{pv.field}</span>
-              </Tag>
-            </Fragment>
-          ))}
         </div>
-      )}
+      </div>
+
+      {/* chip 编辑器（行内） */}
+      <VariableChipEditor
+        ref={editorRef}
+        value={value}
+        onChange={onChange}
+        varMeta={varMeta}
+        multiline={textarea}
+        minRows={rows}
+        placeholder={placeholder}
+      />
+
+      {/* 放大编辑弹窗 */}
+      <Modal
+        open={enlargeOpen}
+        title={label ? `${label}（放大编辑）` : '放大编辑'}
+        width={720}
+        okText="确定"
+        cancelText="取消"
+        onOk={confirmEnlarge}
+        onCancel={() => setEnlargeOpen(false)}
+      >
+        <div className="space-y-3">
+          <VariableChipEditor
+            ref={modalEditorRef}
+            value={enlargeValue}
+            onChange={setEnlargeValue}
+            varMeta={varMeta}
+            multiline
+            minRows={10}
+            placeholder={placeholder}
+          />
+          <div>
+            <div className="text-xs text-slate-400 mb-1.5">可用变量（点击插入到光标处）</div>
+            {renderUpstreamGroups(handleInsertInModal, 'max-h-48')}
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
