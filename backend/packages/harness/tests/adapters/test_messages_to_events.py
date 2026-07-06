@@ -21,7 +21,7 @@ def test_plain_text_answer():
     msgs = [HumanMessage(content="hi"), AIMessage(content="hello")]
     events = messages_to_app_events(msgs)
     assert len(events) == 1
-    assert events[0].type == "final_answer"
+    assert events[0].type == "text"
     assert events[0].content == "hello"
 
 
@@ -37,14 +37,14 @@ def test_empty_messages():
 def test_system_message_ignored():
     msgs = [SystemMessage(content="you are helpful"), AIMessage(content="ok")]
     events = messages_to_app_events(msgs)
-    assert _types(events) == ["final_answer"]
+    assert _types(events) == ["text"]
 
 
 def test_list_content_blocks_text():
     """content as list-of-blocks is concatenated into text."""
     msg = AIMessage(content=[{"type": "text", "text": "hello"}, {"type": "text", "text": "!"}])
     events = messages_to_app_events([msg])
-    assert events[0].type == "final_answer"
+    assert events[0].type == "text"
     assert events[0].content == "hello!"
 
 
@@ -107,25 +107,25 @@ def test_tool_message_no_name():
 
 
 def test_intermediate_text_persisted_with_tool_calls():
-    """AIMessage with content AND tool_calls → final_answer + tool_call."""
+    """AIMessage with content AND tool_calls → text + tool_call."""
     msg = AIMessage(
         content="let me check",
         tool_calls=[{"name": "read", "args": {}, "id": "c1"}],
     )
     events = messages_to_app_events([msg])
-    assert _types(events) == ["final_answer", "tool_call"]
+    assert _types(events) == ["text", "tool_call"]
     assert events[0].content == "let me check"
     assert events[1].tool_name == "read"
 
 
 def test_intermediate_text_emitted_before_tool_call():
-    """Order: final_answer (text) precedes tool_call."""
+    """Order: text (text) precedes tool_call."""
     msg = AIMessage(
         content="thinking...",
         tool_calls=[{"name": "x", "args": {}, "id": "c1"}],
     )
     events = messages_to_app_events([msg])
-    assert events[0].type == "final_answer"
+    assert events[0].type == "text"
     assert events[1].type == "tool_call"
 
 
@@ -139,7 +139,7 @@ def test_thinking_suppressed_by_default():
     msg.additional_kwargs = {"reasoning_content": "secret"}
     msg.reasoning_content = "secret"
     events = messages_to_app_events([msg], enable_thinking=False)
-    assert _types(events) == ["final_answer"]
+    assert _types(events) == ["text"]
 
 
 def test_thinking_emitted_when_enabled():
@@ -147,7 +147,7 @@ def test_thinking_emitted_when_enabled():
     msg.additional_kwargs = {"reasoning_content": "full reasoning"}
     msg.reasoning_content = "full reasoning"
     events = messages_to_app_events([msg], enable_thinking=True)
-    assert _types(events) == ["thinking", "final_answer"]
+    assert _types(events) == ["thinking", "text"]
     assert events[0].content == "full reasoning"
 
 
@@ -158,12 +158,12 @@ def test_thinking_from_blocks():
     assert any(e.type == "thinking" and e.content == "block thought" for e in events)
 
 
-def test_thinking_emitted_before_final_answer():
+def test_thinking_emitted_before_text():
     msg = AIMessage(content="answer")
     msg.reasoning_content = "reasons"
     events = messages_to_app_events([msg], enable_thinking=True)
     assert events[0].type == "thinking"
-    assert events[1].type == "final_answer"
+    assert events[1].type == "text"
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +182,10 @@ def test_multi_turn_order():
     ]
     events = messages_to_app_events(msgs)
     assert _types(events) == [
-        "final_answer",
+        "text",
         "tool_call",
         "tool_result",
-        "final_answer",
+        "text",
     ]
     assert events[0].content == "answer1"
     assert events[-1].content == "answer2"
@@ -200,7 +200,7 @@ def test_full_conversation_with_thinking_and_tools():
     ]
     events = messages_to_app_events(msgs, enable_thinking=True)
     # thinking suppressed because AIMessages have no reasoning content.
-    assert _types(events) == ["final_answer", "tool_call", "tool_result", "final_answer"]
+    assert _types(events) == ["text", "tool_call", "tool_result", "text"]
 
 
 # ---------------------------------------------------------------------------
@@ -257,5 +257,5 @@ def test_no_transient_events_reconstructed():
         ToolMessage(content="r", tool_call_id="c1", name="t"),
     ]
     events = messages_to_app_events(msgs)
-    forbidden = {"tool_call_start", "thinking_delta", "final_answer_delta", "error"}
+    forbidden = {"tool_call_start", "thinking_delta", "text_delta", "error"}
     assert forbidden.isdisjoint({e.type for e in events})

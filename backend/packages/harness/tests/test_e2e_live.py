@@ -103,7 +103,7 @@ async def test_e2e_write_read(sandbox_workdir):
 
 @pytest.mark.asyncio
 async def test_e2e_stream_events(sandbox_workdir):
-    """端到端：stream 事件流（tool_call + tool_result + final_answer_delta）。"""
+    """端到端：stream 事件流（tool_call + tool_result + text_delta）。"""
     from agent_flow_harness import AgentConfig, create_agent, LocalSandbox
 
     sb = LocalSandbox(sandbox_id="e2e", work_dir=sandbox_workdir, timeout=30)
@@ -123,11 +123,11 @@ async def test_e2e_stream_events(sandbox_workdir):
 
     await agent.stream("请用 bash 执行 echo stream_test", on_event=collect)
 
-    # 应收到 tool_call + tool_result + final_answer 事件
+    # 应收到 tool_call + tool_result + text 事件
     types = {ev["type"] for ev in events}
     assert "tool_call" in types
     assert "tool_result" in types
-    assert "final_answer" in types
+    assert "text" in types
     # tool_result 应包含 stream_test
     tool_results = [ev for ev in events if ev["type"] == "tool_result"]
     assert any("stream_test" in ev.get("content", "") for ev in tool_results)

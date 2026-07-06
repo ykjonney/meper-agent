@@ -76,8 +76,8 @@ def _ai(content: Any = "", *, tool_calls=None, reasoning=None, additional=None) 
 async def test_stream_text_delta() -> None:
     emitted = await _run([_stream_event(_chunk("hel")), _stream_event(_chunk("lo"))])
     assert emitted == [
-        {"type": "final_answer_delta", "content": "hel"},
-        {"type": "final_answer_delta", "content": "lo"},
+        {"type": "text_delta", "content": "hel"},
+        {"type": "text_delta", "content": "lo"},
     ]
 
 
@@ -86,7 +86,7 @@ async def test_stream_text_from_list_blocks() -> None:
     """content as list-of-blocks is concatenated text only."""
     chunk = _chunk([{"type": "text", "text": "hi"}, {"type": "text", "text": "!"}])
     emitted = await _run([_stream_event(chunk)])
-    assert emitted == [{"type": "final_answer_delta", "content": "hi!"}]
+    assert emitted == [{"type": "text_delta", "content": "hi!"}]
 
 
 @pytest.mark.asyncio
@@ -119,7 +119,7 @@ async def test_stream_thinking_disabled_by_default() -> None:
 async def test_stream_thinking_enabled() -> None:
     chunk = _chunk("answer", reasoning="thinking hard")
     emitted = await _run([_stream_event(chunk)], enable_thinking=True)
-    assert {"type": "final_answer_delta", "content": "answer"} in emitted
+    assert {"type": "text_delta", "content": "answer"} in emitted
     assert {"type": "thinking_delta", "content": "thinking hard"} in emitted
 
 
@@ -151,9 +151,9 @@ async def test_stream_tool_call_chunks_not_emitted_directly() -> None:
 
 
 @pytest.mark.asyncio
-async def test_end_final_answer_no_tool_calls() -> None:
+async def test_end_text_no_tool_calls() -> None:
     emitted = await _run([_end_event(_ai("the answer"))])
-    assert emitted == [{"type": "final_answer", "content": "the answer"}]
+    assert emitted == [{"type": "text", "content": "the answer"}]
 
 
 @pytest.mark.asyncio
@@ -169,18 +169,18 @@ async def test_end_empty_output_emits_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_end_persists_intermediate_text_with_tool_calls() -> None:
-    """AC5: content + tool_calls → final_answer AND tool_call events."""
+    """AC5: content + tool_calls → text AND tool_call events."""
     output = _ai("let me check", tool_calls=[{"name": "read", "args": {"path": "x"}, "id": "c1"}])
     emitted = await _run([_end_event(output)])
-    assert {"type": "final_answer", "content": "let me check"} in emitted
+    assert {"type": "text", "content": "let me check"} in emitted
     assert {
         "type": "tool_call",
         "tool_name": "read",
         "args": {"path": "x"},
         "id": "c1",
     } in emitted
-    # final_answer precedes tool_call.
-    assert emitted.index({"type": "final_answer", "content": "let me check"}) < emitted.index(
+    # text precedes tool_call.
+    assert emitted.index({"type": "text", "content": "let me check"}) < emitted.index(
         {"type": "tool_call", "tool_name": "read", "args": {"path": "x"}, "id": "c1"}
     )
 
@@ -215,10 +215,10 @@ async def test_end_thinking_full_enabled() -> None:
     output = _ai("answer", reasoning="full reasoning")
     emitted = await _run([_end_event(output)], enable_thinking=True)
     assert {"type": "thinking", "content": "full reasoning"} in emitted
-    assert {"type": "final_answer", "content": "answer"} in emitted
-    # thinking emitted before final_answer.
+    assert {"type": "text", "content": "answer"} in emitted
+    # thinking emitted before text.
     assert emitted.index({"type": "thinking", "content": "full reasoning"}) < emitted.index(
-        {"type": "final_answer", "content": "answer"}
+        {"type": "text", "content": "answer"}
     )
 
 
@@ -227,7 +227,7 @@ async def test_end_thinking_full_disabled() -> None:
     output = _ai("answer", reasoning="full reasoning")
     emitted = await _run([_end_event(output)], enable_thinking=False)
     assert {"type": "thinking", "content": "full reasoning"} not in emitted
-    assert {"type": "final_answer", "content": "answer"} in emitted
+    assert {"type": "text", "content": "answer"} in emitted
 
 
 @pytest.mark.asyncio
@@ -325,8 +325,8 @@ async def test_full_conversation_sequence() -> None:
     ]
     emitted = await _run(events)
 
-    assert emitted[0] == {"type": "final_answer_delta", "content": "hello"}
-    assert {"type": "final_answer", "content": "hello"} in emitted
+    assert emitted[0] == {"type": "text_delta", "content": "hello"}
+    assert {"type": "text", "content": "hello"} in emitted
     assert {
         "type": "tool_call",
         "tool_name": "read",
@@ -335,7 +335,7 @@ async def test_full_conversation_sequence() -> None:
     } in emitted
     assert {"type": "tool_call_start"} in emitted
     assert {"type": "tool_result", "tool_name": "read", "content": "file"} in emitted
-    assert emitted[-1] == {"type": "final_answer", "content": "final"}
+    assert emitted[-1] == {"type": "text", "content": "final"}
 
 
 @pytest.mark.asyncio
@@ -349,6 +349,6 @@ async def test_accumulator_reset_between_turns() -> None:
         _end_event(_ai("next")),
     ]
     emitted = await _run(events)
-    # Only the final_answer from the second turn; no stale tool_call.
-    assert {"type": "final_answer", "content": "next"} in emitted
+    # Only the text from the second turn; no stale tool_call.
+    assert {"type": "text", "content": "next"} in emitted
     assert all(e["type"] != "tool_call" for e in emitted)
