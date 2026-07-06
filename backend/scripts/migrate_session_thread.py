@@ -26,19 +26,22 @@ sys.path.insert(0, ".")
 
 
 async def migrate(*, dry_run: bool, only_session: str | None) -> None:
+    from agent_flow_harness import (
+        build_agent_graph,
+        build_config,
+        configure_checkpointer,
+        get_checkpointer,
+    )
     from app.db.mongodb import get_database
     from app.engine.harness_integration.history import rebuild_messages_from_records
-    from app.engine.agent.builder import build_system_prompt
-    from langchain_core.messages import SystemMessage
-    from agent_flow_harness import build_agent_graph, build_config, configure_checkpointer, get_checkpointer
     from langgraph.checkpoint.memory import MemorySaver
 
     # 用进程级 checkpointer（生产环境 lifespan 会覆盖为 MongoDB）
     # 这里显式用 MongoDB checkpointer，确保灌入的数据持久化
     try:
         from agent_flow_harness import build_mongo_saver
-        from app.db.mongodb import get_mongodb_client
         from app.core.config import settings
+        from app.db.mongodb import get_mongodb_client
         saver = build_mongo_saver(client=get_mongodb_client().delegate, db_name=settings.MONGODB_DB_NAME)
         configure_checkpointer(saver, overwrite=True)
         print(f"checkpointer: MongoDB ({settings.MONGODB_DB_NAME})")

@@ -38,7 +38,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from agent_flow_harness.graph.nodes import compress_node, llm_node, make_tool_wrapper
 from agent_flow_harness.guards import resolve_guards
-from agent_flow_harness.guards.nodes import make_guard_in_node, make_guard_out_node
+from agent_flow_harness.guards.nodes import make_guard_in_node
 from agent_flow_harness.middleware.chain import MiddlewareChain
 from agent_flow_harness.state import AgentState
 from agent_flow_harness.tools.registry import TOOL_REGISTRY, ToolRegistry
