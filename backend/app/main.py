@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     # MemorySaver) so thread state persists across restarts.
     try:
         from agent_flow_harness import build_mongo_saver, configure_checkpointer
+
         from app.db.mongodb import get_mongodb_client
 
         saver = build_mongo_saver(

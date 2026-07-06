@@ -116,10 +116,9 @@ async def resume(
     enable_thinking: bool = False,
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。"""
-    from langgraph.types import Command
-
     from agent_flow_harness import build_agent_graph, build_config
     from agent_flow_harness.adapters import stream_events_to_app_events
+    from langgraph.types import Command
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     try:

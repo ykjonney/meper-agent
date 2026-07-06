@@ -337,7 +337,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # / bash have no workspace to write to and fall back to PROJECT_ROOT.
         from app.engine.agent.builtin_tools import (
             reset_workspace_context,
-            set_workspace_context,
         )
         from app.engine.tool.workspace import WorkspaceManager
 

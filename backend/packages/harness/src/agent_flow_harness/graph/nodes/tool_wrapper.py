@@ -21,14 +21,18 @@ if TYPE_CHECKING:
 
     from agent_flow_harness.middleware.chain import MiddlewareChain
 
+# Command is generic in langgraph 1.x; use a type alias without parameters
+# for the wrapper's return type annotations (mypy compatible).
+_Command = "Command[Any]"
+
 logger = structlog.get_logger(__name__)
 
 
 def make_tool_wrapper(
     chain: MiddlewareChain,
 ) -> Callable[
-    [ToolCallRequest, Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]],
-    Awaitable[ToolMessage | Command],
+    [ToolCallRequest, Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]],  # noqa: UP006
+    Awaitable[ToolMessage | Command],  # noqa: UP006
 ]:
     """Create an ``awrap_tool_call`` that runs middleware around tool execution.
 
@@ -42,7 +46,7 @@ def make_tool_wrapper(
 
     async def awrap(
         request: ToolCallRequest,
-        execute: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
+        execute: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],  # noqa: UP006
     ) -> ToolMessage | Command:
         state: Any = request.state
         tc: dict[str, Any] = dict(request.tool_call)
@@ -51,7 +55,7 @@ def make_tool_wrapper(
         tc = await chain.run_before_tool(state, tc)
 
         # Re-inject any middleware modifications into the request.
-        modified = request.override(tool_call=tc)  # type: ignore[attr-defined]
+        modified = request.override(tool_call=tc)  # type: ignore[arg-type]
 
         # Execute via the native ToolNode (handles errors, concurrency).
         result = await execute(modified)

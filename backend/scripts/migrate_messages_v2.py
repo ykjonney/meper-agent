@@ -28,8 +28,8 @@ sys.path.insert(0, ".")
 
 
 async def migrate(*, dry_run: bool, db_name: str | None) -> None:
-    from app.db.mongodb import get_database
     from app.core.config import settings
+    from app.db.mongodb import get_database
 
     db = get_database()
     col = db["messages"]

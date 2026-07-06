@@ -207,7 +207,7 @@ function historyToMessages(records: MessageRecord[]): Message[] {
   return records.map((rec) => ({
     id: rec._id,
     role: rec.role,
-    content: rec.content,
+    content: rec.content ?? '',
     time: rec.created_at ? parseBackendDate(rec.created_at).toLocaleTimeString('zh-CN', { hour12: false }) : '',
     timeline: rec.role === 'agent' && rec.timeline_entries?.length
       ? historyEntryToTimeline(rec.timeline_entries)
