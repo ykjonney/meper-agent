@@ -178,6 +178,16 @@ export interface ErrorEvent {
   content: string
 }
 
+/** Agent paused via interrupt, awaiting user answer */
+export interface InterruptEvent {
+  type: 'interrupt'
+  question: string
+  clarification_type: string
+  context?: string | null
+  options?: string[] | null
+  interrupt_id: string
+}
+
 /** Execution finished */
 export interface StreamDoneEvent {
   done: true
@@ -195,6 +205,7 @@ export type StreamEvent =
   | TextDeltaEvent
   | TextEvent
   | ErrorEvent
+  | InterruptEvent
   | StreamDoneEvent
 
 /* ─── API methods ─── */
@@ -332,6 +343,24 @@ export const agentApi = {
     const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/stream`
 
     return this._streamWithRetry(url, body)
+  },
+
+  /**
+   * Resume an interrupted agent (ask_clarification). Returns the SSE stream
+   * (same event format as stream()).
+   */
+  async resume(agentId: string, body: { session_id: string; answer: string; enable_thinking?: boolean }): Promise<Response> {
+    const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/resume`
+    const accessToken = useAuthStore.getState().accessToken
+
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
   },
 
   /**

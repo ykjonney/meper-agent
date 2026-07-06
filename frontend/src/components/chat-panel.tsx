@@ -86,6 +86,10 @@ export interface Message {
   timeline?: TimelineEntry[]
   /** File attachments for user messages */
   files?: { id: string; name: string; size: number }[]
+  /** Agent paused via interrupt, awaiting user answer */
+  isInterrupted?: boolean
+  interruptQuestion?: string
+  interruptOptions?: string[]
 }
 
 export interface ChatPanelProps {
@@ -245,6 +249,8 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sseBufferRef = useRef('')
   const skipNextHistoryLoadRef = useRef(false)
+  /** Tracks an active interrupt so the next user message goes to /resume */
+  const pendingInterruptRef = useRef<{ agentMsgId: string } | null>(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -522,13 +528,22 @@ export default function ChatPanel({
       if (uploadedFileIds.length > 0) {
         console.log('[ChatPanel] Upload info:', { uploadedPaths, uploadedFileIds, uploadedFileRefs })
       }
-      const response = await agentApi.stream(agentId, {
-        input: userMsg.content,
-        session_id: sid || undefined,
-        enable_thinking: enableThinking || undefined,
-        file_paths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
-        file_ids: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
-      })
+      // If resuming an interrupted agent, use /resume instead of /stream.
+      const isResume = pendingInterruptRef.current !== null
+      pendingInterruptRef.current = null
+      const response = isResume
+        ? await agentApi.resume(agentId, {
+            session_id: sid!,
+            answer: userMsg.content,
+            enable_thinking: enableThinking || undefined,
+          })
+        : await agentApi.stream(agentId, {
+            input: userMsg.content,
+            session_id: sid || undefined,
+            enable_thinking: enableThinking || undefined,
+            file_paths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
+            file_ids: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
+          })
 
       if (!response.ok) {
         throw new Error(`请求失败: ${response.status} ${response.statusText}`)
@@ -602,6 +617,23 @@ export default function ChatPanel({
                       : m,
                   ),
                 )
+              } else if (eventType === 'interrupt') {
+                // Agent paused via ask_clarification — show question to user.
+                // The user's next message will be sent via /resume instead of /stream.
+                const evt = event as { question: string; clarification_type?: string; context?: string | null; options?: string[] | null }
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === agentMsgId
+                      ? {
+                          ...m,
+                          isInterrupted: true,
+                          interruptQuestion: evt.question,
+                          interruptOptions: evt.options ?? undefined,
+                        }
+                      : m,
+                  ),
+                )
+                pendingInterruptRef.current = { agentMsgId }
               } else if (eventType === 'tool_call_start') {
                 // AI started generating a tool call — show loading indicator
                 // Flush any pending text first
@@ -962,6 +994,31 @@ export default function ChatPanel({
                             />
                           )
                         })}
+                        {/* Interrupt card — agent is asking for clarification */}
+                        {msg.isInterrupted && msg.interruptQuestion && (
+                          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                            <div className="flex items-start gap-2">
+                              <span className="text-blue-500 mt-0.5">❓</span>
+                              <div className="flex-1">
+                                <div className="text-sm text-[#1E40AF] font-medium whitespace-pre-wrap">{msg.interruptQuestion}</div>
+                                {msg.interruptOptions && msg.interruptOptions.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {msg.interruptOptions.map((opt, i) => (
+                                      <button
+                                        key={i}
+                                        onClick={() => handleSend(opt)}
+                                        className="px-3 py-1.5 rounded-lg text-xs bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 transition-colors"
+                                      >
+                                        {opt}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="text-[11px] text-blue-400 mt-2">输入回答后发送以继续…</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="text-[10px] text-[#94A3B8] mt-2">{msg.time}</div>
                     </div>

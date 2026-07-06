@@ -178,6 +178,16 @@ export interface ErrorEvent {
   content: string
 }
 
+/** Agent paused via interrupt, awaiting user answer */
+export interface InterruptEvent {
+  type: 'interrupt'
+  question: string
+  clarification_type: string
+  context?: string | null
+  options?: string[] | null
+  interrupt_id: string
+}
+
 /** Execution finished */
 export interface StreamDoneEvent {
   done: true
@@ -195,6 +205,7 @@ export type StreamEvent =
   | TextDeltaEvent
   | TextEvent
   | ErrorEvent
+  | InterruptEvent
   | StreamDoneEvent
 
 /* ─── API methods ─── */
