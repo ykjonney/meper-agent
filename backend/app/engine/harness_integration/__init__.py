@@ -96,14 +96,19 @@ async def resolve_harness_context(
     from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
 
     from app.core.config import settings
-    from app.engine.agent.builder import _resolve_execution_context
     from app.engine.agent.builtin_tools import set_workspace_context
-    from app.engine.agent.react_executor import _setup_workspace_context
+    from app.engine.agent.context import get_context_window_async
+    from app.engine.agent.workflow_executor import _TASK_TOOLS
+    from app.engine.llm_factory import get_llm_client
 
-    # 1. 复用 backend 现有的 LLM + tools + context_window
-    ctx = await _resolve_execution_context(agent, enable_thinking=enable_thinking)
+    # 1. 解析 LLM + context_window + task 工具
+    #    (直接调三个来源,不再绕道 builder._resolve_execution_context)
+    llm = await get_llm_client(agent, enable_thinking=enable_thinking)
+    model_ref = agent.get("default_model") or (agent.get("llm_config") or {}).get("default_model", "")
+    context_window = await get_context_window_async(model_ref)
+    backend_only_tools = list(_TASK_TOOLS)
 
-    # 2. 工具替换:过滤 backend 的 bash/read/write/load_skill/mcp,加入 harness 的
+    # 2. 工具合并:harness 文件工具 + ask_clarification + task 工具
     harness_file_tools = [
         BUILTIN_TOOLS[name]
         for name in ("bash", "read", "write", "glob", "grep")
@@ -112,11 +117,6 @@ async def resolve_harness_context(
     # ask_clarification: agent 中途追问用户(interrupt),需要 checkpointer 支持
     if "ask_clarification" in BUILTIN_TOOLS:
         harness_file_tools.append(BUILTIN_TOOLS["ask_clarification"])
-    backend_only_tools = [
-        t for t in ctx.tools
-        if getattr(t, "name", "") not in _BACKEND_BUILTIN_TOOLS_TO_REPLACE
-        and not getattr(t, "name", "").startswith(("mcp__", "mcp_"))
-    ]
     all_tools = backend_only_tools + harness_file_tools
 
     # 3. Skill:用 harness SkillManager 替换 backend 的 load_skill
@@ -194,9 +194,20 @@ async def resolve_harness_context(
         }
         sandbox_id = f"{state.get('session_id') or workspace.root.name}"
     else:
-        ws_token = _setup_workspace_context(state)
+        # session workspace:从 state 取 session_id/user_id,建/取 workspace 并设 contextvar
         session_id = state.get("session_id", "")
         user_id = state.get("user_id", "")
+        ws_token = None
+        if session_id and user_id:
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
+                ws = WorkspaceManager.get_workspace(user_id, session_id)
+                ws.input_dir.mkdir(parents=True, exist_ok=True)
+                ws.output_dir.mkdir(parents=True, exist_ok=True)
+                ws.tmp_dir.mkdir(parents=True, exist_ok=True)
+                ws_token = set_workspace_context(ws)
+            except Exception:
+                pass
         work_dir = Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "tmp"
         work_dir.mkdir(parents=True, exist_ok=True)
         sandbox_mounts = {
@@ -219,12 +230,12 @@ async def resolve_harness_context(
 
     return {
         "agent_doc": agent_doc,
-        "llm": ctx.llm,
+        "llm": llm,
         "tools": all_tools,
         "sb_token": sb_token,
         "ws_token": ws_token,
         "middlewares": [UsageMiddleware()],
-        "context_window": ctx.context_window,
+        "context_window": context_window,
     }
 
 
