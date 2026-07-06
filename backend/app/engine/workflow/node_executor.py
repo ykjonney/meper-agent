@@ -368,10 +368,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
             for attempt in range(1 + max_retry):
                 try:
                     if settings.USE_HARNESS_ENGINE:
-                        from app.engine.harness_integration import run_once
+                        from app.engine.harness_integration import invoke
 
                         result = await asyncio.wait_for(
-                            run_once(
+                            invoke(
                                 agent_doc,
                                 {
                                     "messages": initial_messages,

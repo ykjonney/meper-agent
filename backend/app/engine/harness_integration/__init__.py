@@ -11,8 +11,8 @@
     - get_checkpointer:        返回 harness checkpointer 单例
     - resolve_harness_context: 装配 LLM/工具/sandbox/workspace 为 harness 注入物
     - release_harness_context: 释放 contextvar token
-    - run_chat / run_once:     流式/非流式执行 harness graph
-    - run_chat_resume:         恢复被 interrupt 挂起的 graph
+    - stream / invoke:         流式/非流式执行 harness graph
+    - resume:                  恢复被 interrupt 挂起的 graph
 """
 
 from __future__ import annotations
@@ -262,7 +262,7 @@ async def _maybe_migrate_legacy(graph, config, legacy_records: list[dict] | None
         await graph.aupdate_state(config, {"messages": rebuilt})
 
 
-async def run_chat(
+async def stream(
     agent: dict,
     state: dict,
     on_event,
@@ -327,7 +327,7 @@ async def run_chat(
     return {"step_count": 0}
 
 
-async def run_once(
+async def invoke(
     agent: dict,
     state: dict,
     *,
@@ -371,7 +371,7 @@ async def run_once(
         release_harness_context(hctx)
 
 
-async def run_chat_resume(
+async def resume(
     agent: dict,
     state: dict,
     on_event,
@@ -381,7 +381,7 @@ async def run_chat_resume(
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。
 
-    与 run_chat 共享装配逻辑,但 astream_events 的输入是
+    与 stream 共享装配逻辑,但 astream_events 的输入是
     ``Command(resume=answer)`` 而非 state。
     """
     from langgraph.types import Command
@@ -429,7 +429,7 @@ __all__ = [
     "get_checkpointer",
     "release_harness_context",
     "resolve_harness_context",
-    "run_chat",
-    "run_chat_resume",
-    "run_once",
+    "stream",
+    "invoke",
+    "resume",
 ]

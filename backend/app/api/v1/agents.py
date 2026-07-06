@@ -578,9 +578,9 @@ async def invoke_agent(
         "user_id": user.id,
     }
     if settings.USE_HARNESS_ENGINE:
-        from app.engine.harness_integration import run_once
+        from app.engine.harness_integration import invoke
 
-        result = await run_once(
+        result = await invoke(
             exec_doc, initial_state,
             enable_thinking=body.enable_thinking,
             legacy_records=legacy_records,
@@ -761,8 +761,8 @@ async def stream_agent(
         }
         try:
             if settings.USE_HARNESS_ENGINE:
-                from app.engine.harness_integration import run_chat
-                result = await run_chat(
+                from app.engine.harness_integration import stream
+                result = await stream(
                     exec_doc, initial_state,
                     on_event=_on_event,
                     enable_thinking=body.enable_thinking,
@@ -892,7 +892,7 @@ async def resume_agent(
     async def _run_resume():
         from loguru import logger as _logger
 
-        from app.engine.harness_integration import run_chat_resume
+        from app.engine.harness_integration import resume as resume_exec
 
         # Build a minimal state for resolve_harness_context (session/user identity)
         state = {
@@ -902,7 +902,7 @@ async def resume_agent(
             "user_id": user.id,
         }
         try:
-            await run_chat_resume(
+            await resume_exec(
                 exec_doc, state, _on_event, body.answer,
                 enable_thinking=body.enable_thinking,
             )
