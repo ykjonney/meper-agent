@@ -1,21 +1,18 @@
-"""应用层 ↔ harness Integration Adapter(骨架)。
+"""应用层 ↔ harness Integration Adapter。
 
-本模块确立"应用层如何调用 harness"的模式,是 session→thread 迁移的接线层。
-当前仅签名 + TODO + 示例注释,未实际接线——agents.py/sessions.py 仍走旧路径,
-待迁移切换后启用本模块。
+本模块是 session→thread 迁移的接线层,确立"应用层如何调用 harness"的模式。
 
 三层架构:
     ① API 层 (FastAPI)         app/api/v1/*          只懂 HTTP + 业务语义
     ② Integration Adapter 层   app/engine/harness_*  本模块:应用层世界 ↔ harness
     ③ harness                  agent_flow_harness    纯净,不认 app.*
 
-应用层调 harness 的契约收敛为两件事:
-    - 装配: resolve_*() 把应用层对象(Session/Agent/workspace/model table)
-            变成 harness 注入物(llm/tools/agent_doc/checkpointer)
-    - 调用: build_agent_graph / build_config / stream_events_to_app_events /
-            messages_to_app_events
-
-本模块分三类函数:装配注入物 / 执行 / 输出转换。
+核心函数:
+    - get_checkpointer:        返回 harness checkpointer 单例
+    - resolve_harness_context: 装配 LLM/工具/sandbox/workspace 为 harness 注入物
+    - release_harness_context: 释放 contextvar token
+    - run_chat / run_once:     流式/非流式执行 harness graph
+    - run_chat_resume:         恢复被 interrupt 挂起的 graph
 """
 
 from __future__ import annotations
@@ -33,81 +30,15 @@ if TYPE_CHECKING:
 # ===========================================================================
 
 
-async def resolve_llm(agent: dict, *, enable_thinking: bool = False) -> BaseChatModel:
-    """查 model table + 解密 API key,构建 LLM 客户端。
-
-    委托现有 ``app.engine.llm_factory.get_llm_client`` 完成 model-table 查找与解密,
-    返回的 BaseChatModel 注入 harness 的 ``build_config(llm=...)``。
-    """
-    from app.engine.llm_factory import get_llm_client
-
-    return await get_llm_client(agent, enable_thinking=enable_thinking)
-
-
-def resolve_tools(agent: dict) -> list[BaseTool]:
-    """从 backend Agent 文档解析 **backend-only 工具**(task 工具)。
-
-    注意:此处只返回 backend 独有的工具(workflow_executor._TASK_TOOLS)。
-    harness 的文件工具(bash/read/write/glob/grep)、Skill、MCP 工具由
-    ``resolve_harness_context`` 统一装配,因为它们依赖 sandbox / contextvar
-    注入,与 workspace 强相关。
-    """
-    from app.engine.agent.builder import _resolve_execution_context  # noqa: F401
-    from app.engine.agent.workflow_executor import _TASK_TOOLS
-
-    return list(_TASK_TOOLS)
-
-
-def resolve_guards(agent_doc: dict) -> list:
-    """从 agent_doc["guards"] 配置实例化 Guard 列表。
-
-    agent 文档若未配置 guards,返回空列表(graph 不挂 guard 节点)。
-    """
-    from agent_flow_harness import resolve_guards as _resolve_guards
-
-    return _resolve_guards(agent_doc.get("guards")) if agent_doc.get("guards") else []
-
-
-def resolve_middleware(agent_doc: dict) -> list:
-    """从 agent_doc["middleware"] 配置实例化 Middleware 列表。
-
-    默认始终挂 ``UsageMiddleware``(token 统计);agent 文档的 middleware
-    配置作为额外补充。
-    """
-    from agent_flow_harness import UsageMiddleware, resolve_middleware
-
-    middlewares = [UsageMiddleware()]
-    if agent_doc.get("middleware"):
-        middlewares.extend(resolve_middleware(agent_doc["middleware"]))
-    return middlewares
-
-
 def get_checkpointer() -> Any:
-    """构造 MongoDBSaver 并注入 harness 单例。
+    """返回 harness 的 checkpointer 单例。
 
-    复用 backend 现有的 ``app.engine.checkpointer.get_checkpointer``(已封装
-    PyMongo client + db_name)。harness 的 ``build_agent_graph`` 接受任意
-    LangGraph checkpointer(鸭子类型),因此直接传入即可。
+    harness 默认用 MemorySaver,应用层在 lifespan 启动时通过
+    ``configure_checkpointer`` 覆盖为 MongoDBSaver。
     """
-    from app.engine.checkpointer import get_checkpointer as _backend_get_checkpointer
+    from agent_flow_harness import get_checkpointer as _harness_get_checkpointer
 
-    return _backend_get_checkpointer()
-
-
-def build_agent_doc(agent: dict) -> dict:
-    """组装 agent_doc(_id/name + slots/guards/middleware 配置)。
-
-    从 backend Agent 文档提取 harness 需要的配置子集。
-    """
-    return {
-        "_id": agent.get("_id", "agent"),
-        "name": agent.get("name", "agent"),
-        "prompt_slots": agent.get("prompt_slots", {}),
-        "guards": agent.get("guards", []),
-        "middleware": agent.get("middleware", []),
-        "tools": agent.get("tools", []),
-    }
-
+    return _harness_get_checkpointer()
 
 
 # ===========================================================================
@@ -494,71 +425,10 @@ async def run_chat_resume(
     return {"step_count": 0}
 
 
-async def get_history(session_id: str) -> list[AppEvent]:
-    """从 thread 读取历史 messages,转成 AppEvent 列表。
-
-    [DEFERRED] 当前应用层历史仍由 MessageService + timeline_entries 重建,
-    不依赖 harness thread。此函数保留供未来 checkpointer 收敛后启用。
-    """
-    raise NotImplementedError("get_history 暂缓实现(当前用 MessageService 重建历史)")
-
-
-# ===========================================================================
-# ③ 输出转换(harness → 应用层/前端)
-# ===========================================================================
-
-
-def app_event_to_timeline_entry(event: AppEvent) -> dict:
-    """AppEvent → 前端 timeline_entries 形状(前端零改动的默认实现)。
-
-    与现有 ``timeline_entries`` dict 兼容(前端 historyEntryToTimeline 直接消费)。
-    tool_call_start / *_delta / error 在历史路径不出现(messages_to_app_events
-    不产出这些瞬态事件)。
-    """
-    data = event.model_dump() if hasattr(event, "model_dump") else dict(event)
-    t = data.get("type")
-    if t == "tool_call":
-        return {"type": "tool_call", "tool_name": data.get("tool_name"),
-                "args": data.get("args", {}), "id": data.get("id", "")}
-    if t == "tool_result":
-        return {"type": "tool_result", "tool_name": data.get("tool_name"),
-                "content": data.get("content", "")}
-    if t == "text":
-        return {"type": "text", "content": data.get("content", "")}
-    if t == "thinking":
-        return {"type": "thinking", "content": data.get("content", "")}
-    # 兜底:原样返回
-    return data
-
-
-def app_events_to_message(
-    events: list[AppEvent],
-    *,
-    role: str = "agent",
-) -> dict:
-    """AppEvent 列表 → MessageRecord 形状(兼容前端 historyToMessages)。
-
-    把 events 经 app_event_to_timeline_entry 转成 timeline_entries。
-    agent 消息不再存 content 字段(正文只在 timeline 的 text 条目里);
-    user 消息正文在顶层 content。
-    """
-    timeline = [app_event_to_timeline_entry(e) for e in events]
-    return {"role": role, "timeline_entries": timeline}
-
-
-
 __all__ = [
-    "app_event_to_timeline_entry",
-    "app_events_to_message",
-    "build_agent_doc",
     "get_checkpointer",
-    "get_history",
     "release_harness_context",
-    "resolve_guards",
     "resolve_harness_context",
-    "resolve_llm",
-    "resolve_middleware",
-    "resolve_tools",
     "run_chat",
     "run_chat_resume",
     "run_once",
