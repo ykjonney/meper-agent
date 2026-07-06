@@ -224,17 +224,23 @@ async def test_symmetry_with_stream_adapter():
     batch_events = messages_to_app_events([ai_msg])
     batch_dicts = [e.model_dump() for e in batch_events]
 
-    # Path 2: stream adapter's on_chat_model_end.
+    # Path 2: stream adapter (on_chat_model_end + on_tool_start).
+    # Note: stream adapter buffers tool_call until on_tool_start, so we
+    # feed both events to get the tool_call emitted.
     streamed: list[dict] = []
 
     async def on_event(ev):
         streamed.append(ev.model_dump())
 
     end_event = {"event": "on_chat_model_end", "data": {"output": ai_msg}}
-    _aiter = _async_iter([end_event])
+    tool_start = {"event": "on_tool_start", "name": "read", "data": {}}
+    _aiter = _async_iter([end_event, tool_start])
     await stream_events_to_app_events(_aiter, on_event)
 
-    assert batch_dicts == streamed
+    # Batch produces [text, tool_call]; stream produces [text, tool_call_start, tool_call].
+    # Compare only text + tool_call (skip tool_call_start which is stream-only).
+    streamed_no_start = [e for e in streamed if e.get("type") != "tool_call_start"]
+    assert batch_dicts == streamed_no_start
 
 
 def _async_iter(items):

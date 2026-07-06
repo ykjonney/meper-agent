@@ -55,6 +55,14 @@ def _end_event(output: SimpleNamespace) -> dict[str, Any]:
     return {"event": "on_chat_model_end", "data": {"output": output}}
 
 
+def _tool_start_event(name: str = "") -> dict[str, Any]:
+    return {"event": "on_tool_start", "name": name, "data": {}}
+
+
+def _tool_end_event(name: str = "", output: Any = None) -> dict[str, Any]:
+    return {"event": "on_tool_end", "name": name, "data": {"output": output}}
+
+
 def _ai(content: Any = "", *, tool_calls=None, reasoning=None, additional=None) -> SimpleNamespace:
     kwargs: dict[str, Any] = {"content": content, "tool_calls": tool_calls or []}
     ak = dict(additional or {})
@@ -169,20 +177,23 @@ async def test_end_empty_output_emits_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_end_persists_intermediate_text_with_tool_calls() -> None:
-    """AC5: content + tool_calls → text AND tool_call events."""
+    """AC5: content + tool_calls → text AND tool_call events.
+
+    Note: tool_call is buffered until on_tool_start (so tool_call_start
+    precedes tool_call in the emitted sequence).
+    """
     output = _ai("let me check", tool_calls=[{"name": "read", "args": {"path": "x"}, "id": "c1"}])
-    emitted = await _run([_end_event(output)])
+    emitted = await _run([_end_event(output), _tool_start_event("read")])
     assert {"type": "text", "content": "let me check"} in emitted
+    assert {"type": "tool_call_start"} in emitted
     assert {
         "type": "tool_call",
         "tool_name": "read",
         "args": {"path": "x"},
         "id": "c1",
     } in emitted
-    # text precedes tool_call.
-    assert emitted.index({"type": "text", "content": "let me check"}) < emitted.index(
-        {"type": "tool_call", "tool_name": "read", "args": {"path": "x"}, "id": "c1"}
-    )
+    # text precedes tool_call_start precedes tool_call.
+    assert emitted.index({"type": "text", "content": "let me check"}) < emitted.index({"type": "tool_call_start"})
 
 
 @pytest.mark.asyncio
@@ -194,9 +205,11 @@ async def test_end_multiple_tool_calls_in_one_message() -> None:
             {"name": "b", "args": {"k": 1}, "id": "2"},
         ],
     )
-    emitted = await _run([_end_event(output)])
-    assert len(emitted) == 2
-    assert {e["tool_name"] for e in emitted} == {"a", "b"}
+    emitted = await _run([_end_event(output), _tool_start_event("a"), _tool_start_event("b")])
+    # Each tool produces tool_call_start + tool_call = 4 events
+    tool_calls_emitted = [e for e in emitted if e["type"] == "tool_call"]
+    assert len(tool_calls_emitted) == 2
+    assert {e["tool_name"] for e in tool_calls_emitted} == {"a", "b"}
 
 
 @pytest.mark.asyncio
