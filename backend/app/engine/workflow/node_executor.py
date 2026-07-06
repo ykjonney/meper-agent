@@ -271,7 +271,8 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
-            graph = await build_agent_graph(agent_doc)
+            # harness 路径下 run_once 内部会自己 build graph,这里不需要构造
+            graph = None if settings.USE_HARNESS_ENGINE else await build_agent_graph(agent_doc)
 
             # Build system prompt via slot renderer (context override + variable pool)
             from app.engine.agent.slot_renderer import render_system_prompt_full

@@ -761,10 +761,8 @@ async def stream_agent(
         }
         try:
             if settings.USE_HARNESS_ENGINE:
-                from app.engine.harness_integration.stream import (
-                    run_agent_streaming_harness,
-                )
-                result = await run_agent_streaming_harness(
+                from app.engine.harness_integration import run_chat
+                result = await run_chat(
                     exec_doc, initial_state,
                     on_event=_on_event,
                     enable_thinking=body.enable_thinking,
