@@ -253,7 +253,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
             from langchain_core.messages import SystemMessage
 
             from app.db.mongodb import get_database
-            from app.engine.agent.builder import build_agent_graph
 
             db = get_database()
             agent_doc = await db["agents"].find_one({"_id": agent_id})
@@ -271,8 +270,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
-            # harness 路径下 run_once 内部会自己 build graph,这里不需要构造
-            graph = None if settings.USE_HARNESS_ENGINE else await build_agent_graph(agent_doc)
+            # harness 的 invoke 内部会自己 build graph,这里不需要构造。
 
             # Build system prompt via slot renderer (context override + variable pool)
             from app.engine.agent.slot_renderer import render_system_prompt_full
@@ -346,14 +344,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
         task_workspace = WorkspaceManager.create_task_workspace(
             user_id, task_id,
         )
-        from app.core.config import settings
-
-        if settings.USE_HARNESS_ENGINE:
-            # harness 路径:workspace 注入由 run_once 内部的 resolve_harness_context
-            # 接管(传入 task_workspace),无需在此手动 set_workspace_context。
-            workspace_token = None
-        else:
-            workspace_token = set_workspace_context(task_workspace)
+        # harness 路径:workspace 注入由 invoke 内部的 resolve_harness_context
+        # 接管(传入 task_workspace),无需手动 set_workspace_context。
+        workspace_token = None
         node_start_ts = _time.time()
         logger.info(
             "agent_node_workspace_set",
@@ -367,30 +360,21 @@ class AgentNodeExecutor(BaseNodeExecutor):
         try:
             for attempt in range(1 + max_retry):
                 try:
-                    if settings.USE_HARNESS_ENGINE:
-                        from app.engine.harness_integration import invoke
+                    from app.engine.harness_integration import invoke
 
-                        result = await asyncio.wait_for(
-                            invoke(
-                                agent_doc,
-                                {
-                                    "messages": initial_messages,
-                                    "session_id": _thread_id,
-                                    "user_id": user_id,
-                                    "agent_id": agent_id,
-                                },
-                                workspace=task_workspace,
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
-                    else:
-                        result = await asyncio.wait_for(
-                            graph.ainvoke(
-                                {"messages": initial_messages},
-                                config={"configurable": {"thread_id": _thread_id}},
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
+                    result = await asyncio.wait_for(
+                        invoke(
+                            agent_doc,
+                            {
+                                "messages": initial_messages,
+                                "session_id": _thread_id,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                            },
+                            workspace=task_workspace,
+                        ),
+                        timeout=timeout_ms / 1000,
+                    )
                     output_content = ""
                     if result.get("messages"):
                         last_msg = result["messages"][-1]

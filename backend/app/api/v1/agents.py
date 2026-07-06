@@ -577,18 +577,13 @@ async def invoke_agent(
         "session_id": session_id,
         "user_id": user.id,
     }
-    if settings.USE_HARNESS_ENGINE:
-        from app.engine.harness_integration import invoke
+    from app.engine.harness_integration import invoke
 
-        result = await invoke(
-            exec_doc, initial_state,
-            enable_thinking=body.enable_thinking,
-            legacy_records=legacy_records,
-        )
-    else:
-        graph = await build_agent_graph(exec_doc, enable_thinking=body.enable_thinking)
-        config = {"configurable": {"thread_id": session_id}}
-        result = await graph.ainvoke(initial_state, config=config)
+    result = await invoke(
+        exec_doc, initial_state,
+        enable_thinking=body.enable_thinking,
+        legacy_records=legacy_records,
+    )
 
     # Extract the final answer text from the last AIMessage (for the HTTP
     # response only — agent messages no longer store a top-level content).
@@ -635,7 +630,6 @@ async def stream_agent(
 
     from fastapi.responses import StreamingResponse
 
-    from app.engine.agent.builder import run_agent_streaming
     from app.services.session_service import MessageService, SessionService
 
     exec_doc = await AgentService.get_agent(agent_id)
@@ -760,20 +754,13 @@ async def stream_agent(
             "user_id": user.id,
         }
         try:
-            if settings.USE_HARNESS_ENGINE:
-                from app.engine.harness_integration import stream
-                result = await stream(
-                    exec_doc, initial_state,
-                    on_event=_on_event,
-                    enable_thinking=body.enable_thinking,
-                    legacy_records=legacy_records,
-                )
-            else:
-                result = await run_agent_streaming(
-                    exec_doc, initial_state,
-                    on_event=_on_event,
-                    enable_thinking=body.enable_thinking,
-                )
+            from app.engine.harness_integration import stream
+            result = await stream(
+                exec_doc, initial_state,
+                on_event=_on_event,
+                enable_thinking=body.enable_thinking,
+                legacy_records=legacy_records,
+            )
             _logger.info(
                 "agent_stream_completed",
                 agent_id=agent_id,
