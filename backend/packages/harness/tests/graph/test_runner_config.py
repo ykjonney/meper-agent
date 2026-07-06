@@ -56,7 +56,7 @@ def test_build_config_explicit_tools_bypass_registry() -> None:
     config = build_config({}, llm, tools=["raw-tool"])
     assert config["configurable"]["tools"] == ["raw-tool"]
     assert config["configurable"]["llm"] is llm
-    assert config["recursion_limit"] == 50
+    assert config["recursion_limit"] == 75
 
 
 def test_build_config_includes_optional_keys() -> None:
