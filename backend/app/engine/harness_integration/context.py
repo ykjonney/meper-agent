@@ -1,0 +1,230 @@
+"""harness context assembly — resolve & release harness injection objects.
+
+Transforms backend application objects (agent doc, LLM config, tools,
+sandbox settings, workspace) into the injection dict that the harness
+graph expects. This is the "装配" half of the adapter layer.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+
+def get_checkpointer() -> Any:
+    """返回 harness 的 checkpointer 单例。
+
+    harness 默认用 MemorySaver,应用层在 lifespan 启动时通过
+    ``configure_checkpointer`` 覆盖为 MongoDBSaver。
+    """
+    from agent_flow_harness import get_checkpointer as _harness_get_checkpointer
+
+    return _harness_get_checkpointer()
+
+
+# backend 工具名 → 需要被 harness 等价物替换的(bash/read/write 等)
+_BACKEND_BUILTIN_TOOLS_TO_REPLACE = {
+    "bash", "read", "write", "write_to_output", "load_skill",
+}
+
+
+async def resolve_harness_context(
+    agent: dict,
+    state: dict,
+    *,
+    enable_thinking: bool = False,
+    workspace: Any | None = None,
+) -> dict:
+    """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
+
+    合并三层工具策略:
+      ① backend-only 工具(task/工作流工具) — 来自 workflow_executor._TASK_TOOLS
+      ② harness 文件工具(bash/read/write/glob/grep) — 委托 Sandbox
+      ③ Skill(load_skill)+ MCP — harness SkillManager / McpToolLoader
+
+    Args:
+        workspace: 可选,workflow agent 节点传入已创建的 task workspace。
+
+    Returns:
+        dict 含 keys: agent_doc, llm, tools, sb_token, ws_token,
+              middlewares, context_window
+    """
+    from pathlib import Path
+
+    from agent_flow_harness import (
+        SkillManager,
+        UsageMiddleware,
+    )
+    from agent_flow_harness.sandbox import (
+        DockerSandbox,
+        DockerSandboxConfig,
+        SandboxContext,
+        set_sandbox_context,
+    )
+    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
+
+    from app.core.config import settings
+    from app.engine.agent.builtin_tools import set_workspace_context
+    from app.engine.agent.context import get_context_window_async
+    from app.engine.agent.workflow_executor import _TASK_TOOLS
+    from app.engine.llm_factory import get_llm_client
+
+    # 1. 解析 LLM + context_window + task 工具
+    llm = await get_llm_client(agent, enable_thinking=enable_thinking)
+    model_ref = agent.get("default_model") or (agent.get("llm_config") or {}).get("default_model", "")
+    context_window = await get_context_window_async(model_ref)
+    backend_only_tools = list(_TASK_TOOLS)
+
+    # 2. 工具合并:harness 文件工具 + ask_clarification + task 工具
+    harness_file_tools = [
+        BUILTIN_TOOLS[name]
+        for name in ("bash", "read", "write", "glob", "grep")
+        if name in BUILTIN_TOOLS
+    ]
+    if "ask_clarification" in BUILTIN_TOOLS:
+        harness_file_tools.append(BUILTIN_TOOLS["ask_clarification"])
+    all_tools = backend_only_tools + harness_file_tools
+
+    # 3. Skill:用 harness SkillManager 替换 backend 的 load_skill
+    skills_dir = Path(settings.SKILLS_CONTAINER_DIR).expanduser()
+    skill_mgr = SkillManager(
+        skills_dir=skills_dir,
+        base_path_prefix=settings.SANDBOX_CONTAINER_SKILLS_DIR if settings.SANDBOX_ENABLED else None,
+    )
+    from app.models.compat import resolve_skill_ids
+
+    skill_ids = resolve_skill_ids(agent)
+    if skill_ids:
+        from app.services.tool_service import ToolService
+
+        skill_docs = await ToolService.get_tools_by_ids(skill_ids)
+        allowed_names = {d.get("name") for d in skill_docs if d.get("name")}
+        if allowed_names:
+            skill_mgr.set_allowed(allowed_names)
+            all_tools.append(skill_mgr.make_load_tool())
+
+    # 4. MCP:用 harness McpToolLoader 替换 backend 的 MCP 工具
+    mcp_connection_ids = agent.get("mcp_connection_ids") or []
+    if mcp_connection_ids:
+        from agent_flow_harness import McpConnectionConfig, McpToolLoader
+
+        from app.services.mcp_connection_service import McpConnectionService
+
+        mcp_configs: list[McpConnectionConfig] = []
+        for conn_id in mcp_connection_ids:
+            conn_doc = await McpConnectionService.get_connection(conn_id)
+            if conn_doc:
+                mcp_configs.append(McpConnectionConfig(
+                    name=conn_doc.get("name", conn_id),
+                    url=conn_doc.get("url", ""),
+                    protocol=conn_doc.get("protocol", "streamable-http"),
+                    auth_type=conn_doc.get("auth_type", "none"),
+                    auth_config=conn_doc.get("auth_config") or {},
+                    timeout=conn_doc.get("timeout", 30),
+                    default_params=conn_doc.get("default_params") or {},
+                ))
+        if mcp_configs:
+            mcp_loader = McpToolLoader()
+            mcp_tools = await mcp_loader.load_tools(mcp_configs)
+            all_tools.extend(mcp_tools)
+
+    # 5. 构造最小 agent_doc
+    agent_doc = {
+        "_id": agent.get("_id", "agent"),
+        "name": agent.get("name", "agent"),
+    }
+
+    # 6. sandbox:用 backend 配置构造 harness DockerSandbox
+    sandbox_config = DockerSandboxConfig(
+        image=settings.SANDBOX_IMAGE,
+        enabled=settings.SANDBOX_ENABLED,
+        mem_limit=settings.SANDBOX_MEM_LIMIT,
+        cpu_quota=settings.SANDBOX_CPU_QUOTA,
+        timeout=settings.SANDBOX_TIMEOUT,
+        max_output_bytes=settings.SANDBOX_MAX_OUTPUT_BYTES,
+        network_mode=settings.SANDBOX_NETWORK_MODE,
+        container_workspace_dir=settings.SANDBOX_CONTAINER_WORKSPACE_DIR,
+        container_skills_dir=settings.SANDBOX_CONTAINER_SKILLS_DIR,
+    )
+
+    # 7. workspace
+    if workspace is not None:
+        ws_token = set_workspace_context(workspace)
+        work_dir = workspace.tmp_dir
+        work_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_mounts = {
+            "tmp": workspace.tmp_dir,
+            "input": workspace.input_dir,
+            "output": workspace.output_dir,
+        }
+        sandbox_id = f"{state.get('session_id') or workspace.root.name}"
+    else:
+        session_id = state.get("session_id", "")
+        user_id = state.get("user_id", "")
+        ws_token = None
+        if session_id and user_id:
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
+                ws = WorkspaceManager.get_workspace(user_id, session_id)
+                ws.input_dir.mkdir(parents=True, exist_ok=True)
+                ws.output_dir.mkdir(parents=True, exist_ok=True)
+                ws.tmp_dir.mkdir(parents=True, exist_ok=True)
+                ws_token = set_workspace_context(ws)
+            except Exception:
+                pass
+        work_dir = Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "tmp"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_mounts = {
+            "tmp": work_dir,
+            "input": Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "input",
+            "output": Path(settings.WORKSPACES_CONTAINER_DIR) / user_id / session_id / "output",
+        }
+        sandbox_id = f"{session_id}"
+
+    sandbox = DockerSandbox(
+        sandbox_id=sandbox_id,
+        work_dir=work_dir,
+        mounts=sandbox_mounts,
+        config=sandbox_config,
+        timeout=settings.SANDBOX_TIMEOUT,
+    )
+
+    # 8. 注入 sandbox context
+    sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
+
+    return {
+        "agent_doc": agent_doc,
+        "llm": llm,
+        "tools": all_tools,
+        "sb_token": sb_token,
+        "ws_token": ws_token,
+        "middlewares": [UsageMiddleware()],
+        "context_window": context_window,
+    }
+
+
+def release_harness_context(hctx: dict) -> None:
+    """释放 resolve_harness_context 持有的 contextvar token(在 finally 调用)。"""
+    from agent_flow_harness.sandbox import reset_sandbox_context
+
+    from app.engine.agent.builtin_tools import reset_workspace_context
+
+    reset_sandbox_context(hctx["sb_token"])
+    if hctx.get("ws_token") is not None:
+        reset_workspace_context(hctx["ws_token"])
+
+
+async def _maybe_migrate_legacy(graph, config, legacy_records: list[dict] | None) -> None:
+    """灌入老session历史到 thread(仅当 MIGRATE_LEGACY_SESSIONS 且 thread 空)。"""
+    if not legacy_records:
+        return
+    from app.core.config import settings
+
+    if not settings.MIGRATE_LEGACY_SESSIONS:
+        return
+    state = await graph.aget_state(config)
+    if state.values:
+        return
+    from app.engine.harness_integration.history import rebuild_messages_from_records
+
+    rebuilt = await rebuild_messages_from_records(legacy_records)
+    if rebuilt:
+        await graph.aupdate_state(config, {"messages": rebuilt})
