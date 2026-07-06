@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from agent_flow_harness.adapters.app_event import (
     ErrorEvent,
-    FinalAnswerDeltaEvent,
-    FinalAnswerEvent,
+    TextDeltaEvent,
+    TextEvent,
     ThinkingDeltaEvent,
     ThinkingEvent,
     ToolCallEvent,
@@ -28,16 +28,16 @@ def test_thinking_dump() -> None:
     assert ThinkingEvent(content="x").model_dump() == {"type": "thinking", "content": "x"}
 
 
-def test_final_answer_delta_dump() -> None:
-    assert FinalAnswerDeltaEvent(content="x").model_dump() == {
-        "type": "final_answer_delta",
+def test_text_delta_dump() -> None:
+    assert TextDeltaEvent(content="x").model_dump() == {
+        "type": "text_delta",
         "content": "x",
     }
 
 
-def test_final_answer_dump() -> None:
-    assert FinalAnswerEvent(content="x").model_dump() == {
-        "type": "final_answer",
+def test_text_dump() -> None:
+    assert TextEvent(content="x").model_dump() == {
+        "type": "text",
         "content": "x",
     }
 
@@ -80,4 +80,4 @@ def test_error_rejects_invalid_source() -> None:
 def test_extra_fields_rejected() -> None:
     """extra='forbid' keeps the schema tight against drift."""
     with pytest.raises(ValidationError):
-        FinalAnswerEvent(content="x", surprise=True)  # type: ignore[call-arg]
+        TextEvent(content="x", surprise=True)  # type: ignore[call-arg]
