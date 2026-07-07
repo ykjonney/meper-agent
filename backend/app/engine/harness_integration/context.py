@@ -126,6 +126,18 @@ async def resolve_harness_context(
             mcp_tools = await mcp_loader.load_tools(mcp_configs)
             all_tools.extend(mcp_tools)
 
+    # 4.5. 自定义工具 (openapi / code / prebuilt)
+    custom_tool_ids = agent.get("custom_tool_ids") or []
+    if custom_tool_ids:
+        from app.engine.tool.tool_builder import build_tool
+        from app.services.tool_service import ToolService
+
+        custom_docs = await ToolService.get_tools_by_ids(custom_tool_ids)
+        for doc in custom_docs:
+            tool = await build_tool(doc)
+            if tool is not None:
+                all_tools.append(tool)
+
     # 5. 构造最小 agent_doc
     agent_doc = {
         "_id": agent.get("_id", "agent"),
