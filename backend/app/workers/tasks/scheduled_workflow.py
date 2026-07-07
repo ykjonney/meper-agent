@@ -37,7 +37,7 @@ async def _execute_async(workflow_id: str) -> dict:
         return {"status": "error", "message": f"Workflow {workflow_id} not found"}
 
     trigger_config = workflow_doc.get("trigger_config", {})
-    if not trigger_config.get("enabled"):
+    if trigger_config.get("enabled") is False:
         logger.warning("scheduled_workflow_disabled", workflow_id=workflow_id)
         return {"status": "error", "message": "Trigger is disabled"}
 
