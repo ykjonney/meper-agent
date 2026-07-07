@@ -14,6 +14,7 @@ from app.core.logging import setup_logging
 from app.db.mongodb import close_mongodb_client
 from app.db.redis import close_redis_client
 from app.services.task_scheduler_service import get_scheduler
+from app.services.trigger_scheduler_service import get_trigger_scheduler
 
 # Initialize structured logging before app creation
 setup_logging()
@@ -41,6 +42,10 @@ async def lifespan(app: FastAPI):
     # Start the Task scheduler for timed/scheduled workflow execution
     scheduler = get_scheduler()
     await scheduler.start()
+
+    # Start the Trigger scheduler for cron/once workflow triggers
+    trigger_scheduler = get_trigger_scheduler()
+    await trigger_scheduler.start()
 
     # Initialize system roles (idempotent — only inserts missing roles)
     from app.services.role_service import RoleService
@@ -70,6 +75,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown: gracefully close connections
+    await trigger_scheduler.stop()
     await scheduler.stop()
     await close_mongodb_client()
     await close_redis_client()
