@@ -26,6 +26,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { key: 'tools', label: '工具', path: '/tools', icon: 'ToolOutlined', group: 'tools' },
   { key: 'mcp', label: 'MCP', path: '/mcp', icon: 'GatewayOutlined', group: 'tools' },
   { key: 'skills', label: 'Skill', path: '/skills', icon: 'HighlightOutlined', group: 'tools' },
+  { key: 'credentials', label: '凭据', path: '/credentials', icon: 'SafetyOutlined', group: 'tools' },
   // Single-page: users
   { key: 'users', label: '用户管理', path: '/users', icon: 'TeamOutlined' },
   // System group

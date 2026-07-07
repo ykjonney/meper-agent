@@ -10,12 +10,13 @@
  * 作为受控组件使用，value/onChange 接收/返回统一的 ToolSelectorValue。
  */
 import { useQuery } from '@tanstack/react-query'
-import { Checkbox, Switch, Skeleton, Typography, Alert } from 'antd'
+import { Checkbox, Switch, Skeleton, Typography, Alert, Tag } from 'antd'
 import {
   CodeOutlined,
   ApiOutlined,
   ThunderboltOutlined,
   ApartmentOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
 import { toolsApi, toolKeys } from '../services/tools-api'
 import { mcpApi, mcpKeys } from '../services/mcp-api'
@@ -38,6 +39,7 @@ export interface ToolSelectorValue {
   skill_ids: string[]
   mcp_connection_ids: string[]
   workflow_ids: string[]
+  custom_tool_ids: string[]
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -46,6 +48,7 @@ export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
   skill_ids: [],
   mcp_connection_ids: [],
   workflow_ids: [],
+  custom_tool_ids: [],
 }
 
 /* ─── Props ─── */
@@ -305,6 +308,103 @@ export default function ToolSelector({
           </div>
         )}
       </div>
+
+      {/* ────────── Custom Tools ────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <ToolOutlined className="text-[#8B5CF6] text-base" />
+          <Text strong className="text-sm">
+            自定义工具
+          </Text>
+          <Text className="text-[11px] text-[#94A3B8]">
+            （{value.custom_tool_ids?.length || 0} 已启用）
+          </Text>
+        </div>
+        <CustomToolSelector
+          value={value.custom_tool_ids || []}
+          onChange={(ids) => onChange?.(mergeValue(value, { custom_tool_ids: ids }))}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Custom tool selector — queries openapi/code/prebuilt tools from DB
+// ---------------------------------------------------------------------------
+
+function CustomToolSelector({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['custom-tools'],
+    queryFn: () =>
+      toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }).then(async (r1) => {
+        // Also fetch code + prebuilt sources and merge
+        const r2 = await toolsApi.list({ page: 1, page_size: 100, source: 'code' })
+        const r3 = await toolsApi.list({ page: 1, page_size: 100, source: 'prebuilt' })
+        return [...r1.items, ...r2.items, ...r3.items]
+      }),
+  })
+
+  if (error) {
+    return <Alert message="加载自定义工具失败" type="error" showIcon className="!rounded-lg" />
+  }
+  if (isLoading) {
+    return <Skeleton active paragraph={{ rows: 2 }} />
+  }
+
+  const tools = data || []
+  if (tools.length === 0) {
+    return (
+      <div className="border border-[#E2E8F0] rounded-lg px-3 py-3 text-center text-[11px] text-[#94A3B8]">
+        暂无自定义工具，请先在工具页面创建（OpenAPI / Code / 预构建）
+      </div>
+    )
+  }
+
+  const SOURCE_TAGS: Record<string, { color: string; label: string }> = {
+    openapi: { color: 'blue', label: 'API' },
+    code: { color: 'green', label: 'Code' },
+    prebuilt: { color: 'purple', label: 'Prebuilt' },
+  }
+
+  return (
+    <div className="max-h-[180px] overflow-y-auto border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
+      {tools.map((tool) => {
+        const enabled = value.includes(tool.id)
+        const tag = SOURCE_TAGS[tool.source] || { color: 'default', label: tool.source }
+        return (
+          <div
+            key={tool.id}
+            className="flex items-center justify-between px-3 py-2 hover:bg-[#F8FAFC] transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0 pr-2">
+              <Tag color={tag.color} className="!text-[10px] !px-1.5 !py-0">{tag.label}</Tag>
+              <span className="text-sm text-[#0F172A] truncate">{tool.name}</span>
+              {tool.description && (
+                <span className="text-[11px] text-[#94A3B8] truncate max-w-[200px]">
+                  {tool.description}
+                </span>
+              )}
+            </div>
+            <Switch
+              size="small"
+              checked={enabled}
+              onChange={(checked) => {
+                const next = checked
+                  ? [...value, tool.id]
+                  : value.filter((id) => id !== tool.id)
+                onChange(next)
+              }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }

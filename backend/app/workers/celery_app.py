@@ -11,6 +11,7 @@ celery_app = Celery(
     include=[
         "app.workers.tasks.maintenance",
         "app.workers.tasks.webhook_delivery",
+        "app.workers.tasks.scheduled_workflow",
     ],
 )
 
