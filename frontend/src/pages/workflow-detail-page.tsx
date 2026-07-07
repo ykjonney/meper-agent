@@ -25,6 +25,7 @@ import {
   Alert,
   Divider,
   Upload,
+  Tabs,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -62,6 +63,9 @@ import { validateWorkflow } from '../features/workflow-editor/utils/workflow-val
 import { deriveXyflowEdgesFromNodes } from '../features/workflow-editor/utils/canvas-converters'
 import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
 import { getTypeColor, getTypeIcon, getTypeLabel } from '../features/workflow-editor/utils/variable-types'
+
+/* ─── Trigger 配置 ─── */
+import TriggerConfigEditor from '../components/workflows/TriggerConfigEditor'
 
 /* ─── 根据 start 节点变量动态生成表单 ─── */
 function VariableFormField({
@@ -654,6 +658,9 @@ export default function WorkflowDetailPage() {
   const [saving, setSaving] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
 
+  /* ─── Active tab ('editor' | 'trigger') ─── */
+  const [activeTab, setActiveTab] = useState<string>('editor')
+
   /* ─── Selected node ID for editing ─── */
   // 只存储 ID，节点数据从 editNodes 中派生（避免 ReactFlow 替换节点对象时丢失选中状态）
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -1017,53 +1024,74 @@ export default function WorkflowDetailPage() {
         </div>
       </div>
 
-      {/* ── 三栏编辑器 ── */}
+      {/* ── 编辑器 Tabs（DAG / 定时触发） ── */}
       <div className="flex-1 min-h-0 px-6 pb-4">
         <div className="h-full border border-gray-200 rounded-xl overflow-hidden flex flex-col">
-          {/* 编辑器头部 tab 切换 */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-200 bg-white shrink-0">
-            <span className="text-xs font-medium text-[#64748B]">
-              节点 ({editNodes.length})
-            </span>
-            <div className="flex-1" />
-            <Tooltip title="从左侧 Palette 拖拽节点到画布，连接 Handle 创建路由">
-              <span className="text-[10px] text-[#94A3B8] cursor-help">
-                拖拽添加 · 点击编辑
-              </span>
-            </Tooltip>
-          </div>
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            destroyInactiveTabPane
+            className="workflow-editor-tabs flex-1 min-h-0 flex flex-col"
+            tabBarStyle={{ margin: 0, padding: '0 16px', background: '#fff', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}
+            items={[
+              {
+                key: 'editor',
+                label: (
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs">节点 ({editNodes.length})</span>
+                    <Tooltip title="从左侧 Palette 拖拽节点到画布，连接 Handle 创建路由">
+                      <span className="text-[10px] text-[#94A3B8] cursor-help">
+                        拖拽添加 · 点击编辑
+                      </span>
+                    </Tooltip>
+                  </span>
+                ),
+                children: (
+                  <div className="flex-1 flex min-h-0">
+                    {/* 左侧 Palette */}
+                    <div className="w-[200px] shrink-0">
+                      <WorkflowNodePalette />
+                    </div>
 
-          {/* 三栏布局 */}
-          <div className="flex-1 flex min-h-0">
-            {/* 左侧 Palette */}
-            <div className="w-[200px] shrink-0">
-              <WorkflowNodePalette />
-            </div>
+                    {/* 中间 Canvas */}
+                    <div className="flex-1 bg-[#F8FAFC]">
+                      <WorkflowCanvas
+                        key={canvasKey}
+                        workflowNodes={editNodes}
+                        selectedNodeId={selectedNodeId}
+                        onNodesChange={handleCanvasNodesChange}
+                        onSelectNode={handleSelectNode}
+                      />
+                    </div>
 
-            {/* 中间 Canvas */}
-            <div className="flex-1 bg-[#F8FAFC]">
-              <WorkflowCanvas
-                key={canvasKey}
-                workflowNodes={editNodes}
-                selectedNodeId={selectedNodeId}
-                onNodesChange={handleCanvasNodesChange}
-                onSelectNode={handleSelectNode}
-              />
-            </div>
-
-            {/* 右侧 Config Panel */}
-            <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
-              <div className="p-4">
-                <WorkflowNodeConfigPanel
-                  key={selectedNodeId ?? 'none'}
-                  selectedNode={selectedNode}
-                  allNodes={editNodes}
-                  onNodeChange={updateNode}
-                  onNodeDelete={handleDeleteNode}
-                />
-              </div>
-            </div>
-          </div>
+                    {/* 右侧 Config Panel */}
+                    <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
+                      <div className="p-4">
+                        <WorkflowNodeConfigPanel
+                          key={selectedNodeId ?? 'none'}
+                          selectedNode={selectedNode}
+                          allNodes={editNodes}
+                          onNodeChange={updateNode}
+                          onNodeDelete={handleDeleteNode}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: 'trigger',
+                label: (
+                  <span className="text-xs">定时触发</span>
+                ),
+                children: (
+                  <div className="flex-1 overflow-y-auto bg-white p-6">
+                    <TriggerConfigEditor workflowId={workflow.id} />
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
 
