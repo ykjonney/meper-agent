@@ -171,7 +171,7 @@ async def create_task(
 )
 async def list_tasks(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=200),
     status: str | None = Query(default=None),
     created_by: str | None = Query(default=None),
     workflow_id: str | None = Query(default=None),

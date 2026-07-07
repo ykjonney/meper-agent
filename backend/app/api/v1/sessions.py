@@ -84,7 +84,7 @@ async def create_session(
 async def list_sessions(
     agent_id: str | None = Query(None, description="Filter by agent ID"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     user: UserResponse = Depends(get_current_user),
 ) -> SessionListResponse:
     """List sessions for the current user, optionally filtered by agent."""

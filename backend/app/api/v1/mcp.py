@@ -91,7 +91,7 @@ async def create_connection(
 )
 async def list_connections(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     name: str | None = Query(None, description="Filter by name (substring)"),
     status: ConnectionStatus | None = Query(None, description="Filter by status"),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),

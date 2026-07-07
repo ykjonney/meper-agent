@@ -112,7 +112,7 @@ async def create_workflow(
 )
 async def list_workflows(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=200),
     status: str | None = Query(default=None),
     name: str | None = Query(default=None),
 ) -> WorkflowListResponse:

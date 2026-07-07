@@ -50,6 +50,7 @@ class TaskService:
         parent_task_id: str | None = None,
         call_chain: list[str] | None = None,
         scheduled_at: datetime | None = None,
+        ext_metadata: dict[str, Any] | None = None,
     ) -> dict:
         """Create a new Task in pending status.
 
@@ -113,6 +114,8 @@ class TaskService:
         )
 
         doc = task.model_dump(by_alias=True)
+        if ext_metadata:
+            doc.update(ext_metadata)
         result = await TaskService._collection().insert_one(doc)
 
         # Write audit log
@@ -532,6 +535,14 @@ class TaskService:
             data=timeline_data or {},
         ))
 
+        # Fire webhook events for terminal/waiting_human states
+        if to_status in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.WAITING_HUMAN,
+        ):
+            _fire_task_webhook(task_id, to_status, updated)
+
         return updated
 
     # ------------------------------------------------------------------
@@ -723,3 +734,49 @@ class TaskService:
                 {"user_id": u["_id"], "running": u["running"]} for u in user_stats
             ],
         }
+
+
+# ---------------------------------------------------------------------------
+# Webhook event helper
+# ---------------------------------------------------------------------------
+
+_TASK_STATUS_TO_WEBHOOK_EVENT = {
+    TaskStatus.COMPLETED: "task.completed",
+    TaskStatus.FAILED: "task.failed",
+    TaskStatus.WAITING_HUMAN: "task.waiting_human",
+}
+
+
+def _fire_task_webhook(task_id: str, to_status: TaskStatus, task_doc: dict) -> None:
+    """Fire-and-forget: dispatch webhook event for a task state change."""
+    webhook_event = _TASK_STATUS_TO_WEBHOOK_EVENT.get(to_status)
+    if not webhook_event:
+        return
+
+    payload = {
+        "event": webhook_event,
+        "task_id": task_id,
+        "workflow_id": task_doc.get("workflow_id", ""),
+        "status": to_status.value,
+        "output": task_doc.get("output"),
+        "error": task_doc.get("error"),
+        "timestamp": task_doc.get("updated_at", ""),
+        "api_key_id": task_doc.get("ext_api_key_id"),
+        "callback_url": task_doc.get("ext_callback_url"),
+    }
+
+    import asyncio
+
+    async def _dispatch():
+        try:
+            from app.services.webhook_service import WebhookService
+
+            await WebhookService.dispatch_event(webhook_event, payload)
+        except Exception as exc:
+            logger.warning("webhook_dispatch_error", task_id=task_id, error=str(exc))
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_dispatch())
+    except RuntimeError:
+        pass

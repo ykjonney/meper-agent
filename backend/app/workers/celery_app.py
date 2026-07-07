@@ -10,6 +10,7 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.workers.tasks.maintenance",
+        "app.workers.tasks.webhook_delivery",
     ],
 )
 

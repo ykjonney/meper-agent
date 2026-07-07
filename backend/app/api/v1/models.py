@@ -50,7 +50,7 @@ def _doc_to_response(doc: dict) -> ModelResponse:
 )
 async def list_models(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
     status: ModelStatus | None = Query(None, description="Filter by status"),
     provider_tag: str | None = Query(None, description="Filter by provider tag"),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),

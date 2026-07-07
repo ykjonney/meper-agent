@@ -80,7 +80,7 @@ def _parse_call_chain(x_call_chain: str | None) -> list[str]:
 )
 async def list_agents(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     name: str | None = Query(None),
     status: AgentStatus | None = Query(None),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.middleware.exception_mw import ExceptionMiddleware
 from app.api.middleware.logging_mw import LoggingMiddleware
 from app.api.middleware.request_id import RequestIDMiddleware
+from app.api.v1.ext import ExtApiStatsMiddleware
 from app.api.v1.router import api_v1_router
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -45,6 +46,10 @@ async def lifespan(app: FastAPI):
     from app.services.role_service import RoleService
     await RoleService.ensure_indexes()
     await RoleService.init_system_roles()
+
+    # Initialize API Key indexes
+    from app.services.api_key_service import ApiKeyService
+    await ApiKeyService.ensure_indexes()
 
     # Recover waiting_human tasks from previous server instance
     from app.services.task_recovery import (
@@ -90,8 +95,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
+app.add_middleware(ExtApiStatsMiddleware)
 
 # API routes
 app.include_router(api_v1_router, prefix="/api/v1")

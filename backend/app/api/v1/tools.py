@@ -309,7 +309,7 @@ async def upload_tools(
 )
 async def list_tools(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
     name: str | None = Query(None, description="Filter by name (substring)"),
     source: str | None = Query(None, description="Filter by source (markdown / mcp / builtin)"),
     mcp_connection_id: str | None = Query(None, description="Filter by MCP connection ID"),

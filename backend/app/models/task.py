@@ -93,7 +93,7 @@ class Task(BaseModel):
     call_chain: list[str] = Field(default_factory=list)
     parent_task_id: str | None = None
     created_by: str = Field(default="", max_length=100)
-    created_by_type: str = Field(default="user", pattern=r"^(user|agent|system)$")
+    created_by_type: str = Field(default="user", pattern=r"^(user|agent|system|api_key)$")
     version: int = Field(default=1, ge=1)
     timeline: list[TimelineEvent] = Field(default_factory=list)
     error: TaskError | None = None
