@@ -48,18 +48,49 @@ async def list_builtin_tools(
     """
     from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
 
-    return [
-        BuiltinToolResponse(
-            name=name,
-            description=tool.description or "",
-            parameters=(
-                tool.args_schema.schema()
-                if hasattr(tool, "args_schema") and tool.args_schema
-                else {}
-            ),
+    results = []
+    for name, tool in _BUILTIN_TOOL_REGISTRY.items():
+        params = {}
+        if hasattr(tool, "args_schema") and tool.args_schema:
+            try:
+                params = tool.args_schema.model_json_schema()
+            except Exception:
+                pass
+        results.append(
+            BuiltinToolResponse(name=name, description=tool.description or "", parameters=params)
         )
-        for name, tool in _BUILTIN_TOOL_REGISTRY.items()
-    ]
+    return results
+
+
+@router.get(
+    "/prebuilt",
+    response_model=list[dict],
+    summary="List prebuilt tools (platform-registered)",
+    responses={403: {"description": "Forbidden — viewer+ role required"}},
+)
+async def list_prebuilt_tools(
+    _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+) -> list[dict]:
+    """Return the list of prebuilt tools registered in TOOL_REGISTRY.
+
+    Prebuilt tools are platform-level integrations (Wikipedia, Web Search,
+    etc.) registered at startup via CommunityTool protocol.
+    """
+    from agent_flow_harness.tools.registry import TOOL_REGISTRY
+
+    tools = []
+    for entry in TOOL_REGISTRY.list_community_tools():
+        info: dict[str, Any] = {
+            "name": entry.name,
+            "description": entry.description,
+            "enabled_by_default": entry.enabled_by_default,
+        }
+        try:
+            info["config_schema"] = entry.config_schema.model_json_schema()
+        except Exception:
+            info["config_schema"] = {}
+        tools.append(info)
+    return tools
 
 
 def _doc_to_response(doc: dict) -> ToolResponse:

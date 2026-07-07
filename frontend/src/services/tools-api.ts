@@ -116,6 +116,15 @@ export const toolsApi = {
   },
 
   /**
+   * List prebuilt tools (platform-registered).
+   * GET /api/v1/tools/prebuilt
+   */
+  async listPrebuilt(): Promise<Record<string, unknown>[]> {
+    const res = await apiClient.get<Record<string, unknown>[]>('/api/v1/tools/prebuilt')
+    return res.data
+  },
+
+  /**
    * Create a custom tool (OpenAPI / Code / Prebuilt).
    * POST /api/v1/tools
    */
