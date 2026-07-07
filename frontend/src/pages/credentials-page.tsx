@@ -3,7 +3,8 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Form, Input, Modal, Select, Space, message, Tag } from 'antd'
 import { DeleteOutlined, PlusOutlined, KeyOutlined } from '@ant-design/icons'
-import { CredentialType, Credential, credentialsApi, credentialKeys } from '../services/credentials-api'
+import type { CredentialType, Credential } from '../services/credentials-api'
+import { credentialsApi, credentialKeys } from '../services/credentials-api'
 import { normalizeError } from '../services/api-client'
 
 const TYPE_COLORS: Record<CredentialType, string> = {
