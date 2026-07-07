@@ -1,4 +1,6 @@
 """Scheduled workflow execution Celery task."""
+from typing import Any
+
 from loguru import logger
 
 from app.db.mongodb import get_database
@@ -10,7 +12,7 @@ from app.workers.celery_app import celery_app
 
 
 @celery_app.task(name="app.workers.tasks.scheduled_workflow.execute_scheduled_workflow")
-def execute_scheduled_workflow(workflow_id: str) -> dict:
+def execute_scheduled_workflow(workflow_id: str) -> dict[str, Any]:
     """Execute a scheduled workflow.
 
     Celery task entry point. Delegates to async implementation.
@@ -26,8 +28,11 @@ def execute_scheduled_workflow(workflow_id: str) -> dict:
     return asyncio.run(_execute_async(workflow_id))
 
 
-async def _execute_async(workflow_id: str) -> dict:
-    """Async execution logic."""
+async def _execute_async(workflow_id: str) -> dict[str, Any]:
+    """Async execution logic.
+
+    Load workflow → render input → create Task → run engine → update trigger.
+    """
     db = get_database()
 
     # 1. Load Workflow
@@ -51,27 +56,28 @@ async def _execute_async(workflow_id: str) -> dict:
         rendered_input=rendered_input,
     )
 
-    # 3. Create Task instance
-    task_doc = await TaskService.create_task(
-        workflow_id=workflow_id,
-        input_data=rendered_input,
-        created_by="system",
-        created_by_type="system",
-    )
-    task_id = task_doc["_id"]
-
-    logger.info(
-        "scheduled_workflow_task_created",
-        workflow_id=workflow_id,
-        task_id=task_id,
-    )
-
-    # 4. Execute Workflow
+    # 3-5. Create Task, Execute, Update trigger — all in one try/except
+    # so that a create_task failure is also caught (task_id stays "").
+    task_id = ""
     try:
+        task_doc = await TaskService.create_task(
+            workflow_id=workflow_id,
+            input_data=rendered_input,
+            created_by="system",
+            created_by_type="system",
+        )
+        task_id = task_doc["_id"]
+
+        logger.info(
+            "scheduled_workflow_task_created",
+            workflow_id=workflow_id,
+            task_id=task_id,
+        )
+
         engine = WorkflowEngine()
         await engine.run_and_persist(task_id)
 
-        # 5. Update last_triggered_at
+        # Update last_triggered_at
         await db["workflows"].update_one(
             {"_id": workflow_id},
             {"$set": {"trigger_config.last_triggered_at": utc_now()}},
