@@ -76,7 +76,10 @@ export default function TriggerConfigEditor({ workflowId }: Props) {
       setDirty(false)
     } catch (err) {
       // 404 视为"未配置"，不报错
-      const status = (err as { response?: { status?: number } })?.response?.status
+      // apiClient normalizes errors → status lives on `statusCode`
+      const status =
+        (err as { statusCode?: number })?.statusCode ??
+        (err as { response?: { status?: number } })?.response?.status
       if (status === 404) {
         setConfig(null)
         setDirty(false)

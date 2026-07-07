@@ -250,7 +250,7 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
         </Section>
 
         {/* ── Parameters ── */}
-        <Section title="LLM 参数" subtitle="LLM 调用工具时传入的参数（LLM 看到的参数描述）">
+        <Section title="参数定义" subtitle="定义工具的输入参数。在 URL 中用 {{参数名}} 引用，Code 工具会自动生成函数签名">
           <ParamEditor value={params} onChange={setParams} />
         </Section>
 
@@ -298,9 +298,9 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
                 <KeyValueEditor
                   value={queryParams}
                   onChange={setQueryParams}
-                  keyPlaceholder="参数名（如 state）"
-                  valuePlaceholder={'如: {{state}}'}
-                  emptyHint="暂无 Query Params"
+                  keyPlaceholder="参数名"
+                  valuePlaceholder={'{{参数名}}（引用上方定义的参数）'}
+                  emptyHint="暂无 Query Params（如需把参数传到 URL query，在此映射）"
                 />
               </div>
 
@@ -323,16 +323,24 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
 
         {/* ── Code config ── */}
         {source === 'code' && (
-          <Section title="Python 代码" subtitle="定义一个与工具同名的函数，返回 str。凭据经环境变量 CRED_xxx 注入">
+          <Section title="Python 代码" subtitle="参数名自动从上方参数定义生成函数签名。凭据经环境变量 CRED_xxx 注入">
+            {params.length > 0 && (
+              <div className="mb-2 px-3 py-2 bg-[#F0F7FF] rounded-lg border border-[#93C5FD]">
+                <p className="text-[11px] text-[#2563EB] mb-1">自动生成的函数签名：</p>
+                <code className="text-xs text-[#0F172A] font-mono">
+                  def {name || 'my_tool'}({params.map(p => p.name).join(', ')}) -&gt; str:
+                </code>
+              </div>
+            )}
             <TextArea
-              rows={12}
+              rows={10}
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder={`def ${name || 'my_tool'}(query: str) -> str:\n    """\n    工具描述\n    """\n    import os\n    token = os.environ.get('CRED_token', '')\n    return f"result: {query}"`}
+              placeholder={`# 在下方编写函数体，函数名和工具名一致\n# 参数名与上方参数定义一致\n# 凭据通过 os.environ['CRED_xxx'] 获取\n\ndef ${name || 'my_tool'}(${params.map(p => p.name).join(', ')}) -> str:\n    import os\n    return "result"`}
               className="font-mono text-sm"
             />
             <p className="text-[11px] text-[#94A3B8] mt-1">
-              函数参数名需与上方 LLM 参数名一致。代码在沙箱中执行。
+              代码在 Docker 沙箱中执行。导入标准库即可，不支持网络请求（除非沙箱开启网络）。
             </p>
           </Section>
         )}

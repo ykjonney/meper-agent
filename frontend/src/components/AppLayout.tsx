@@ -76,6 +76,7 @@ const GROUPS: NavGroup[] = [
       { label: '工具', path: '/tools', key: 'tools', permission: 'tool:read' },
       { label: 'MCP', path: '/mcp', key: 'mcp', permission: 'mcp:read' },
       { label: 'Skill', path: '/skills', key: 'skills', permission: 'skill:read' },
+      { label: '凭据', path: '/credentials', key: 'credentials', permission: 'tool:read' },
     ],
   },
   {
