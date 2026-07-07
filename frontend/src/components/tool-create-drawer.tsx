@@ -1,18 +1,17 @@
 /**
  * ToolCreateDrawer — create custom tools (OpenAPI / Code).
  *
- * Features:
- * - Manual mode: visual param editor + HTTP config form
- * - Import mode: paste OpenAPI spec to auto-fill params + endpoint
- * - Credential selector (from /credentials)
- * - Key-value editors for headers/params/config
+ * Credential model: tool DECLARES what credential it needs (type + fields).
+ * Agent config binds the actual credential at use time.
+ *
+ * Param model: only one kind of params — defined here, LLM fills them at call time.
+ * No "preset config" — fixed values go directly in URL/headers.
  */
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Drawer, Button, Input, Select, Radio, Segmented, message, Divider } from 'antd'
 import { GlobalOutlined, CodeOutlined } from '@ant-design/icons'
 import { toolsApi } from '../services/tools-api'
-import { credentialsApi } from '../services/credentials-api'
 import { normalizeError } from '../services/api-client'
 import ParamEditor, { paramsToSchema } from './param-editor'
 import type { ToolParam } from './param-editor'
@@ -28,6 +27,15 @@ export interface ToolCreateDrawerProps {
 
 type CreateMode = 'manual' | 'openapi_import'
 type ToolSource = 'openapi' | 'code'
+type CredentialType = 'none' | 'api_key' | 'bearer' | 'basic'
+
+// 凭据类型 → 默认字段名
+const CRED_FIELD_PRESETS: Record<string, string[]> = {
+  none: [],
+  api_key: ['api_key'],
+  bearer: ['token'],
+  basic: ['username', 'password'],
+}
 
 export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProps) {
   const queryClient = useQueryClient()
@@ -37,7 +45,8 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
   const [description, setDescription] = useState('')
   const [source, setSource] = useState<ToolSource>('openapi')
   const [createMode, setCreateMode] = useState<CreateMode>('manual')
-  const [credentialId, setCredentialId] = useState('')
+  const [credentialType, setCredentialType] = useState<CredentialType>('none')
+  const [credentialFields, setCredentialFields] = useState<string[]>([])
   const [params, setParams] = useState<ToolParam[]>([])
 
   // HTTP config
@@ -45,20 +54,12 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
   const [url, setUrl] = useState('')
   const [headers, setHeaders] = useState<KVPair[]>([])
   const [queryParams, setQueryParams] = useState<KVPair[]>([])
-  const [config, setConfig] = useState<KVPair[]>([])
 
   // Code
   const [code, setCode] = useState('')
 
   // OpenAPI import
   const [openapiSpec, setOpenapiSpec] = useState('')
-
-  // ── Queries ──
-  const { data: credData } = useQuery({
-    queryKey: ['credentials-for-tools'],
-    queryFn: () => credentialsApi.list(),
-    enabled: open,
-  })
 
   // ── Mutation ──
   const createMutation = useMutation({
@@ -75,9 +76,14 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
 
   const resetForm = () => {
     setName(''); setDescription(''); setSource('openapi'); setCreateMode('manual')
-    setCredentialId(''); setParams([])
-    setMethod('GET'); setUrl(''); setHeaders([]); setQueryParams([]); setConfig([])
+    setCredentialType('none'); setCredentialFields([]); setParams([])
+    setMethod('GET'); setUrl(''); setHeaders([]); setQueryParams([])
     setCode(''); setOpenapiSpec('')
+  }
+
+  const handleCredentialTypeChange = (type: CredentialType) => {
+    setCredentialType(type)
+    setCredentialFields(CRED_FIELD_PRESETS[type] ? [...CRED_FIELD_PRESETS[type]] : [])
   }
 
   // ── Parse OpenAPI spec ──
@@ -85,22 +91,17 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
     try {
       const spec = JSON.parse(openapiSpec)
       const paths = spec.paths || {}
-      // Take first path + method as the tool endpoint
       const firstPath = Object.keys(paths)[0]
       if (!firstPath) { message.warning('未找到 paths'); return }
       const pathItem = paths[firstPath]
       const firstMethod = Object.keys(pathItem).find(m => ['get', 'post', 'put', 'delete'].includes(m))
       if (!firstMethod) { message.warning('未找到 method'); return }
       const operation = pathItem[firstMethod]
-
-      // Fill name + description
       if (operation.operationId && !name) setName(operation.operationId)
       if (operation.summary && !description) setDescription(operation.summary)
       setMethod(firstMethod.toUpperCase())
       const serverUrl = spec.servers?.[0]?.url || ''
       setUrl(serverUrl + firstPath)
-
-      // Parse parameters
       const opParams = operation.parameters || []
       const toolParams: ToolParam[] = opParams.map((p: Record<string, unknown>) => ({
         name: p.name as string || '',
@@ -109,6 +110,13 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
         description: (p.description as string) || '',
       }))
       setParams(toolParams)
+      // Auto-detect auth from OpenAPI security
+      const security = operation.security || spec.security || []
+      if (security.some((s: Record<string, unknown>) => s.bearerAuth || s.BearerAuth)) {
+        handleCredentialTypeChange('bearer')
+      } else if (security.some((s: Record<string, unknown>) => s.api_key || s.ApiKeyAuth)) {
+        handleCredentialTypeChange('api_key')
+      }
       message.success(`解析成功：${toolParams.length} 个参数`)
     } catch (err) {
       message.error('JSON 解析失败：' + (err as Error).message)
@@ -118,30 +126,22 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
   // ── Submit ──
   const handleSubmit = () => {
     if (!name.trim()) { message.warning('请输入工具名称'); return }
-
     const inputSchema = paramsToSchema(params)
-
-    // Convert KV pairs to dicts
     const kvToDict = (kvs: KVPair[]) => {
       const d: Record<string, string> = {}
-      for (const kv of kvs) {
-        if (kv.key.trim()) d[kv.key] = kv.value
-      }
+      for (const kv of kvs) { if (kv.key.trim()) d[kv.key] = kv.value }
       return d
     }
 
     if (source === 'openapi') {
       if (!url.trim()) { message.warning('请输入 URL'); return }
       createMutation.mutate({
-        name: name.trim(),
-        description,
-        source: 'openapi',
+        name: name.trim(), description, source: 'openapi',
         input_schema: inputSchema,
-        credential_id: credentialId,
-        config: kvToDict(config),
+        credential_type: credentialType,
+        credential_fields: credentialFields,
         endpoint: {
-          method,
-          url,
+          method, url,
           headers: kvToDict(headers),
           params: kvToDict(queryParams),
         },
@@ -149,16 +149,19 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
     } else {
       if (!code.trim()) { message.warning('请输入代码'); return }
       createMutation.mutate({
-        name: name.trim(),
-        description,
-        source: 'code',
+        name: name.trim(), description, source: 'code',
         input_schema: inputSchema,
-        credential_id: credentialId,
-        config: kvToDict(config),
+        credential_type: credentialType,
+        credential_fields: credentialFields,
         code,
       })
     }
   }
+
+  // ── Credential hint for templates ──
+  const credHint = credentialFields.length > 0
+    ? `用 {{credential.${credentialFields[0]}}} 引用凭据`
+    : ''
 
   return (
     <Drawer
@@ -170,14 +173,12 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
       extra={
         <div className="flex gap-2">
           <Button onClick={onClose}>取消</Button>
-          <Button type="primary" onClick={handleSubmit} loading={createMutation.isPending}>
-            创建
-          </Button>
+          <Button type="primary" onClick={handleSubmit} loading={createMutation.isPending}>创建</Button>
         </div>
       }
     >
       <div className="flex flex-col gap-5 pb-8">
-        {/* ── Basic info ── */}
+        {/* ── 基本信息 ── */}
         <Section title="基本信息">
           <div className="space-y-3">
             <div>
@@ -203,127 +204,122 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
           </div>
         </Section>
 
-        {/* ── Create mode (OpenAPI only) ── */}
+        {/* ── 创建方式 (OpenAPI only) ── */}
         {source === 'openapi' && (
           <Section title="创建方式">
             <Radio.Group value={createMode} onChange={(e) => setCreateMode(e.target.value)}>
-              <Radio value="manual">手动配置（逐个填参数）</Radio>
+              <Radio value="manual">手动配置</Radio>
               <Radio value="openapi_import">导入 OpenAPI 规范</Radio>
             </Radio.Group>
-
             {createMode === 'openapi_import' && (
               <div className="mt-3">
                 <Label>粘贴 OpenAPI JSON</Label>
-                <TextArea
-                  rows={8}
-                  value={openapiSpec}
-                  onChange={(e) => setOpenapiSpec(e.target.value)}
-                  placeholder={'{\n  "openapi": "3.0.0",\n  "paths": {\n    "/search": {\n      "get": { ... }\n    }\n  }\n}'}
-                  className="font-mono text-xs"
-                />
+                <TextArea rows={6} value={openapiSpec} onChange={(e) => setOpenapiSpec(e.target.value)}
+                  placeholder={'{\n  "openapi": "3.0.0",\n  "paths": { ... }\n}'} className="font-mono text-xs" />
                 <Button className="mt-2" size="small" onClick={parseOpenApi}>解析并填充</Button>
-                <p className="text-[11px] text-[#94A3B8] mt-1">
-                  粘贴 OpenAPI 规范 JSON，解析后自动填充 URL、方法和参数。默认取第一个 path + method。
-                </p>
+                <p className="text-[11px] text-[#94A3B8] mt-1">解析后自动填充 URL、方法和参数。</p>
               </div>
             )}
           </Section>
         )}
 
-        {/* ── Credential ── */}
-        <Section title="认证">
-          <Label>关联凭据</Label>
-          <Select
-            allowClear
-            value={credentialId || undefined}
-            onChange={(val) => setCredentialId(val || '')}
-            placeholder="选择凭据（可选）"
-            className="w-full"
-            options={(credData?.items || []).map((c) => ({
-              value: c._id,
-              label: `${c.name} (${c.type})`,
-            }))}
-          />
-          <p className="text-[11px] text-[#94A3B8] mt-1">
-            在凭据管理页面创建凭据（API Key / Token）。工具执行时通过 {'{{credential.xxx}}'} 模板引用。
-          </p>
+        {/* ── 凭据声明 ── */}
+        <Section title="凭据" subtitle="声明工具需要什么类型的凭据。用户在 Agent 配置时绑定实际凭据值。">
+          <div className="space-y-3">
+            <div>
+              <Label>凭据类型</Label>
+              <Select
+                value={credentialType}
+                onChange={(val) => handleCredentialTypeChange(val as CredentialType)}
+                className="w-full"
+                options={[
+                  { value: 'none', label: '无需认证' },
+                  { value: 'api_key', label: 'API Key' },
+                  { value: 'bearer', label: 'Bearer Token' },
+                  { value: 'basic', label: 'Basic Auth' },
+                ]}
+              />
+            </div>
+            {credentialType !== 'none' && (
+              <div>
+                <Label>凭据字段名</Label>
+                <p className="text-[11px] text-[#94A3B8] mb-2">
+                  这些字段名用于在 URL / Headers 中用 <code className="text-[#6366F1]">{'{{credential.字段名}}'}</code> 引用凭据值。
+                  选择类型后会自动填充默认字段名，可修改。
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {credentialFields.map((field, i) => (
+                    <div key={i} className="flex items-center gap-1 bg-[#F1F5F9] rounded-lg px-3 py-1.5">
+                      <code className="text-xs text-[#0F172A]">{field}</code>
+                      <button
+                        className="text-[#94A3B8] hover:text-[#EF4444] ml-1"
+                        onClick={() => setCredentialFields(credentialFields.filter((_, idx) => idx !== i))}
+                      >✕</button>
+                    </div>
+                  ))}
+                  <Input
+                    size="small"
+                    placeholder="添加字段名"
+                    className="w-32"
+                    onPressEnter={(e) => {
+                      const val = (e.target as HTMLInputElement).value.trim()
+                      if (val && !credentialFields.includes(val)) {
+                        setCredentialFields([...credentialFields, val])
+                      }
+                      (e.target as HTMLInputElement).value = ''
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </Section>
 
-        {/* ── Parameters ── */}
-        <Section title="参数定义" subtitle="定义工具的输入参数。在 URL 中用 {{参数名}} 引用，Code 工具会自动生成函数签名">
+        {/* ── 参数定义 ── */}
+        <Section title="参数定义" subtitle="定义工具的输入参数。LLM 调用时填入。在 URL 中用 {{参数名}} 引用。">
           <ParamEditor value={params} onChange={setParams} />
         </Section>
 
-        {/* ── Execution config (OpenAPI) ── */}
+        {/* ── HTTP 配置 (OpenAPI) ── */}
         {source === 'openapi' && (
-          <Section title="HTTP 配置" subtitle="用 {{config.xxx}} 引用预设参数，{{credential.xxx}} 引用凭据，{{param_name}} 引用 LLM 参数">
+          <Section title="HTTP 配置" subtitle={credHint || '用 {{参数名}} 引用上方定义的参数'}>
             <div className="space-y-4">
               <div className="grid grid-cols-[100px_1fr] gap-3 items-center">
                 <Label required>请求方法</Label>
-                <Select
-                  value={method}
-                  onChange={setMethod}
+                <Select value={method} onChange={setMethod}
                   options={['GET', 'POST', 'PUT', 'DELETE'].map(m => ({ value: m, label: m }))}
-                  className="w-32"
-                />
+                  className="w-32" />
               </div>
               <div>
                 <Label required>URL</Label>
-                <Input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://api.example.com/{{config.path}}/resource"
-                />
+                <Input value={url} onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://api.example.com/{{path_param}}/resource" />
                 <p className="text-[11px] text-[#94A3B8] mt-1">
-                  <code className="text-[#6366F1]">{'{{config.xxx}}'}</code> 引用预设参数，{' '}
-                  <code className="text-[#6366F1]">{'{{param_name}}'}</code> 引用 LLM 参数
+                  <code className="text-[#6366F1]">{'{{参数名}}'}</code> 引用参数定义中的参数
+                  {credentialFields.length > 0 && <>, <code className="text-[#6366F1]">{'{{credential.xxx}}'}</code> 引用凭据</>}
                 </p>
               </div>
-
               <Divider className="!my-2" />
-
               <div>
                 <Label>Headers</Label>
-                <KeyValueEditor
-                  value={headers}
-                  onChange={setHeaders}
-                  keyPlaceholder="Header 名（如 Authorization）"
-                  valuePlaceholder={'如: Bearer {{credential.token}}'}
-                  emptyHint="暂无 Headers"
-                />
+                <KeyValueEditor value={headers} onChange={setHeaders}
+                  keyPlaceholder="Header 名"
+                  valuePlaceholder={credentialFields.length > 0 ? `如: Bearer {{credential.${credentialFields[0]}}}` : 'Header 值'}
+                  emptyHint="暂无 Headers" />
               </div>
-
               <div>
                 <Label>Query Params</Label>
-                <KeyValueEditor
-                  value={queryParams}
-                  onChange={setQueryParams}
-                  keyPlaceholder="参数名"
-                  valuePlaceholder={'{{参数名}}（引用上方定义的参数）'}
-                  emptyHint="暂无 Query Params（如需把参数传到 URL query，在此映射）"
-                />
-              </div>
-
-              <div>
-                <Label>预设参数（非敏感）</Label>
-                <KeyValueEditor
-                  value={config}
-                  onChange={setConfig}
-                  keyPlaceholder="参数名（如 owner）"
-                  valuePlaceholder="如: myorg"
-                  emptyHint="暂无预设参数"
-                />
-                <p className="text-[11px] text-[#94A3B8] mt-1">
-                  这些参数在工具配置时预设，不暴露给 LLM。如默认仓库 owner、超时时间等。
-                </p>
+                <KeyValueEditor value={queryParams} onChange={setQueryParams}
+                  keyPlaceholder="参数名" valuePlaceholder={'{{参数名}}'}
+                  emptyHint="暂无 Query Params" />
               </div>
             </div>
           </Section>
         )}
 
-        {/* ── Code config ── */}
+        {/* ── Code ── */}
         {source === 'code' && (
-          <Section title="Python 代码" subtitle="参数名自动从上方参数定义生成函数签名。凭据经环境变量 CRED_xxx 注入">
+          <Section title="Python 代码" subtitle="参数名自动从上方参数定义生成。凭据经环境变量 CRED_xxx 注入">
             {params.length > 0 && (
               <div className="mb-2 px-3 py-2 bg-[#F0F7FF] rounded-lg border border-[#93C5FD]">
                 <p className="text-[11px] text-[#2563EB] mb-1">自动生成的函数签名：</p>
@@ -332,15 +328,21 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
                 </code>
               </div>
             )}
-            <TextArea
-              rows={10}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder={`# 在下方编写函数体，函数名和工具名一致\n# 参数名与上方参数定义一致\n# 凭据通过 os.environ['CRED_xxx'] 获取\n\ndef ${name || 'my_tool'}(${params.map(p => p.name).join(', ')}) -> str:\n    import os\n    return "result"`}
-              className="font-mono text-sm"
-            />
+            {credentialFields.length > 0 && (
+              <div className="mb-2 px-3 py-2 bg-[#FFFBEB] rounded-lg border border-[#FCD34D]">
+                <p className="text-[11px] text-[#92400E]">凭据通过环境变量注入：</p>
+                {credentialFields.map(f => (
+                  <code key={f} className="text-xs text-[#0F172A] font-mono block">
+                    os.environ['CRED_{f}']
+                  </code>
+                ))}
+              </div>
+            )}
+            <TextArea rows={10} value={code} onChange={(e) => setCode(e.target.value)}
+              placeholder={`# 在下方编写函数体\n# 参数名与上方参数定义一致\n\ndef ${name || 'my_tool'}(${params.map(p => p.name).join(', ')}) -> str:\n    return "result"`}
+              className="font-mono text-sm" />
             <p className="text-[11px] text-[#94A3B8] mt-1">
-              代码在 Docker 沙箱中执行。导入标准库即可，不支持网络请求（除非沙箱开启网络）。
+              代码在 Docker 沙箱中执行。
             </p>
           </Section>
         )}
@@ -366,8 +368,7 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
     <label className="block text-sm text-[#0F172A] mb-1.5">
-      {children}
-      {required && <span className="text-[#EF4444] ml-0.5">*</span>}
+      {children}{required && <span className="text-[#EF4444] ml-0.5">*</span>}
     </label>
   )
 }

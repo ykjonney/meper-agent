@@ -25,7 +25,6 @@ import {
   Alert,
   Divider,
   Upload,
-  Tabs,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -39,6 +38,7 @@ import {
   FileOutlined,
   UploadOutlined,
   DeleteOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons'
 import {
   workflowsApi,
@@ -62,270 +62,43 @@ import WorkflowNodeConfigPanel from '../features/workflow-editor/WorkflowNodeCon
 import { validateWorkflow } from '../features/workflow-editor/utils/workflow-validator'
 import { deriveXyflowEdgesFromNodes } from '../features/workflow-editor/utils/canvas-converters'
 import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
-import { getTypeColor, getTypeIcon, getTypeLabel } from '../features/workflow-editor/utils/variable-types'
 
-/* ─── Trigger 配置 ─── */
-import TriggerConfigEditor from '../components/workflows/TriggerConfigEditor'
+/* ─── VariableFormField (提取到独立文件) ─── */
+import VariableFormField from '../features/workflow-editor/VariableFormField'
 
-/* ─── 根据 start 节点变量动态生成表单 ─── */
-function VariableFormField({
-  variable,
-  value,
-  onChange,
-  disabled = false,
-}: {
-  variable: VariableDefinition
-  value: unknown
-  onChange: (val: unknown) => void
-  disabled?: boolean
-}) {
-  const label = variable.label || variable.name
-  const desc = variable.description
-  const required = !!variable.constraints?.required
-  const type = variable.type
+/* ─── Trigger 配置 Modal ─── */
+import TriggerConfigModal from '../components/workflows/TriggerConfigModal'
+import { WorkflowTriggerAPI } from '../services/workflow-trigger-api'
 
-  let input: React.ReactNode = null
+/* ─── Cron 表达式 → 人类可读摘要 ─── */
+const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六']
+function cronToSummary(cron: string): string {
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return cron
 
-  switch (type) {
-    case 'text': {
-      const maxLen = variable.constraints?.max_length as number | undefined
-      input = (
-        <Input.TextArea
-          value={value as string ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          rows={2}
-          className="!font-mono !text-xs"
-          placeholder={`输入${label}...`}
-          maxLength={maxLen ?? undefined}
-          showCount={!!maxLen}
-        />
-      )
-      break
-    }
-    case 'number': {
-      const min = variable.constraints?.min as number | undefined
-      const max = variable.constraints?.max as number | undefined
-      input = (
-        <Input
-          type="number"
-          value={value as string ?? ''}
-          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-          className="!text-xs"
-          min={min}
-          max={max}
-          placeholder={`输入${label}...`}
-        />
-      )
-      break
-    }
-    case 'boolean':
-      input = (
-        <select
-          value={value === true ? 'true' : value === false ? 'false' : ''}
-          onChange={(e) => {
-            if (e.target.value === '') onChange(null)
-            else onChange(e.target.value === 'true')
-          }}
-          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
-        >
-          <option value="">请选择...</option>
-          <option value="true">是</option>
-          <option value="false">否</option>
-        </select>
-      )
-      break
-    case 'json':
-      input = (
-        <Input.TextArea
-          value={typeof value === 'string' ? value : JSON.stringify(value ?? '', null, 2)}
-          onChange={(e) => {
-            const raw = e.target.value
-            try { onChange(raw ? JSON.parse(raw) : null) }
-            catch { onChange(raw) }
-          }}
-          rows={3}
-          className="!font-mono !text-xs"
-          placeholder='{"key": "value"}'
-        />
-      )
-      break
-    case 'select': {
-      const options = variable.constraints?.options as string[] | undefined
-      const multiple = variable.constraints?.multiple as boolean | undefined
-      const opts = Array.isArray(options) ? options : []
-      if (multiple) {
-        input = (
-          <div className="flex flex-wrap gap-1.5">
-            {opts.map((opt) => (
-              <label key={opt} className="flex items-center gap-1 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Array.isArray(value) && value.includes(opt)}
-                  onChange={(e) => {
-                    const arr = Array.isArray(value) ? [...value] : []
-                    if (e.target.checked) arr.push(opt)
-                    else arr.splice(arr.indexOf(opt), 1)
-                    onChange(arr.length > 0 ? arr : null)
-                  }}
-                />
-                {opt}
-              </label>
-            ))}
-            {opts.length === 0 && (
-              <span className="text-[10px] text-[#94A3B8]">无可选值</span>
-            )}
-          </div>
-        )
-      } else {
-        input = (
-          <select
-            value={value as string ?? ''}
-            onChange={(e) => onChange(e.target.value || null)}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
-          >
-            <option value="">{required ? '请选择...' : '可选'}</option>
-            {opts.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        )
-      }
-      break
-    }
-    case 'file': {
-      const multiple = variable.constraints?.multiple as boolean | undefined
-      const allowedExts = variable.constraints?.allowed_extensions as string[] | undefined
-      const maxSizeMb = variable.constraints?.max_size_mb as number | undefined
+  const [minStr, hourStr, domStr, , dowStr] = parts
 
-      // Parse current value(s) to file info
-      const fileIds: string[] = Array.isArray(value)
-        ? value.map((v) => String(v))
-        : value
-          ? [String(value)]
-          : []
-
-      const accept = allowedExts?.map((ext) => ext.startsWith('.') ? ext : `.${ext}`).join(',') || undefined
-      const maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined
-
-      const handleUpload = async (file: File) => {
-        // Validate size
-        if (maxBytes && file.size > maxBytes) {
-          message.error(`文件 "${file.name}" 超过大小限制 (${maxSizeMb}MB)`)
-          return false
-        }
-
-        try {
-          const ref = await filesApi.upload(file, 'workflow_input')
-          const fileId = getFileId(ref)
-
-          if (multiple) {
-            const current = Array.isArray(value) ? value : []
-            onChange([...current, fileId])
-          } else {
-            onChange(fileId)
-          }
-          message.success(`文件 "${file.name}" 上传成功`)
-        } catch (err) {
-          const msg = err && typeof err === 'object' && 'message' in err
-            ? (err as { message: string }).message : '上传失败'
-          message.error(msg)
-        }
-        return false // Prevent default upload
-      }
-
-      const handleRemove = (fileId: string) => {
-        if (multiple) {
-          const current = Array.isArray(value) ? value : []
-          onChange(current.filter((id) => String(id) !== fileId))
-        } else {
-          onChange(null)
-        }
-      }
-
-      input = (
-        <div className="space-y-1.5">
-          <Upload
-            beforeUpload={handleUpload}
-            showUploadList={false}
-            accept={accept}
-            multiple={multiple}
-            disabled={disabled}
-          >
-            <Button icon={<UploadOutlined />} size="small" loading={disabled}>
-              {multiple ? '上传文件' : '选择文件'}
-            </Button>
-          </Upload>
-
-          {fileIds.length > 0 && (
-            <div className="space-y-1">
-              {fileIds.map((fileId) => (
-                <div
-                  key={fileId}
-                  className="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded text-xs"
-                >
-                  <FileOutlined className="text-orange-500" />
-                  <span className="flex-1 truncate font-mono" title={fileId}>
-                    {fileId}
-                  </span>
-                  <Tooltip title="移除">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<DeleteOutlined />}
-                      danger
-                      onClick={() => handleRemove(fileId)}
-                      disabled={disabled}
-                    />
-                  </Tooltip>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!multiple && fileIds.length > 0 && (
-            <p className="text-[10px] text-[#94A3B8]">
-              已选择 1 个文件
-            </p>
-          )}
-          {multiple && fileIds.length > 0 && (
-            <p className="text-[10px] text-[#94A3B8]">
-              已选择 {fileIds.length} 个文件
-            </p>
-          )}
-        </div>
-      )
-      break
-    }
-    default:
-      input = (
-        <Input
-          value={value as string ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="!text-xs"
-          placeholder={`输入${label}...`}
-        />
-      )
+  // 每小时
+  if (domStr === '*' && dowStr === '*' && hourStr === '*') {
+    return `每小时 (${minStr}分)`
+  }
+  // 每天
+  if (domStr === '*' && dowStr === '*') {
+    return `每天 ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
+  }
+  // 每月
+  if (domStr !== '*' && dowStr === '*') {
+    return `每月${domStr}号 ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
+  }
+  // 每周
+  if (domStr === '*' && dowStr !== '*') {
+    const days = dowStr.split(',').map(Number)
+      .map((d) => WEEKDAY_NAMES[d % 7])
+      .join('、')
+    return `每${days} ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
   }
 
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <span
-          className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[8px] font-bold text-white shrink-0"
-          style={{ backgroundColor: getTypeColor(type) }}
-        >
-          {getTypeIcon(type)}
-        </span>
-        <label className="text-xs text-[#0F172A] font-medium">
-          {label}
-          {required && <span className="text-red-400 ml-0.5">*</span>}
-        </label>
-        <span className="text-[10px] text-[#94A3B8]">({getTypeLabel(type)})</span>
-      </div>
-      {desc && <p className="text-[10px] text-[#94A3B8] -mt-0.5">{desc}</p>}
-      {input}
-    </div>
-  )
+  return cron
 }
 
 /* ─── Test Run Modal ─── */
@@ -649,6 +422,11 @@ export default function WorkflowDetailPage() {
   /* ─── Version history state ─── */
   const [versionOpen, setVersionOpen] = useState(false)
 
+  /* ─── Trigger config state ─── */
+  const [triggerOpen, setTriggerOpen] = useState(false)
+  const [triggerEnabled, setTriggerEnabled] = useState(false)
+  const [triggerSummary, setTriggerSummary] = useState('')
+
   /* ─── Editing state ─── */
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -657,9 +435,6 @@ export default function WorkflowDetailPage() {
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
-
-  /* ─── Active tab ('editor' | 'trigger') ─── */
-  const [activeTab, setActiveTab] = useState<string>('editor')
 
   /* ─── Selected node ID for editing ─── */
   // 只存储 ID，节点数据从 editNodes 中派生（避免 ReactFlow 替换节点对象时丢失选中状态）
@@ -689,6 +464,25 @@ export default function WorkflowDetailPage() {
       setCanvasKey((k) => k + 1)
     }
   }, [workflow])
+
+  /* ─── Load trigger enabled status ─── */
+  useEffect(() => {
+    if (!id) return
+    WorkflowTriggerAPI.getTrigger(id).then((config) => {
+      setTriggerEnabled(config.enabled)
+      // 生成频率摘要
+      if (config.type === 'cron' && config.cron_expression) {
+        setTriggerSummary(cronToSummary(config.cron_expression))
+      } else if (config.type === 'once' && config.execute_at) {
+        setTriggerSummary(`一次性: ${new Date(config.execute_at).toLocaleString('zh-CN')}`)
+      } else {
+        setTriggerSummary('')
+      }
+    }).catch(() => {
+      setTriggerEnabled(false)
+      setTriggerSummary('')
+    })
+  }, [id])
 
   /* ─── Mutations ─── */
   const updateMutation = useMutation({
@@ -1009,6 +803,16 @@ export default function WorkflowDetailPage() {
           <Button icon={<PlayCircleOutlined />} type="primary" onClick={() => setTestRunOpen(true)}>
             测试运行
           </Button>
+          <Tooltip title={triggerEnabled && triggerSummary ? triggerSummary : '配置定时触发'}>
+            <Button
+              icon={<ClockCircleOutlined />}
+              onClick={() => setTriggerOpen(true)}
+              className={triggerEnabled ? '!border-green-400 !text-green-600' : ''}
+            >
+              {triggerEnabled && triggerSummary ? triggerSummary : '定时触发'}
+              {triggerEnabled && ' ✓'}
+            </Button>
+          </Tooltip>
           <Button icon={<HistoryOutlined />} onClick={() => setVersionOpen(true)}>
             版本
           </Button>
@@ -1024,74 +828,49 @@ export default function WorkflowDetailPage() {
         </div>
       </div>
 
-      {/* ── 编辑器 Tabs（DAG / 定时触发） ── */}
+      {/* ── 编辑器区域 ── */}
       <div className="flex-1 min-h-0 px-6 pb-4">
         <div className="h-full border border-gray-200 rounded-xl overflow-hidden flex flex-col">
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            destroyInactiveTabPane
-            className="workflow-editor-tabs flex-1 min-h-0 flex flex-col"
-            tabBarStyle={{ margin: 0, padding: '0 16px', background: '#fff', borderBottom: '1px solid #E5E7EB', flexShrink: 0 }}
-            items={[
-              {
-                key: 'editor',
-                label: (
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs">节点 ({editNodes.length})</span>
-                    <Tooltip title="从左侧 Palette 拖拽节点到画布，连接 Handle 创建路由">
-                      <span className="text-[10px] text-[#94A3B8] cursor-help">
-                        拖拽添加 · 点击编辑
-                      </span>
-                    </Tooltip>
-                  </span>
-                ),
-                children: (
-                  <div className="flex-1 flex min-h-0">
-                    {/* 左侧 Palette */}
-                    <div className="w-[200px] shrink-0">
-                      <WorkflowNodePalette />
-                    </div>
+          <div className="flex items-center px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+            <span className="text-xs text-[#0F172A]">
+              节点 ({editNodes.length})
+            </span>
+            <Tooltip title="从左侧 Palette 拖拽节点到画布，连接 Handle 创建路由">
+              <span className="text-[10px] text-[#94A3B8] cursor-help ml-2">
+                拖拽添加 · 点击编辑
+              </span>
+            </Tooltip>
+          </div>
+          <div className="flex-1 flex min-h-0">
+            {/* 左侧 Palette */}
+            <div className="w-[200px] shrink-0">
+              <WorkflowNodePalette />
+            </div>
 
-                    {/* 中间 Canvas */}
-                    <div className="flex-1 bg-[#F8FAFC]">
-                      <WorkflowCanvas
-                        key={canvasKey}
-                        workflowNodes={editNodes}
-                        selectedNodeId={selectedNodeId}
-                        onNodesChange={handleCanvasNodesChange}
-                        onSelectNode={handleSelectNode}
-                      />
-                    </div>
+            {/* 中间 Canvas */}
+            <div className="flex-1 bg-[#F8FAFC]">
+              <WorkflowCanvas
+                key={canvasKey}
+                workflowNodes={editNodes}
+                selectedNodeId={selectedNodeId}
+                onNodesChange={handleCanvasNodesChange}
+                onSelectNode={handleSelectNode}
+              />
+            </div>
 
-                    {/* 右侧 Config Panel */}
-                    <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
-                      <div className="p-4">
-                        <WorkflowNodeConfigPanel
-                          key={selectedNodeId ?? 'none'}
-                          selectedNode={selectedNode}
-                          allNodes={editNodes}
-                          onNodeChange={updateNode}
-                          onNodeDelete={handleDeleteNode}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ),
-              },
-              {
-                key: 'trigger',
-                label: (
-                  <span className="text-xs">定时触发</span>
-                ),
-                children: (
-                  <div className="flex-1 overflow-y-auto bg-white p-6">
-                    <TriggerConfigEditor workflowId={workflow.id} />
-                  </div>
-                ),
-              },
-            ]}
-          />
+            {/* 右侧 Config Panel */}
+            <div className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto bg-white">
+              <div className="p-4">
+                <WorkflowNodeConfigPanel
+                  key={selectedNodeId ?? 'none'}
+                  selectedNode={selectedNode}
+                  allNodes={editNodes}
+                  onNodeChange={updateNode}
+                  onNodeDelete={handleDeleteNode}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1109,6 +888,31 @@ export default function WorkflowDetailPage() {
         workflowId={workflow.id}
         open={versionOpen}
         onClose={() => setVersionOpen(false)}
+      />
+
+      {/* ── Trigger Config Modal ── */}
+      <TriggerConfigModal
+        workflowId={workflow.id}
+        workflowName={workflow.name}
+        nodes={editNodes}
+        open={triggerOpen}
+        onClose={() => {
+          setTriggerOpen(false)
+          // 重新加载触发状态
+          WorkflowTriggerAPI.getTrigger(workflow.id).then((config) => {
+            setTriggerEnabled(config.enabled)
+            if (config.type === 'cron' && config.cron_expression) {
+              setTriggerSummary(cronToSummary(config.cron_expression))
+            } else if (config.type === 'once' && config.execute_at) {
+              setTriggerSummary(`一次性: ${new Date(config.execute_at).toLocaleString('zh-CN')}`)
+            } else {
+              setTriggerSummary('')
+            }
+          }).catch(() => {
+            setTriggerEnabled(false)
+            setTriggerSummary('')
+          })
+        }}
       />
 
     </div>

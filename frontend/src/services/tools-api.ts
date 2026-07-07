@@ -24,8 +24,8 @@ export interface Tool {
   source: string
   source_file: string
   mcp_connection_id: string
-  credential_id: string
-  config: Record<string, unknown>
+  credential_type: string
+  credential_fields: string[]
   endpoint: Record<string, unknown>
   code: string
   prebuilt_name: string
@@ -133,8 +133,8 @@ export const toolsApi = {
     description?: string
     source: string
     input_schema?: Record<string, unknown>
-    credential_id?: string
-    config?: Record<string, unknown>
+    credential_type?: string
+    credential_fields?: string[]
     endpoint?: Record<string, unknown>
     code?: string
     prebuilt_name?: string

@@ -96,8 +96,10 @@ class ToolService:
         description: str,
         source: str,
         input_schema: dict | None = None,
-        credential_id: str = "",
-        config: dict | None = None,
+        credential_id: str = "",  # backward compat, not used
+        credential_type: str = "none",
+        credential_fields: list[str] | None = None,
+        config: dict | None = None,  # deprecated
         endpoint: dict | None = None,
         code: str = "",
         prebuilt_name: str = "",
@@ -125,7 +127,9 @@ class ToolService:
             source=source,
             input_schema=input_schema or {},
             credential_id=credential_id,
-            config=config or {},
+            credential_type=credential_type,
+            credential_fields=credential_fields or [],
+            config=config or {},  # backward compat
             endpoint=endpoint or {},
             code=code,
             prebuilt_name=prebuilt_name,

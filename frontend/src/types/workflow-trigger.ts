@@ -12,15 +12,6 @@ export interface TriggerConfig {
   updated_at: string
 }
 
-export interface CronPreset {
-  label: string
-  value: string
-  cron: string
-}
+export type ScheduleFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'custom'
 
-export const CRON_PRESETS: CronPreset[] = [
-  { label: '每小时', value: 'hourly', cron: '0 * * * *' },
-  { label: '每天 09:00', value: 'daily_9', cron: '0 9 * * *' },
-  { label: '每周一 09:00', value: 'weekly_mon_9', cron: '0 9 * * 1' },
-  { label: '每月 1 号 09:00', value: 'monthly_1_9', cron: '0 9 1 * *' },
-]
+export const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']

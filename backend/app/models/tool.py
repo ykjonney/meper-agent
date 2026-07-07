@@ -47,13 +47,14 @@ class Tool(BaseModel):
         description="关联的 MCP 连接 ID（仅 source=mcp 时有效）",
     )
     # ── Custom tool fields (source=openapi / code / prebuilt) ──────────
-    credential_id: str = Field(
-        default="",
-        description="引用 credentials 集合的凭据 ID（加密认证信息）",
+    # 工具声明需要什么凭据（不绑定具体值，Agent 配置时才绑定）
+    credential_type: str = Field(
+        default="none",
+        description="需要的凭据类型: none / api_key / bearer / basic。Agent 配置时按此类型选择凭据。",
     )
-    config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="用户预设参数（非敏感，如 owner/timeout/default values）",
+    credential_fields: list[str] = Field(
+        default_factory=list,
+        description="凭据包含的字段名列表，如 ['token'] 或 ['username','password']。用于模板引用 {{credential.token}}。",
     )
     endpoint: dict[str, Any] = Field(
         default_factory=dict,

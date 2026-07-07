@@ -135,8 +135,8 @@ class CustomToolCreate(BaseModel):
     description: str = Field(default="", max_length=500)
     source: str = Field(..., description="openapi | code | prebuilt")
     input_schema: dict[str, Any] = Field(default_factory=dict)
-    credential_id: str = Field(default="")
-    config: dict[str, Any] = Field(default_factory=dict)
+    credential_type: str = Field(default="none", description="none / api_key / bearer / basic")
+    credential_fields: list[str] = Field(default_factory=list, description="如 ['token'] 或 ['username','password']")
     endpoint: dict[str, Any] = Field(default_factory=dict)
     code: str = Field(default="")
     prebuilt_name: str = Field(default="")
@@ -168,8 +168,8 @@ async def create_custom_tool(
         description=body.description,
         source=body.source,
         input_schema=body.input_schema,
-        credential_id=body.credential_id,
-        config=body.config,
+        credential_type=body.credential_type,
+        credential_fields=body.credential_fields,
         endpoint=body.endpoint,
         code=body.code,
         prebuilt_name=body.prebuilt_name,
