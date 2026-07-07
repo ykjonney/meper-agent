@@ -1,10 +1,12 @@
-"""Tool API endpoints — Markdown Skill upload + CRUD for the unified tool pool."""
+"""Tool API endpoints — Markdown Skill upload + custom tool CRUD for the unified tool pool."""
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from app.core.security import get_current_user, require_any_role
 from app.engine.tool.skill_fs import list_skill_files
@@ -93,6 +95,55 @@ def _doc_to_response(doc: dict) -> ToolResponse:
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
     )
+
+
+class CustomToolCreate(BaseModel):
+    """Request body for creating a custom tool (openapi / code / prebuilt)."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    source: str = Field(..., description="openapi | code | prebuilt")
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    credential_id: str = Field(default="")
+    config: dict[str, Any] = Field(default_factory=dict)
+    endpoint: dict[str, Any] = Field(default_factory=dict)
+    code: str = Field(default="")
+    prebuilt_name: str = Field(default="")
+
+
+@router.post(
+    "",
+    response_model=ToolResponse,
+    status_code=201,
+    summary="Create a custom tool (OpenAPI / Code / Prebuilt)",
+    responses={
+        403: {"description": "Forbidden — developer+ role required"},
+        409: {"description": "Tool name conflict"},
+    },
+)
+async def create_custom_tool(
+    body: CustomToolCreate,
+    _: UserResponse = Depends(require_any_role("admin", "developer")),
+) -> ToolResponse:
+    """Create a custom tool from user configuration (no file upload needed).
+
+    Supports three source types:
+    - ``openapi``: HTTP endpoint with template-based URL/headers
+    - ``code``: User-defined Python code executed in sandbox
+    - ``prebuilt``: References a prebuilt tool from the tool registry
+    """
+    doc = await ToolService.create_custom_tool(
+        name=body.name,
+        description=body.description,
+        source=body.source,
+        input_schema=body.input_schema,
+        credential_id=body.credential_id,
+        config=body.config,
+        endpoint=body.endpoint,
+        code=body.code,
+        prebuilt_name=body.prebuilt_name,
+    )
+    return ToolResponse(**doc)
 
 
 @router.post(

@@ -90,6 +90,53 @@ class ToolService:
         return doc
 
     @staticmethod
+    async def create_custom_tool(
+        *,
+        name: str,
+        description: str,
+        source: str,
+        input_schema: dict | None = None,
+        credential_id: str = "",
+        config: dict | None = None,
+        endpoint: dict | None = None,
+        code: str = "",
+        prebuilt_name: str = "",
+    ) -> dict:
+        """Create a custom tool (openapi / code / prebuilt).
+
+        Unlike ``create_tool_from_parsed`` (which is for uploaded Markdown
+        skills), this method creates tools from user-provided configuration
+        without any file materialization.
+        """
+        from app.models.tool import Tool
+
+        # Check name uniqueness
+        existing = await ToolService.find_by_name(name)
+        if existing:
+            from app.core.errors import ValidationError
+            raise ValidationError(
+                code="TOOL_NAME_EXISTS",
+                message=f"工具名 '{name}' 已存在",
+            )
+
+        tool = Tool(
+            name=name,
+            description=description,
+            source=source,
+            input_schema=input_schema or {},
+            credential_id=credential_id,
+            config=config or {},
+            endpoint=endpoint or {},
+            code=code,
+            prebuilt_name=prebuilt_name,
+        )
+        doc = tool.model_dump(by_alias=True)
+        db = get_database()
+        await db[ToolService.COLLECTION].insert_one(doc)
+        logger.info("custom_tool_created", tool_id=doc["_id"], name=name, source=source)
+        return doc
+
+    @staticmethod
     async def create_tool_from_parsed(
         parsed: ParsedSkill,
         source_file: str = "",

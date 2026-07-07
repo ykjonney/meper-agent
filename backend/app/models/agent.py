@@ -44,6 +44,10 @@ class Agent(BaseModel):
     # --- New categorized fields ---
     skill_ids: list[str] = Field(default_factory=list)
     mcp_connection_ids: list[str] = Field(default_factory=list)
+    custom_tool_ids: list[str] = Field(
+        default_factory=list,
+        description="自定义工具 ID 列表（openapi/code/prebuilt）",
+    )
     builtin_config: list[str] = Field(default_factory=list)
     workflow_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str] = Field(default_factory=list)

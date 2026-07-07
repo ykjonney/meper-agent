@@ -37,11 +37,35 @@ class Tool(BaseModel):
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     instructions: str = Field(default="", description="Markdown body / usage notes")
-    source: str = Field(default="markdown", description="Origin: markdown / mcp")
+    source: str = Field(
+        default="markdown",
+        description="Origin: markdown / mcp / openapi / code / prebuilt",
+    )
     source_file: str = Field(default="", description="Original filename")
     mcp_connection_id: str = Field(
         default="",
         description="关联的 MCP 连接 ID（仅 source=mcp 时有效）",
+    )
+    # ── Custom tool fields (source=openapi / code / prebuilt) ──────────
+    credential_id: str = Field(
+        default="",
+        description="引用 credentials 集合的凭据 ID（加密认证信息）",
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="用户预设参数（非敏感，如 owner/timeout/default values）",
+    )
+    endpoint: dict[str, Any] = Field(
+        default_factory=dict,
+        description="HTTP endpoint 定义（source=openapi 时）",
+    )
+    code: str = Field(
+        default="",
+        description="用户自定义 Python 代码（source=code 时）",
+    )
+    prebuilt_name: str = Field(
+        default="",
+        description="预构建工具名称（source=prebuilt 时）",
     )
     version: int = Field(default=1, ge=1)
     tags: list[str] = Field(default_factory=list)
