@@ -49,7 +49,7 @@ class WorkflowEdge(BaseModel):
 
 
 class TriggerConfig(BaseModel):
-    """Workflow 定时触发配置"""
+    """Workflow scheduled trigger configuration."""
 
     type: str  # "cron" | "once"
     enabled: bool = False
