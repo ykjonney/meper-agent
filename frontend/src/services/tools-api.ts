@@ -24,6 +24,11 @@ export interface Tool {
   source: string
   source_file: string
   mcp_connection_id: string
+  credential_id: string
+  config: Record<string, unknown>
+  endpoint: Record<string, unknown>
+  code: string
+  prebuilt_name: string
   version: number
   tags: string[]
   files: SkillFile[]
@@ -107,6 +112,25 @@ export const toolsApi = {
    */
   async listBuiltins(): Promise<BuiltinTool[]> {
     const res = await apiClient.get<BuiltinTool[]>('/api/v1/tools/builtin')
+    return res.data
+  },
+
+  /**
+   * Create a custom tool (OpenAPI / Code / Prebuilt).
+   * POST /api/v1/tools
+   */
+  async createCustom(body: {
+    name: string
+    description?: string
+    source: string
+    input_schema?: Record<string, unknown>
+    credential_id?: string
+    config?: Record<string, unknown>
+    endpoint?: Record<string, unknown>
+    code?: string
+    prebuilt_name?: string
+  }): Promise<Tool> {
+    const res = await apiClient.post<Tool>('/api/v1/tools', body)
     return res.data
   },
 
