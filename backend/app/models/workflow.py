@@ -48,6 +48,20 @@ class WorkflowEdge(BaseModel):
     condition: str | None = None  # expression for conditional edges
 
 
+class TriggerConfig(BaseModel):
+    """Workflow 定时触发配置"""
+
+    type: str  # "cron" | "once"
+    enabled: bool = False
+    cron_expression: str | None = None
+    execute_at: datetime | None = None
+    default_input: dict[str, Any] = Field(default_factory=dict)
+    last_triggered_at: datetime | None = None
+    next_trigger_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class Workflow(BaseModel):
     """MongoDB workflow template document."""
 
@@ -63,6 +77,7 @@ class Workflow(BaseModel):
     )
     tags: list[str] = Field(default_factory=list)
     created_by: str = ""
+    trigger_config: TriggerConfig | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
