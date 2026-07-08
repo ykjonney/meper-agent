@@ -54,6 +54,22 @@ const ERROR_HINTS: Record<string, string> = {
 const COMPATIBILITY_OPTIONS: CompatibilityType[] = ['openai', 'anthropic'];
 const AUTH_TYPES: AuthType[] = ['bearer', 'x_api_key', 'api_key_header', 'custom'];
 
+/** Format an ISO timestamp as a short Chinese relative string ('刚刚' / '3 分钟前'). '' if missing/invalid. */
+function formatRelativeTime(iso?: string): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const sec = Math.floor((Date.now() - then) / 1000);
+  if (sec < 60) return '刚刚';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分钟前`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时前`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} 天前`;
+  return new Date(iso).toLocaleDateString('zh-CN');
+}
+
 /** Build the editor form state. Editing leaves api_key empty ("leave blank to keep"). */
 type ModelForm = Omit<ModelCreateInput, 'api_key'> & { api_key: string };
 
@@ -148,6 +164,8 @@ export function ModelsPage() {
 
   const testM = useMutation({
     mutationFn: (id: string) => modelApi.test(id),
+    // Backend persists the test outcome; refresh the list so the connectivity badge updates.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: modelKeys.all }),
   });
 
   const handleOpenCreate = () => {
@@ -231,7 +249,7 @@ export function ModelsPage() {
       <div className="grid grid-cols-4 gap-3">
         {[
           { label: '模型总数', value: stats.total, color: 'text-white' },
-          { label: '可用 (active)', value: stats.active, color: 'text-emerald-400' },
+          { label: '已启用 (active)', value: stats.active, color: 'text-emerald-400' },
           { label: 'OpenAI 兼容', value: stats.openai, color: 'text-sky-400' },
           { label: 'Anthropic 兼容', value: stats.anthropic, color: 'text-orange-400' },
         ].map((s) => (
@@ -260,8 +278,8 @@ export function ModelsPage() {
           className="w-36"
           options={[
             { value: 'all', label: '全部状态' },
-            { value: 'active', label: '可用' },
-            { value: 'inactive', label: '停用' },
+            { value: 'active', label: '已启用' },
+            { value: 'inactive', label: '已停用' },
           ]}
         />
       </div>
@@ -293,6 +311,7 @@ export function ModelsPage() {
                 <th className="text-left font-semibold px-4 py-3">认证</th>
                 <th className="text-left font-semibold px-4 py-3">上下文</th>
                 <th className="text-left font-semibold px-4 py-3">状态</th>
+                <th className="text-left font-semibold px-4 py-3">连通性</th>
                 <th className="text-right font-semibold px-4 py-3">操作</th>
               </tr>
             </thead>
@@ -318,8 +337,23 @@ export function ModelsPage() {
                     <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                       m.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-400'
                     }`}>
-                      {m.status === 'active' ? '可用' : '停用'}
+                      {m.status === 'active' ? '已启用' : '已停用'}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {m.last_test_success === true ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 w-fit">连通</span>
+                        <span className="text-[10px] text-[#52525b]">{formatRelativeTime(m.last_test_at)}</span>
+                      </div>
+                    ) : m.last_test_success === false ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-400 w-fit">不通</span>
+                        <span className="text-[10px] text-[#52525b]">{formatRelativeTime(m.last_test_at)}</span>
+                      </div>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-500/10 text-zinc-400">未测试</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
