@@ -3,12 +3,12 @@
 NOTE: Tests skipped due to task restructuring.
 TODO: Rewrite tests to match new scheduled workflow implementation.
 """
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 # Skip all tests pending rewrite
 pytestmark = pytest.mark.skip(reason="Task restructured - tests need rewrite")
-
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestExecuteScheduledWorkflow:
