@@ -210,13 +210,22 @@ class TriggerSchedulerService:
 
         # Reflect the advanced state on the in-memory object for firing.
         trigger.next_trigger_at = new_next
+
+        # Dispatch execution of the *current* firing. The pending placeholder
+        # for this firing was pre-created in the previous cycle (or by the
+        # API on create/update). We do NOT create a new one here — _fire
+        # just dispatches Celery to consume the existing pending placeholder.
         await self._fire(trigger, old_next)
 
-        # Pre-create the placeholder Task for the NEXT firing so the user
-        # can see the upcoming scheduled execution (pending status) in the
-        # task list. The partial unique index makes this idempotent — if a
-        # placeholder is already pending (e.g. the current one hasn't
-        # transitioned to running yet), it's safely reused.
+        # Pre-create the placeholder Task for the NEXT firing (new_next).
+        # This must happen AFTER _fire dispatches, but the current placeholder
+        # may still be pending (Celery hasn't transitioned it to running yet).
+        # That's fine: _create_placeholder_task catches DuplicateKeyError and
+        # reuses the existing one, updating its scheduled_at to new_next.
+        # When Celery picks it up, execute_scheduled_workflow finds the pending
+        # placeholder (regardless of scheduled_at) and runs it. After it
+        # transitions to running/completed, the index slot frees up and the
+        # next cycle's pre-create inserts a fresh one.
         if new_next is not None:
             await self._create_placeholder_task(trigger, new_next)
 
@@ -229,9 +238,22 @@ class TriggerSchedulerService:
         return True
 
     async def _fire(self, trigger: Trigger, fire_at: datetime) -> None:
-        """Create/reuse placeholder Task + dispatch immediate execution."""
-        # Create the placeholder (idempotent via partial unique index).
-        await self._create_placeholder_task(trigger, fire_at)
+        """Dispatch immediate Celery execution for this trigger's current firing.
+
+        The pending placeholder Task should already exist (pre-created in the
+        previous poll cycle, or by the API). If it doesn't (e.g. first-ever
+        firing with no pre-created placeholder), create one on the fly.
+        """
+        from app.db.mongodb import get_database
+
+        # Ensure a pending placeholder exists for this firing.
+        db = get_database()
+        existing = await db["tasks"].find_one(
+            {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
+            {"_id": 1},
+        )
+        if existing is None:
+            await self._create_placeholder_task(trigger, fire_at)
 
         # Dispatch immediate Celery execution (no eta → no visibility_timeout
         # re-delivery risk for long schedules).
