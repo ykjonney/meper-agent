@@ -167,61 +167,29 @@ class TaskService:
 
     @staticmethod
     def _start_workflow_execution(task_id: str) -> None:
-        """Fire-and-forget: run WorkflowEngine for a newly created Task.
+        """Fire-and-forget: dispatch workflow execution to a Celery worker.
 
-        Uses ``asyncio.create_task`` for a simple in-process execution.
-        For production, replace with Celery / task queue.
+        The engine handles state transitions (PENDING→RUNNING→...) internally.
+        This replaces the previous in-process ``asyncio.create_task`` approach,
+        moving heavy workflow execution out of the FastAPI event loop and into
+        a dedicated Celery worker for process isolation and crash recovery.
         """
-        import asyncio
+        from app.workers.tasks.workflow_execution import run_workflow_task
 
-        from app.engine.workflow.engine import WorkflowEngine
-
-        async def _run() -> None:
-            try:
-                engine = WorkflowEngine()
-                await engine.run_and_persist(task_id)
-            except Exception as exc:
-                logger.error(
-                    "workflow_engine_background_error",
-                    task_id=task_id,
-                    error=str(exc),
-                )
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_run())
-        except RuntimeError:
-            logger.warning("no_event_loop_for_workflow_execution", task_id=task_id)
+        run_workflow_task.delay(task_id)
 
     @staticmethod
     def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
         Symmetric with ``_start_workflow_execution`` — used after Human node
-        intervention (approve/skip) to continue workflow execution.
-
-        Uses ``asyncio.create_task`` for in-process execution.
+        intervention (approve/skip) to continue workflow execution. Dispatched
+        to a Celery worker; the engine detects the saved checkpoint and
+        resumes from there.
         """
-        import asyncio
+        from app.workers.tasks.workflow_execution import run_workflow_task
 
-        from app.engine.workflow.engine import WorkflowEngine
-
-        async def _run() -> None:
-            try:
-                engine = WorkflowEngine()
-                await engine.run_and_persist(task_id)
-            except Exception as exc:
-                logger.error(
-                    "workflow_engine_resume_error",
-                    task_id=task_id,
-                    error=str(exc),
-                )
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_run())
-        except RuntimeError:
-            logger.warning("no_event_loop_for_workflow_resume", task_id=task_id)
+        run_workflow_task.delay(task_id)
 
     @staticmethod
     async def get_task(task_id: str) -> dict | None:
@@ -335,8 +303,8 @@ class TaskService:
                 },
             )
 
-        # Per-user limit — skip for trigger-sourced tasks
-        if source != "trigger" and created_by and created_by not in ("system", "agent"):
+        # Per-user limit — skip for trigger-sourced execution snapshots
+        if source != "trigger_scheduled" and created_by and created_by not in ("system", "agent"):
             user_running = await col.count_documents(
                 {"status": TaskStatus.RUNNING.value, "created_by": created_by}
             )
@@ -368,11 +336,11 @@ class TaskService:
         col = TaskService._collection()
 
         # Find the oldest pending manual Task and atomically claim it.
-        # Trigger-sourced placeholder tasks are excluded — they are
-        # started directly by Celery at their scheduled time.
+        # Trigger-sourced execution snapshots are excluded — they are started
+        # directly by Celery (execute_scheduled_workflow), not by this FIFO.
         now = utc_now()
         pending = await col.find_one_and_update(
-            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger"}},
+            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger_scheduled"}},
             {
                 "$set": {
                     "status": TaskStatus.RUNNING.value,
@@ -547,18 +515,6 @@ class TaskService:
                     "task_fifo_scheduled",
                     new_task_id=scheduled["_id"],
                     triggered_by=task_id,
-                )
-
-        # Delete trigger when its pending task is cancelled (stops the chain)
-        if to_status == TaskStatus.CANCELLED and doc.get("source") == "trigger":
-            trigger_id = doc.get("trigger_id")
-            if trigger_id:
-                db = get_database()
-                await db["triggers"].delete_one({"_id": trigger_id})
-                logger.info(
-                    "trigger_deleted_by_task_cancellation",
-                    trigger_id=trigger_id,
-                    task_id=task_id,
                 )
 
         # Publish transition event

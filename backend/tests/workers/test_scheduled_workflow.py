@@ -1,175 +1,174 @@
 """Tests for execute_scheduled_workflow Celery task.
 
-NOTE: Tests skipped due to task restructuring.
-TODO: Rewrite tests to match new scheduled workflow implementation.
+The execute logic forks a fresh execution Task directly from the trigger
+document (no placeholder/template task). Each firing creates an independent
+task (source="trigger_scheduled") and runs it via the engine.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from app.models.trigger import Trigger
 
-# Skip all tests pending rewrite
-pytestmark = pytest.mark.skip(reason="Task restructured - tests need rewrite")
+
+def _make_trigger_doc(*, enabled: bool = True, default_input: dict | None = None) -> dict:
+    """Build a trigger document dict as stored in MongoDB."""
+    t = Trigger(
+        _id="trig_xxx",
+        workflow_id="wf_xxx",
+        user_id="user_1",
+        type="cron",
+        enabled=enabled,
+        cron_expression="0 9 * * *",
+        default_input=default_input or {"date": "{{ today() }}"},
+    )
+    return t.model_dump(by_alias=True)
 
 
 class TestExecuteScheduledWorkflow:
     """Tests for execute_scheduled_workflow task."""
 
     @patch("app.workers.tasks.scheduled_workflow.WorkflowEngine")
-    @patch("app.workers.tasks.scheduled_workflow.TaskService")
     @patch("app.workers.tasks.scheduled_workflow.render_default_input")
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_success(
+    async def test_execute_forks_task_from_trigger_and_runs(
         self,
         mock_db_func: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_render: MagicMock,
-        mock_task_service: MagicMock,
         mock_engine_class: MagicMock,
     ) -> None:
-        """Should successfully execute a scheduled workflow."""
-        # Mock database
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "name": "Test Workflow",
-            "trigger_config": {
-                "type": "cron",
-                "default_input": {"date": "{{ today() }}"},
-            },
-        }
+        """Should fork a task from the trigger doc and execute it."""
+        trigger_doc = _make_trigger_doc()
+        workflow_doc = {"_id": "wf_xxx", "name": "Test"}
+
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo.update = AsyncMock()
+        mock_repo_cls.return_value = mock_repo
+
         mock_db = MagicMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value=workflow_doc)
+
+        tasks_col = MagicMock()
+        tasks_col.insert_one = AsyncMock()
+
+        def getitem(name):
+            return {"workflows": workflows_col, "tasks": tasks_col}[name]
+
+        mock_db.__getitem__ = MagicMock(side_effect=getitem)
         mock_db_func.return_value = mock_db
-        mock_db.__getitem__ = MagicMock()
-        mock_db.__getitem__.return_value.find_one = AsyncMock(return_value=workflow_doc)
-        mock_db.__getitem__.return_value.update_one = AsyncMock()
 
-        # Mock template rendering
-        mock_render.return_value = {"date": "2026-07-07"}
+        mock_render.return_value = {"date": "2026-07-09"}
 
-        # Mock TaskService.create_task
-        task_doc = {"_id": "task_xxx", "status": "pending"}
-        mock_task_service.create_task = AsyncMock(return_value=task_doc)
-
-        # Mock WorkflowEngine
         mock_engine = MagicMock()
-        mock_engine.run_and_persist = AsyncMock(return_value={"result": "success"})
+        mock_engine.run_and_persist = AsyncMock()
         mock_engine_class.return_value = mock_engine
 
-        # Execute
         from app.workers.tasks.scheduled_workflow import _execute_async
 
-        result = await _execute_async("wf_xxx")
+        result = await _execute_async("trig_xxx")
 
-        # Verify
         assert result["status"] == "success"
-        assert result["task_id"] == "task_xxx"
-        mock_task_service.create_task.assert_called_once()
-        mock_engine.run_and_persist.assert_called_once_with("task_xxx")
-        mock_render.assert_called_once_with({"date": "{{ today() }}"})
+        # A new task was forked (inserted)
+        tasks_col.insert_one.assert_awaited_once()
+        forked_doc = tasks_col.insert_one.call_args.args[0]
+        assert forked_doc["source"] == "trigger_scheduled"
+        assert forked_doc["trigger_id"] == "trig_xxx"
+        assert forked_doc["workflow_id"] == "wf_xxx"
+        assert forked_doc["created_by"] == "user_1"
+        # Engine executes the forked task
+        mock_engine.run_and_persist.assert_awaited_once_with(forked_doc["_id"])
+        mock_repo.update.assert_awaited()  # last_triggered_at
 
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_workflow_not_found(self, mock_db_func: MagicMock) -> None:
-        """Should return error if workflow not found."""
-        mock_db = MagicMock()
-        mock_db_func.return_value = mock_db
-        mock_db.__getitem__ = MagicMock()
-        mock_db.__getitem__.return_value.find_one = AsyncMock(return_value=None)
+    async def test_trigger_not_found(self, mock_db_func, mock_repo_cls) -> None:
+        """Should return error if trigger does not exist."""
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=None)
+        mock_repo_cls.return_value = mock_repo
 
         from app.workers.tasks.scheduled_workflow import _execute_async
 
-        result = await _execute_async("wf_not_exist")
-
+        result = await _execute_async("trig_missing")
         assert result["status"] == "error"
         assert "not found" in result["message"].lower()
 
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_disabled_trigger(self, mock_db_func: MagicMock) -> None:
-        """Should return error if trigger is disabled."""
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {"enabled": False},
-        }
-        mock_db = MagicMock()
-        mock_db_func.return_value = mock_db
-        mock_db.__getitem__ = MagicMock()
-        mock_db.__getitem__.return_value.find_one = AsyncMock(return_value=workflow_doc)
+    async def test_disabled_trigger_skipped(self, mock_db_func, mock_repo_cls) -> None:
+        """Should skip a disabled trigger."""
+        trigger_doc = _make_trigger_doc(enabled=False)
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo_cls.return_value = mock_repo
 
         from app.workers.tasks.scheduled_workflow import _execute_async
 
-        result = await _execute_async("wf_xxx")
+        result = await _execute_async("trig_xxx")
+        assert result["status"] == "skipped"
 
-        assert result["status"] == "error"
-        assert "disabled" in result["message"].lower()
-
-    @patch("app.workers.tasks.scheduled_workflow.TaskService")
     @patch("app.workers.tasks.scheduled_workflow.render_default_input")
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_create_task_fails(
-        self,
-        mock_db_func: MagicMock,
-        mock_render: MagicMock,
-        mock_task_service: MagicMock,
-    ) -> None:
-        """Should return error if create_task raises."""
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {
-                "enabled": True,
-                "default_input": {"date": "{{ today() }}"},
-            },
-        }
-        mock_db = MagicMock()
-        mock_db_func.return_value = mock_db
-        mock_db.__getitem__ = MagicMock()
-        mock_db.__getitem__.return_value.find_one = AsyncMock(return_value=workflow_doc)
+    async def test_workflow_not_found(self, mock_db_func, mock_repo_cls, mock_render) -> None:
+        """Should return error if workflow is missing."""
+        trigger_doc = _make_trigger_doc()
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo_cls.return_value = mock_repo
 
-        mock_render.return_value = {"date": "2026-07-07"}
-        mock_task_service.create_task = AsyncMock(side_effect=Exception("DB error"))
+        mock_db = MagicMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value=None)
+        mock_db.__getitem__ = MagicMock(return_value=workflows_col)
+        mock_db_func.return_value = mock_db
 
         from app.workers.tasks.scheduled_workflow import _execute_async
 
-        result = await _execute_async("wf_xxx")
-
+        result = await _execute_async("trig_xxx")
         assert result["status"] == "error"
-        assert "DB error" in result["message"]
-        # task_id should remain empty since create_task failed before assignment
-        assert result["task_id"] == ""
+        assert "workflow" in result["message"].lower()
 
     @patch("app.workers.tasks.scheduled_workflow.WorkflowEngine")
-    @patch("app.workers.tasks.scheduled_workflow.TaskService")
     @patch("app.workers.tasks.scheduled_workflow.render_default_input")
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_engine_fails(
+    async def test_engine_failure_returns_error(
         self,
         mock_db_func: MagicMock,
+        mock_repo_cls: MagicMock,
         mock_render: MagicMock,
-        mock_task_service: MagicMock,
         mock_engine_class: MagicMock,
     ) -> None:
-        """Should return error with task_id if engine fails."""
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {
-                "enabled": True,
-                "default_input": {},
-            },
-        }
-        mock_db = MagicMock()
-        mock_db_func.return_value = mock_db
-        mock_db.__getitem__ = MagicMock()
-        mock_db.__getitem__.return_value.find_one = AsyncMock(return_value=workflow_doc)
-        mock_db.__getitem__.return_value.update_one = AsyncMock()
+        """Engine exception → result status error with task_id."""
+        trigger_doc = _make_trigger_doc()
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo.update = AsyncMock()
+        mock_repo_cls.return_value = mock_repo
 
+        mock_db = MagicMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
+        tasks_col = MagicMock()
+        tasks_col.insert_one = AsyncMock()
+
+        def getitem(name):
+            return {"workflows": workflows_col, "tasks": tasks_col}[name]
+
+        mock_db.__getitem__ = MagicMock(side_effect=getitem)
+        mock_db_func.return_value = mock_db
         mock_render.return_value = {}
-        task_doc = {"_id": "task_xxx"}
-        mock_task_service.create_task = AsyncMock(return_value=task_doc)
 
         mock_engine = MagicMock()
-        mock_engine.run_and_persist = AsyncMock(side_effect=Exception("Engine error"))
+        mock_engine.run_and_persist = AsyncMock(side_effect=Exception("Engine boom"))
         mock_engine_class.return_value = mock_engine
 
         from app.workers.tasks.scheduled_workflow import _execute_async
 
-        result = await _execute_async("wf_xxx")
-
+        result = await _execute_async("trig_xxx")
         assert result["status"] == "error"
-        assert result["task_id"] == "task_xxx"
-        assert "Engine error" in result["message"]
+        assert result["task_id"]  # forked task exists
+        assert "Engine boom" in result["message"]

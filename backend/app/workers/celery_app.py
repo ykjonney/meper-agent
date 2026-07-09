@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.workers.tasks.maintenance",
         "app.workers.tasks.webhook_delivery",
         "app.workers.tasks.scheduled_workflow",
+        "app.workers.tasks.workflow_execution",
     ],
 )
 

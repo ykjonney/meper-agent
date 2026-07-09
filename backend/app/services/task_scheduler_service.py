@@ -112,14 +112,13 @@ class TaskSchedulerService:
         now = datetime.now(UTC)
 
         # Find due tasks — query for pending with scheduled_at <= now.
-        # Exclude trigger-sourced placeholder tasks — those are started
-        # directly by Celery at their scheduled time via
-        # execute_scheduled_workflow, not by this polling scheduler.
+        # Exclude trigger-sourced execution snapshots — they are started
+        # directly by Celery (execute_scheduled_workflow), not by this poller.
         cursor = col.find(
             {
                 "status": TaskStatus.PENDING.value,
                 "scheduled_at": {"$lte": now, "$ne": None},
-                "source": {"$ne": "trigger"},
+                "source": {"$ne": "trigger_scheduled"},
             }
         ).sort("scheduled_at", 1).limit(50)
 

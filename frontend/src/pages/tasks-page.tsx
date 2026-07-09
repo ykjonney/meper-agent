@@ -17,7 +17,6 @@ import {
   DeleteOutlined,
   SearchOutlined,
   PlusOutlined,
-  CheckCircleOutlined,
   WarningOutlined,
   ThunderboltOutlined,
   CloseCircleOutlined,
@@ -108,9 +107,11 @@ export default function TasksPage() {
   const [editDefaultInput, setEditDefaultInput] = useState<Record<string, unknown>>({})
   const [editDirty, setEditDirty] = useState(false)
 
-  /* ─── 6 列并发列表查询（按 status 分桶） ─── */
+  /* ─── 5 列并发列表查询（非 pending 状态分桶）+ trigger 列表 ─── */
+  // pending 列改为展示 trigger 列表（定时任务管理），不再查询 pending task
+  const TASK_STATUSES = BOARD_STATUSES.filter((s) => s !== 'pending') as TaskStatusValue[]
   const boardQueries = useQueries({
-    queries: BOARD_STATUSES.map((status) => ({
+    queries: TASK_STATUSES.map((status) => ({
       queryKey: taskKeys.list({ status, page: 1, page_size: 50 }),
       queryFn: () => tasksApi.list({ status, page: 1, page_size: 50 }),
     })),
@@ -126,7 +127,7 @@ export default function TasksPage() {
       failed: [],
       cancelled: [],
     }
-    BOARD_STATUSES.forEach((status, idx) => {
+    TASK_STATUSES.forEach((status, idx) => {
       const result = boardQueries[idx]
       map[status] = (result?.data?.items ?? []) as TaskSummary[]
     })
@@ -134,6 +135,14 @@ export default function TasksPage() {
   }, [boardQueries])
 
   const boardLoading = boardQueries.some((q) => q.isLoading)
+
+  /* ─── Trigger 列表查询（定时任务列） ─── */
+  const { data: triggersData, isLoading: triggersLoading } = useQuery({
+    queryKey: ['triggers-list'],
+    queryFn: () => WorkflowTriggerAPI.listTriggers(),
+    staleTime: 10_000,
+  })
+  const triggers = useMemo(() => triggersData?.items ?? [], [triggersData])
 
   /* ─── 收集 active 任务，批量拉详情（5s 轮询，上限 20 个） ─── */
   const activeTasksForDetail = useMemo(() => {
@@ -295,8 +304,7 @@ export default function TasksPage() {
       WorkflowTriggerAPI.updateTriggerById(triggerId, config),
     onSuccess: () => {
       message.success('定时任务配置已更新')
-      queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
-      // Also invalidate trigger detail cache so re-opening the modal shows fresh data
+      queryClient.invalidateQueries({ queryKey: ['triggers-list'] })
       queryClient.invalidateQueries({ queryKey: ['trigger-detail'] })
       setEditTask(null)
       setEditDirty(false)
@@ -304,6 +312,20 @@ export default function TasksPage() {
     onError: (err: unknown) => {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '更新失败'
+      message.error(msg)
+    },
+  })
+
+  /* ─── Mutation: delete trigger (取消定时任务) ─── */
+  const deleteTriggerMutation = useMutation({
+    mutationFn: (triggerId: string) => WorkflowTriggerAPI.deleteTriggerById(triggerId),
+    onSuccess: () => {
+      message.success('定时任务已删除')
+      queryClient.invalidateQueries({ queryKey: ['triggers-list'] })
+    },
+    onError: (err: unknown) => {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message : '删除失败'
       message.error(msg)
     },
   })
@@ -332,18 +354,43 @@ export default function TasksPage() {
   }
 
   const handleCancel = useCallback((task: TaskSummary) => {
-    const isScheduledPending = task.source === 'trigger' && task.status === 'pending'
     Modal.confirm({
       title: '确认取消',
-      content: isScheduledPending
-        ? `确定要取消定时任务「${task.id}」吗？取消后关联的触发器也将被删除。`
-        : `确定要取消任务「${task.id}」吗？`,
+      content: `确定要取消任务「${task.id}」吗？`,
       okText: '取消任务',
       okButtonProps: { danger: true },
       cancelText: '关闭',
       onOk: () => interveneMutation.mutate({ taskId: task.id, action: 'cancel', version: task.version }),
     })
   }, [interveneMutation])
+
+  /* ─── 取消定时任务（删 trigger） ─── */
+  const handleDeleteTrigger = useCallback((trigger: TriggerConfig) => {
+    const triggerId = trigger._id || trigger.id || ''
+    Modal.confirm({
+      title: '确认删除定时任务',
+      content: trigger.type === 'cron'
+        ? `确定要删除定时任务（${trigger.cron_expression}）吗？删除后将停止定时执行。`
+        : `确定要删除定时任务吗？删除后将停止定时执行。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => deleteTriggerMutation.mutate(triggerId),
+    })
+  }, [deleteTriggerMutation])
+
+  /* ─── 编辑定时任务（从 trigger 列打开编辑 modal） ─── */
+  const handleEditTrigger = useCallback((trigger: TriggerConfig) => {
+    const triggerId = trigger._id || trigger.id || ''
+    setEditTask({
+      id: triggerId,
+      workflow_id: trigger.workflow_id,
+      status: 'pending' as TaskStatusValue,
+      source: 'trigger',
+      trigger_id: triggerId,
+      version: 1,
+    } as TaskSummary)
+  }, [])
 
   const handleRetry = useCallback((task: TaskSummary) => {
     Modal.confirm({
@@ -438,15 +485,15 @@ export default function TasksPage() {
   }, [])
 
   /* ─── 顶部紧凑统计卡（4 张） ─── */
+  const scheduledCount = triggers.length
   const runningCount = tasksByStatus.running.length
   const waitingHumanCount = tasksByStatus.waiting_human.length
-  const completedCount = tasksByStatus.completed.length
   const failedCount = tasksByStatus.failed.length
 
   const statCards = [
+    { label: '定时任务', value: scheduledCount, color: '#F59E0B', bg: '#FEF3C7', icon: <ClockCircleOutlined /> },
     { label: '运行中', value: runningCount, color: '#2563EB', bg: '#DBEAFE', icon: <ThunderboltOutlined /> },
     { label: '等待人工', value: waitingHumanCount, color: '#8B5CF6', bg: '#EDE9FE', icon: <WarningOutlined /> },
-    { label: '已完成', value: completedCount, color: '#10B981', bg: '#D1FAE5', icon: <CheckCircleOutlined /> },
     { label: '已失败', value: failedCount, color: '#EF4444', bg: '#FEE2E2', icon: <CloseCircleOutlined /> },
   ]
 
@@ -505,14 +552,87 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      {/* ─── 6 列看板（横向滚动，列内垂直滚动） ─── */}
+      {/* ─── 看板（定时任务列 + 5 列任务状态） ─── */}
       {boardLoading ? (
         <div className="flex items-center justify-center py-20">
           <Spin size="large" />
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2 flex-1 min-h-0" style={{ height: 'calc(100vh - 220px)' }}>
-          {BOARD_STATUSES.map((status) => {
+          {/* ─── 定时任务列（展示 trigger） ─── */}
+          <div className="flex flex-col min-w-[280px] w-[280px] flex-shrink-0">
+            <div
+              className="rounded-t-xl px-3 py-2 flex items-center justify-between"
+              style={{ background: '#FEF3C7' }}
+            >
+              <span className="text-sm font-medium" style={{ color: '#F59E0B' }}>
+                {'🕒 定时任务'}
+              </span>
+              <span className="text-xs text-[#94A3B8]">{triggers.length}</span>
+            </div>
+            <div
+              className="flex-1 overflow-y-auto rounded-b-xl border-x border-b bg-gray-50/50 p-2 space-y-2"
+              style={{ minHeight: 0 }}
+            >
+              {triggersLoading ? (
+                <div className="flex justify-center py-8"><Spin /></div>
+              ) : triggers.length === 0 ? (
+                <div className="text-center py-8 text-xs text-[#94A3B8]">暂无定时任务</div>
+              ) : (
+                triggers.map((trigger) => {
+                  const triggerId = trigger._id || trigger.id || ''
+                  const wfName = workflowNameMap[trigger.workflow_id] || trigger.workflow_id
+                  return (
+                    <div
+                      key={triggerId}
+                      className="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow cursor-pointer group"
+                      style={{ borderLeft: `3px solid ${trigger.enabled ? '#F59E0B' : '#CBD5E1'}` }}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-[#0F172A] truncate">{wfName}</span>
+                        <Tag
+                          color={trigger.enabled ? 'success' : 'default'}
+                          className="!m-0 !text-[10px] !px-1.5 !leading-4"
+                        >
+                          {trigger.enabled ? '启用' : '停用'}
+                        </Tag>
+                      </div>
+                      <div className="text-[11px] text-[#64748B] mb-2">
+                        {trigger.type === 'cron'
+                          ? `Cron: ${trigger.cron_expression}`
+                          : `定时: ${trigger.execute_at ? formatDateTime(trigger.execute_at) : '-'}`}
+                      </div>
+                      {trigger.next_trigger_at && (
+                        <div className="text-[11px] text-[#F59E0B] mb-2">
+                          下次执行: {formatDateTime(trigger.next_trigger_at)}
+                        </div>
+                      )}
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<EditOutlined />}
+                          onClick={() => handleEditTrigger(trigger)}
+                          className="!text-[#64748B]"
+                        />
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleDeleteTrigger(trigger)}
+                          className="!text-[#EF4444]"
+                          loading={deleteTriggerMutation.isPending}
+                        />
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* ─── 5 列任务状态（非 pending） ─── */}
+          {TASK_STATUSES.map((status) => {
             const style = TASK_STATUS_STYLES[status]
             const filtered = filterTasks(tasksByStatus[status])
             return (
@@ -527,7 +647,7 @@ export default function TasksPage() {
                 onCancel={handleCancel}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
-                onEdit={handleEdit}
+                onEdit={undefined}
                 onApprovalSubmit={handleCardApproval}
                 interveneLoading={interveneMutation.isPending}
                 deleteLoading={deleteMutation.isPending}

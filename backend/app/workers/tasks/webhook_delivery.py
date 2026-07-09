@@ -22,9 +22,8 @@ def deliver_webhook(
 
     Retries up to 5 times with exponential backoff on failure.
     """
-    import asyncio
-
     from app.services.webhook_delivery import deliver_with_retry
+    from app.workers.loop import run_async
 
     logger.info(
         "celery_webhook_delivery_start",
@@ -32,13 +31,7 @@ def deliver_webhook(
         event=event,
     )
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    success = loop.run_until_complete(
+    success = run_async(
         deliver_with_retry(
             webhook_id=webhook_id,
             url=url,

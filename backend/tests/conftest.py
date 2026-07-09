@@ -6,7 +6,16 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-not-for-prod")
 
 import pytest
 from app.main import app
+from app.workers.celery_app import celery_app
 from fastapi.testclient import TestClient
+
+# ── Celery eager mode for tests ──
+# Run Celery tasks synchronously in-process during tests instead of
+# dispatching them to a real Redis broker. This prevents test-triggered
+# .delay() calls from leaking into a running worker (which would execute
+# them against test data and pollute logs with "task not found" errors).
+celery_app.conf.task_always_eager = True
+celery_app.conf.task_eager_propagates = True
 
 
 @pytest.fixture
