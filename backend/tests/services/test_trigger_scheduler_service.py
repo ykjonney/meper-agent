@@ -1,191 +1,244 @@
-"""Tests for TriggerSchedulerService.
+"""Tests for TriggerSchedulerService — polling-based trigger scheduler.
 
-NOTE: Tests skipped due to service restructuring.
-TODO: Rewrite tests to match new TriggerSchedulerService implementation.
+Covers the polling/claim/fire design that replaced the Celery eta self-chain.
+Key guarantees under test:
+  * only due, enabled triggers fire
+  * claim is atomic (optimistic lock on next_trigger_at) — concurrent
+    claimants don't double-fire
+  * next_trigger_at advances correctly (cron → next; once → None)
+  * placeholder Task creation is race-safe via DuplicateKeyError handling
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.models.trigger import Trigger
 from app.services.trigger_scheduler_service import TriggerSchedulerService
 
-# Skip all tests pending rewrite
-pytestmark = pytest.mark.skip(reason="Service restructured - tests need rewrite")
 
-
-async def _async_iter(items):
+def _async_iter(items):
     """Helper: async iterator over a list of items."""
     for item in items:
         yield item
 
 
-@pytest.fixture
-def service() -> TriggerSchedulerService:
-    """Return a fresh TriggerSchedulerService instance."""
-    return TriggerSchedulerService()
+def _mock_cursor(items):
+    """Build a mock cursor whose to_list() resolves to the given items."""
+    cursor = MagicMock()
+    cursor.to_list = AsyncMock(return_value=list(items))
+    return cursor
 
 
-def _make_mock_db(find_result=None, find_one_result=None) -> MagicMock:
-    """Build a mocked ``get_database()`` return value."""
-    mock_db = MagicMock()
-    mock_col = MagicMock()
-    if find_result is not None:
-        mock_col.find = MagicMock(return_value=_async_iter(find_result))
-    if find_one_result is not None or find_result is None:
-        mock_col.find_one = AsyncMock(return_value=find_one_result)
-    mock_db.__getitem__.return_value = mock_col
-    return mock_db
+def _make_trigger(
+    *,
+    tid: str = "trig_1",
+    workflow_id: str = "wf_1",
+    type_: str = "cron",
+    cron: str | None = "0 9 * * *",
+    enabled: bool = True,
+    next_trigger_at: datetime | None = None,
+    execute_at: datetime | None = None,
+) -> Trigger:
+    return Trigger(
+        _id=tid,
+        workflow_id=workflow_id,
+        user_id="user_1",
+        type=type_,
+        enabled=enabled,
+        cron_expression=cron,
+        execute_at=execute_at,
+        next_trigger_at=next_trigger_at,
+    )
 
 
-class TestTriggerSchedulerServiceLifecycle:
-    """Tests for service lifecycle."""
-
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_start_initializes_scheduler(self, mock_db: MagicMock) -> None:
-        """Should start the scheduler and load triggers."""
-        mock_db.return_value = _make_mock_db(find_result=[])
-
-        service = TriggerSchedulerService()
-        await service.start()
-        assert service._started is True
-
-        await service.stop()
-        assert service._started is False
-
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_start_loads_enabled_workflows(self, mock_db: MagicMock) -> None:
-        """Should register all workflows whose trigger_config is enabled."""
-        wf1 = {"_id": "wf_1", "trigger_config": {"enabled": True, "type": "cron"}}
-        wf2 = {"_id": "wf_2", "trigger_config": {"enabled": True, "type": "interval"}}
-        mock_db.return_value = _make_mock_db(find_result=[wf1, wf2])
-
-        service = TriggerSchedulerService()
-        await service.start()
-
-        assert service._workflows.keys() == {"wf_1", "wf_2"}
-        assert service._workflows["wf_1"]["trigger_config"]["type"] == "cron"
-
-        await service.stop()
-
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_start_is_idempotent(self, mock_db: MagicMock) -> None:
-        """Should not restart if already started."""
-        mock_db.return_value = _make_mock_db(find_result=[])
-
-        service = TriggerSchedulerService()
-        await service.start()
-        await service.start()  # Should not raise
-        assert service._started is True
-
-        await service.stop()
-
-    async def test_stop_clears_workflows(self) -> None:
-        """Should clear registered workflows on stop."""
-        service = TriggerSchedulerService()
-        service._workflows["wf_x"] = {"_id": "wf_x"}
-        service._started = True
-
-        await service.stop()
-
-        assert service._workflows == {}
-        assert service._started is False
+def _make_due_doc(**kwargs) -> dict:
+    """Build a trigger doc dict that is due (next_trigger_at in the past)."""
+    past = datetime.now(timezone.utc) - timedelta(minutes=5)
+    t = _make_trigger(next_trigger_at=past, **kwargs)
+    return t.model_dump(by_alias=True)
 
 
-class TestRegisterTrigger:
-    """Tests for register_trigger."""
+class TestComputeNext:
+    """Tests for _compute_next (pure schedule arithmetic)."""
 
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_register_enabled_workflow(self, mock_db: MagicMock) -> None:
-        """Should register an enabled workflow trigger."""
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {"enabled": True, "type": "cron"},
-        }
-        mock_db.return_value = _make_mock_db(find_one_result=workflow_doc)
+    def test_cron_returns_next_firing(self) -> None:
+        """cron trigger returns the next firing after now."""
+        svc = TriggerSchedulerService()
+        now = datetime(2026, 7, 9, 8, 0, tzinfo=timezone.utc).astimezone()
+        t = _make_trigger(cron="0 9 * * *")
+        nxt = svc._compute_next(t, now)
+        assert nxt is not None
+        # next 09:00 local
+        assert nxt.hour == 9
 
-        service = TriggerSchedulerService()
-        await service.register_trigger("wf_xxx")
+    def test_once_returns_none(self) -> None:
+        """once triggers do not repeat."""
+        svc = TriggerSchedulerService()
+        now = datetime.now(timezone.utc).astimezone()
+        t = _make_trigger(type_="once", cron=None, execute_at=now + timedelta(days=1))
+        assert svc._compute_next(t, now) is None
 
-        assert "wf_xxx" in service._workflows
-        assert service._workflows["wf_xxx"]["trigger_config"]["type"] == "cron"
-
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_register_disabled_workflow(self, mock_db: MagicMock) -> None:
-        """Should not register a disabled workflow trigger."""
-        workflow_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {"enabled": False, "type": "cron"},
-        }
-        mock_db.return_value = _make_mock_db(find_one_result=workflow_doc)
-
-        service = TriggerSchedulerService()
-        await service.register_trigger("wf_xxx")
-
-        assert "wf_xxx" not in service._workflows
-
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_register_nonexistent_workflow(self, mock_db: MagicMock) -> None:
-        """Should not register if workflow does not exist."""
-        mock_db.return_value = _make_mock_db(find_one_result=None)
-
-        service = TriggerSchedulerService()
-        await service.register_trigger("wf_not_exist")
-
-        assert "wf_not_exist" not in service._workflows
+    def test_cron_missing_expression_returns_none(self) -> None:
+        svc = TriggerSchedulerService()
+        now = datetime.now(timezone.utc).astimezone()
+        t = _make_trigger(cron=None)
+        assert svc._compute_next(t, now) is None
 
 
-class TestUnregisterTrigger:
-    """Tests for unregister_trigger."""
+class TestProcessDueTriggers:
+    """Tests for _process_due_triggers (the poll cycle)."""
 
-    async def test_unregister_existing(self) -> None:
-        """Should remove an existing workflow from scheduler."""
-        service = TriggerSchedulerService()
-        service._workflows["wf_xxx"] = {"_id": "wf_xxx"}
+    @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
+    async def test_disabled_trigger_not_fired(self, mock_fire) -> None:
+        """Disabled triggers should never be selected by the query."""
+        svc = TriggerSchedulerService()
+        # Query filters enabled=True, so we simulate the DB returning nothing
+        # for a disabled trigger by returning an empty cursor.
+        mock_col = MagicMock()
+        mock_col.find = MagicMock(return_value=_mock_cursor([]))
+        mock_repo = MagicMock()
+        mock_repo._collection.return_value = mock_col
+        svc._repo = mock_repo
 
-        await service.unregister_trigger("wf_xxx")
+        fired = await svc._process_due_triggers()
+        assert fired == 0
+        mock_fire.assert_not_awaited()
 
-        assert "wf_xxx" not in service._workflows
+    @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
+    async def test_due_cron_trigger_fires_and_advances(self, mock_fire) -> None:
+        """A due cron trigger is claimed, fired, and next_trigger_at advanced."""
+        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        doc = _make_trigger(next_trigger_at=past).model_dump(by_alias=True)
 
-    async def test_unregister_nonexistent(self) -> None:
-        """Should not raise if workflow is not registered."""
-        service = TriggerSchedulerService()
+        mock_col = MagicMock()
+        mock_col.find = MagicMock(return_value=_mock_cursor([doc]))
+        # claim succeeds: find_one_and_update returns the updated doc
+        mock_col.find_one_and_update = AsyncMock(return_value={**doc, "next_trigger_at": datetime.now(timezone.utc) + timedelta(hours=1)})
+        mock_repo = MagicMock()
+        mock_repo._collection.return_value = mock_col
+        svc = TriggerSchedulerService()
+        svc._repo = mock_repo
 
-        await service.unregister_trigger("wf_not_exist")
-        # Should not raise
+        fired = await svc._process_due_triggers()
+        assert fired == 1
+        mock_fire.assert_awaited_once()
+
+    async def test_claim_lost_returns_false(self) -> None:
+        """When find_one_and_update returns None, the claim was lost (race)."""
+        svc = TriggerSchedulerService()
+        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        t = _make_trigger(next_trigger_at=past)
+
+        mock_col = MagicMock()
+        # Another process already advanced next_trigger_at → None
+        mock_col.find_one_and_update = AsyncMock(return_value=None)
+        mock_repo = MagicMock()
+        mock_repo._collection.return_value = mock_col
+        svc._repo = mock_repo
+
+        with patch.object(svc, "_fire", new_callable=AsyncMock) as mock_fire:
+            won = await svc._claim_and_fire(t, datetime.now(timezone.utc).astimezone())
+        assert won is False
+        mock_fire.assert_not_awaited()
+
+    @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
+    async def test_once_trigger_clears_next_trigger_at(self, mock_fire) -> None:
+        """once trigger claim uses $unset on next_trigger_at."""
+        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        t = _make_trigger(type_="once", cron=None, execute_at=past, next_trigger_at=past)
+
+        mock_col = MagicMock()
+        mock_col.find_one_and_update = AsyncMock(return_value={"_id": t.id})
+        mock_repo = MagicMock()
+        mock_repo._collection.return_value = mock_col
+        svc = TriggerSchedulerService()
+        svc._repo = mock_repo
+
+        won = await svc._claim_and_fire(t, datetime.now(timezone.utc).astimezone())
+        assert won is True
+        # Verify the update used $unset for the once branch
+        call_args = mock_col.find_one_and_update.call_args
+        assert "$unset" in call_args.kwargs.get("update", call_args.args[1])
 
 
-class TestUpdateTrigger:
-    """Tests for update_trigger."""
+class TestCreatePlaceholderTask:
+    """Tests for _create_placeholder_task race-safety."""
 
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_update_trigger_replaces_doc(self, mock_db: MagicMock) -> None:
-        """Should unregister then register the trigger with fresh data."""
-        new_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {"enabled": True, "type": "cron"},
-        }
-        mock_db.return_value = _make_mock_db(find_one_result=new_doc)
+    @patch("app.db.mongodb.get_database")
+    @patch("app.utils.template_renderer.render_default_input")
+    @patch("app.services.task_service.TaskService")
+    async def test_duplicate_key_reuses_existing(
+        self, mock_task_service, mock_render, mock_get_db
+    ) -> None:
+        """DuplicateKeyError → reuse the existing placeholder."""
+        from pymongo.errors import DuplicateKeyError
 
-        service = TriggerSchedulerService()
-        service._workflows["wf_xxx"] = {"_id": "wf_xxx", "old": True}
+        mock_render.return_value = {}
+        mock_task_service.create_task = AsyncMock(side_effect=DuplicateKeyError("dup"))
 
-        await service.update_trigger("wf_xxx")
+        existing_id = "task_existing"
+        mock_col = MagicMock()
+        mock_col.find_one = AsyncMock(return_value={"_id": existing_id})
+        mock_col.update_one = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.__getitem__.return_value = mock_col
+        mock_get_db.return_value = mock_db
 
-        assert "wf_xxx" in service._workflows
-        assert "old" not in service._workflows["wf_xxx"]
-        assert service._workflows["wf_xxx"]["trigger_config"]["type"] == "cron"
+        svc = TriggerSchedulerService()
+        t = _make_trigger()
+        fire_at = datetime.now(timezone.utc)
 
-    @patch("app.services.trigger_scheduler_service.get_database")
-    async def test_update_trigger_disabled_removes(self, mock_db: MagicMock) -> None:
-        """Should remove the workflow if trigger is now disabled."""
-        disabled_doc = {
-            "_id": "wf_xxx",
-            "trigger_config": {"enabled": False, "type": "cron"},
-        }
-        mock_db.return_value = _make_mock_db(find_one_result=disabled_doc)
+        # Should not raise — reuses existing placeholder instead
+        await svc._create_placeholder_task(t, fire_at)
 
-        service = TriggerSchedulerService()
-        service._workflows["wf_xxx"] = {"_id": "wf_xxx"}
+        mock_col.update_one.assert_awaited_once()
+        mock_task_service.create_task.assert_awaited_once()
 
-        await service.update_trigger("wf_xxx")
+    @patch("app.utils.template_renderer.render_default_input")
+    @patch("app.services.task_service.TaskService")
+    async def test_normal_insert_creates_placeholder(
+        self, mock_task_service, mock_render
+    ) -> None:
+        """No conflict → create_task is called normally."""
+        mock_render.return_value = {}
+        mock_task_service.create_task = AsyncMock(return_value={"_id": "task_new"})
 
-        assert "wf_xxx" not in service._workflows
+        svc = TriggerSchedulerService()
+        t = _make_trigger()
+        fire_at = datetime.now(timezone.utc)
+
+        await svc._create_placeholder_task(t, fire_at)
+
+        mock_task_service.create_task.assert_awaited_once()
+        # Verify source=trigger so it enters the partial unique index
+        _, kwargs = mock_task_service.create_task.call_args
+        assert kwargs["source"] == "trigger"
+        assert kwargs["trigger_id"] == t.id
+
+
+class TestLifecycle:
+    """Tests for start/stop lifecycle."""
+
+    async def test_start_stop_sets_running_flag(self) -> None:
+        svc = TriggerSchedulerService()
+        # Avoid real poll loop interactions
+        with patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock):
+            with patch("app.services.trigger_scheduler_service.settings") as mock_settings:
+                mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0  # disables loop
+                await svc.start()
+                # poll_interval <= 0 → loop returns immediately
+                assert svc._task is not None
+                await svc.stop()
+        assert not svc.is_running
+
+    async def test_start_idempotent(self) -> None:
+        svc = TriggerSchedulerService()
+        with patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock):
+            with patch("app.services.trigger_scheduler_service.settings") as mock_settings:
+                mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0
+                await svc.start()
+                first_task = svc._task
+                await svc.start()  # no-op
+                assert svc._task is first_task
+        await svc.stop()

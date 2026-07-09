@@ -1,8 +1,16 @@
 """Scheduled workflow execution Celery task.
 
-Refactored: operates on independent Trigger documents instead of
-embedded trigger_config in workflows collection. Uses schedule_version
-to detect stale tasks after config changes.
+Trigger firing is driven by TriggerSchedulerService's polling loop, which
+atomically claims due triggers and dispatches this task *immediately* (no
+eta). This avoids the Redis visibility_timeout re-delivery problem that
+plagued the previous eta self-chain design for long schedules.
+
+Responsibilities here are intentionally minimal:
+    load trigger → load workflow → render input → find placeholder Task
+    → run engine → update last_triggered_at.
+
+The *next* firing is already scheduled by the poller (it advanced
+next_trigger_at when it claimed the trigger), so there is no self-chain.
 """
 import asyncio
 from typing import Any
@@ -31,34 +39,27 @@ def _get_loop() -> asyncio.AbstractEventLoop:
 
 
 @celery_app.task(name="app.workers.tasks.scheduled_workflow.execute_scheduled_workflow")
-def execute_scheduled_workflow(
-    trigger_id: str,
-    expected_version: int,
-) -> dict[str, Any]:
-    """Execute a scheduled workflow.
+def execute_scheduled_workflow(trigger_id: str) -> dict[str, Any]:
+    """Execute a scheduled workflow for the given trigger.
 
-    Celery task entry point. Delegates to async implementation.
+    Celery task entry point. Delegates to async implementation. The
+    placeholder Task and next firing are managed by TriggerSchedulerService;
+    this task only executes the current firing.
 
     Args:
         trigger_id: Trigger document ID.
-        expected_version: The schedule_version at the time of scheduling.
 
     Returns:
         Task execution result summary.
     """
-    return _get_loop().run_until_complete(
-        _execute_async(trigger_id, expected_version)
-    )
+    return _get_loop().run_until_complete(_execute_async(trigger_id))
 
 
-async def _execute_async(
-    trigger_id: str,
-    expected_version: int,
-) -> dict[str, Any]:
+async def _execute_async(trigger_id: str) -> dict[str, Any]:
     """Async execution logic.
 
-    Load trigger → version check → load workflow → render input
-    → create Task → run engine → self-chain.
+    Load trigger → load workflow → render input → find placeholder Task
+    → run engine.
     """
     db = get_database()
     repo = TriggerRepository(db)
@@ -73,20 +74,7 @@ async def _execute_async(
         logger.warning("trigger_disabled", trigger_id=trigger_id)
         return {"status": "skipped", "message": "disabled"}
 
-    # 2. Version check — user modified config, skip this execution
-    if trigger_doc.schedule_version != expected_version:
-        logger.info(
-            "trigger_version_mismatch",
-            trigger_id=trigger_id,
-            expected=expected_version,
-            actual=trigger_doc.schedule_version,
-        )
-        # Do NOT re-schedule here — the API endpoint that bumped the
-        # version already called schedule_next with the new version.
-        # Re-scheduling would duplicate Celery tasks in the queue.
-        return {"status": "skipped", "message": "version mismatch"}
-
-    # 3. Load workflow
+    # 2. Load workflow
     workflow_doc = await db["workflows"].find_one({"_id": trigger_doc.workflow_id})
     if not workflow_doc:
         logger.error(
@@ -96,7 +84,7 @@ async def _execute_async(
         )
         return {"status": "error", "message": "workflow not found"}
 
-    # 4. Render default input parameters
+    # 3. Render default input parameters
     rendered_input = render_default_input(trigger_doc.default_input)
 
     logger.info(
@@ -106,20 +94,16 @@ async def _execute_async(
         rendered_input=rendered_input,
     )
 
-    # 5. Find placeholder Task
+    # 4. Find placeholder Task (created by the poller when it claimed the trigger)
     task_doc = await db["tasks"].find_one(
         {"trigger_id": trigger_id, "status": "pending", "source": "trigger"},
     )
     if not task_doc:
-        logger.warning(
-            "trigger_placeholder_not_found",
-            trigger_id=trigger_id,
-        )
-        # Do NOT re-schedule here — could duplicate Celery tasks.
-        # The trigger's next execution will be set up by:
-        # - the API endpoint (if user updates the trigger), or
-        # - TriggerSchedulerService.start() on next server restart.
-        return {"status": "error", "message": "placeholder task not found"}
+        # The placeholder was already consumed (e.g. a duplicate dispatch
+        # raced ahead) — nothing to do. The next firing is already scheduled
+        # via next_trigger_at, so no recovery action is needed here.
+        logger.warning("trigger_placeholder_not_found", trigger_id=trigger_id)
+        return {"status": "skipped", "message": "placeholder task not found"}
 
     task_id = task_doc["_id"]
 
@@ -129,24 +113,7 @@ async def _execute_async(
         task_id=task_id,
     )
 
-    # 6. Self-chain: schedule next execution BEFORE running the workflow,
-    # so the next Celery eta is dispatched immediately and doesn't drift
-    # if the current execution takes a long time.
-    if trigger_doc.type == "cron" and trigger_doc.enabled:
-        try:
-            from app.services.trigger_scheduler_service import TriggerSchedulerService
-
-            chain_scheduler = TriggerSchedulerService(repo=repo)
-            await chain_scheduler.schedule_next(trigger_id, exclude_task_id=task_id)
-            logger.info("trigger_self_chain_scheduled", trigger_id=trigger_id)
-        except Exception as chain_err:
-            logger.error(
-                "trigger_self_chain_failed",
-                trigger_id=trigger_id,
-                error=str(chain_err),
-            )
-
-    # 7. Execute the workflow
+    # 5. Execute the workflow
     result: dict[str, Any] = {"status": "error", "task_id": task_id, "message": "unknown"}
     try:
         engine = WorkflowEngine()

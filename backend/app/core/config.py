@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Task scheduler (poll interval in seconds; set to 0 to disable)
     TASK_SCHEDULER_POLL_INTERVAL: int = 10
 
+    # Trigger scheduler (poll interval in seconds; set to 0 to disable).
+    # The trigger scheduler polls the triggers collection for due cron/once
+    # triggers and fires them. Accuracy = poll interval (10s is plenty for
+    # scheduled workflows). This replaces the previous Celery eta self-chain
+    # design, which suffered from Redis visibility_timeout re-delivery on
+    # long-eta (monthly) jobs.
+    TRIGGER_SCHEDULER_POLL_INTERVAL: int = 10
+
     # Skill filesystem — root directory where Skill files are materialized.
     # Each Skill lives under ``{SKILLS_CONTAINER_DIR}/{skill_name}/``.
     # None = derive from SKILLS_HOST_DIR (local dev).

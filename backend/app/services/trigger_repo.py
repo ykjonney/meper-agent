@@ -23,6 +23,25 @@ class TriggerRepository:
         await self._collection().create_index("workflow_id")
         await self._collection().create_index("user_id")
 
+        # ── tasks collection: partial unique index on trigger placeholder ──
+        # Guarantees at most ONE pending placeholder Task per trigger.
+        # When a task transitions pending → running, it automatically leaves
+        # the partial index (status no longer matches) so the *next* trigger
+        # cycle can insert a fresh placeholder. Terminal tasks are never
+        # indexed, so history accumulates without limit.
+        # This is the DB-level guard against the race condition where
+        # concurrent schedule_next() calls each saw "no placeholder exists"
+        # and each inserted one.
+        await self._db["tasks"].create_index(
+            [("trigger_id", 1)],
+            unique=True,
+            name="uniq_trigger_pending_placeholder",
+            partialFilterExpression={
+                "source": "trigger",
+                "status": "pending",
+            },
+        )
+
     async def insert(self, trigger: Trigger) -> Trigger:
         """Insert a new trigger and return it."""
         doc = trigger.model_dump(by_alias=True)
