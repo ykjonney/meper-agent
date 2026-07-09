@@ -12,7 +12,6 @@ Responsibilities here are intentionally minimal:
 The *next* firing is already scheduled by the poller (it advanced
 next_trigger_at when it claimed the trigger), so there is no self-chain.
 """
-import asyncio
 from typing import Any
 
 from loguru import logger
@@ -87,7 +86,8 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
     #    entity. Each firing creates an independent task that runs to
     #    completion. The task starts in PENDING because the engine's
     #    execute_task performs a PENDING→RUNNING transition internally.
-    from app.models.base import generate_id, utc_now as _utc_now
+    from app.models.base import generate_id
+    from app.models.base import utc_now as _utc_now
     from app.models.task import TaskStatus
 
     snapshot_id = generate_id("task")

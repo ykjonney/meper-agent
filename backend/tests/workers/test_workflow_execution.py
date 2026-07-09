@@ -6,8 +6,6 @@ internal async function directly with mocked dependencies.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 
 class TestRunWorkflowTask:
     """Tests for run_workflow_task."""

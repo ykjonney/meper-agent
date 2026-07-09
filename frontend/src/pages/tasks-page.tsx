@@ -17,7 +17,6 @@ import {
   DeleteOutlined,
   SearchOutlined,
   PlusOutlined,
-  CheckCircleOutlined,
   WarningOutlined,
   ThunderboltOutlined,
   CloseCircleOutlined,
@@ -489,7 +488,6 @@ export default function TasksPage() {
   const scheduledCount = triggers.length
   const runningCount = tasksByStatus.running.length
   const waitingHumanCount = tasksByStatus.waiting_human.length
-  const completedCount = tasksByStatus.completed.length
   const failedCount = tasksByStatus.failed.length
 
   const statCards = [

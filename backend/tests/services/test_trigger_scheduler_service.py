@@ -8,9 +8,7 @@ Key guarantees under test:
   * next_trigger_at advances correctly (cron → next; once → None)
   * placeholder Task creation is race-safe via DuplicateKeyError handling
 """
-from datetime import datetime, timedelta, timezone
-
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.trigger import Trigger
@@ -19,8 +17,7 @@ from app.services.trigger_scheduler_service import TriggerSchedulerService
 
 def _async_iter(items):
     """Helper: async iterator over a list of items."""
-    for item in items:
-        yield item
+    yield from items
 
 
 def _mock_cursor(items):
@@ -54,7 +51,7 @@ def _make_trigger(
 
 def _make_due_doc(**kwargs) -> dict:
     """Build a trigger doc dict that is due (next_trigger_at in the past)."""
-    past = datetime.now(timezone.utc) - timedelta(minutes=5)
+    past = datetime.now(UTC) - timedelta(minutes=5)
     t = _make_trigger(next_trigger_at=past, **kwargs)
     return t.model_dump(by_alias=True)
 
@@ -65,7 +62,7 @@ class TestComputeNext:
     def test_cron_returns_next_firing(self) -> None:
         """cron trigger returns the next firing after now."""
         svc = TriggerSchedulerService()
-        now = datetime(2026, 7, 9, 8, 0, tzinfo=timezone.utc).astimezone()
+        now = datetime(2026, 7, 9, 8, 0, tzinfo=UTC).astimezone()
         t = _make_trigger(cron="0 9 * * *")
         nxt = svc._compute_next(t, now)
         assert nxt is not None
@@ -75,7 +72,7 @@ class TestComputeNext:
     def test_once_future_execute_at_returns_it(self) -> None:
         """once trigger with future execute_at → returns execute_at."""
         svc = TriggerSchedulerService()
-        now = datetime.now(timezone.utc).astimezone()
+        now = datetime.now(UTC).astimezone()
         future = now + timedelta(days=1)
         t = _make_trigger(type_="once", cron=None, execute_at=future)
         result = svc._compute_next(t, now)
@@ -86,7 +83,7 @@ class TestComputeNext:
     def test_once_past_execute_at_returns_none(self) -> None:
         """once trigger with past execute_at → None (window passed)."""
         svc = TriggerSchedulerService()
-        now = datetime.now(timezone.utc).astimezone()
+        now = datetime.now(UTC).astimezone()
         past = now - timedelta(days=1)
         t = _make_trigger(type_="once", cron=None, execute_at=past)
         assert svc._compute_next(t, now) is None
@@ -94,13 +91,13 @@ class TestComputeNext:
     def test_once_no_execute_at_returns_none(self) -> None:
         """once trigger without execute_at → None."""
         svc = TriggerSchedulerService()
-        now = datetime.now(timezone.utc).astimezone()
+        now = datetime.now(UTC).astimezone()
         t = _make_trigger(type_="once", cron=None, execute_at=None)
         assert svc._compute_next(t, now) is None
 
     def test_cron_missing_expression_returns_none(self) -> None:
         svc = TriggerSchedulerService()
-        now = datetime.now(timezone.utc).astimezone()
+        now = datetime.now(UTC).astimezone()
         t = _make_trigger(cron=None)
         assert svc._compute_next(t, now) is None
 
@@ -127,13 +124,13 @@ class TestProcessDueTriggers:
     @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
     async def test_due_cron_trigger_fires_and_advances(self, mock_fire) -> None:
         """A due cron trigger is claimed, fired, and next_trigger_at advanced."""
-        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        past = datetime.now(UTC) - timedelta(minutes=5)
         doc = _make_trigger(next_trigger_at=past).model_dump(by_alias=True)
 
         mock_col = MagicMock()
         mock_col.find = MagicMock(return_value=_mock_cursor([doc]))
         # claim succeeds: find_one_and_update returns the updated doc
-        mock_col.find_one_and_update = AsyncMock(return_value={**doc, "next_trigger_at": datetime.now(timezone.utc) + timedelta(hours=1)})
+        mock_col.find_one_and_update = AsyncMock(return_value={**doc, "next_trigger_at": datetime.now(UTC) + timedelta(hours=1)})
         mock_repo = MagicMock()
         mock_repo._collection.return_value = mock_col
         svc = TriggerSchedulerService()
@@ -146,7 +143,7 @@ class TestProcessDueTriggers:
     async def test_claim_lost_returns_false(self) -> None:
         """When find_one_and_update returns None, the claim was lost (race)."""
         svc = TriggerSchedulerService()
-        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        past = datetime.now(UTC) - timedelta(minutes=5)
         t = _make_trigger(next_trigger_at=past)
 
         mock_col = MagicMock()
@@ -157,14 +154,14 @@ class TestProcessDueTriggers:
         svc._repo = mock_repo
 
         with patch.object(svc, "_fire", new_callable=AsyncMock) as mock_fire:
-            won = await svc._claim_and_fire(t, datetime.now(timezone.utc).astimezone())
+            won = await svc._claim_and_fire(t, datetime.now(UTC).astimezone())
         assert won is False
         mock_fire.assert_not_awaited()
 
     @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
     async def test_once_trigger_clears_next_trigger_at(self, mock_fire) -> None:
         """once trigger claim uses $unset on next_trigger_at."""
-        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        past = datetime.now(UTC) - timedelta(minutes=5)
         t = _make_trigger(type_="once", cron=None, execute_at=past, next_trigger_at=past)
 
         mock_col = MagicMock()
@@ -174,7 +171,7 @@ class TestProcessDueTriggers:
         svc = TriggerSchedulerService()
         svc._repo = mock_repo
 
-        won = await svc._claim_and_fire(t, datetime.now(timezone.utc).astimezone())
+        won = await svc._claim_and_fire(t, datetime.now(UTC).astimezone())
         assert won is True
         # Verify the update used $unset for the once branch
         call_args = mock_col.find_one_and_update.call_args
@@ -187,22 +184,26 @@ class TestLifecycle:
     async def test_start_stop_sets_running_flag(self) -> None:
         svc = TriggerSchedulerService()
         # Avoid real poll loop interactions
-        with patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock):
-            with patch("app.services.trigger_scheduler_service.settings") as mock_settings:
-                mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0  # disables loop
-                await svc.start()
-                # poll_interval <= 0 → loop returns immediately
-                assert svc._task is not None
-                await svc.stop()
+        with (
+            patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock),
+            patch("app.services.trigger_scheduler_service.settings") as mock_settings,
+        ):
+            mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0  # disables loop
+            await svc.start()
+            # poll_interval <= 0 → loop returns immediately
+            assert svc._task is not None
+            await svc.stop()
         assert not svc.is_running
 
     async def test_start_idempotent(self) -> None:
         svc = TriggerSchedulerService()
-        with patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock):
-            with patch("app.services.trigger_scheduler_service.settings") as mock_settings:
-                mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0
-                await svc.start()
-                first_task = svc._task
-                await svc.start()  # no-op
-                assert svc._task is first_task
+        with (
+            patch.object(svc, "_backfill_next_trigger_at", new_callable=AsyncMock),
+            patch("app.services.trigger_scheduler_service.settings") as mock_settings,
+        ):
+            mock_settings.TRIGGER_SCHEDULER_POLL_INTERVAL = 0
+            await svc.start()
+            first_task = svc._task
+            await svc.start()  # no-op
+            assert svc._task is first_task
         await svc.stop()

@@ -72,10 +72,9 @@ export function TaskBoardCard({
   onCancel,
   onRetry,
   onDelete,
-  onEdit,
   onApprovalSubmit,
   interveneLoading = false,
-  deleteLoading = false,
+  deleteLoading = false
 }: TaskBoardCardProps) {
   const status: TaskStatusValue = task.status
   const style = TASK_STATUS_STYLES[status]

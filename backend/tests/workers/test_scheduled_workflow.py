@@ -4,7 +4,6 @@ The execute logic forks a fresh execution Task directly from the trigger
 document (no placeholder/template task). Each firing creates an independent
 task (source="trigger_scheduled") and runs it via the engine.
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.trigger import Trigger

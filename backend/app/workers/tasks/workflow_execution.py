@@ -16,7 +16,6 @@ The engine itself decides whether this is a first-time run or a resume from
 checkpoint based on the Task document's ``checkpoint`` field — so this task
 needs nothing but a ``task_id``.
 """
-import asyncio
 from typing import Any
 
 from loguru import logger
