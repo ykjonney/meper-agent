@@ -16,7 +16,7 @@ class TestRunWorkflowTask:
     async def test_run_success(self, mock_engine_class: MagicMock) -> None:
         """Should run the engine and return success."""
         mock_engine = MagicMock()
-        mock_engine.run_and_persist = AsyncMock()
+        mock_engine.run_and_persist = AsyncMock(return_value={"key": "value"})
         mock_engine_class.return_value = mock_engine
 
         from app.workers.tasks.workflow_execution import _run_async
@@ -26,6 +26,21 @@ class TestRunWorkflowTask:
         assert result["status"] == "success"
         assert result["task_id"] == "task_xxx"
         mock_engine.run_and_persist.assert_awaited_once_with("task_xxx")
+
+    @patch("app.workers.tasks.workflow_execution.WorkflowEngine")
+    async def test_run_task_not_found(self, mock_engine_class: MagicMock) -> None:
+        """Engine returns empty dict when task/workflow not found — should
+        surface as 'skipped', not misleadingly 'success'."""
+        mock_engine = MagicMock()
+        mock_engine.run_and_persist = AsyncMock(return_value={})
+        mock_engine_class.return_value = mock_engine
+
+        from app.workers.tasks.workflow_execution import _run_async
+
+        result = await _run_async("task_missing")
+
+        assert result["status"] == "skipped"
+        assert result["task_id"] == "task_missing"
 
     @patch("app.workers.tasks.workflow_execution.WorkflowEngine")
     async def test_run_engine_raises(self, mock_engine_class: MagicMock) -> None:

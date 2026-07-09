@@ -68,6 +68,9 @@ class TestCreateTaskWorkflowValidation:
             patch("app.services.task_service.get_database", return_value=mock_db),
             patch("app.services.task_service.TaskService._write_audit_log", new_callable=AsyncMock),
             patch("app.services.task_service.get_event_bus", return_value=mock_event_bus),
+            # create_task triggers _start_workflow_execution → Celery dispatch;
+            # mock it out so the test stays focused on the insert logic.
+            patch("app.services.task_service.TaskService._start_workflow_execution"),
         ):
             result = await TaskService.create_task(
                 workflow_id="wf_exist",

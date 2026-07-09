@@ -51,7 +51,14 @@ async def _run_async(task_id: str) -> dict[str, Any]:
     """
     try:
         engine = WorkflowEngine()
-        await engine.run_and_persist(task_id)
+        result = await engine.run_and_persist(task_id)
+        # The engine returns an empty dict {} when the task or workflow
+        # document is not found (it logs the ERROR internally but does not
+        # raise). Treat that as a failure so the Celery result reflects it
+        # instead of misleadingly reporting success.
+        if not result:
+            logger.warning("workflow_task_no_result", task_id=task_id)
+            return {"status": "skipped", "task_id": task_id, "message": "task or workflow not found"}
         logger.info("workflow_task_completed", task_id=task_id)
         return {"status": "success", "task_id": task_id}
     except Exception as exc:
