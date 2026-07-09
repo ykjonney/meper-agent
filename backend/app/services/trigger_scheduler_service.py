@@ -211,6 +211,15 @@ class TriggerSchedulerService:
         # Reflect the advanced state on the in-memory object for firing.
         trigger.next_trigger_at = new_next
         await self._fire(trigger, old_next)
+
+        # Pre-create the placeholder Task for the NEXT firing so the user
+        # can see the upcoming scheduled execution (pending status) in the
+        # task list. The partial unique index makes this idempotent — if a
+        # placeholder is already pending (e.g. the current one hasn't
+        # transitioned to running yet), it's safely reused.
+        if new_next is not None:
+            await self._create_placeholder_task(trigger, new_next)
+
         logger.info(
             "trigger_fired",
             trigger_id=trigger.id,
