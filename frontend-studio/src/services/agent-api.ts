@@ -160,15 +160,15 @@ export interface ToolResultEvent {
   content: string
 }
 
-/** Incremental text delta of the final answer */
-export interface FinalAnswerDeltaEvent {
-  type: 'final_answer_delta'
+/** Incremental text delta streamed from the LLM */
+export interface TextDeltaEvent {
+  type: 'text_delta'
   content: string
 }
 
-/** Final answer text from the AI — consolidated, marks completion */
-export interface FinalAnswerEvent {
-  type: 'final_answer'
+/** Complete text block from the AI — consolidated */
+export interface TextEvent {
+  type: 'text'
   content: string
 }
 
@@ -176,6 +176,16 @@ export interface FinalAnswerEvent {
 export interface ErrorEvent {
   type: 'error'
   content: string
+}
+
+/** Agent paused via interrupt, awaiting user answer */
+export interface InterruptEvent {
+  type: 'interrupt'
+  question: string
+  clarification_type: string
+  context?: string | null
+  options?: string[] | null
+  interrupt_id: string
 }
 
 /** Execution finished */
@@ -192,9 +202,10 @@ export type StreamEvent =
   | ToolCallStartEvent
   | ToolCallEvent
   | ToolResultEvent
-  | FinalAnswerDeltaEvent
-  | FinalAnswerEvent
+  | TextDeltaEvent
+  | TextEvent
   | ErrorEvent
+  | InterruptEvent
   | StreamDoneEvent
 
 /* ─── API methods ─── */

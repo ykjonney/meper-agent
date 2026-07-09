@@ -8,9 +8,9 @@ plumbing, so the same code serves any backend that drives the agent graph.
 
 Event mapping (see Story v0.1-3 §1):
 
-* ``on_chat_model_stream`` → ``final_answer_delta`` (text) / ``thinking_delta``
+* ``on_chat_model_stream`` → ``text_delta`` (text) / ``thinking_delta``
   (reasoning, only when enabled); ``tool_call_chunks`` are *accumulated*.
-* ``on_chat_model_end`` → ``thinking`` + ``final_answer`` (incl. intermediate
+* ``on_chat_model_end`` → ``thinking`` + ``text`` (incl. intermediate
   text persisted before tool calls) + one ``tool_call`` per resolved call.
 * ``on_tool_start`` → ``tool_call_start`` placeholder.
 * ``on_tool_end`` → ``tool_result``.
@@ -25,8 +25,9 @@ import structlog
 
 from agent_flow_harness.adapters.app_event import (
     ErrorEvent,
-    FinalAnswerDeltaEvent,
-    FinalAnswerEvent,
+    InterruptEvent,
+    TextDeltaEvent,
+    TextEvent,
     ThinkingDeltaEvent,
     ThinkingEvent,
     ToolCallEvent,
@@ -66,6 +67,13 @@ async def stream_events_to_app_events(
     """
     accumulator = _StreamingAccumulator(enable_thinking=enable_thinking)
 
+    # 缓冲 on_chat_model_end 解析出的 tool_calls。LangGraph 的事件顺序是
+    # on_chat_model_end(含 tool_calls) → on_tool_start → on_tool_end,但前端
+    # 状态机要求 tool_call_start 先于 tool_call(前端靠 tool_call_start 创建
+    # pending 条目,再用 tool_call 填充)。因此把 tool_call 延迟到 on_tool_start
+    # 时成对发出(tool_call_start → tool_call),与老引擎顺序一致。
+    pending_tool_calls: list[dict[str, Any]] = []
+
     async for event in astream_iter:
         kind = event.get("event")
         data = event.get("data") or {}
@@ -77,7 +85,7 @@ async def stream_events_to_app_events(
 
             text = _extract_text_content(chunk)
             if text:
-                await on_event(FinalAnswerDeltaEvent(content=text))
+                await on_event(TextDeltaEvent(content=text))
 
             if enable_thinking:
                 thinking = _extract_thinking_content(chunk)
@@ -88,19 +96,67 @@ async def stream_events_to_app_events(
 
         elif kind == "on_chat_model_end":
             output = data.get("output")
-            await _emit_model_end(output, on_event, enable_thinking=enable_thinking)
+            # 只发 thinking + text;tool_call 缓冲到 pending_tool_calls,
+            # 等对应 on_tool_start 时再按正确顺序发出。
+            if output is not None:
+                if enable_thinking:
+                    reasoning = _extract_thinking_content(output)
+                    if reasoning:
+                        await on_event(ThinkingEvent(content=reasoning))
+                content = _extract_text_content(output)
+                if content:
+                    await on_event(TextEvent(content=content))
+                pending_tool_calls = [
+                    {
+                        "tool_name": tc.get("name", ""),
+                        "args": tc.get("args") or {},
+                        "id": tc.get("id", ""),
+                    }
+                    for tc in _iter_tool_calls(output)
+                ]
             accumulator.reset()
 
         elif kind == "on_tool_start":
+            tool_name = event.get("name") or ""
             await on_event(ToolCallStartEvent())
+            # 发出对应的 tool_call(若有缓冲)。按 tool_name 匹配;匹配不上则
+            # 发首个未发出的(兜底)。这保证 tool_call_start 永远先于 tool_call。
+            emitted = False
+            for i, tc in enumerate(pending_tool_calls):
+                if tc["tool_name"] == tool_name:
+                    await on_event(
+                        ToolCallEvent(
+                            tool_name=tc["tool_name"],
+                            args=tc["args"],
+                            id=tc["id"],
+                        )
+                    )
+                    pending_tool_calls.pop(i)
+                    emitted = True
+                    break
+            if not emitted and pending_tool_calls:
+                tc = pending_tool_calls.pop(0)
+                await on_event(
+                    ToolCallEvent(
+                        tool_name=tc["tool_name"], args=tc["args"], id=tc["id"],
+                    )
+                )
 
         elif kind == "on_tool_end":
             output = data.get("output")
             tool_name = event.get("name") or "unknown"
+            # Extract content: ToolMessage may stringify with metadata if we
+            # naively str() it; use .content when available.
+            if output is None:
+                content = ""
+            elif hasattr(output, "content"):
+                content = str(output.content)
+            else:
+                content = str(output)
             await on_event(
                 ToolResultEvent(
                     tool_name=tool_name,
-                    content="" if output is None else str(output),
+                    content=content,
                 )
             )
 
@@ -114,6 +170,25 @@ async def stream_events_to_app_events(
                 ErrorEvent(message=_error_message(data), source="tool")
             )
 
+        elif kind == "on_chain_end":
+            # Detect graph-level interrupt (ask_clarification etc.).
+            # LangGraph surfaces an interrupt as a top-level on_chain_end
+            # whose output dict carries a ``__interrupt__`` key.
+            output = data.get("output")
+            if isinstance(output, dict):
+                interrupts = output.get("__interrupt__")
+                if interrupts:
+                    for intr in interrupts:
+                        payload = getattr(intr, "value", intr) or {}
+                        if isinstance(payload, dict):
+                            await on_event(InterruptEvent(
+                                question=payload.get("question", ""),
+                                clarification_type=payload.get("type", "missing_info"),
+                                context=payload.get("context"),
+                                options=payload.get("options"),
+                                interrupt_id=getattr(intr, "id", "") or "",
+                            ))
+
 
 # ---------------------------------------------------------------------------
 # on_chat_model_end emission (shared logic)
@@ -126,7 +201,7 @@ async def _emit_model_end(
     *,
     enable_thinking: bool,
 ) -> None:
-    """Emit the complete thinking / final-answer / tool-call events."""
+    """Emit the complete thinking / text / tool-call events."""
     if output is None:
         return
 
@@ -136,11 +211,11 @@ async def _emit_model_end(
         if reasoning:
             await on_event(ThinkingEvent(content=reasoning))
 
-    # 2. Final answer — emitted whenever there is content, including the
+    # 2. Text — emitted whenever there is content, including the
     #    "intermediate text persisted" case (content + tool_calls together).
     content = _extract_text_content(output)
     if content:
-        await on_event(FinalAnswerEvent(content=content))
+        await on_event(TextEvent(content=content))
 
     # 3. One tool_call event per resolved call.
     for tc in _iter_tool_calls(output):

@@ -100,6 +100,8 @@ class ModelService:
             "auth_header_format": model.auth_header_format,
             "default_params": model.default_params,
             "status": model.status.value,
+            "last_test_success": None,
+            "last_test_at": "",
             "provider_tag": model.provider_tag,
             "version": model.version,
             "created_at": model.created_at,
@@ -382,14 +384,17 @@ class ModelService:
                 model_id=model_id,
                 latency_ms=latency_ms,
             )
-            return {
+            tested_at = datetime.now(UTC).isoformat()
+            result = {
                 "success": True,
                 "latency_ms": latency_ms,
                 "reply": truncated,
                 "error": "",
                 "error_code": "",
-                "tested_at": datetime.now(UTC).isoformat(),
+                "tested_at": tested_at,
             }
+            await ModelService._persist_test_result(model_id, True, tested_at)
+            return result
 
         except Exception as exc:
             latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -402,18 +407,33 @@ class ModelService:
                 error_code=error_code,
                 error=str(exc)[:300],
             )
-            return {
+            tested_at = datetime.now(UTC).isoformat()
+            result = {
                 "success": False,
                 "latency_ms": latency_ms,
                 "reply": "",
                 "error": error_msg,
                 "error_code": error_code,
-                "tested_at": datetime.now(UTC).isoformat(),
+                "tested_at": tested_at,
             }
+            await ModelService._persist_test_result(model_id, False, tested_at)
+            return result
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _persist_test_result(model_id: str, success: bool, tested_at: str) -> None:
+        """Persist the most recent connectivity-test outcome onto the model doc.
+
+        Keeps the list view's connectivity badge in sync without a separate
+        refresh — the test endpoint is the only writer for these fields.
+        """
+        await ModelService._collection().update_one(
+            {"_id": model_id},
+            {"$set": {"last_test_success": success, "last_test_at": tested_at}},
+        )
 
     @staticmethod
     async def get_model_config_by_id(model_id: str) -> dict | None:

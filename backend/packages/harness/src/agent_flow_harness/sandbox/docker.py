@@ -242,6 +242,12 @@ class DockerSandbox(Sandbox):
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
 
+    def write_to_output(self, path: str, content: str) -> None:
+        """写文件到 output 目录（用户可见/可下载）。"""
+        resolved = self._safe_resolve_output(path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+
     def glob(self, path: str, pattern: str) -> list[str]:
         base = self._safe_resolve(path, for_write=False)
         if not base.exists():
@@ -278,6 +284,28 @@ class DockerSandbox(Sandbox):
             resolved.relative_to(self._work_dir)
         except ValueError as exc:
             msg = f"Access denied — path '{user_path}' outside sandbox work_dir"
+            raise PermissionError(msg) from exc
+        return resolved
+
+    def _safe_resolve_output(self, user_path: str) -> Path:
+        """解析路径并校验是否在 output_dir 内（防路径越权）。"""
+        output_dir = self._mounts.get("output")
+        if output_dir is None:
+            # Fallback: use work_dir 的父目录下的 output/
+            output_dir = self._work_dir.parent / "output"
+        else:
+            output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if os.path.isabs(user_path):
+            resolved = Path(user_path).resolve()
+        else:
+            resolved = (output_dir / user_path).resolve()
+        # 白名单校验：resolved 必须在 output_dir 树内
+        try:
+            resolved.relative_to(output_dir)
+        except ValueError as exc:
+            msg = f"Access denied — path '{user_path}' outside sandbox output_dir"
             raise PermissionError(msg) from exc
         return resolved
 

@@ -77,7 +77,9 @@ export interface User {
   name: string;
   avatar: string;
   email: string;
-  role: 'Admin' | 'Developer' | 'Executor' | 'Viewer';
+  /** 后端角色 name（key，如 admin / content_editor）。直存以兼容自定义角色，
+   *  显示名由 UserManagement 从动态 roles 列表解析。 */
+  role: string;
   permissions: {
     'agent:write': boolean;
     'workflow:write': boolean;

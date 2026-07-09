@@ -38,9 +38,9 @@ class Message(BaseModel):
     """MongoDB message document model.
 
     Each message belongs to a session. User messages store plain text
-    in ``content``. Agent messages store the final answer text in
-    ``content`` and the full execution timeline in ``timeline_entries``
-    (list of structured event dicts).
+    in ``content``. Agent messages do not use ``content`` — their full
+    execution trace (text blocks, tool calls, thinking) lives in
+    ``timeline_entries`` (list of structured event dicts).
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -48,10 +48,10 @@ class Message(BaseModel):
     id: str = Field(default_factory=lambda: generate_id("msg"), alias="_id")
     session_id: str = Field(..., description="Parent session ID")
     role: str = Field(..., description="Message role: 'user' or 'agent'")
-    content: str = Field(default="", description="Message text content")
+    content: str = Field(default="", description="Message text content (user messages only)")
     timeline_entries: list[dict] = Field(
         default_factory=list,
-        description="Structured timeline events (thinking/tool_call/tool_result/final_answer) for agent messages",
+        description="Structured timeline events (thinking/tool_call/tool_result/text) for agent messages",
     )
     file_ids: list[str] = Field(
         default_factory=list,

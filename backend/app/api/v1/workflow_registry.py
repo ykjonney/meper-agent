@@ -19,7 +19,7 @@ router = APIRouter(
 )
 async def list_workflows(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=100),
+    page_size: int = Query(default=50, ge=1, le=200),
     search: str | None = Query(default=None),
 ) -> PaginatedResponse:
     """List all published workflow templates for task creation.

@@ -154,3 +154,14 @@ def mask_api_key(plaintext: str) -> str:
     if len(plaintext) < 8:
         return "****"
     return f"{plaintext[:3]}****{plaintext[-4:]}"
+
+
+# ---------------------------------------------------------------------------
+# Semantic aliases — the original functions are named "api_key" but the
+# implementation is generic AES-256-GCM string encryption. These aliases
+# provide clearer semantics for non-API-key secrets (tool credentials, etc.).
+# ---------------------------------------------------------------------------
+
+encrypt_secret = encrypt_api_key
+decrypt_secret = decrypt_api_key
+mask_secret = mask_api_key

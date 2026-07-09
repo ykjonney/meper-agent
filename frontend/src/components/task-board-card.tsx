@@ -13,15 +13,17 @@
  * - hover 时右上角浮出操作按钮（取消/重试/删除，按状态条件渲染）
  */
 import { useState } from 'react'
-import { Button, Modal, Tag, Tooltip } from 'antd'
+import { Button, Modal, Segmented, Tag, Tooltip, message } from 'antd'
 import {
   CheckOutlined,
   CloseCircleOutlined,
   StopOutlined,
   RedoOutlined,
   DeleteOutlined,
+  ClockCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
-import type { TaskSummary, NodeProgress, TaskStatusValue } from '../services/tasks-api'
+import type { TaskSummary, NodeProgress, TaskStatusValue, CommentValue } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 
 export interface TaskBoardCardProps {
@@ -32,7 +34,8 @@ export interface TaskBoardCardProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
-  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
+  onEdit?: (task: TaskSummary) => void
+  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -71,6 +74,7 @@ export function TaskBoardCard({
   onCancel,
   onRetry,
   onDelete,
+  onEdit,
   onApprovalSubmit,
   interveneLoading = false,
   deleteLoading = false,
@@ -79,17 +83,22 @@ export function TaskBoardCard({
   const style = TASK_STATUS_STYLES[status]
   const isRunning = status === 'running'
   const isWaitingHuman = status === 'waiting_human'
+  const isPending = status === 'pending'
   const showProgress = !!progress && (isRunning || isWaitingHuman)
   const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled'
+  const isScheduled = task.source === 'trigger'
 
   // BOARD_CARD_QUICK_APPROVE / BOARD_CARD_QUICK_REJECT — 看板内嵌审批弹窗
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（显式选择，避免隐式脆弱解析）
+  const [commentMode, setCommentMode] = useState<'text' | 'json'>('text')
 
   const openApproval = (action: 'approve' | 'reject') => {
     setApprovalAction(action)
     setApprovalComment('')
+    setCommentMode('text')
     setApprovalModalOpen(true)
   }
 
@@ -98,11 +107,32 @@ export function TaskBoardCard({
     setApprovalModalOpen(false)
     setApprovalAction(null)
     setApprovalComment('')
+    setCommentMode('text')
   }
 
   const submitApproval = () => {
     if (!approvalAction || interveneLoading) return
-    onApprovalSubmit?.(task, approvalAction, approvalComment)
+    let comment: CommentValue
+    if (commentMode === 'json') {
+      // JSON 模式：解析校验，失败阻断提交
+      const trimmed = approvalComment.trim()
+      if (!trimmed) {
+        // 空内容统一按无 comment 处理（传空字符串让后端归一化为 ""）
+        comment = { type: 'json', value: '' }
+      } else {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(trimmed)
+        } catch {
+          message.error('JSON 格式错误，请检查输入')
+          return
+        }
+        comment = { type: 'json', value: parsed }
+      }
+    } else {
+      comment = { type: 'text', value: approvalComment }
+    }
+    onApprovalSubmit?.(task, approvalAction, comment)
     // Defer closing the modal until the mutation completes; the parent's
     // onSuccess / onError will trigger query invalidation and a re-render with
     // the task no longer in `waiting_human`, which hides the card. The parent
@@ -125,8 +155,16 @@ export function TaskBoardCard({
 
       {/* hover 时右上角浮出的操作按钮组 */}
       <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center gap-0.5 bg-canvas/90 backdrop-blur-sm rounded-md px-1 py-0.5 shadow-sm border border-line-2 z-10">
-        {isRunning && onCancel && (
-          <Tooltip title="取消">
+        {isPending && isScheduled && onEdit && (
+          <Tooltip title="修改时间">
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(task) }}
+              className="border-0 bg-transparent w-6 h-6 flex items-center justify-center rounded text-txt-muted hover:text-primary hover:bg-surface-muted transition-colors text-xs"
+            ><EditOutlined /></button>
+          </Tooltip>
+        )}
+        {(isRunning || (isPending && onCancel)) && onCancel && (
+          <Tooltip title={isPending ? '取消执行' : '取消'}>
             <button
               onClick={(e) => { e.stopPropagation(); onCancel(task) }}
               disabled={interveneLoading}
@@ -169,9 +207,14 @@ export function TaskBoardCard({
           </Tag>
         </div>
 
-        {/* 次行：工作流名称（灰色） */}
-        <div className="text-xs text-txt-3 truncate mb-2">
-          {workflowName ?? task.workflow_id}
+        {/* 次行：工作流名称（灰色）+ 定时标识 */}
+        <div className="text-xs text-txt-3 truncate mb-2 flex items-center gap-1">
+          <span className="truncate">{workflowName ?? task.workflow_id}</span>
+          {isScheduled && (
+            <Tooltip title={`定时任务${task.scheduled_at ? `: ${new Date(task.scheduled_at).toLocaleString('zh-CN')}` : ''}`}>
+              <ClockCircleOutlined className="text-[10px] text-primary shrink-0" />
+            </Tooltip>
+          )}
         </div>
 
         {/* 进度区（仅 progress 存在且 running/waiting_human 时渲染） */}
@@ -271,15 +314,54 @@ export function TaskBoardCard({
         }}
         destroyOnClose
       >
-        <div className="py-2">
-          <label className="block text-sm text-[#0F172A] mb-1.5">comment（可选）</label>
+        <div className="py-2 space-y-3">
+          {/* 审核信息：审批人在同一界面看到要审什么，再做通过/驳回决策 */}
+          {(() => {
+            const ctx = task.checkpoint?.human_context
+            if (!ctx) return null
+            return (
+              <div className="border border-line rounded-lg p-3 bg-[#F8FAFC]">
+                {ctx.title && (
+                  <div className="text-sm font-medium text-[#0F172A] mb-1.5">{ctx.title}</div>
+                )}
+                {ctx.description && (
+                  <div className="text-xs text-[#475569] whitespace-pre-wrap break-words leading-relaxed">
+                    {ctx.description}
+                  </div>
+                )}
+                {!ctx.title && !ctx.description && (
+                  <div className="text-xs text-[#94A3B8] italic">该审批节点未配置说明</div>
+                )}
+              </div>
+            )
+          })()}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm text-[#0F172A]">comment（可选）</label>
+            <Segmented
+              size="small"
+              value={commentMode}
+              onChange={(val) => setCommentMode(val as 'text' | 'json')}
+              options={[
+                { label: '文本', value: 'text' },
+                { label: 'JSON', value: 'json' },
+              ]}
+            />
+          </div>
           <textarea
             value={approvalComment}
             onChange={(e) => setApprovalComment(e.target.value)}
-            placeholder={approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
+            placeholder={
+              commentMode === 'json'
+                ? '{"score": 8, "note": "ok"}'
+                : approvalAction === 'reject'
+                  ? '建议填写驳回原因（可选）'
+                  : '审批意见（可选）'
+            }
             rows={3}
-            className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none"
+            className="w-full px-3 py-2 text-sm border border-line rounded-md focus:outline-none focus:border-txt-muted resize-none font-mono"
           />
+          </div>
         </div>
       </Modal>
     </div>

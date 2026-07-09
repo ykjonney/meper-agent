@@ -198,34 +198,13 @@ export function mcpConnectionToSkill(c: McpConnection): Skill {
 
 /* ──────────────────────── User ──────────────────────── */
 
-/** Studio display role union. Backend stores role as a lowercase name. */
-export type StudioRoleName = User['role'] // 'Admin'|'Developer'|'Executor'|'Viewer'
-
-const ROLE_DISPLAY_TO_KEY: Record<StudioRoleName, string> = {
-  Admin: 'admin',
-  Developer: 'developer',
-  Executor: 'executor',
-  Viewer: 'viewer',
-}
-
-const ROLE_KEY_TO_DISPLAY: Record<string, StudioRoleName> = {
-  admin: 'Admin',
-  developer: 'Developer',
-  executor: 'Executor',
-  viewer: 'Viewer',
-}
-
 /**
- * Backend `role` (string, lowercase name) → studio display role.
- * Unknown roles collapse to 'Viewer'.
+ * Backend stores `role` as the role's `name` (lowercase key, e.g. 'admin',
+ * 'content_editor'). Studio mirrors that key verbatim in User.role; the
+ * display name is resolved from the roles list at render time (see
+ * UserManagement). No mapping table is needed - custom roles pass through
+ * unchanged instead of being collapsed to a system role.
  */
-export function roleKeyToDisplay(role: string): StudioRoleName {
-  return ROLE_KEY_TO_DISPLAY[role?.toLowerCase?.()] ?? 'Viewer'
-}
-
-export function roleDisplayToKey(role: StudioRoleName): string {
-  return ROLE_DISPLAY_TO_KEY[role] ?? 'viewer'
-}
 
 /**
  * The 5 coarse permission buckets the studio UI toggles, mapped to the
@@ -276,14 +255,19 @@ export function coarseToPermissions(
   return [...result]
 }
 
-/** Default coarse permissions for a display role (used by the create form). */
-export function defaultCoarseForRole(role: StudioRoleName): User['permissions'] {
+/**
+ * Default coarse permissions for a role key. Used only for the advisory
+ * permission-bucket notice in UserManagement (real perms live on the role,
+ * not the user). System roles map to a fixed bucket set keyed by backend
+ * name; custom roles default to all-off.
+ */
+export function defaultCoarseForRole(role: string): User['permissions'] {
   return {
-    'agent:write': role === 'Admin' || role === 'Developer',
-    'workflow:write': role === 'Admin' || role === 'Developer',
-    'skill:write': role === 'Admin' || role === 'Developer' || role === 'Executor',
-    'apikey:manage': role === 'Admin',
-    'user:manage': role === 'Admin',
+    'agent:write': role === 'admin' || role === 'developer',
+    'workflow:write': role === 'admin' || role === 'developer',
+    'skill:write': role === 'admin' || role === 'developer' || role === 'operator',
+    'apikey:manage': role === 'admin',
+    'user:manage': role === 'admin',
   }
 }
 
@@ -294,7 +278,7 @@ export function toStudioUser(u: BackendUser): User {
     name: u.username,
     avatar: ['👨‍💻', '👩‍💻', '👩‍💼', '🧑‍🔬', '🧙‍♂️'][Math.floor(Math.random() * 5)],
     email: u.email,
-    role: roleKeyToDisplay(u.role),
+    role: u.role,
     permissions: permissionsToCoarse(u.permissions),
     status: u.status === 'active' ? 'active' : 'suspended',
   }

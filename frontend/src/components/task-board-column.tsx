@@ -7,7 +7,7 @@
  * - 卡片区：flex-1 overflow-y-auto，空时显示 antd <Empty>
  */
 import { Badge, Empty, Spin } from 'antd'
-import type { TaskSummary, NodeProgress } from '../services/tasks-api'
+import type { TaskSummary, NodeProgress, CommentValue } from '../services/tasks-api'
 import type { TaskStatusStyle } from '../constants/task-status'
 import { TaskBoardCard } from './task-board-card'
 
@@ -21,7 +21,8 @@ export interface TaskBoardColumnProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
-  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: string) => void
+  onEdit?: (task: TaskSummary) => void
+  onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
 }
@@ -36,6 +37,7 @@ export function TaskBoardColumn({
   onCancel,
   onRetry,
   onDelete,
+  onEdit,
   onApprovalSubmit,
   interveneLoading = false,
   deleteLoading = false,
@@ -98,6 +100,7 @@ export function TaskBoardColumn({
               onCancel={onCancel}
               onRetry={onRetry}
               onDelete={onDelete}
+              onEdit={onEdit}
               onApprovalSubmit={onApprovalSubmit}
               interveneLoading={interveneLoading}
               deleteLoading={deleteLoading}

@@ -1,10 +1,13 @@
-"""Tool API endpoints — Markdown Skill upload + CRUD for the unified tool pool."""
+"""Tool API endpoints — Markdown Skill upload + custom tool CRUD for the unified tool pool."""
 from __future__ import annotations
 
+import contextlib
 from collections import defaultdict
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from app.core.security import get_current_user, require_any_role
 from app.engine.tool.skill_fs import list_skill_files
@@ -46,18 +49,47 @@ async def list_builtin_tools(
     """
     from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
 
-    return [
-        BuiltinToolResponse(
-            name=name,
-            description=tool.description or "",
-            parameters=(
-                tool.args_schema.schema()
-                if hasattr(tool, "args_schema") and tool.args_schema
-                else {}
-            ),
+    results = []
+    for name, tool in _BUILTIN_TOOL_REGISTRY.items():
+        params: dict[str, Any] = {}
+        if hasattr(tool, "args_schema") and tool.args_schema:
+            with contextlib.suppress(Exception):
+                params = tool.args_schema.model_json_schema()
+        results.append(
+            BuiltinToolResponse(name=name, description=tool.description or "", parameters=params)
         )
-        for name, tool in _BUILTIN_TOOL_REGISTRY.items()
-    ]
+    return results
+
+
+@router.get(
+    "/prebuilt",
+    response_model=list[dict],
+    summary="List prebuilt tools (platform-registered)",
+    responses={403: {"description": "Forbidden — viewer+ role required"}},
+)
+async def list_prebuilt_tools(
+    _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+) -> list[dict]:
+    """Return the list of prebuilt tools registered in TOOL_REGISTRY.
+
+    Prebuilt tools are platform-level integrations (Wikipedia, Web Search,
+    etc.) registered at startup via CommunityTool protocol.
+    """
+    from agent_flow_harness.tools.registry import TOOL_REGISTRY
+
+    tools = []
+    for entry in TOOL_REGISTRY.list_community_tools():
+        info: dict[str, Any] = {
+            "name": entry.name,
+            "description": entry.description,
+            "enabled_by_default": entry.enabled_by_default,
+        }
+        try:
+            info["config_schema"] = entry.config_schema.model_json_schema()
+        except Exception:
+            info["config_schema"] = {}
+        tools.append(info)
+    return tools
 
 
 def _doc_to_response(doc: dict) -> ToolResponse:
@@ -93,6 +125,59 @@ def _doc_to_response(doc: dict) -> ToolResponse:
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
     )
+
+
+class CustomToolCreate(BaseModel):
+    """Request body for creating a custom tool (openapi / code / prebuilt)."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    source: str = Field(..., description="openapi | code | prebuilt")
+    user_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="用户参数 schema（Agent 绑定时填入）。sensitive=true 加密。",
+    )
+    llm_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="LLM 参数 schema（运行时 LLM 填入）。",
+    )
+    endpoint: dict[str, Any] = Field(default_factory=dict)
+    code: str = Field(default="")
+    prebuilt_name: str = Field(default="")
+
+
+@router.post(
+    "",
+    response_model=ToolResponse,
+    status_code=201,
+    summary="Create a custom tool (OpenAPI / Code / Prebuilt)",
+    responses={
+        403: {"description": "Forbidden — developer+ role required"},
+        409: {"description": "Tool name conflict"},
+    },
+)
+async def create_custom_tool(
+    body: CustomToolCreate,
+    _: UserResponse = Depends(require_any_role("admin", "developer")),
+) -> ToolResponse:
+    """Create a custom tool from user configuration (no file upload needed).
+
+    Supports three source types:
+    - ``openapi``: HTTP endpoint with template-based URL/headers
+    - ``code``: User-defined Python code executed in sandbox
+    - ``prebuilt``: References a prebuilt tool from the tool registry
+    """
+    doc = await ToolService.create_custom_tool(
+        name=body.name,
+        description=body.description,
+        source=body.source,
+        user_args_schema=body.user_args_schema,
+        llm_args_schema=body.llm_args_schema,
+        endpoint=body.endpoint,
+        code=body.code,
+        prebuilt_name=body.prebuilt_name,
+    )
+    return ToolResponse(**doc)
 
 
 @router.post(
@@ -161,14 +246,17 @@ async def upload_tools(
             file_contents[filename] = f"__size_error__: {len(content_bytes)}"
             continue
 
-        file_contents[filename] = content_bytes.decode("utf-8")
+        try:
+            file_contents[filename] = content_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            file_contents[filename] = f"__decode_error__: {exc}"
 
     created: list[ToolResponse] = []
     errors: list[ToolUploadErrorItem] = []
 
     # Process directory groups
     processed_dirs: set[str] = set()
-    for filename, content in file_contents.items():
+    for filename, _content in file_contents.items():
         parts = filename.split("/")
         if len(parts) < 2 or not parts[0]:
             continue
@@ -184,27 +272,32 @@ async def upload_tools(
             if fn.startswith(f"{dir_name}/")
         }
 
-        # Check if any file had read/size error
-        error_file = next(
-            ((fn, content) for fn, content in dir_files.items() if content.startswith("__")),
-            None,
-        )
-        if error_file:
-            fn, err_content = error_file
-            if err_content.startswith("__read_error__"):
-                errors.append(ToolUploadErrorItem(filename=fn, error=err_content.replace("__read_error__: ", "")))
-            elif err_content.startswith("__size_error__"):
+        # Separate problem files (read/size/decode) from valid text files.
+        # Problem files are reported per-file and skipped; the remaining
+        # valid files still form the Skill (graceful skip, not whole-dir fail).
+        valid_files: dict[str, str] = {}
+        for fn, c in dir_files.items():
+            if c.startswith("__read_error__"):
+                errors.append(ToolUploadErrorItem(filename=fn, error=c.replace("__read_error__: ", "")))
+            elif c.startswith("__size_error__"):
                 errors.append(
                     ToolUploadErrorItem(
                         filename=fn,
-                        error=f"文件过大（>1MB）：{err_content.replace('__size_error__: ', '')} bytes",
+                        error=f"文件过大（>1MB）：{c.replace('__size_error__: ', '')} bytes",
                     )
                 )
-            processed_dirs.add(dir_name)
-            continue
+            elif c.startswith("__decode_error__"):
+                errors.append(
+                    ToolUploadErrorItem(
+                        filename=fn,
+                        error="非 UTF-8 文本文件（可能是二进制），已跳过",
+                    )
+                )
+            else:
+                valid_files[fn] = c
 
-        # Check total directory size
-        total_bytes = sum(len(c.encode("utf-8")) for c in dir_files.values())
+        # Check total directory size (valid files only)
+        total_bytes = sum(len(c.encode("utf-8")) for c in valid_files.values())
         if total_bytes > MAX_DIRECTORY_SIZE:
             errors.append(
                 ToolUploadErrorItem(
@@ -217,7 +310,7 @@ async def upload_tools(
 
         # Parse directory
         try:
-            parsed_dir = parse_skill_directory(dir_files, dir_name)
+            parsed_dir = parse_skill_directory(valid_files, dir_name)
             doc = await ToolService.create_tool_from_directory(parsed_dir, dir_name)
             created.append(_doc_to_response(doc))
             processed_dirs.add(dir_name)
@@ -245,6 +338,14 @@ async def upload_tools(
                 ToolUploadErrorItem(
                     filename=filename,
                     error=f"文件过大（>1MB）：{content.replace('__size_error__: ', '')} bytes",
+                )
+            )
+            continue
+        if content.startswith("__decode_error__"):
+            errors.append(
+                ToolUploadErrorItem(
+                    filename=filename,
+                    error="非 UTF-8 文本文件（可能是二进制），无法解析",
                 )
             )
             continue
@@ -293,7 +394,7 @@ async def upload_tools(
 )
 async def list_tools(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
     name: str | None = Query(None, description="Filter by name (substring)"),
     source: str | None = Query(None, description="Filter by source (markdown / mcp / builtin)"),
     mcp_connection_id: str | None = Query(None, description="Filter by MCP connection ID"),

@@ -138,12 +138,18 @@ class WorkflowService:
     async def delete(workflow_id: str) -> bool:
         """Delete a Workflow template.
 
+        Also removes the corresponding ``workflow_registry`` entry so the
+        published-workflow list does not keep an orphan index that 404s on open.
+
         Returns:
             True if deleted, False if not found.
         """
         result = await WorkflowService._collection().delete_one({"_id": workflow_id})
         if result.deleted_count:
             logger.info("workflow_deleted", workflow_id=workflow_id)
+            # 同步清理 registry 索引，避免留下指向已删除模板的孤儿条目
+            from app.services.workflow_registry_service import WorkflowRegistryService
+            await WorkflowRegistryService.delete_by_workflow_id(workflow_id)
             return True
         return False
 

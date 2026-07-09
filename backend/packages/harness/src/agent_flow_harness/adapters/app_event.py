@@ -36,17 +36,29 @@ class ThinkingEvent(_Base):
     content: str
 
 
-class FinalAnswerDeltaEvent(_Base):
-    """Incremental answer token streamed from the LLM."""
+class TextDeltaEvent(_Base):
+    """Incremental text token streamed from the LLM.
 
-    type: Literal["final_answer_delta"] = "final_answer_delta"
+    Each delta is a small fragment of the assistant text produced during a
+    single LLM output phase (one ``on_chat_model_stream`` chunk). The host
+    concatenates them to reconstruct the full text block for display.
+    """
+
+    type: Literal["text_delta"] = "text_delta"
     content: str
 
 
-class FinalAnswerEvent(_Base):
-    """Complete answer text (or persisted intermediate text before tool calls)."""
+class TextEvent(_Base):
+    """Complete text block emitted once at ``on_chat_model_end``.
 
-    type: Literal["final_answer"] = "final_answer"
+    A single LLM call may produce text before/without tool calls; this event
+    carries that complete text. The name ``text`` (rather than
+    ``final_answer``) reflects that the content is any assistant text block —
+    a transitional remark before a tool call, a post-tool summary, or the
+    terminal answer — not necessarily the final reply.
+    """
+
+    type: Literal["text"] = "text"
     content: str
 
 
@@ -73,6 +85,22 @@ class ToolResultEvent(_Base):
     content: str
 
 
+class InterruptEvent(_Base):
+    """Agent paused via ``interrupt()`` and is awaiting a human response.
+
+    Emitted when the graph encounters an ``interrupt()`` call (e.g.
+    ``ask_clarification``). The host should display the question to the user
+    and resume the graph with ``Command(resume=answer)``.
+    """
+
+    type: Literal["interrupt"] = "interrupt"
+    question: str
+    clarification_type: str = "missing_info"
+    context: str | None = None
+    options: list[str] | None = None
+    interrupt_id: str = ""
+
+
 class ErrorEvent(_Base):
     """A terminal error from the LLM, a tool, or the graph itself."""
 
@@ -84,11 +112,12 @@ class ErrorEvent(_Base):
 AppEvent = Union[
     ThinkingDeltaEvent,
     ThinkingEvent,
-    FinalAnswerDeltaEvent,
-    FinalAnswerEvent,
+    TextDeltaEvent,
+    TextEvent,
     ToolCallStartEvent,
     ToolCallEvent,
     ToolResultEvent,
+    InterruptEvent,
     ErrorEvent,
 ]
 """Discriminated union of all application-layer events."""
@@ -97,8 +126,9 @@ AppEvent = Union[
 __all__ = [
     "AppEvent",
     "ErrorEvent",
-    "FinalAnswerDeltaEvent",
-    "FinalAnswerEvent",
+    "InterruptEvent",
+    "TextDeltaEvent",
+    "TextEvent",
     "ThinkingDeltaEvent",
     "ThinkingEvent",
     "ToolCallEvent",

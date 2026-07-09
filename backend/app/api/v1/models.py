@@ -33,6 +33,8 @@ def _doc_to_response(doc: dict) -> ModelResponse:
         auth_header_format=doc.get("auth_header_format", "Bearer {key}"),
         default_params=doc.get("default_params", {}),
         status=ModelStatus(doc["status"]),
+        last_test_success=doc.get("last_test_success"),  # None for legacy docs
+        last_test_at=doc.get("last_test_at", ""),
         provider_tag=doc.get("provider_tag", ""),
         version=doc.get("version", 1),
         created_at=doc["created_at"],
@@ -50,7 +52,7 @@ def _doc_to_response(doc: dict) -> ModelResponse:
 )
 async def list_models(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
     status: ModelStatus | None = Query(None, description="Filter by status"),
     provider_tag: str | None = Query(None, description="Filter by provider tag"),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),

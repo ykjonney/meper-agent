@@ -43,7 +43,7 @@ def _doc_to_user_response(doc: dict) -> UserResponse:
 )
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
     username: str | None = Query(None, description="Filter by username (substring)"),
     role: str | None = Query(None, description="Filter by role name"),
     status: UserStatus | None = Query(None, description="Filter by status"),

@@ -92,6 +92,11 @@ class Model(BaseModel):
         description="Default inference parameters (temperature, max_tokens, context_window, ...)",
     )
     status: ModelStatus = Field(default=ModelStatus.ACTIVE)
+    # Result of the most recent connectivity test. None = never tested.
+    # Set only by the test endpoint, never by create/update forms.
+    last_test_success: bool | None = Field(default=None)
+    # ISO-8601 timestamp of the most recent test. "" = never tested.
+    last_test_at: str = Field(default="")
     # Optional grouping tag, e.g. "DeepSeek", "OpenAI", "通义千问".
     provider_tag: str = Field(default="", max_length=100)
     version: int = Field(default=1, ge=1)

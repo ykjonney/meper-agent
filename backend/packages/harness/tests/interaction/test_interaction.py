@@ -33,7 +33,10 @@ async def test_ask_clarification_interrupts_graph(
         }),
     ])
     checkpointer = MemorySaver()
-    graph = build_agent_graph(agent_doc, checkpointer=checkpointer)
+    graph = build_agent_graph(
+        agent_doc, checkpointer=checkpointer,
+        tools=[ask_clarification], middleware=[],
+    )
     config = build_config(agent_doc, llm, tools=[ask_clarification], recursion_limit=10)
     config["configurable"]["thread_id"] = "hitl-1"
 
@@ -58,7 +61,10 @@ async def test_ask_clarification_resume_returns_answer(
         AIMessage(content="用户选择了红色"),
     ])
     checkpointer = MemorySaver()
-    graph = build_agent_graph(agent_doc, checkpointer=checkpointer)
+    graph = build_agent_graph(
+        agent_doc, checkpointer=checkpointer,
+        tools=[ask_clarification], middleware=[],
+    )
     config = build_config(agent_doc, llm, tools=[ask_clarification], recursion_limit=10)
     config["configurable"]["thread_id"] = "hitl-2"
 

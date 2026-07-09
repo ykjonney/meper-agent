@@ -224,3 +224,128 @@ def test_intervene_reject_uses_comment_in_error_message(auth_token: str, current
         )
     finally:
         app.dependency_overrides.clear()
+
+
+# ── comment 结构化（type: text | json）测试 ──
+
+
+def test_intervene_approve_comment_text_type_stores_string(current_user: UserResponse) -> None:
+    """{type:'text', value:...} 归一化后 variables['comment'] 是纯字符串。"""
+    client, app, tasks_module = _build_client(current_user)
+    try:
+        task_doc = _make_task_doc()
+        updated_doc = {**task_doc, "status": "running", "version": task_doc["version"] + 1}
+        update_variables_mock = AsyncMock(return_value=updated_doc)
+        with (
+            patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
+            patch.object(tasks_module.TaskService, "transition_task", AsyncMock(return_value=updated_doc)),
+            patch.object(tasks_module.TaskService, "update_variables", update_variables_mock),
+            patch.object(tasks_module.TaskService, "resume_task_execution"),
+        ):
+            status_code, payload = _post_intervene(
+                client,
+                {"action": "approve", "comment": {"type": "text", "value": "确认通过"}, "version": task_doc["version"]},
+            )
+
+        assert status_code == 200, payload
+        decision = update_variables_mock.await_args.kwargs["variables"][
+            f"human_decision_{_sanitize_node_id(HUMAN_NODE_ID)}"
+        ]
+        assert decision["comment"] == "确认通过"
+        assert isinstance(decision["comment"], str)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_intervene_approve_comment_json_type_stores_object(current_user: UserResponse) -> None:
+    """{type:'json', value:{...}} 归一化后 variables['comment'] 是 dict，下游可钻取。"""
+    client, app, tasks_module = _build_client(current_user)
+    try:
+        task_doc = _make_task_doc()
+        updated_doc = {**task_doc, "status": "running", "version": task_doc["version"] + 1}
+        update_variables_mock = AsyncMock(return_value=updated_doc)
+        with (
+            patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
+            patch.object(tasks_module.TaskService, "transition_task", AsyncMock(return_value=updated_doc)),
+            patch.object(tasks_module.TaskService, "update_variables", update_variables_mock),
+            patch.object(tasks_module.TaskService, "resume_task_execution"),
+        ):
+            status_code, payload = _post_intervene(
+                client,
+                {
+                    "action": "approve",
+                    "comment": {"type": "json", "value": {"score": 8, "note": "ok"}},
+                    "version": task_doc["version"],
+                },
+            )
+
+        assert status_code == 200, payload
+        decision = update_variables_mock.await_args.kwargs["variables"][
+            f"human_decision_{_sanitize_node_id(HUMAN_NODE_ID)}"
+        ]
+        # variables 里 comment 存的是 dict（值本身），不是包装结构
+        assert decision["comment"] == {"score": 8, "note": "ok"}
+        assert isinstance(decision["comment"], dict)
+        # 验证下游 ExpressionEngine 可钻取：{{node.comment.score}} == 8
+        from app.engine.workflow.expression import ExpressionEngine
+
+        engine = ExpressionEngine({"comment": decision["comment"]})
+        assert engine.resolve("{{ comment.score }}") == 8
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_intervene_comment_plain_string_back_compat(current_user: UserResponse) -> None:
+    """裸字符串 comment（老用法）归一化后仍是原字符串，向后兼容。"""
+    client, app, tasks_module = _build_client(current_user)
+    try:
+        task_doc = _make_task_doc()
+        updated_doc = {**task_doc, "status": "running", "version": task_doc["version"] + 1}
+        update_variables_mock = AsyncMock(return_value=updated_doc)
+        with (
+            patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
+            patch.object(tasks_module.TaskService, "transition_task", AsyncMock(return_value=updated_doc)),
+            patch.object(tasks_module.TaskService, "update_variables", update_variables_mock),
+            patch.object(tasks_module.TaskService, "resume_task_execution"),
+        ):
+            _post_intervene(
+                client,
+                {"action": "approve", "comment": "裸字符串文本", "version": task_doc["version"]},
+            )
+
+        decision = update_variables_mock.await_args.kwargs["variables"][
+            f"human_decision_{_sanitize_node_id(HUMAN_NODE_ID)}"
+        ]
+        assert decision["comment"] == "裸字符串文本"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_intervene_reject_json_comment_renders_in_error_message(current_user: UserResponse) -> None:
+    """reject 路径：json 类型 comment 在 error_message 里渲染为 JSON 文本。"""
+    client, app, tasks_module = _build_client(current_user)
+    try:
+        task_doc = _make_task_doc()
+        updated_doc = {**task_doc, "status": "failed", "version": task_doc["version"] + 1}
+        transition_mock = AsyncMock(return_value=updated_doc)
+        with (
+            patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
+            patch.object(tasks_module.TaskService, "transition_task", transition_mock),
+            patch.object(tasks_module.TaskService, "update_variables", AsyncMock(return_value=updated_doc)),
+        ):
+            status_code, payload = _post_intervene(
+                client,
+                {
+                    "action": "reject",
+                    "comment": {"type": "json", "value": {"reason": "score_too_low", "min": 60}},
+                    "version": task_doc["version"],
+                },
+            )
+
+        assert status_code == 200, payload
+        error_info = transition_mock.await_args.kwargs.get("error_info", {})
+        msg = error_info.get("error_message", "")
+        assert "score_too_low" in msg, f"json comment 未渲染进 error_message: {msg}"
+        assert "60" in msg, f"json comment 未渲染进 error_message: {msg}"
+    finally:
+        app.dependency_overrides.clear()

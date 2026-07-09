@@ -10,6 +10,38 @@
 import { apiClient } from '../lib/api-client'
 
 /**
+ * FileRef 响应 — 对齐后端 FileRefResponse（app/api/v1/files.py）。
+ */
+export interface FileRefResponse {
+  id: string
+  owner_user_id: string
+  storage_key: string
+  name: string
+  size: number
+  mime_type: string
+  sha256: string
+  origin_kind: string
+  origin_id: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * 上传文件到用户文件库，返回 FileRef。
+ * 走 POST /api/v1/files（multipart/form-data），origin_kind=workflow_run，
+ * 供工作流执行时把返回的 file.id 作为 Start 节点 file 变量值传入。
+ */
+export async function uploadFile(file: File): Promise<FileRefResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await apiClient.post<FileRefResponse>('/api/v1/files', form, {
+    params: { origin_kind: 'workflow_run' },
+  })
+  return res.data
+}
+
+/**
  * 下载文件到本地：fetch blob → 临时 <a download>。
  * @param fileId  file_library 文档 id
  * @param filename 下载保存的文件名

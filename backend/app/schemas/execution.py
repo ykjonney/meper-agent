@@ -35,6 +35,14 @@ class ExecutionResponse(BaseModel):
     step_count: int = Field(default=0, description="Number of execution steps taken")
 
 
+class ResumeRequest(BaseModel):
+    """Request body for resuming an interrupted agent (ask_clarification)."""
+
+    session_id: str = Field(..., description="被中断的 session ID")
+    answer: str = Field(..., min_length=1, max_length=50000, description="用户的回答")
+    enable_thinking: bool = Field(default=False, description="启用 LLM 推理模式")
+
+
 # ---------------------------------------------------------------------------
 # Preview / Dry-run
 # ---------------------------------------------------------------------------

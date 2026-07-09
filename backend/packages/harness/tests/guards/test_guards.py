@@ -284,9 +284,9 @@ def test_resolve_guards_unknown_name_raises() -> None:
 def test_builder_no_guards_is_react_end() -> None:
     from agent_flow_harness.graph import build_agent_graph
 
-    graph = build_agent_graph({"_id": "a"})
+    graph = build_agent_graph({"_id": "a"}, tools=[], middleware=[])
     user_nodes = set(graph.nodes) - {"__start__", "__end__"}
-    assert user_nodes == {"react"}
+    assert user_nodes == {"compress", "llm", "tools"}
 
 
 def test_builder_explicit_guards_adds_nodes() -> None:
@@ -295,14 +295,13 @@ def test_builder_explicit_guards_adds_nodes() -> None:
     graph = build_agent_graph(
         {"_id": "a"},
         guards=[TimeBudgetGuard(max_wall_seconds=30), ContentGuard()],
+        tools=[], middleware=[],
     )
     user_nodes = set(graph.nodes) - {"__start__", "__end__"}
     assert user_nodes == {
-        "react",
+        "compress", "llm", "tools",
         "guard_in_time_budget",
-        "guard_out_time_budget",
         "guard_in_content",
-        "guard_out_content",
     }
 
 
@@ -310,7 +309,8 @@ def test_builder_resolves_guards_from_agent_doc() -> None:
     from agent_flow_harness.graph import build_agent_graph
 
     graph = build_agent_graph(
-        {"_id": "a", "guards": [{"name": "token_budget", "config": {"max_total_tokens": 10}}]}
+        {"_id": "a", "guards": [{"name": "token_budget", "config": {"max_total_tokens": 10}}]},
+        tools=[], middleware=[],
     )
     user_nodes = set(graph.nodes) - {"__start__", "__end__"}
     assert "guard_in_token_budget" in user_nodes
@@ -323,9 +323,10 @@ def test_builder_explicit_guards_override_agent_doc() -> None:
     graph = build_agent_graph(
         {"_id": "a", "guards": [{"name": "token_budget", "config": {"max_total_tokens": 10}}]},
         guards=[],
+        tools=[], middleware=[],
     )
     user_nodes = set(graph.nodes) - {"__start__", "__end__"}
-    assert user_nodes == {"react"}
+    assert user_nodes == {"compress", "llm", "tools"}
 
 
 # ---------------------------------------------------------------------------

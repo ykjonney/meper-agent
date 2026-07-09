@@ -6,6 +6,7 @@ The ``WorkflowEngine`` selects the appropriate executor based on node type.
 from __future__ import annotations
 
 import asyncio
+import operator as _operator
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -252,7 +253,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
             from langchain_core.messages import SystemMessage
 
             from app.db.mongodb import get_database
-            from app.engine.agent.builder import build_agent_graph
 
             db = get_database()
             agent_doc = await db["agents"].find_one({"_id": agent_id})
@@ -270,7 +270,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
-            graph = await build_agent_graph(agent_doc)
+            # harness 的 invoke 内部会自己 build graph,这里不需要构造。
 
             # Build system prompt via slot renderer (context override + variable pool)
             from app.engine.agent.slot_renderer import render_system_prompt_full
@@ -337,14 +337,15 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # / bash have no workspace to write to and fall back to PROJECT_ROOT.
         from app.engine.agent.builtin_tools import (
             reset_workspace_context,
-            set_workspace_context,
         )
         from app.engine.tool.workspace import WorkspaceManager
 
         task_workspace = WorkspaceManager.create_task_workspace(
             user_id, task_id,
         )
-        workspace_token = set_workspace_context(task_workspace)
+        # harness 路径:workspace 注入由 invoke 内部的 resolve_harness_context
+        # 接管(传入 task_workspace),无需手动 set_workspace_context。
+        workspace_token = None
         node_start_ts = _time.time()
         logger.info(
             "agent_node_workspace_set",
@@ -358,10 +359,18 @@ class AgentNodeExecutor(BaseNodeExecutor):
         try:
             for attempt in range(1 + max_retry):
                 try:
+                    from app.engine.harness_integration import invoke
+
                     result = await asyncio.wait_for(
-                        graph.ainvoke(
-                            {"messages": initial_messages},
-                            config={"configurable": {"thread_id": _thread_id}},
+                        invoke(
+                            agent_doc,
+                            {
+                                "messages": initial_messages,
+                                "session_id": _thread_id,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                            },
+                            workspace=task_workspace,
                         ),
                         timeout=timeout_ms / 1000,
                     )
@@ -783,12 +792,17 @@ class GatewayNodeExecutor(BaseNodeExecutor):
 
         {
             "conditions": [
-                { "expression": "{{ node_1.result.status }}", "expected": "ok", "target": "node_3" },
-                { "expression": "{{ node_1.result.status }}", "expected": "fail", "target": "node_4" }
+                { "expression": "{{ node_1.result.status }}", "operator": "==", "expected": "ok", "target": "node_3" },
+                { "expression": "{{ node_1.count }}", "operator": ">", "expected": 10, "target": "node_4" }
             ],
             "default_branch": "node_5",
             "fallback_on_error": "node_5"
         }
+
+    Each condition has an ``operator`` (one of ==, !=, >, <, >=, <=; defaults to
+    ``"=="`` for backward compatibility). ``==``/``!=`` perform case-insensitive
+    comparison for strings (e.g. ``"APPROVE"`` matches ``"approve"``), and keep
+    the bool-coercion behavior for boolean expected values.
 
     Conditions are evaluated in order; the first match wins.
     """
@@ -805,11 +819,12 @@ class GatewayNodeExecutor(BaseNodeExecutor):
         for cond in conditions:
             expression = cond.get("expression", "")
             expected = cond.get("expected", True)
+            op = cond.get("operator", "==")  # default "==" for backward compat
             target = cond.get("target", "")
 
             try:
                 actual = engine.resolve(expression)
-                if actual == expected or (isinstance(expected, bool) and bool(actual) == expected):
+                if _gateway_compare(actual, expected, op):
                     logger.debug(
                         "gateway_match",
                         node_id=self.node_id,
@@ -831,6 +846,63 @@ class GatewayNodeExecutor(BaseNodeExecutor):
             output={"selected_branch": fallback, "condition": "default"},
             selected_branch=fallback,
         )
+
+
+# Operator → implementation for ordering comparisons (>, <, >=, <=).
+# == and != are handled specially in ``_gateway_compare`` for case-insensitivity.
+_GATEWAY_ORDER_OPS: dict[str, Any] = {
+    ">": _operator.gt,
+    "<": _operator.lt,
+    ">=": _operator.ge,
+    "<=": _operator.le,
+}
+
+
+def _gateway_compare(actual: Any, expected: Any, op: str) -> bool:
+    """Compare ``actual`` against ``expected`` using operator ``op``.
+
+    - ``==`` / ``!=``: case-insensitive for str vs str (e.g. ``"APPROVE"`` ==
+      ``"approve"``); bool expected coerces ``actual`` via ``bool()``; other
+      types use native equality. This preserves the pre-operator behavior while
+      adding case-insensitivity for the common "match approval decision" case.
+    - ``contains`` / ``not_contains``: 子串包含（actual 是字符串、expected 是
+      子串）或元素包含（actual 是列表/元组、expected 是元素）。字符串场景下
+      同样不区分大小写，与 ``==`` 保持一致。类型不匹配（如 actual 不是
+      str/list）视为不匹配。
+    - ``>`` / ``<`` / ``>=`` / ``<=``: native ordering comparison; a
+      ``TypeError`` (incomparable types) is treated as no-match.
+    - unknown operator: no-match (returns ``False``).
+    """
+    if op in ("==", "!="):
+        a: Any
+        e: Any
+        if isinstance(actual, str) and isinstance(expected, str):
+            a, e = actual.lower(), expected.lower()
+        elif isinstance(expected, bool):
+            a, e = bool(actual), expected
+        else:
+            a, e = actual, expected
+        return a == e if op == "==" else a != e
+
+    if op in ("contains", "not_contains"):
+        # 字符串子串包含（大小写不敏感）
+        if isinstance(actual, str) and isinstance(expected, str):
+            contained = expected.lower() in actual.lower()
+        # 列表/元组元素包含（等值比较，不递归）
+        elif isinstance(actual, (list, tuple)):
+            contained = expected in actual
+        else:
+            # 类型不匹配（如 actual 为 None/数字/字典）一律视为不包含
+            contained = False
+        return contained if op == "contains" else not contained
+
+    func = _GATEWAY_ORDER_OPS.get(op)
+    if func is None:
+        return False
+    try:
+        return bool(func(actual, expected))
+    except TypeError:
+        return False
 
 
 # ── Parallel ──

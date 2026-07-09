@@ -12,6 +12,47 @@ from app.engine.tool.mcp_tool_cache import invalidate_cache as _invalidate_mcp_c
 from app.models.base import generate_id, utc_now
 from app.models.mcp_connection import ConnectionStatus
 
+# Sensitive keys in auth_config that should be encrypted at rest.
+_SENSITIVE_AUTH_KEYS = {"api_key", "token", "password", "bearer_token", "secret"}
+
+
+def _encrypt_auth_config(auth_config: dict) -> dict:
+    """Encrypt sensitive fields in auth_config before storage."""
+    if not auth_config or auth_config.get("auth_type", "none") == "none":
+        return auth_config
+    from app.core.crypto import encrypt_secret
+
+    encrypted = {}
+    for k, v in auth_config.items():
+        if k in _SENSITIVE_AUTH_KEYS and v:
+            encrypted[k] = encrypt_secret(str(v))
+        else:
+            encrypted[k] = v
+    return encrypted
+
+
+def _decrypt_auth_config(auth_config: dict) -> dict:
+    """Decrypt sensitive fields in auth_config after retrieval.
+
+    Falls back to plaintext if decryption fails (backward compat with
+    pre-encryption data).
+    """
+    if not auth_config:
+        return auth_config
+    from app.core.crypto import CryptoError, decrypt_secret
+
+    decrypted = {}
+    for k, v in auth_config.items():
+        if k in _SENSITIVE_AUTH_KEYS and v and isinstance(v, str):
+            try:
+                decrypted[k] = decrypt_secret(v)
+            except (CryptoError, Exception):
+                # Pre-encryption data stored as plaintext — use as-is
+                decrypted[k] = v
+        else:
+            decrypted[k] = v
+    return decrypted
+
 
 class McpConnectionService:
     """Service layer for MCP connection operations."""
@@ -57,7 +98,7 @@ class McpConnectionService:
             "url": data["url"],
             "protocol": data.get("protocol", "streamable-http"),
             "auth_type": data.get("auth_type", "none"),
-            "auth_config": data.get("auth_config", {}),
+            "auth_config": _encrypt_auth_config(data.get("auth_config", {})),
             "timeout": data.get("timeout", 30),
             "default_params": data.get("default_params", {}),
             "status": ConnectionStatus.DISCONNECTED.value,
@@ -85,8 +126,11 @@ class McpConnectionService:
 
     @staticmethod
     async def get_connection(connection_id: str) -> dict | None:
-        """Get an MCP connection by ID."""
-        return await McpConnectionService._collection().find_one({"_id": connection_id})
+        """Get an MCP connection by ID (auth_config decrypted)."""
+        doc = await McpConnectionService._collection().find_one({"_id": connection_id})
+        if doc and doc.get("auth_config"):
+            doc["auth_config"] = _decrypt_auth_config(doc["auth_config"])
+        return doc
 
     @staticmethod
     async def list_connections(
@@ -115,6 +159,10 @@ class McpConnectionService:
             .limit(page_size)
         )
         items = await cursor.to_list(length=page_size)
+        # Decrypt auth_config for each item
+        for item in items:
+            if item.get("auth_config"):
+                item["auth_config"] = _decrypt_auth_config(item["auth_config"])
         return items, total
 
     @staticmethod
@@ -155,7 +203,7 @@ class McpConnectionService:
             "url": data.get("url", existing["url"]),
             "protocol": data.get("protocol", existing.get("protocol", "streamable-http")),
             "auth_type": data.get("auth_type", existing.get("auth_type", "none")),
-            "auth_config": data.get("auth_config", existing.get("auth_config", {})),
+            "auth_config": _encrypt_auth_config(data.get("auth_config")) if data.get("auth_config") is not None else existing.get("auth_config", {}),
             "timeout": data.get("timeout", existing.get("timeout", 30)),
             "default_params": data.get("default_params", existing.get("default_params", {})),
             "updated_at": now_iso,

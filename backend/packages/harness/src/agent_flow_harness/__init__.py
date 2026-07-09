@@ -99,6 +99,17 @@ from agent_flow_harness.skills import SkillManager, SkillSpec
 
 __version__ = "0.1.0"
 
+# Default checkpointer: an in-memory saver so that interrupt / aget_state /
+# thread persistence work out of the box. Applications embedding the harness
+# should call ``configure_checkpointer(MongoDBSaver(...), overwrite=True)`` at
+# startup to switch to a durable backend.
+try:
+    from langgraph.checkpoint.memory import MemorySaver as _MemorySaver
+
+    configure_checkpointer(_MemorySaver(), overwrite=True)
+except ImportError:  # pragma: no cover - langgraph always provides MemorySaver
+    pass
+
 __all__ = [
     "Agent",
     "AgentConfig",

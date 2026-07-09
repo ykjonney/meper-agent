@@ -419,7 +419,7 @@ describe('validateWorkflow - variable references', () => {
       createNode('node1', 'start'),
       createNode('node2', 'gateway', {
         conditions: [
-          { expression: '{{node1.input}} == "test"' },
+          { expression: '{{node1.input}}', operator: '==', expected: 'test', target: 'node3' },
         ],
         default_branch: 'node3',
       }),
@@ -474,7 +474,7 @@ describe('validateWorkflow - combined scenarios', () => {
       }),
       createNode('node4', 'gateway', {
         conditions: [
-          { expression: '{{node3.result}} == "success"' },
+          { expression: '{{node3.result}}', operator: '==', expected: 'success', target: 'node5' },
         ],
         default_branch: 'node5',
       }),

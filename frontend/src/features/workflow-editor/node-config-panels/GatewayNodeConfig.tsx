@@ -4,6 +4,7 @@
  * 增强版：
  * - target node_id 改为 Select
  * - expression 接入 VariableSelector
+ * - operator 改为下拉选择（==, !=, >, <, >=, <=），不再让用户在 expression 里手填符号
  */
 import { Button, Input, Select } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
@@ -18,12 +19,25 @@ interface Props {
   allNodes: WorkflowNode[]
 }
 
+// 网关比较符枚举。==/!=/contains/not_contains 对字符串大小写不敏感（后端 _gateway_compare 实现）。
+// label 不含括号，按用户要求保持简洁。
+const OPERATOR_OPTIONS = [
+  { value: '==', label: '== 等于' },
+  { value: '!=', label: '!= 不等于' },
+  { value: '>', label: '> 大于' },
+  { value: '<', label: '< 小于' },
+  { value: '>=', label: '>= 大于等于' },
+  { value: '<=', label: '<= 小于等于' },
+  { value: 'contains', label: '包含' },
+  { value: 'not_contains', label: '不包含' },
+]
+
 export default function GatewayNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
   const conditions = (config.conditions as Array<Record<string, unknown>>) ?? []
   const nodeOptions = getNodeOptions(allNodes.filter((n) => n.node_id !== currentNodeId))
 
   const addCondition = () => {
-    onChange({ ...config, conditions: [...conditions, { expression: '', expected: true, target: '' }] })
+    onChange({ ...config, conditions: [...conditions, { expression: '', operator: '==', expected: true, target: '' }] })
   }
   const updateCondition = (idx: number, field: string, value: unknown) => {
     const updated = [...conditions]
@@ -60,12 +74,22 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
               onChange={(val) => updateCondition(idx, 'expression', val)}
               currentNodeId={currentNodeId}
               allNodes={allNodes}
-                  placeholder="{{ node_id.field }} == value"
+              placeholder="{{ node_id.field }}"
               textarea={false}
               rows={1}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-[10px] text-[#64748B] mb-0.5">判断符</label>
+              <Select
+                size="small"
+                className="w-full"
+                value={(cond.operator as string) || '=='}
+                onChange={(val) => updateCondition(idx, 'operator', val)}
+                options={OPERATOR_OPTIONS}
+              />
+            </div>
             <div>
               <label className="block text-[10px] text-[#64748B] mb-0.5">期望值</label>
               <Input

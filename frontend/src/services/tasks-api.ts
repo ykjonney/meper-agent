@@ -133,6 +133,8 @@ export interface TaskSummary {
   version: number
   error?: TaskError | null
   checkpoint?: Checkpoint | null
+  source?: 'manual' | 'trigger'
+  trigger_id?: string | null
   scheduled_at?: string | null
   created_at: string
   updated_at: string
@@ -172,11 +174,23 @@ export interface TaskCreatePayload {
   scheduled_at?: string | null
 }
 
+/**
+ * comment 支持三种形态（与后端 _normalize_comment 对齐）：
+ * - string：纯文本（老用法，向后兼容）
+ * - { type: 'text', value: string }：文本
+ * - { type: 'json', value: unknown }：结构化数据，value 原样存入 variables，
+ *   下游可用 {{node.comment.field}} 钻取
+ */
+export type CommentValue =
+  | string
+  | { type: 'text'; value: string }
+  | { type: 'json'; value: unknown }
+
 export interface TaskIntervenePayload {
   action: string
   /** @deprecated use comment */
   reason?: string
-  comment?: string
+  comment?: CommentValue
   version: number
 }
 

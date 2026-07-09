@@ -79,9 +79,8 @@ class TestProcessDueTasks:
         with (
             patch("app.services.task_scheduler_service.get_database") as mock_db,
             patch(
-                "app.services.task_service.TaskService.transition_task",
-                new_callable=AsyncMock,
-            ) as mock_transition,
+                "app.services.task_service.TaskService._start_workflow_execution",
+            ) as mock_start,
             patch(
                 "app.services.task_service.TaskService._check_concurrency_limits",
                 new_callable=AsyncMock,
@@ -112,7 +111,7 @@ class TestProcessDueTasks:
             started = await sched._process_due_tasks()
 
             assert started == 2
-            assert mock_transition.await_count == 2
+            assert mock_start.call_count == 2
 
     @pytest.mark.asyncio
     async def test_no_due_tasks(self):
@@ -177,10 +176,9 @@ class TestProcessDueTasks:
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.services.task_service.TaskService.transition_task",
-                new_callable=AsyncMock,
+                "app.services.task_service.TaskService._start_workflow_execution",
                 side_effect=[Exception("first failed"), None],
-            ) as mock_transition,
+            ) as mock_start,
         ):
             col = AsyncMock()
             cursor = MagicMock()
@@ -202,7 +200,7 @@ class TestProcessDueTasks:
 
             # Only the second task succeeded
             assert started == 1
-            assert mock_transition.await_count == 2
+            assert mock_start.call_count == 2
 
 
 class TestSchedulerPollLoop:

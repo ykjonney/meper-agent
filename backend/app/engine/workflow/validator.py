@@ -430,6 +430,42 @@ class WorkflowValidator:
                         message="Gateway node has no conditions — will always take default path",
                         node_id=node_id,
                     ))
+                else:
+                    valid_operators = {"==", "!=", ">", "<", ">=", "<=", "contains", "not_contains"}
+                    # 比较符号黑名单：expression 不允许内联比较，必须用 operator 字段
+                    comparison_symbols = ("==", "!=", ">=", "<=", ">", "<")
+                    for idx, cond in enumerate(conditions):
+                        if not isinstance(cond, dict):
+                            continue
+                        op = cond.get("operator")
+                        # operator 缺省视为合法（向后兼容默认 ==）；显式填写则校验白名单
+                        if op is not None and op not in valid_operators:
+                            issues.append(ValidationIssue(
+                                severity=ValidationSeverity.WARNING,
+                                code="INVALID_GATEWAY_OPERATOR",
+                                message=(
+                                    f"Gateway condition #{idx + 1} has unsupported operator "
+                                    f"'{op}' (expected one of {sorted(valid_operators)})"
+                                ),
+                                node_id=node_id,
+                            ))
+                        # expression 防内联：必须是纯变量引用 {{ xxx }}，禁止内联比较符号或多表达式
+                        expression = cond.get("expression", "")
+                        if isinstance(expression, str) and expression:
+                            expr_stripped = expression.strip()
+                            has_symbol = any(sym in expr_stripped for sym in comparison_symbols)
+                            is_single_var = bool(_EXPRESSION_PATTERN.fullmatch(expr_stripped))
+                            if has_symbol or not is_single_var:
+                                issues.append(ValidationIssue(
+                                    severity=ValidationSeverity.WARNING,
+                                    code="INVALID_GATEWAY_EXPRESSION",
+                                    message=(
+                                        f"Gateway condition #{idx + 1} 表达式必须是单一变量引用 "
+                                        f"(如 {{{{ node_id.field }}}})，请勿内联比较符号，"
+                                        f"比较逻辑请用「判断符」下拉选择"
+                                    ),
+                                    node_id=node_id,
+                                ))
 
         return issues
 

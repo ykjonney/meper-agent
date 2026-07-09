@@ -90,6 +90,51 @@ class ToolService:
         return doc
 
     @staticmethod
+    async def create_custom_tool(
+        *,
+        name: str,
+        description: str,
+        source: str,
+        user_args_schema: dict | None = None,
+        llm_args_schema: dict | None = None,
+        endpoint: dict | None = None,
+        code: str = "",
+        prebuilt_name: str = "",
+    ) -> dict:
+        """Create a custom tool (openapi / code / prebuilt).
+
+        Args:
+            user_args_schema: 用户参数 schema（Agent 绑定时填入）。
+                字段标记 sensitive=true 的加密存储。
+            llm_args_schema: LLM 参数 schema（运行时 LLM 填入）。
+        """
+        from app.models.tool import Tool
+
+        existing = await ToolService.find_by_name(name)
+        if existing:
+            from app.core.errors import ValidationError
+            raise ValidationError(
+                code="TOOL_NAME_EXISTS",
+                message=f"工具名 '{name}' 已存在",
+            )
+
+        tool = Tool(
+            name=name,
+            description=description,
+            source=source,
+            user_args_schema=user_args_schema or {},
+            llm_args_schema=llm_args_schema or {},
+            endpoint=endpoint or {},
+            code=code,
+            prebuilt_name=prebuilt_name,
+        )
+        doc = tool.model_dump(by_alias=True)
+        db = get_database()
+        await db[ToolService.COLLECTION].insert_one(doc)
+        logger.info("custom_tool_created", tool_id=doc["_id"], name=name, source=source)
+        return doc
+
+    @staticmethod
     async def create_tool_from_parsed(
         parsed: ParsedSkill,
         source_file: str = "",

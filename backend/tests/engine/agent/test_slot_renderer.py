@@ -241,3 +241,105 @@ class TestRequiredValidation:
         # 两个必填 label 都应列出
         assert "角色定义" in msg
         assert "任务描述" in msg
+
+
+class TestVariableResolution:
+    """变量引用在 slot 中的解析行为——修复 dict/空值场景的回归测试。"""
+
+    @pytest.mark.asyncio
+    async def test_slot_referencing_dict_renders_as_json_text(self):
+        """task slot 引用上游返回 dict 的变量 → 渲染为合法 JSON 文本，不报缺失。
+
+        回归场景：上游 agent 节点返回 JSON（dict），下游 task slot 写
+        ``{{upstream.response}}``。ExpressionEngine 对单一变量引用保留原类型
+        返回 dict，此前判空通过但 f-string 拼出 Python repr（单引号/True），
+        现在应归一化为合法 JSON 文本。
+        """
+        from app.engine.agent.slot_renderer import render_system_prompt_full
+
+        agent = _fake_agent(prompt_slots={
+            "role": "你是修复 Agent。",
+            "task": "{{ upstream.response }}",  # upstream.response 是 dict
+        })
+        variables = {
+            "upstream": {
+                "response": {"success": True, "alarmRecordId": "10503041101"},
+            },
+        }
+
+        with _no_tools():
+            result = await render_system_prompt_full(agent, variable_pool=variables)
+
+        # dict 应被渲染成合法 JSON 文本（双引号、true 小写），而非 Python repr
+        assert "【任务描述】" in result
+        assert '"success": true' in result
+        assert '"alarmRecordId": "10503041101"' in result
+        # 不应出现 Python repr 的特征（单引号、True 大写）
+        assert "'success'" not in result
+
+    @pytest.mark.asyncio
+    async def test_slot_var_resolves_empty_reports_precise_cause(self):
+        """slot 含变量引用但渲染为空 → 报错应指出「变量解析为空」而非笼统的「未配置」。
+
+        回归场景：task slot 写 ``{{upstream.missing_field}}``，该字段不存在，
+        渲染为空。此前报「必填 Prompt Slot 缺失: 任务描述」让人以为没填 task，
+        现在应额外提示变量引用渲染为空，指向真正的根因。
+        """
+        from app.engine.agent.slot_renderer import render_system_prompt_full
+
+        agent = _fake_agent(prompt_slots={
+            "role": "你是修复 Agent。",
+            "task": "{{ upstream.missing_field }}",  # 字段不存在 → 渲染为空
+        })
+        variables = {"upstream": {"response": "有数据但没 missing_field"}}
+
+        with _no_tools(), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent, variable_pool=variables)
+
+        msg = str(exc_info.value)
+        assert "任务描述" in msg
+        # 关键：报错应提示变量引用渲染为空 + 原始模板，而非笼统「未配置」
+        assert "变量引用" in msg or "渲染后为空" in msg
+        assert "upstream.missing_field" in msg
+
+    @pytest.mark.asyncio
+    async def test_slot_mixed_text_and_dict_var(self):
+        """slot 含「前缀文字 + 变量」且变量是 dict → 文字 + JSON 文本拼接正常。
+
+        混合模板不走 fast path，走 Jinja2 通用路径，dict 也要安全归一化。
+        """
+        from app.engine.agent.slot_renderer import render_system_prompt_full
+
+        agent = _fake_agent(prompt_slots={
+            "role": "你是修复 Agent。",
+            "task": "上游结果：{{ upstream.response }}",
+        })
+        variables = {"upstream": {"response": {"branch": "HEAVY", "score": 8}}}
+
+        with _no_tools():
+            result = await render_system_prompt_full(agent, variable_pool=variables)
+
+        assert "上游结果：" in result
+        assert '"branch": "HEAVY"' in result
+
+    @pytest.mark.asyncio
+    async def test_slot_var_none_does_not_crash(self):
+        """slot 引用的变量值为 None → 渲染为空，不抛异常。
+
+        防御性测试：None 不应让 _coerce_slot_value 崩溃，应安全返回空串，
+        由必填校验走「变量解析为空」报错路径。
+        """
+        from app.engine.agent.slot_renderer import render_system_prompt_full
+
+        agent = _fake_agent(prompt_slots={
+            "role": "你是 Agent。",
+            "task": "{{ upstream.response }}",
+        })
+        variables = {"upstream": {"response": None}}
+
+        with _no_tools(), pytest.raises(ValueError) as exc_info:
+            await render_system_prompt_full(agent, variable_pool=variables)
+
+        msg = str(exc_info.value)
+        assert "任务描述" in msg
+        assert "变量引用" in msg or "渲染后为空" in msg

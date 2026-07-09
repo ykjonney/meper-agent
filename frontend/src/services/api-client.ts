@@ -141,7 +141,7 @@ export interface NormalizedApiError {
   statusCode?: number
 }
 
-function normalizeError(
+export function normalizeError(
   source: AxiosError<ErrorEnvelope> | { code: string; message: string },
 ): NormalizedApiError {
   if ('isAxiosError' in source && source.isAxiosError) {

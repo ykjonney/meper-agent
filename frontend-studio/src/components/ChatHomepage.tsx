@@ -57,7 +57,15 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
   // message (status-colored card with args + result). Pending tool_calls
   // (no matching result yet) stay as "running".
   const pendingTools = new Map<string, number>();
+  // aba1d62: agent 文本存在 timeline 的 type="text" 条目里（不再有顶层 content
+  // 字段）；final_answer 是旧名。这里收集起来，在下方渲染为最终回复气泡。
+  const textParts: string[] = [];
   for (const entry of rec.timeline_entries ?? []) {
+    if (entry.type === 'text' || entry.type === 'final_answer') {
+      const t = (entry.content ?? '').trim();
+      if (t) textParts.push(t);
+      continue;
+    }
     if (entry.type === 'thinking') {
       out.push({
         id: `${rec._id}-think`,
@@ -129,14 +137,18 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
     (a, i, arr) => arr.findIndex((b) => b.ref === a.ref) === i,
   );
 
-  // The final answer text (skip if only timeline carried content).
-  if (rec.content && rec.content.trim()) {
+  // 最终回复正文：优先取 timeline 的 text 条目（aba1d62 后的存储方式），
+  // 旧消息仍带 content 字段时回退使用。
+  const textContent =
+    textParts.join('\n\n').trim() ||
+    (rec.content && rec.content.trim() ? rec.content : '');
+  if (textContent) {
     out.push({
       id: rec._id,
       senderName: agentName,
       avatar,
       role: 'agent',
-      content: rec.content,
+      content: textContent,
       timestamp: new Date(rec.created_at).toLocaleString(),
       attachment: fileRefToAttachment(rec.files?.[0]),
       attachments: dedupOutput.length > 0 ? dedupOutput : undefined,
@@ -801,13 +813,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
             }
             break;
           }
-          case 'final_answer_delta':
+          case 'text_delta':
             finalText += evt.content;
             setLiveMessages((prev) =>
               updateMsg(prev, agentMsgId, { status: undefined, content: finalText }),
             );
             break;
-          case 'final_answer':
+          case 'text':
             finalText = evt.content;
             setLiveMessages((prev) =>
               updateMsg(prev, agentMsgId, { status: undefined, content: finalText }),
@@ -819,7 +831,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
             break;
         }
       }
-      // If the stream ended without a final_answer, show whatever accumulated.
+      // If the stream ended without a text block, show whatever accumulated.
       setLiveMessages((prev) =>
         updateMsg(prev, agentMsgId, {
           status: undefined,

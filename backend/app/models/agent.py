@@ -1,5 +1,6 @@
 """Agent data model for MongoDB."""
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
@@ -44,6 +45,13 @@ class Agent(BaseModel):
     # --- New categorized fields ---
     skill_ids: list[str] = Field(default_factory=list)
     mcp_connection_ids: list[str] = Field(default_factory=list)
+    custom_tools: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "自定义工具绑定列表。每项含 tool_id + user_args。"
+            "示例: [{'tool_id': 'tool_xxx', 'user_args': {'token': 'enc:...', 'owner': 'myorg'}}]"
+        ),
+    )
     builtin_config: list[str] = Field(default_factory=list)
     workflow_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str] = Field(default_factory=list)

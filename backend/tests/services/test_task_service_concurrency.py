@@ -156,7 +156,7 @@ class TestTransitionConcurrencyGuard:
                 to_status=TaskStatus.RUNNING,
             )
 
-            mock_check.assert_awaited_once_with("user_001")
+            mock_check.assert_awaited_once_with("user_001", "manual")
 
     @pytest.mark.asyncio
     async def test_other_transitions_skip_concurrency(self):

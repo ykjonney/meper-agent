@@ -1,6 +1,8 @@
 """Task API endpoints — CRUD, state transitions, intervention, stats."""
 import hashlib
+import json
 import re
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -49,6 +51,8 @@ def _doc_to_full_response(doc: dict) -> TaskResponse:
         timeline=doc.get("timeline", []),
         error=doc.get("error"),
         checkpoint=doc.get("checkpoint"),
+        source=doc.get("source", "manual"),
+        trigger_id=doc.get("trigger_id"),
         scheduled_at=doc.get("scheduled_at"),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -70,6 +74,8 @@ def _doc_to_summary(doc: dict) -> TaskSummary:
         version=doc.get("version", 1),
         error=doc.get("error"),
         checkpoint=doc.get("checkpoint"),
+        source=doc.get("source", "manual"),
+        trigger_id=doc.get("trigger_id"),
         scheduled_at=doc.get("scheduled_at"),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -90,6 +96,51 @@ def _sanitize_node_id(node_id: str) -> str:
     sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", node_id) or "node"
     digest = hashlib.sha1(node_id.encode("utf-8")).hexdigest()[:6]
     return f"{sanitized}_{digest}"
+
+
+def _normalize_comment(raw: str | dict[str, Any] | None) -> Any:
+    """把 comment 输入归一化为「值本身」，用于写入 variables。
+
+    设计目标：comment 在 variables 里始终存值本身，下游 ``{{node.comment}}``
+    引用行为与改造前保持一致（text 存 string，json 存 object）。
+
+    - None / 空 → ""（保持现有行为）
+    - str → 原样返回（向后兼容）
+    - {"type": "text", "value": v} → 返回 v（string）
+    - {"type": "json", "value": v} → 返回 v（dict/list 原样，可被 ``{{node.comment.field}}`` 钻取）
+    - 未知 type / 结构异常 → 兜底当文本处理
+    """
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        ctype = raw.get("type")
+        value = raw.get("value")
+        if ctype == "json":
+            return value
+        # text 或未知 type：统一当文本处理
+        if isinstance(value, str):
+            return value
+        return str(value) if value is not None else ""
+    return str(raw)
+
+
+def _comment_to_text(raw: str | dict[str, Any] | None) -> str:
+    """把 comment 渲染成纯文本，用于 error_message、timeline 等可读展示场景。"""
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        if raw.get("type") == "json":
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return str(value)
+        return value if isinstance(value, str) else str(value or "")
+    return str(raw)
 
 
 @router.post(
@@ -124,7 +175,7 @@ async def create_task(
 )
 async def list_tasks(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=200),
     status: str | None = Query(default=None),
     created_by: str | None = Query(default=None),
     workflow_id: str | None = Query(default=None),
@@ -231,7 +282,7 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="approve",
-            timeline_data={"comment": body.comment or "", "action": "approve"},
+            timeline_data={"comment": _comment_to_text(body.comment), "action": "approve"},
         )
         # Write decision to variables
         checkpoint_data = doc.get("checkpoint", {})
@@ -239,7 +290,7 @@ async def intervene_task(
         if human_node_id:
             decision_data = {
                 "decision": "approve",
-                "comment": body.comment or "",
+                "comment": _normalize_comment(body.comment),
                 "approver": current_user.id,
                 "decided_at": utc_now().isoformat(),
             }
@@ -270,7 +321,7 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="skip",
-            timeline_data={"comment": body.comment or "", "action": "skip"},
+            timeline_data={"comment": _comment_to_text(body.comment), "action": "skip"},
         )
         # Resume workflow execution (no decision written)
         TaskService.resume_task_execution(task_id)
@@ -283,9 +334,9 @@ async def intervene_task(
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="reject",
-            timeline_data={"comment": body.comment or "", "action": "reject"},
+            timeline_data={"comment": _comment_to_text(body.comment), "action": "reject"},
             error_info={
-                "error_message": f"人工驳回: {body.comment or '无原因'}",
+                "error_message": f"人工驳回: {_comment_to_text(body.comment) or '无原因'}",
                 "error_code": "HUMAN_REJECTED",
             },
         )
@@ -295,7 +346,7 @@ async def intervene_task(
         if human_node_id:
             decision_data = {
                 "decision": "reject",
-                "comment": body.comment or "",
+                "comment": _normalize_comment(body.comment),
                 "approver": current_user.id,
                 "decided_at": utc_now().isoformat(),
             }

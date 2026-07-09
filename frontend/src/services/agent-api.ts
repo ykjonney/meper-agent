@@ -25,6 +25,7 @@ export interface Agent {
   /** Built-in tool whitelist (bash/read/write) */
   builtin_config: string[]
   workflow_ids: string[]
+  custom_tool_ids: string[]
   knowledge_base_ids: string[]
   default_model: string
   max_retry: number
@@ -160,15 +161,15 @@ export interface ToolResultEvent {
   content: string
 }
 
-/** Incremental text delta of the final answer */
-export interface FinalAnswerDeltaEvent {
-  type: 'final_answer_delta'
+/** Incremental text delta streamed from the LLM */
+export interface TextDeltaEvent {
+  type: 'text_delta'
   content: string
 }
 
-/** Final answer text from the AI — consolidated, marks completion */
-export interface FinalAnswerEvent {
-  type: 'final_answer'
+/** Complete text block from the AI — consolidated */
+export interface TextEvent {
+  type: 'text'
   content: string
 }
 
@@ -176,6 +177,16 @@ export interface FinalAnswerEvent {
 export interface ErrorEvent {
   type: 'error'
   content: string
+}
+
+/** Agent paused via interrupt, awaiting user answer */
+export interface InterruptEvent {
+  type: 'interrupt'
+  question: string
+  clarification_type: string
+  context?: string | null
+  options?: string[] | null
+  interrupt_id: string
 }
 
 /** Execution finished */
@@ -192,9 +203,10 @@ export type StreamEvent =
   | ToolCallStartEvent
   | ToolCallEvent
   | ToolResultEvent
-  | FinalAnswerDeltaEvent
-  | FinalAnswerEvent
+  | TextDeltaEvent
+  | TextEvent
   | ErrorEvent
+  | InterruptEvent
   | StreamDoneEvent
 
 /* ─── API methods ─── */
@@ -332,6 +344,24 @@ export const agentApi = {
     const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/stream`
 
     return this._streamWithRetry(url, body)
+  },
+
+  /**
+   * Resume an interrupted agent (ask_clarification). Returns the SSE stream
+   * (same event format as stream()).
+   */
+  async resume(agentId: string, body: { session_id: string; answer: string; enable_thinking?: boolean }): Promise<Response> {
+    const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/resume`
+    const accessToken = useAuthStore.getState().accessToken
+
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
   },
 
   /**

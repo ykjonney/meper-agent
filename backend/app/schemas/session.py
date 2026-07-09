@@ -41,7 +41,7 @@ class MessageResponse(BaseModel):
     id: str = Field(..., alias="_id")
     session_id: str
     role: str
-    content: str
+    content: str = ""
     timeline_entries: list[dict] = []
     file_ids: list[str] = []
     files: list[FileRefResponse] = []

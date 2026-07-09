@@ -1,19 +1,29 @@
 /**
  * HumanNodeConfig — 人工审批节点配置面板。
  *
- * options 改为逐条编辑模式：每条包含一个「选项标签」，
- * 与后续 Gateway 节点条件中的 decision 值一一对应。
- * 新增超时动作选择器。
+ * 系统固定提供三个审批行为，无需用户配置：
+ *   1. approve  — 通过
+ *   2. reject   — 驳回
+ *   3. comment  — 审批人留言（可选，approval 时给出意见）
+ *
+ * 审批标题 / 描述支持变量引用 {{node.field}}，运行时由 HumanNodeExecutor
+ * 解析后展示给审批人，让审批人看到上游节点的实际输出。
+ *
+ * 审批结果以 {decision, comment, approver, decided_at} 结构写入
+ *   variables[human_decision_<node_id>]
+ * 供下游 Gateway 节点条件分支消费。
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
-import { useCallback, useMemo } from 'react'
-import { Button, Input, Select } from '../../../components/ui'
-import { Plus, Trash2 } from 'lucide-react'
+import { Select, Tag } from '../../../components/ui'
+import VariableSelector from '../VariableSelector'
+import type { WorkflowNode } from '../../../services/workflows-api'
 
 interface Props {
   config: Record<string, unknown>
   onChange: (c: Record<string, unknown>) => void
+  currentNodeId: string
+  allNodes: WorkflowNode[]
 }
 
 const TIMEOUT_ACTIONS = [
@@ -23,115 +33,70 @@ const TIMEOUT_ACTIONS = [
   { label: '标记失败', value: 'fail' },
 ]
 
-/** 安全提取 options，保证返回 string[] */
-function safeOptions(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map(String)
-  return []
-}
-
-export default function HumanNodeConfig({ config, onChange }: Props) {
-  const rawOptions = config?.options
-  const options = useMemo(() => safeOptions(rawOptions), [rawOptions])
-
-  const updateOptions = useCallback(
-    (next: string[]) => onChange({ ...(config ?? {}), options: next }),
-    [config, onChange],
-  )
-
-  const addOption = useCallback(() => {
-    updateOptions([...options, ''])
-  }, [options, updateOptions])
-
-  const removeOption = useCallback(
-    (idx: number) => {
-      updateOptions(options.filter((_, i) => i !== idx))
-    },
-    [options, updateOptions],
-  )
-
-  const updateOption = useCallback(
-    (idx: number, value: string) => {
-      const next = options.slice()
-      next[idx] = value
-      updateOptions(next)
-    },
-    [options, updateOptions],
-  )
-
+export default function HumanNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
   return (
     <div className="space-y-3">
-      {/* ── 审批标题 ── */}
+      {/* ── 审批标题（支持变量引用） ── */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">审批标题</label>
-        <Input
+        <VariableSelector
           value={typeof config?.title === 'string' ? config.title : ''}
-          onChange={(e) => onChange({ ...(config ?? {}), title: e.target.value })}
+          onChange={(val) => onChange({ ...(config ?? {}), title: val })}
+          currentNodeId={currentNodeId}
+          allNodes={allNodes}
           placeholder="请审批以下内容"
+          textarea={false}
+          rows={1}
         />
       </div>
 
-      {/* ── 审批描述 ── */}
+      {/* ── 审批描述（支持变量引用，可插入上游节点输出） ── */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">审批描述</label>
-        <Input.TextArea
+        <VariableSelector
           value={typeof config?.description === 'string' ? config.description : ''}
-          onChange={(e) => onChange({ ...(config ?? {}), description: e.target.value })}
+          onChange={(val) => onChange({ ...(config ?? {}), description: val })}
+          currentNodeId={currentNodeId}
+          allNodes={allNodes}
           rows={3}
-          placeholder="描述需要人工审批的内容..."
+          placeholder="描述需要人工审批的内容，可插入上游节点变量，如：请审核 {{node_id.field}}"
         />
       </div>
 
-      {/* ── 审批选项（逐条编辑） ── */}
+      {/* ── 审批行为（系统固定三个：approve / reject / comment） ── */}
       <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-slate-400">审批选项</label>
-          <Button
-            size="small"
-            type="link"
-            icon={<Plus size={12} />}
-            onClick={addOption}
-          >
-            添加选项
-          </Button>
+        <label className="block text-xs text-slate-400 mb-1.5">审批行为</label>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+            <Tag color="success">通过</Tag>
+            <span className="text-xs text-slate-400 flex-1">
+              审批人点击后，任务继续执行，decision=<code className="font-mono text-[#a78bfa]">approve</code>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+            <Tag color="error">驳回</Tag>
+            <span className="text-xs text-slate-400 flex-1">
+              审批人点击后，任务标记为 FAILED，decision=<code className="font-mono text-[#a78bfa]">reject</code>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+            <Tag color="purple">意见</Tag>
+            <span className="text-xs text-slate-400 flex-1">
+              审批人在通过/驳回时填写，可空，comment 写入 variables
+            </span>
+          </div>
         </div>
-
-        {options.length > 0 ? (
-          <div className="space-y-1.5">
-            {options.map((opt, idx) => (
-              <div key={idx} className="flex items-center gap-1.5">
-                <Input
-                  size="small"
-                  value={opt}
-                  onChange={(e) => updateOption(idx, e.target.value)}
-                  placeholder={`选项 ${idx + 1}，如 approve / reject`}
-                  className="flex-1 font-mono"
-                />
-                <Button
-                  size="small"
-                  type="text"
-                  danger
-                  icon={<Trash2 size={12} />}
-                  onClick={() => removeOption(idx)}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-[#71717a] text-center py-3">
-            暂无选项，点击「添加选项」创建
-          </div>
-        )}
-
         <div className="text-[10px] text-[#71717a] mt-1.5">
-          选项值将写入变量 <code className="font-mono">node_id.decision</code>，
-          供后续 Gateway 条件分支使用
+          审批完成后，<code className="font-mono">variables.human_decision_&lt;node_id&gt;</code> 包含
+          decision / comment / approver / decided_at 四个字段
         </div>
       </div>
 
       {/* ── 超时时间 ── */}
       <div>
         <label className="block text-xs text-slate-400 mb-1">超时时间 (分钟)</label>
-        <Input
+        <input
+          className="w-full px-2 py-1.5 rounded border border-[#27272a] bg-[#121214] text-[#fafafa] text-sm focus:outline-none focus:border-[#8B5CF6]"
           type="number"
           value={typeof config?.timeout_minutes === 'number' ? config.timeout_minutes : 60}
           onChange={(e) =>

@@ -54,6 +54,11 @@ class Sandbox(ABC):
         ...
 
     @abstractmethod
+    def write_to_output(self, path: str, content: str) -> None:
+        """写文件到 output 目录（用户可见/可下载）。"""
+        ...
+
+    @abstractmethod
     def glob(self, path: str, pattern: str) -> list[str]:
         """glob 文件匹配。"""
         ...

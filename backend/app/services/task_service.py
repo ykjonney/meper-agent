@@ -50,6 +50,10 @@ class TaskService:
         parent_task_id: str | None = None,
         call_chain: list[str] | None = None,
         scheduled_at: datetime | None = None,
+        ext_metadata: dict[str, Any] | None = None,
+        skip_execution: bool = False,
+        source: str = "manual",
+        trigger_id: str | None = None,
     ) -> dict:
         """Create a new Task in pending status.
 
@@ -74,6 +78,20 @@ class TaskService:
                 message="workflow_id 不能为空",
             )
 
+        # 校验 workflow 模板存在，避免创建指向已删除/不存在模板的僵尸 task
+        # （模板不存在时 engine.run_and_persist 会加载失败，但 task 已写入
+        # pending 且不会被清理，造成永久卡死）。
+        db = get_database()
+        workflow_exists = await db["workflows"].find_one(
+            {"_id": workflow_id}, {"_id": 1}
+        )
+        if not workflow_exists:
+            raise ValidationError(
+                code="WORKFLOW_NOT_FOUND",
+                message=f"工作流模板 {workflow_id} 不存在，无法创建任务",
+                details={"workflow_id": workflow_id},
+            )
+
         # Build initial timeline
         now = utc_now()
         initial_timeline = [
@@ -93,12 +111,16 @@ class TaskService:
             parent_task_id=parent_task_id,
             call_chain=call_chain or [],
             scheduled_at=scheduled_at,
+            source=source,
+            trigger_id=trigger_id,
             timeline=[e.model_dump() for e in initial_timeline],
             created_at=now,
             updated_at=now,
         )
 
         doc = task.model_dump(by_alias=True)
+        if ext_metadata:
+            doc.update(ext_metadata)
         result = await TaskService._collection().insert_one(doc)
 
         # Write audit log
@@ -122,11 +144,24 @@ class TaskService:
         await event_bus.publish(TaskEvent(
             event_type="task.created",
             task_id=task.id,
+            to_status=TaskStatus.PENDING.value,
             data={"workflow_id": workflow_id, "created_by": created_by},
         ))
 
-        # Trigger workflow engine execution in background
-        TaskService._start_workflow_execution(task.id)
+        # Also publish to Redis so Celery worker events reach FastAPI via pub/sub
+        from app.services.event_bridge import publish_task_event_to_redis
+
+        await publish_task_event_to_redis(
+            event_type="task.created",
+            task_id=task.id,
+            from_status=None,
+            to_status=TaskStatus.PENDING.value,
+            data={"workflow_id": workflow_id, "created_by": created_by},
+        )
+
+        # Trigger workflow engine execution in background (unless caller handles it)
+        if not skip_execution:
+            TaskService._start_workflow_execution(task.id)
 
         return created_doc
 
@@ -270,8 +305,11 @@ class TaskService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _check_concurrency_limits(created_by: str) -> None:
+    async def _check_concurrency_limits(created_by: str, source: str = "manual") -> None:
         """Check global and per-user concurrency limits.
+
+        Trigger-sourced tasks skip the per-user limit (they run at a
+        scheduled time and must not be blocked by manual tasks).
 
         Raises:
             ConflictError: If either limit is exceeded.
@@ -297,8 +335,8 @@ class TaskService:
                 },
             )
 
-        # Per-user limit (only when created_by is a real user)
-        if created_by and created_by not in ("system", "agent"):
+        # Per-user limit — skip for trigger-sourced tasks
+        if source != "trigger" and created_by and created_by not in ("system", "agent"):
             user_running = await col.count_documents(
                 {"status": TaskStatus.RUNNING.value, "created_by": created_by}
             )
@@ -329,10 +367,12 @@ class TaskService:
         """
         col = TaskService._collection()
 
-        # Find the oldest pending Task and atomically claim it
+        # Find the oldest pending manual Task and atomically claim it.
+        # Trigger-sourced placeholder tasks are excluded — they are
+        # started directly by Celery at their scheduled time.
         now = utc_now()
         pending = await col.find_one_and_update(
-            {"status": TaskStatus.PENDING.value},
+            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger"}},
             {
                 "$set": {
                     "status": TaskStatus.RUNNING.value,
@@ -434,7 +474,8 @@ class TaskService:
         # Concurrency guard: pending → running
         if from_status == TaskStatus.PENDING and to_status == TaskStatus.RUNNING:
             created_by = doc.get("created_by", "")
-            await TaskService._check_concurrency_limits(created_by)
+            task_source = doc.get("source", "manual")
+            await TaskService._check_concurrency_limits(created_by, task_source)
 
         # Build update
         now = utc_now()
@@ -508,6 +549,18 @@ class TaskService:
                     triggered_by=task_id,
                 )
 
+        # Delete trigger when its pending task is cancelled (stops the chain)
+        if to_status == TaskStatus.CANCELLED and doc.get("source") == "trigger":
+            trigger_id = doc.get("trigger_id")
+            if trigger_id:
+                db = get_database()
+                await db["triggers"].delete_one({"_id": trigger_id})
+                logger.info(
+                    "trigger_deleted_by_task_cancellation",
+                    trigger_id=trigger_id,
+                    task_id=task_id,
+                )
+
         # Publish transition event
         event_bus = get_event_bus()
         await event_bus.publish(TaskEvent(
@@ -517,6 +570,25 @@ class TaskService:
             to_status=to_status.value,
             data=timeline_data or {},
         ))
+
+        # Also publish to Redis so Celery worker events reach FastAPI via pub/sub
+        from app.services.event_bridge import publish_task_event_to_redis
+
+        await publish_task_event_to_redis(
+            event_type=f"task.{to_status.value}",
+            task_id=task_id,
+            from_status=from_status.value,
+            to_status=to_status.value,
+            data=timeline_data or {},
+        )
+
+        # Fire webhook events for terminal/waiting_human states
+        if to_status in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.WAITING_HUMAN,
+        ):
+            _fire_task_webhook(task_id, to_status, updated)
 
         return updated
 
@@ -709,3 +781,49 @@ class TaskService:
                 {"user_id": u["_id"], "running": u["running"]} for u in user_stats
             ],
         }
+
+
+# ---------------------------------------------------------------------------
+# Webhook event helper
+# ---------------------------------------------------------------------------
+
+_TASK_STATUS_TO_WEBHOOK_EVENT = {
+    TaskStatus.COMPLETED: "task.completed",
+    TaskStatus.FAILED: "task.failed",
+    TaskStatus.WAITING_HUMAN: "task.waiting_human",
+}
+
+
+def _fire_task_webhook(task_id: str, to_status: TaskStatus, task_doc: dict) -> None:
+    """Fire-and-forget: dispatch webhook event for a task state change."""
+    webhook_event = _TASK_STATUS_TO_WEBHOOK_EVENT.get(to_status)
+    if not webhook_event:
+        return
+
+    payload = {
+        "event": webhook_event,
+        "task_id": task_id,
+        "workflow_id": task_doc.get("workflow_id", ""),
+        "status": to_status.value,
+        "output": task_doc.get("output"),
+        "error": task_doc.get("error"),
+        "timestamp": task_doc.get("updated_at", ""),
+        "api_key_id": task_doc.get("ext_api_key_id"),
+        "callback_url": task_doc.get("ext_callback_url"),
+    }
+
+    import asyncio
+
+    async def _dispatch():
+        try:
+            from app.services.webhook_service import WebhookService
+
+            await WebhookService.dispatch_event(webhook_event, payload)
+        except Exception as exc:
+            logger.warning("webhook_dispatch_error", task_id=task_id, error=str(exc))
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_dispatch())
+    except RuntimeError:
+        pass

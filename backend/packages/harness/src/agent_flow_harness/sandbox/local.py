@@ -26,12 +26,17 @@ class LocalSandbox(Sandbox):
         work_dir: Path,
         timeout: int = 120,
         max_output_chars: int = 50_000,
+        output_dir: Path | None = None,
     ) -> None:
         self._id = sandbox_id
         self._work_dir = Path(work_dir).resolve()
         self._work_dir.mkdir(parents=True, exist_ok=True)
         self._timeout = timeout
         self._max_output = max_output_chars
+        # output_dir: 用户可见文件目录（task workspace.output_dir）
+        # 如果未提供，默认使用 work_dir 的父目录下的 output/
+        self._output_dir = Path(output_dir).resolve() if output_dir else self._work_dir.parent / "output"
+        self._output_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def id(self) -> str:
@@ -82,6 +87,12 @@ class LocalSandbox(Sandbox):
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
 
+    def write_to_output(self, path: str, content: str) -> None:
+        """写文件到 output 目录（用户可见/可下载）。"""
+        resolved = self._safe_resolve_output(path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+
     def glob(self, path: str, pattern: str) -> list[str]:
         base = self._safe_resolve(path, for_write=False)
         if not base.exists():
@@ -120,6 +131,20 @@ class LocalSandbox(Sandbox):
             resolved.relative_to(self._work_dir)
         except ValueError as exc:
             msg = f"Access denied — path '{user_path}' outside sandbox work_dir"
+            raise PermissionError(msg) from exc
+        return resolved
+
+    def _safe_resolve_output(self, user_path: str) -> Path:
+        """解析路径并校验是否在 output_dir 内（防路径越权）。"""
+        if os.path.isabs(user_path):
+            resolved = Path(user_path).resolve()
+        else:
+            resolved = (self._output_dir / user_path).resolve()
+        # 白名单校验：resolved 必须在 output_dir 树内
+        try:
+            resolved.relative_to(self._output_dir)
+        except ValueError as exc:
+            msg = f"Access denied — path '{user_path}' outside sandbox output_dir"
             raise PermissionError(msg) from exc
         return resolved
 

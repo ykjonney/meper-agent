@@ -8,9 +8,9 @@
  * - 详情查询与详情 Drawer 共用 taskKeys.detail(id) 缓存
  * - 搜索改为纯前端过滤（task.id / workflow_id includes）
  */
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
-import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert } from 'antd'
+import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented, DatePicker, Switch, Radio, Divider } from 'antd'
 import {
   StopOutlined,
   RedoOutlined,
@@ -22,6 +22,8 @@ import {
   ThunderboltOutlined,
   CloseCircleOutlined,
   CheckOutlined,
+  EditOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -31,6 +33,7 @@ import {
   type TaskStatusValue,
   type TaskDetail,
   type NodeProgress,
+  type CommentValue,
   BOARD_STATUSES,
   parseNodeProgress,
 } from '../services/tasks-api'
@@ -38,6 +41,13 @@ import { TASK_STATUS_STYLES } from '../constants/task-status'
 import { TaskBoardColumn } from '../components/task-board-column'
 import { TaskOutputFiles } from '../components/task-result-card'
 import { parseBackendDate } from '../lib/format'
+import { WorkflowTriggerAPI } from '../services/workflow-trigger-api'
+import { workflowsApi } from '../services/workflows-api'
+import type { TriggerConfig, TriggerType } from '../types/workflow-trigger'
+import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
+import TriggerSchedulePicker from '../components/workflows/TriggerSchedulePicker'
+import VariableFormField from '../features/workflow-editor/VariableFormField'
+import dayjs from 'dayjs'
 
 /* ─── helpers ─── */
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -85,7 +95,18 @@ export default function TasksPage() {
   /* ─── Approval modal state ─── */
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
+  // comment 输入模式：text 纯文本 / json 结构化（与看板卡片弹窗保持一致）
+  const [approvalCommentMode, setApprovalCommentMode] = useState<'text' | 'json'>('text')
   const [approvalTask, setApprovalTask] = useState<TaskSummary | TaskDetail | null>(null)
+
+  /* ─── Edit scheduled task modal state ─── */
+  const [editTask, setEditTask] = useState<TaskSummary | null>(null)
+  const [editEnabled, setEditEnabled] = useState(false)
+  const [editTriggerType, setEditTriggerType] = useState<TriggerType>('cron')
+  const [editCronExpression, setEditCronExpression] = useState('0 9 * * *')
+  const [editScheduledAt, setEditScheduledAt] = useState<string>('')
+  const [editDefaultInput, setEditDefaultInput] = useState<Record<string, unknown>>({})
+  const [editDirty, setEditDirty] = useState(false)
 
   /* ─── 6 列并发列表查询（按 status 分桶） ─── */
   const boardQueries = useQueries({
@@ -201,7 +222,7 @@ export default function TasksPage() {
 
   /* ─── Mutation: intervene (cancel / retry / approve / reject) ─── */
   const interveneMutation = useMutation({
-    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: string }) =>
+    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: CommentValue }) =>
       tasksApi.intervene(taskId, { action, version, comment }),
     onSuccess: () => {
       message.success('操作成功')
@@ -234,6 +255,59 @@ export default function TasksPage() {
     },
   })
 
+  /* ─── Query: load trigger config when edit modal is open ─── */
+  const { data: editTriggerConfig, isLoading: editTriggerLoading } = useQuery({
+    queryKey: ['trigger-detail', editTask?.trigger_id ?? ''],
+    queryFn: () => WorkflowTriggerAPI.getTriggerById(editTask!.trigger_id!),
+    enabled: !!editTask?.trigger_id,
+  })
+
+  /* ─── Query: load workflow nodes for input parameter form ─── */
+  const { data: editWorkflowDetail } = useQuery({
+    queryKey: ['workflow-detail-for-edit', editTask?.workflow_id ?? ''],
+    queryFn: () => workflowsApi.get(editTask!.workflow_id),
+    enabled: !!editTask?.workflow_id,
+  })
+
+  /* ─── Derive start node variables from workflow ─── */
+  const editStartNodeVars = useMemo<VariableDefinition[]>(() => {
+    const startNode = editWorkflowDetail?.nodes?.find((n) => n.type === 'start')
+    return (startNode?.config?.output_variables as VariableDefinition[]) ?? []
+  }, [editWorkflowDetail])
+
+  /* ─── Sync form state when trigger config loads ─── */
+  /* eslint-disable react-hooks/set-state-in-effect -- form initialization from loaded data */
+  useEffect(() => {
+    if (editTriggerConfig) {
+      setEditEnabled(editTriggerConfig.enabled)
+      setEditTriggerType(editTriggerConfig.type)
+      setEditCronExpression(editTriggerConfig.cron_expression ?? '0 9 * * *')
+      setEditScheduledAt(editTriggerConfig.execute_at ?? '')
+      setEditDefaultInput(editTriggerConfig.default_input ?? {})
+      setEditDirty(false)
+    }
+  }, [editTriggerConfig])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  /* ─── Mutation: update scheduled task config ─── */
+  const editScheduleMutation = useMutation({
+    mutationFn: ({ triggerId, config }: { triggerId: string; config: Partial<TriggerConfig> }) =>
+      WorkflowTriggerAPI.updateTriggerById(triggerId, config),
+    onSuccess: () => {
+      message.success('定时任务配置已更新')
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
+      // Also invalidate trigger detail cache so re-opening the modal shows fresh data
+      queryClient.invalidateQueries({ queryKey: ['trigger-detail'] })
+      setEditTask(null)
+      setEditDirty(false)
+    },
+    onError: (err: unknown) => {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message : '更新失败'
+      message.error(msg)
+    },
+  })
+
   /* ─── Actions ─── */
   const handleCreate = () => {
     setSelectedWorkflowId('')
@@ -258,9 +332,12 @@ export default function TasksPage() {
   }
 
   const handleCancel = useCallback((task: TaskSummary) => {
+    const isScheduledPending = task.source === 'trigger' && task.status === 'pending'
     Modal.confirm({
       title: '确认取消',
-      content: `确定要取消任务「${task.id}」吗？`,
+      content: isScheduledPending
+        ? `确定要取消定时任务「${task.id}」吗？取消后关联的触发器也将被删除。`
+        : `确定要取消任务「${task.id}」吗？`,
       okText: '取消任务',
       okButtonProps: { danger: true },
       cancelText: '关闭',
@@ -282,31 +359,52 @@ export default function TasksPage() {
     setApprovalAction('approve')
     setApprovalTask(task)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
 
   const handleReject = useCallback((task: TaskSummary | TaskDetail) => {
     setApprovalAction('reject')
     setApprovalTask(task)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
+
+  // 把当前 comment 输入按模式组装为 CommentValue，返回 null 表示解析失败需阻断
+  const buildComment = useCallback((): CommentValue | null => {
+    if (approvalCommentMode === 'json') {
+      const trimmed = approvalComment.trim()
+      if (!trimmed) return { type: 'json', value: '' }
+      try {
+        return { type: 'json', value: JSON.parse(trimmed) }
+      } catch {
+        message.error('JSON 格式错误，请检查输入')
+        return null
+      }
+    }
+    return { type: 'text', value: approvalComment }
+  }, [approvalCommentMode, approvalComment])
 
   const handleApprovalConfirm = useCallback(() => {
     if (!approvalAction || !approvalTask) return
+    const comment = buildComment()
+    if (comment === null) return // JSON 解析失败，已提示，阻断提交
     interveneMutation.mutate({
       taskId: approvalTask.id,
       action: approvalAction,
       version: approvalTask.version,
-      comment: approvalComment || undefined,
+      comment,
     })
     setApprovalAction(null)
     setApprovalTask(null)
     setApprovalComment('')
-  }, [approvalAction, approvalTask, approvalComment, interveneMutation])
+    setApprovalCommentMode('text')
+  }, [approvalAction, approvalTask, buildComment, interveneMutation])
 
   const handleApprovalCancel = useCallback(() => {
     setApprovalAction(null)
     setApprovalTask(null)
     setApprovalComment('')
+    setApprovalCommentMode('text')
   }, [])
 
   const handleDelete = useCallback((task: TaskSummary) => {
@@ -320,13 +418,18 @@ export default function TasksPage() {
     })
   }, [deleteMutation])
 
+  const handleEdit = useCallback((task: TaskSummary) => {
+    setEditTask(task)
+    // Form state will be initialized by the useQuery + useMemo sync below
+  }, [])
+
   // 看板卡片上的快捷审批（通过/驳回 + 评论）
-  const handleCardApproval = useCallback((task: TaskSummary, action: 'approve' | 'reject', comment: string) => {
+  const handleCardApproval = useCallback((task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => {
     interveneMutation.mutate({
       taskId: task.id,
       action,
       version: task.version,
-      comment: comment || undefined,
+      comment,
     })
   }, [interveneMutation])
 
@@ -424,6 +527,7 @@ export default function TasksPage() {
                 onCancel={handleCancel}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
+                onEdit={handleEdit}
                 onApprovalSubmit={handleCardApproval}
                 interveneLoading={interveneMutation.isPending}
                 deleteLoading={deleteMutation.isPending}
@@ -539,9 +643,14 @@ export default function TasksPage() {
         width={520}
         extra={
           taskDetail && (
-            <Tag className="!m-0" style={{ color: TASK_STATUS_STYLES[taskDetail.status]?.color, background: TASK_STATUS_STYLES[taskDetail.status]?.bg, borderColor: 'transparent' }}>
-              {TASK_STATUS_STYLES[taskDetail.status]?.icon} {TASK_STATUS_STYLES[taskDetail.status]?.label}
-            </Tag>
+            <div className="flex items-center gap-2">
+              {taskDetail.source === 'trigger' && (
+                <Tag className="!m-0" icon={<ClockCircleOutlined />} color="processing">定时任务</Tag>
+              )}
+              <Tag className="!m-0" style={{ color: TASK_STATUS_STYLES[taskDetail.status]?.color, background: TASK_STATUS_STYLES[taskDetail.status]?.bg, borderColor: 'transparent' }}>
+                {TASK_STATUS_STYLES[taskDetail.status]?.icon} {TASK_STATUS_STYLES[taskDetail.status]?.label}
+              </Tag>
+            </div>
           )
         }
       >
@@ -557,10 +666,14 @@ export default function TasksPage() {
               <div className="space-y-2.5">
                 <InfoRow label="ID" value={taskDetail.id} mono />
                 <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
+                <InfoRow label="来源" value={taskDetail.source === 'trigger' ? '定时触发' : '手动创建'} />
                 <InfoRow label="创建者" value={taskDetail.created_by || '系统'} />
                 <InfoRow label="版本" value={`v${taskDetail.version}`} />
                 <InfoRow label="创建时间" value={parseBackendDate(taskDetail.created_at).toLocaleString('zh-CN')} />
                 <InfoRow label="更新时间" value={parseBackendDate(taskDetail.updated_at).toLocaleString('zh-CN')} />
+                {taskDetail.source === 'trigger' && taskDetail.scheduled_at && (
+                  <InfoRow label="计划执行" value={parseBackendDate(taskDetail.scheduled_at).toLocaleString('zh-CN')} />
+                )}
               </div>
             </section>
 
@@ -769,6 +882,26 @@ export default function TasksPage() {
             <section>
               <h4 className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider mb-3">操作</h4>
               <div className="flex items-center gap-2 flex-wrap">
+                {/* 待执行定时任务：编辑配置 + 取消 */}
+                {taskDetail.status === 'pending' && taskDetail.source === 'trigger' && (
+                  <Button
+                    icon={<EditOutlined />}
+                    onClick={() => handleEdit(taskDetail)}
+                  >
+                    编辑配置
+                  </Button>
+                )}
+                {/* 所有待执行任务都可以取消 */}
+                {taskDetail.status === 'pending' && (
+                  <Button
+                    danger
+                    icon={<StopOutlined />}
+                    onClick={() => handleCancel(taskDetail)}
+                    loading={interveneMutation.isPending}
+                  >
+                    取消任务
+                  </Button>
+                )}
                 {taskDetail.status === 'running' && (
                   <Button
                     danger
@@ -876,16 +1009,193 @@ export default function TasksPage() {
               ? `确定批准任务「${approvalTask?.id}」并继续执行吗？`
               : `确定驳回任务「${approvalTask?.id}」吗？任务将被标记为失败。`}
           </p>
+          {/* 审核信息：与通过/驳回同界面，审批人据此决策 */}
+          {(() => {
+            const ctx = approvalTask?.checkpoint?.human_context
+            if (!ctx) return null
+            return (
+              <div className="border border-line rounded-lg p-3 bg-[#F8FAFC]">
+                {ctx.title && (
+                  <div className="text-sm font-medium text-[#0F172A] mb-1.5">{ctx.title}</div>
+                )}
+                {ctx.description && (
+                  <div className="text-xs text-[#475569] whitespace-pre-wrap break-words leading-relaxed">
+                    {ctx.description}
+                  </div>
+                )}
+                {!ctx.title && !ctx.description && (
+                  <div className="text-xs text-[#94A3B8] italic">该审批节点未配置说明</div>
+                )}
+              </div>
+            )
+          })()}
           <div>
-            <label className="block text-sm text-[#0F172A] mb-1.5">审批意见（可选）</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm text-[#0F172A]">审批意见（可选）</label>
+              <Segmented
+                size="small"
+                value={approvalCommentMode}
+                onChange={(val) => setApprovalCommentMode(val as 'text' | 'json')}
+                options={[
+                  { label: '文本', value: 'text' },
+                  { label: 'JSON', value: 'json' },
+                ]}
+              />
+            </div>
             <Input.TextArea
               value={approvalComment}
               onChange={(e) => setApprovalComment(e.target.value)}
-              placeholder="请输入审批意见..."
+              placeholder={
+                approvalCommentMode === 'json'
+                  ? '{"score": 8, "note": "ok"}'
+                  : '请输入审批意见...'
+              }
               rows={3}
+              className={approvalCommentMode === 'json' ? 'font-mono' : ''}
             />
           </div>
         </div>
+      </Modal>
+
+      {/* ─── Edit Scheduled Task Modal ─── */}
+      <Modal
+        title="编辑定时任务配置"
+        open={!!editTask}
+        onCancel={() => { setEditTask(null); setEditDirty(false) }}
+        width={560}
+        destroyOnClose
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button onClick={() => { setEditTask(null); setEditDirty(false) }}>取消</Button>
+            <Button
+              type="primary"
+              loading={editScheduleMutation.isPending || editTriggerLoading}
+              disabled={!editDirty || !editTask?.trigger_id}
+              onClick={() => {
+                if (!editTask?.trigger_id) return
+
+                // Validate
+                if (editEnabled && editTriggerType === 'once' && !editScheduledAt) {
+                  message.warning('请选择执行时间')
+                  return
+                }
+                if (editTriggerType === 'cron' && !editCronExpression.trim()) {
+                  message.warning('请填写 Cron 表达式')
+                  return
+                }
+
+                const config: Partial<TriggerConfig> = {
+                  type: editTriggerType,
+                  enabled: editEnabled,
+                  default_input: editDefaultInput as Record<string, unknown>,
+                }
+                if (editTriggerType === 'cron') {
+                  config.cron_expression = editCronExpression
+                } else {
+                  config.execute_at = editScheduledAt
+                }
+
+                editScheduleMutation.mutate({
+                  triggerId: editTask.trigger_id,
+                  config,
+                })
+              }}
+            >
+              保存
+            </Button>
+          </div>
+        }
+      >
+        <Spin spinning={editTriggerLoading}>
+          <div className="space-y-4 py-2">
+            {/* 启用开关 */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-[#0F172A]">启用</span>
+              <Switch
+                checked={editEnabled}
+                onChange={(checked) => { setEditEnabled(checked); setEditDirty(true) }}
+                size="small"
+              />
+              {editEnabled && (
+                <span className="text-xs text-green-500">● 已启用</span>
+              )}
+            </div>
+
+            {/* 触发类型 */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-[#0F172A]">触发类型:</span>
+              <Radio.Group
+                value={editTriggerType}
+                onChange={(e) => { setEditTriggerType(e.target.value); setEditDirty(true) }}
+              >
+                <Radio value="cron">重复执行</Radio>
+                <Radio value="once">一次性</Radio>
+              </Radio.Group>
+            </div>
+
+            <Divider className="!my-2" />
+
+            {/* 频率配置 */}
+            {editTriggerType === 'cron' && (
+              <div>
+                <div className="text-sm text-[#0F172A] font-medium mb-2">执行频率</div>
+                <TriggerSchedulePicker
+                  value={editCronExpression}
+                  onChange={(cron) => { setEditCronExpression(cron); setEditDirty(true) }}
+                  disabled={editTriggerLoading}
+                />
+              </div>
+            )}
+
+            {editTriggerType === 'once' && (
+              <div>
+                <div className="text-sm text-[#0F172A] font-medium mb-2">执行时间</div>
+                <DatePicker
+                  showTime={{ format: 'HH:mm' }}
+                  format="YYYY-MM-DD HH:mm"
+                  value={editScheduledAt ? dayjs(editScheduledAt) : null}
+                  onChange={(date) => {
+                    // Send ISO string with timezone offset to avoid ambiguity
+                    setEditScheduledAt(date ? date.toISOString() : '')
+                    setEditDirty(true)
+                  }}
+                  className="!w-full"
+                  disabled={editTriggerLoading}
+                />
+              </div>
+            )}
+
+            <Divider className="!my-2" />
+
+            {/* 输入参数 */}
+            <div>
+              <div className="text-sm text-[#0F172A] font-medium mb-2">输入参数</div>
+              {editStartNodeVars.length > 0 ? (
+                <div className="space-y-3">
+                  {editStartNodeVars.map((v) => (
+                    <VariableFormField
+                      key={v.name}
+                      variable={v}
+                      value={editDefaultInput[v.name]}
+                      onChange={(val) => {
+                        setEditDefaultInput((prev) => ({ ...prev, [v.name]: val }))
+                        setEditDirty(true)
+                      }}
+                      disabled={editTriggerLoading}
+                    />
+                  ))}
+                  <p className="text-[10px] text-[#94A3B8]">
+                    提示: 支持模板语法 <code>{'{{ now() }}'}</code> <code>{'{{ today() }}'}</code>
+                  </p>
+                </div>
+              ) : (
+                <div className="text-xs text-[#94A3B8]">
+                  开始节点未定义变量，触发时将使用空输入。
+                </div>
+              )}
+            </div>
+          </div>
+        </Spin>
       </Modal>
     </div>
   )
