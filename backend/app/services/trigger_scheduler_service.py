@@ -326,8 +326,10 @@ class TriggerSchedulerService:
     def _compute_next(self, trigger: Trigger, now: datetime) -> datetime | None:
         """Compute the next firing time AFTER ``now`` for a trigger.
 
-        Returns None for once-type triggers (they fire only once) or when
-        the cron expression / execute_at is missing.
+        - cron: uses croniter to find the next match after now.
+        - once: returns execute_at if it's still in the future; None if it
+          has already passed (the trigger already fired or is stale).
+        - Returns None when the cron expression / execute_at is missing.
         """
         if trigger.type == "cron":
             cron_expr = trigger.cron_expression or ""
@@ -339,7 +341,17 @@ class TriggerSchedulerService:
                 next_at = next_at.astimezone()
             return next_at
         elif trigger.type == "once":
-            # once triggers do not repeat
+            execute_at = trigger.execute_at
+            if not execute_at:
+                return None
+            if isinstance(execute_at, str):
+                execute_at = datetime.fromisoformat(execute_at)
+            if execute_at.tzinfo is None:
+                execute_at = execute_at.astimezone()
+            # Only schedule if execute_at is still in the future.
+            # A past execute_at means the one-time window has passed.
+            if execute_at > now:
+                return execute_at
             return None
         return None
 
@@ -358,17 +370,8 @@ class TriggerSchedulerService:
             if doc.get("next_trigger_at") is not None:
                 continue
             trigger = Trigger(**doc)
-            # For once-type, honor execute_at if it's still in the future.
-            if trigger.type == "once" and trigger.execute_at:
-                execute_at = trigger.execute_at
-                if isinstance(execute_at, str):
-                    execute_at = datetime.fromisoformat(execute_at)
-                if execute_at.tzinfo is None:
-                    execute_at = execute_at.astimezone()
-                if execute_at > now:
-                    await self.repo.update(trigger.id, next_trigger_at=execute_at)
-                # past execute_at → leave None (won't fire)
-                continue
+            # _compute_next handles both cron and once (returns execute_at
+            # if still in the future, None if past).
             next_at = self._compute_next(trigger, now)
             if next_at is not None:
                 await self.repo.update(trigger.id, next_trigger_at=next_at)

@@ -72,11 +72,30 @@ class TestComputeNext:
         # next 09:00 local
         assert nxt.hour == 9
 
-    def test_once_returns_none(self) -> None:
-        """once triggers do not repeat."""
+    def test_once_future_execute_at_returns_it(self) -> None:
+        """once trigger with future execute_at → returns execute_at."""
         svc = TriggerSchedulerService()
         now = datetime.now(timezone.utc).astimezone()
-        t = _make_trigger(type_="once", cron=None, execute_at=now + timedelta(days=1))
+        future = now + timedelta(days=1)
+        t = _make_trigger(type_="once", cron=None, execute_at=future)
+        result = svc._compute_next(t, now)
+        assert result is not None
+        # Should return the execute_at time
+        assert result == future
+
+    def test_once_past_execute_at_returns_none(self) -> None:
+        """once trigger with past execute_at → None (window passed)."""
+        svc = TriggerSchedulerService()
+        now = datetime.now(timezone.utc).astimezone()
+        past = now - timedelta(days=1)
+        t = _make_trigger(type_="once", cron=None, execute_at=past)
+        assert svc._compute_next(t, now) is None
+
+    def test_once_no_execute_at_returns_none(self) -> None:
+        """once trigger without execute_at → None."""
+        svc = TriggerSchedulerService()
+        now = datetime.now(timezone.utc).astimezone()
+        t = _make_trigger(type_="once", cron=None, execute_at=None)
         assert svc._compute_next(t, now) is None
 
     def test_cron_missing_expression_returns_none(self) -> None:
