@@ -31,6 +31,10 @@ export interface Model {
   auth_header_format?: string
   default_params?: ModelDefaultParams
   status: ModelStatus
+  /** Outcome of the most recent connectivity test. null/undefined = never tested. */
+  last_test_success?: boolean | null
+  /** ISO timestamp of the most recent test. ''/undefined = never tested. */
+  last_test_at?: string
   provider_tag?: string
   version: number
   created_at: string

@@ -114,6 +114,8 @@ class ModelResponse(BaseModel):
     auth_header_format: str = ""
     default_params: dict = Field(default_factory=dict)
     status: ModelStatus
+    last_test_success: bool | None = None
+    last_test_at: str = ""
     provider_tag: str = ""
     version: int = 1
     created_at: str

@@ -33,6 +33,8 @@ def _doc_to_response(doc: dict) -> ModelResponse:
         auth_header_format=doc.get("auth_header_format", "Bearer {key}"),
         default_params=doc.get("default_params", {}),
         status=ModelStatus(doc["status"]),
+        last_test_success=doc.get("last_test_success"),  # None for legacy docs
+        last_test_at=doc.get("last_test_at", ""),
         provider_tag=doc.get("provider_tag", ""),
         version=doc.get("version", 1),
         created_at=doc["created_at"],
