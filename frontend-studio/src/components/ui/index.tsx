@@ -153,17 +153,57 @@ export function Select({
   const [search, setSearch] = useState('')
   const [hover, setHover] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1) // keyboard highlight over the flat filtered list
+  // Panel position (fixed, portaled to the theme root). Starts off-screen
+  // until measured to avoid a flash before useLayoutEffect runs.
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({ top: -9999, left: -9999, visibility: 'hidden' })
   const ref = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Portal to the theme root (.theme-light/.theme-dark), not document.body:
+  // (a) escapes any ancestor `overflow: hidden` (e.g. modal panels) so options
+  // aren't clipped, and (b) stays inside the theme subtree so index.css's
+  // `.theme-light .xxx` overrides can recolor it. Portaling to body would
+  // escape the theme scope and leave the panel dark under the light theme.
+  // Same approach as Tooltip/Popover below.
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    setPanelStyle({
+      position: 'fixed',
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 9999,
+    })
+  }, [open])
 
   useEffect(() => {
     if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current?.contains(e.target as Node)) return
+      if (panelRef.current?.contains(e.target as Node)) return
+      setOpen(false)
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const close = () => setOpen(false)
+    document.addEventListener('mousedown', onMouseDown)
+    // Close on scroll/resize: we position the panel once on open rather than
+    // tracking the trigger, so any layout shift collapses it instead of
+    // leaving a detached panel.
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
   }, [open])
 
   // Reset transient state whenever the panel opens/closes.
@@ -267,8 +307,8 @@ export function Select({
           </svg>
         )}
       </div>
-      {open && (
-        <div className="absolute z-30 mt-1 w-full rounded-md border border-[#27272a] bg-[#18181b] shadow-lg overflow-hidden">
+      {open && createPortal(
+        <div ref={panelRef} style={panelStyle} className="rounded-md border border-[#27272a] bg-[#18181b] shadow-lg overflow-hidden">
           {showSearch && (
             <div className="p-1.5 border-b border-[#27272a]">
               <input
@@ -340,7 +380,8 @@ export function Select({
               })()
             )}
           </div>
-        </div>
+        </div>,
+        portalTarget ?? document.body,
       )}
     </div>
   )
