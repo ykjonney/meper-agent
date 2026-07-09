@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+from loguru import logger
 from pydantic import BaseModel
 
 from app.core.errors import NotFoundError
@@ -73,36 +74,6 @@ def _compute_next_trigger_at(trigger: Trigger) -> datetime | None:
     return scheduler._compute_next(trigger, now)
 
 
-async def _ensure_template_placeholder(trigger: Trigger, scheduled_at: datetime | None) -> None:
-    """Ensure the always-pending template placeholder Task exists for a trigger.
-
-    The template (source="trigger", status="pending") represents the trigger
-    configuration: it's visible in the task board, its scheduled_at shows the
-    next firing time, and cancelling it stops the trigger. This helper is
-    idempotent — if a template already exists, it just updates scheduled_at.
-    Called on create / update / toggle.
-    """
-    from app.db.mongodb import get_database
-
-    db = get_database()
-    existing = await db["tasks"].find_one(
-        {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
-        {"_id": 1},
-    )
-    scheduler = get_trigger_scheduler()
-    if existing is None:
-        await scheduler._create_placeholder_task(
-            trigger, scheduled_at or datetime.now().astimezone()
-        )
-    elif scheduled_at is not None:
-        # Template exists — just refresh its scheduled_at for display.
-        from app.models.base import utc_now
-        await db["tasks"].update_one(
-            {"_id": existing["_id"]},
-            {"$set": {"scheduled_at": scheduled_at, "updated_at": utc_now()}},
-        )
-
-
 # ── Endpoints ──
 
 
@@ -140,11 +111,6 @@ async def create_trigger(
         next_at = _compute_next_trigger_at(trigger)
         if next_at is not None:
             await repo.update(trigger.id, next_trigger_at=next_at)
-
-    # Always create the template placeholder (even if disabled, so it's
-    # ready when the user enables later). It stays pending permanently.
-    fresh = await repo.find_by_id(trigger.id)
-    await _ensure_template_placeholder(fresh or trigger, next_at)
 
     # Re-fetch to include computed next_trigger_at
     updated = await repo.find_by_id(trigger.id)
@@ -267,8 +233,6 @@ async def update_trigger(
         if updated_trigger.enabled:
             next_at = _compute_next_trigger_at(updated_trigger)
             await repo.update(trigger_id, next_trigger_at=next_at)
-            # Ensure template exists + refresh its scheduled_at.
-            await _ensure_template_placeholder(updated_trigger, next_at)
         else:
             # Disabled: clear next_trigger_at (poller filters on enabled anyway,
             # but clearing avoids stale due-time display).
@@ -313,13 +277,11 @@ async def toggle_trigger(
     )
 
     if body.enabled:
-        # Enable: compute next_trigger_at so the poller picks it up,
-        # and ensure the template placeholder exists.
+        # Enable: compute next_trigger_at so the poller picks it up.
         updated_trigger = await repo.find_by_id(trigger_id)
         if updated_trigger is not None:
             next_at = _compute_next_trigger_at(updated_trigger)
             await repo.update(trigger_id, next_trigger_at=next_at)
-            await _ensure_template_placeholder(updated_trigger, next_at)
     else:
         # Disable: clear next_trigger_at so the poller never fires it.
         await repo.update(trigger_id, next_trigger_at=None)
@@ -327,3 +289,34 @@ async def toggle_trigger(
     # Re-fetch
     updated = await repo.find_by_id(trigger_id)
     return _trigger_to_dict(updated)
+
+
+@router.delete(
+    "/{trigger_id}",
+    status_code=204,
+    summary="Delete a trigger",
+)
+async def delete_trigger(
+    trigger_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> None:
+    """Delete a trigger (stops the scheduled task permanently)."""
+    repo = _get_repo()
+    trigger = await repo.find_by_id(trigger_id)
+    if trigger is None:
+        raise NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message=f"定时配置 {trigger_id} 不存在",
+            details={"trigger_id": trigger_id},
+        )
+
+    # Non-admin can only delete their own triggers
+    if trigger.user_id != current_user.id and current_user.role not in ("admin",):
+        raise NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message=f"定时配置 {trigger_id} 不存在",
+            details={"trigger_id": trigger_id},
+        )
+
+    await repo.delete(trigger_id)
+    logger.info("trigger_deleted", trigger_id=trigger_id)

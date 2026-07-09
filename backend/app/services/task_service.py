@@ -303,8 +303,8 @@ class TaskService:
                 },
             )
 
-        # Per-user limit — skip for trigger-sourced tasks (template + snapshots)
-        if source not in ("trigger", "trigger_scheduled") and created_by and created_by not in ("system", "agent"):
+        # Per-user limit — skip for trigger-sourced execution snapshots
+        if source != "trigger_scheduled" and created_by and created_by not in ("system", "agent"):
             user_running = await col.count_documents(
                 {"status": TaskStatus.RUNNING.value, "created_by": created_by}
             )
@@ -336,12 +336,11 @@ class TaskService:
         col = TaskService._collection()
 
         # Find the oldest pending manual Task and atomically claim it.
-        # Trigger-sourced tasks are excluded — they are started directly by
-        # Celery (source="trigger" = template, source="trigger_scheduled" =
-        # execution snapshot), not by this FIFO scheduler.
+        # Trigger-sourced execution snapshots are excluded — they are started
+        # directly by Celery (execute_scheduled_workflow), not by this FIFO.
         now = utc_now()
         pending = await col.find_one_and_update(
-            {"status": TaskStatus.PENDING.value, "source": {"$nin": ["trigger", "trigger_scheduled"]}},
+            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger_scheduled"}},
             {
                 "$set": {
                     "status": TaskStatus.RUNNING.value,
@@ -516,18 +515,6 @@ class TaskService:
                     "task_fifo_scheduled",
                     new_task_id=scheduled["_id"],
                     triggered_by=task_id,
-                )
-
-        # Delete trigger when its pending task is cancelled (stops the chain)
-        if to_status == TaskStatus.CANCELLED and doc.get("source") == "trigger":
-            trigger_id = doc.get("trigger_id")
-            if trigger_id:
-                db = get_database()
-                await db["triggers"].delete_one({"_id": trigger_id})
-                logger.info(
-                    "trigger_deleted_by_task_cancellation",
-                    trigger_id=trigger_id,
-                    task_id=task_id,
                 )
 
         # Publish transition event

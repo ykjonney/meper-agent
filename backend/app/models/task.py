@@ -98,7 +98,7 @@ class Task(BaseModel):
     timeline: list[TimelineEvent] = Field(default_factory=list)
     error: TaskError | None = None
     checkpoint: Checkpoint | None = None
-    source: str = Field(default="manual", pattern=r"^(manual|trigger)$")
+    source: str = Field(default="manual", pattern=r"^(manual|trigger|trigger_scheduled)$")
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)

@@ -1,12 +1,8 @@
 """Tests for execute_scheduled_workflow Celery task.
 
-The simplified execute (post eta-self-chain removal) only:
-  loads trigger → loads workflow → renders input → finds placeholder Task
-  → runs engine → updates last_triggered_at.
-
-The placeholder Task and next firing are owned by TriggerSchedulerService,
-so these tests verify that execute consumes the placeholder correctly and
-does NOT re-schedule.
+The execute logic forks a fresh execution Task directly from the trigger
+document (no placeholder/template task). Each firing creates an independent
+task (source="trigger_scheduled") and runs it via the engine.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,19 +31,16 @@ class TestExecuteScheduledWorkflow:
     @patch("app.workers.tasks.scheduled_workflow.render_default_input")
     @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_execute_success(
+    async def test_execute_forks_task_from_trigger_and_runs(
         self,
         mock_db_func: MagicMock,
         mock_repo_cls: MagicMock,
         mock_render: MagicMock,
         mock_engine_class: MagicMock,
     ) -> None:
-        """Should snapshot a task from the template and execute the snapshot."""
+        """Should fork a task from the trigger doc and execute it."""
         trigger_doc = _make_trigger_doc()
         workflow_doc = {"_id": "wf_xxx", "name": "Test"}
-        # Template placeholder: always pending, source="trigger"
-        template = {"_id": "task_tpl", "status": "pending", "source": "trigger",
-                    "workflow_id": "wf_xxx", "created_by": "user_1"}
 
         mock_repo = MagicMock()
         mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
@@ -59,8 +52,7 @@ class TestExecuteScheduledWorkflow:
         workflows_col.find_one = AsyncMock(return_value=workflow_doc)
 
         tasks_col = MagicMock()
-        tasks_col.find_one = AsyncMock(return_value=template)
-        tasks_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="snap"))
+        tasks_col.insert_one = AsyncMock()
 
         def getitem(name):
             return {"workflows": workflows_col, "tasks": tasks_col}[name]
@@ -79,15 +71,16 @@ class TestExecuteScheduledWorkflow:
         result = await _execute_async("trig_xxx")
 
         assert result["status"] == "success"
-        # Engine executes the SNAPSHOT, not the template
-        assert result["task_id"] != "task_tpl"
-        mock_engine.run_and_persist.assert_awaited_once()
-        executed_task_id = mock_engine.run_and_persist.call_args.args[0]
-        assert executed_task_id != "task_tpl"  # snapshot, not template
-        # Snapshot was inserted
+        # A new task was forked (inserted)
         tasks_col.insert_one.assert_awaited_once()
-        mock_render.assert_called_once()
-        mock_repo.update.assert_awaited()
+        forked_doc = tasks_col.insert_one.call_args.args[0]
+        assert forked_doc["source"] == "trigger_scheduled"
+        assert forked_doc["trigger_id"] == "trig_xxx"
+        assert forked_doc["workflow_id"] == "wf_xxx"
+        assert forked_doc["created_by"] == "user_1"
+        # Engine executes the forked task
+        mock_engine.run_and_persist.assert_awaited_once_with(forked_doc["_id"])
+        mock_repo.update.assert_awaited()  # last_triggered_at
 
     @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
     @patch("app.workers.tasks.scheduled_workflow.get_database")
@@ -139,35 +132,6 @@ class TestExecuteScheduledWorkflow:
         assert result["status"] == "error"
         assert "workflow" in result["message"].lower()
 
-    @patch("app.workers.tasks.scheduled_workflow.render_default_input")
-    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
-    @patch("app.workers.tasks.scheduled_workflow.get_database")
-    async def test_placeholder_not_found_skips(self, mock_db_func, mock_repo_cls, mock_render) -> None:
-        """If no pending placeholder exists (duplicate dispatch), skip gracefully."""
-        trigger_doc = _make_trigger_doc()
-        mock_repo = MagicMock()
-        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
-        mock_repo_cls.return_value = mock_repo
-
-        mock_db = MagicMock()
-        workflows_col = MagicMock()
-        workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
-        tasks_col = MagicMock()
-        tasks_col.find_one = AsyncMock(return_value=None)  # no placeholder
-
-        def getitem(name):
-            return {"workflows": workflows_col, "tasks": tasks_col}[name]
-
-        mock_db.__getitem__ = MagicMock(side_effect=getitem)
-        mock_db_func.return_value = mock_db
-        mock_render.return_value = {}
-
-        from app.workers.tasks.scheduled_workflow import _execute_async
-
-        result = await _execute_async("trig_xxx")
-        # No placeholder → skip (not error), next firing handled by poller
-        assert result["status"] == "skipped"
-
     @patch("app.workers.tasks.scheduled_workflow.WorkflowEngine")
     @patch("app.workers.tasks.scheduled_workflow.render_default_input")
     @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
@@ -190,10 +154,7 @@ class TestExecuteScheduledWorkflow:
         workflows_col = MagicMock()
         workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
         tasks_col = MagicMock()
-        template = {"_id": "task_tpl", "status": "pending", "source": "trigger",
-                    "workflow_id": "wf_xxx", "created_by": "user_1"}
-        tasks_col.find_one = AsyncMock(return_value=template)
-        tasks_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="snap"))
+        tasks_col.insert_one = AsyncMock()
 
         def getitem(name):
             return {"workflows": workflows_col, "tasks": tasks_col}[name]
@@ -210,5 +171,5 @@ class TestExecuteScheduledWorkflow:
 
         result = await _execute_async("trig_xxx")
         assert result["status"] == "error"
-        assert result["task_id"] != "task_tpl"  # snapshot, not template
+        assert result["task_id"]  # forked task exists
         assert "Engine boom" in result["message"]

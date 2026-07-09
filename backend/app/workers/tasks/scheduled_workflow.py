@@ -82,26 +82,11 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         rendered_input=rendered_input,
     )
 
-    # 4. Find the placeholder "template" Task (always pending — it represents
-    #    the trigger configuration, not a single execution). The template is
-    #    never executed directly; instead we snapshot a fresh execution Task
-    #    from it so that modifying the trigger mid-execution doesn't affect
-    #    the run in progress, and the template stays pending for the user to
-    #    see/cancel at any time.
-    template_doc = await db["tasks"].find_one(
-        {"trigger_id": trigger_id, "status": "pending", "source": "trigger"},
-    )
-    if not template_doc:
-        # No template — trigger was cancelled or never had a placeholder.
-        logger.warning("trigger_template_not_found", trigger_id=trigger_id)
-        return {"status": "skipped", "message": "template task not found"}
-
-    # 5. Snapshot a fresh execution Task from the template. This Task is the
-    #    one that actually runs. It starts in PENDING because the engine's
-    #    execute_task performs a PENDING→RUNNING transition internally — the
-    #    task must be PENDING for that to succeed. The PENDING window is
-    #    negligible (insert → immediate run_and_persist → transition to
-    #    RUNNING happens in the same synchronous Celery call, ~milliseconds).
+    # 4. Fork a fresh execution Task directly from the trigger document.
+    #    No placeholder/template task is used — the trigger IS the management
+    #    entity. Each firing creates an independent task that runs to
+    #    completion. The task starts in PENDING because the engine's
+    #    execute_task performs a PENDING→RUNNING transition internally.
     from app.models.base import generate_id, utc_now as _utc_now
     from app.models.task import TaskStatus
 
@@ -109,20 +94,20 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
     now = _utc_now()
     snapshot_doc = {
         "_id": snapshot_id,
-        "workflow_id": template_doc["workflow_id"],
+        "workflow_id": trigger_doc.workflow_id,
         "input": rendered_input,
-        "created_by": template_doc.get("created_by", ""),
-        "created_by_type": template_doc.get("created_by_type", "system"),
+        "created_by": trigger_doc.user_id,
+        "created_by_type": "system",
         "call_chain": [],
         "status": TaskStatus.PENDING.value,
         "source": "trigger_scheduled",
         "trigger_id": trigger_id,
-        "scheduled_at": template_doc.get("scheduled_at"),
+        "scheduled_at": trigger_doc.next_trigger_at,
         "timeline": [
             {
                 "timestamp": now.isoformat(),
                 "event_type": "created",
-                "data": {"workflow_id": template_doc["workflow_id"], "from_trigger": trigger_id},
+                "data": {"workflow_id": trigger_doc.workflow_id, "from_trigger": trigger_id},
                 "actor": "system",
             },
         ],
@@ -134,10 +119,9 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
     task_id = snapshot_id
 
     logger.info(
-        "scheduled_workflow_snapshot_created",
+        "scheduled_workflow_task_forked",
         trigger_id=trigger_id,
-        template_id=template_doc["_id"],
-        snapshot_task_id=task_id,
+        task_id=task_id,
     )
 
     # 5. Execute the workflow

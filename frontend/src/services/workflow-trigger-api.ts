@@ -3,7 +3,6 @@
  *
  * Uses the shared apiClient instance (auto auth header + 401 refresh).
  * Triggers are independent documents. Multiple triggers can exist per workflow.
- * Triggers are deleted automatically when their pending task is cancelled.
  */
 import { apiClient } from './api-client'
 
@@ -132,5 +131,22 @@ export const WorkflowTriggerAPI = {
       payload,
     )
     return res.data
+  },
+
+  /**
+   * List all triggers for the current user (no workflow_id filter).
+   */
+  async listTriggers(): Promise<{ total: number; items: TriggerConfig[] }> {
+    const res = await apiClient.get<{ total: number; items: TriggerConfig[] }>(
+      '/api/v1/triggers',
+    )
+    return res.data
+  },
+
+  /**
+   * Delete a trigger by its ID (stops the scheduled task permanently).
+   */
+  async deleteTriggerById(triggerId: string): Promise<void> {
+    await apiClient.delete(`/api/v1/triggers/${encodeURIComponent(triggerId)}`)
   },
 }

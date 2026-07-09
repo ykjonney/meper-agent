@@ -181,61 +181,6 @@ class TestProcessDueTriggers:
         assert "$unset" in call_args.kwargs.get("update", call_args.args[1])
 
 
-class TestCreatePlaceholderTask:
-    """Tests for _create_placeholder_task race-safety."""
-
-    @patch("app.db.mongodb.get_database")
-    @patch("app.utils.template_renderer.render_default_input")
-    @patch("app.services.task_service.TaskService")
-    async def test_duplicate_key_reuses_existing(
-        self, mock_task_service, mock_render, mock_get_db
-    ) -> None:
-        """DuplicateKeyError → reuse the existing placeholder."""
-        from pymongo.errors import DuplicateKeyError
-
-        mock_render.return_value = {}
-        mock_task_service.create_task = AsyncMock(side_effect=DuplicateKeyError("dup"))
-
-        existing_id = "task_existing"
-        mock_col = MagicMock()
-        mock_col.find_one = AsyncMock(return_value={"_id": existing_id})
-        mock_col.update_one = AsyncMock()
-        mock_db = MagicMock()
-        mock_db.__getitem__.return_value = mock_col
-        mock_get_db.return_value = mock_db
-
-        svc = TriggerSchedulerService()
-        t = _make_trigger()
-        fire_at = datetime.now(timezone.utc)
-
-        # Should not raise — reuses existing placeholder instead
-        await svc._create_placeholder_task(t, fire_at)
-
-        mock_col.update_one.assert_awaited_once()
-        mock_task_service.create_task.assert_awaited_once()
-
-    @patch("app.utils.template_renderer.render_default_input")
-    @patch("app.services.task_service.TaskService")
-    async def test_normal_insert_creates_placeholder(
-        self, mock_task_service, mock_render
-    ) -> None:
-        """No conflict → create_task is called normally."""
-        mock_render.return_value = {}
-        mock_task_service.create_task = AsyncMock(return_value={"_id": "task_new"})
-
-        svc = TriggerSchedulerService()
-        t = _make_trigger()
-        fire_at = datetime.now(timezone.utc)
-
-        await svc._create_placeholder_task(t, fire_at)
-
-        mock_task_service.create_task.assert_awaited_once()
-        # Verify source=trigger so it enters the partial unique index
-        _, kwargs = mock_task_service.create_task.call_args
-        assert kwargs["source"] == "trigger"
-        assert kwargs["trigger_id"] == t.id
-
-
 class TestLifecycle:
     """Tests for start/stop lifecycle."""
 

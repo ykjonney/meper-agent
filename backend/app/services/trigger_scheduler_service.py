@@ -10,21 +10,21 @@ Design (polling-based, replaces the previous Celery eta self-chain):
          one process wins the claim; losers get ``None`` and skip.
       2. Computes the *next* firing time and writes it back as the new
          ``next_trigger_at`` (so the poll loop picks it up next cycle).
-      3. Creates / reuses the placeholder Task for this firing.
-      4. Dispatches an *immediate* Celery task (no eta) to execute it.
+      3. Dispatches an *immediate* Celery task (no eta) to execute it.
+
+No placeholder tasks:
+    The trigger document is the sole management entity (shown in the task
+    board's "scheduled tasks" column). Each firing forks a fresh execution
+    Task (source="trigger_scheduled") from the trigger via
+    ``execute_scheduled_workflow``. There are no persistent pending
+    placeholder tasks.
 
 Why not Celery eta?
     Redis broker re-delivers unacked messages after ``visibility_timeout``.
     For long-eta jobs (e.g. monthly cron, eta ≈ 30 days) the eta message
-    is cycled "consumed → restored → consumed" every visibility_timeout
-    (default 7 days here), and combined with ``task_acks_late`` this can
-    cause duplicate executions and duplicate placeholder creation. Polling
-    keeps no broker state for future firings, so the problem disappears.
-
-DB-level guard:
-    A partial unique index (see ``TriggerRepository.ensure_indexes``) on
-    ``tasks`` ensures at most one pending placeholder per trigger, so even
-    if two pollers race past the claim, only one placeholder is inserted.
+    is cycled "consumed → restored → consumed" every visibility_timeout,
+    causing duplicate executions. Polling keeps no broker state for future
+    firings, so the problem disappears.
 """
 from __future__ import annotations
 
@@ -229,97 +229,17 @@ class TriggerSchedulerService:
         return True
 
     async def _fire(self, trigger: Trigger, fire_at: datetime) -> None:
-        """Dispatch immediate Celery execution for this trigger's current firing.
+        """Dispatch immediate Celery execution for this trigger.
 
-        Template/snapshot model: the pending placeholder Task (source="trigger")
-        is the "template" — it stays pending permanently (its scheduled_at is
-        updated to the next firing time). Celery execution snapshots a fresh
-        execution Task (source="trigger_scheduled") from the template and runs
-        THAT, leaving the template untouched. This means:
-
-          - The template is always pending → user can see/cancel it anytime.
-          - Modifying the trigger mid-execution doesn't affect the running
-            snapshot (it was copied from the template at dispatch time).
-          - No conflict between "current execution" and "next preview" — they
-            are separate documents.
+        No placeholder task is involved — the trigger document is the sole
+        management entity. Celery forks a fresh execution Task from the
+        trigger at execution time (see scheduled_workflow._execute_async).
         """
-        # Update the template's scheduled_at to the next firing time so the
-        # frontend shows when the *next* execution will happen. The template
-        # itself stays pending.
-        from app.db.mongodb import get_database
-        from app.models.base import utc_now
-
-        next_at = trigger.next_trigger_at
-        db = get_database()
-        await db["tasks"].update_one(
-            {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
-            {"$set": {"scheduled_at": next_at, "updated_at": utc_now()}},
-        )
-
-        # Dispatch immediate Celery execution (no eta → no visibility_timeout
-        # re-delivery risk for long schedules).
         if trigger.enabled:
             from app.workers.tasks.scheduled_workflow import execute_scheduled_workflow
 
             result = execute_scheduled_workflow.apply_async(args=[trigger.id])
             await self.repo.update(trigger.id, celery_task_id=result.id)
-
-    # ── Placeholder Task creation (race-safe via DB index) ──
-
-    async def _create_placeholder_task(
-        self,
-        trigger: Trigger,
-        fire_at: datetime,
-    ) -> None:
-        """Create a placeholder Task for this firing.
-
-        Race safety: the partial unique index on tasks
-        (trigger_id unique where source=trigger & status=pending) makes the
-        insert atomic. If a concurrent caller already inserted one, we catch
-        ``DuplicateKeyError`` and reuse the existing placeholder.
-        """
-        from pymongo.errors import DuplicateKeyError
-
-        from app.services.task_service import TaskService
-        from app.utils.template_renderer import render_default_input
-
-        rendered_input = render_default_input(trigger.default_input)
-        try:
-            await TaskService.create_task(
-                workflow_id=trigger.workflow_id,
-                input_data=rendered_input,
-                created_by=trigger.user_id,
-                created_by_type="system",
-                scheduled_at=fire_at,
-                skip_execution=True,
-                source="trigger",
-                trigger_id=trigger.id,
-            )
-            logger.info(
-                "trigger_placeholder_created",
-                trigger_id=trigger.id,
-                scheduled_at=fire_at.isoformat(),
-            )
-        except DuplicateKeyError:
-            # Another process won the race — reuse their placeholder by
-            # updating its scheduled_at for display consistency.
-            from app.db.mongodb import get_database
-            from app.models.base import utc_now
-
-            db = get_database()
-            existing = await db["tasks"].find_one(
-                {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
-                {"_id": 1},
-            )
-            if existing is not None:
-                await db["tasks"].update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": {"scheduled_at": fire_at, "updated_at": utc_now()}},
-                )
-            logger.debug(
-                "trigger_placeholder_already_exists_reused",
-                trigger_id=trigger.id,
-            )
 
     # ── Schedule computation ──
 
