@@ -303,8 +303,8 @@ class TaskService:
                 },
             )
 
-        # Per-user limit — skip for trigger-sourced tasks
-        if source != "trigger" and created_by and created_by not in ("system", "agent"):
+        # Per-user limit — skip for trigger-sourced tasks (template + snapshots)
+        if source not in ("trigger", "trigger_scheduled") and created_by and created_by not in ("system", "agent"):
             user_running = await col.count_documents(
                 {"status": TaskStatus.RUNNING.value, "created_by": created_by}
             )
@@ -336,11 +336,12 @@ class TaskService:
         col = TaskService._collection()
 
         # Find the oldest pending manual Task and atomically claim it.
-        # Trigger-sourced placeholder tasks are excluded — they are
-        # started directly by Celery at their scheduled time.
+        # Trigger-sourced tasks are excluded — they are started directly by
+        # Celery (source="trigger" = template, source="trigger_scheduled" =
+        # execution snapshot), not by this FIFO scheduler.
         now = utc_now()
         pending = await col.find_one_and_update(
-            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger"}},
+            {"status": TaskStatus.PENDING.value, "source": {"$nin": ["trigger", "trigger_scheduled"]}},
             {
                 "$set": {
                     "status": TaskStatus.RUNNING.value,

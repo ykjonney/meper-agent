@@ -105,9 +105,8 @@ class TestProcessDueTriggers:
         assert fired == 0
         mock_fire.assert_not_awaited()
 
-    @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._create_placeholder_task", new_callable=AsyncMock)
     @patch("app.services.trigger_scheduler_service.TriggerSchedulerService._fire", new_callable=AsyncMock)
-    async def test_due_cron_trigger_fires_and_advances(self, mock_fire, mock_create_ph) -> None:
+    async def test_due_cron_trigger_fires_and_advances(self, mock_fire) -> None:
         """A due cron trigger is claimed, fired, and next_trigger_at advanced."""
         past = datetime.now(timezone.utc) - timedelta(minutes=5)
         doc = _make_trigger(next_trigger_at=past).model_dump(by_alias=True)
@@ -124,8 +123,6 @@ class TestProcessDueTriggers:
         fired = await svc._process_due_triggers()
         assert fired == 1
         mock_fire.assert_awaited_once()
-        # After firing, a placeholder for the NEXT firing should be pre-created
-        mock_create_ph.assert_awaited()
 
     async def test_claim_lost_returns_false(self) -> None:
         """When find_one_and_update returns None, the claim was lost (race)."""

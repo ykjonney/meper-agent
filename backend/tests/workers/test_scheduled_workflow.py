@@ -42,27 +42,26 @@ class TestExecuteScheduledWorkflow:
         mock_render: MagicMock,
         mock_engine_class: MagicMock,
     ) -> None:
-        """Should execute a trigger's placeholder task via the engine."""
+        """Should snapshot a task from the template and execute the snapshot."""
         trigger_doc = _make_trigger_doc()
         workflow_doc = {"_id": "wf_xxx", "name": "Test"}
-        placeholder = {"_id": "task_xxx", "status": "pending"}
+        # Template placeholder: always pending, source="trigger"
+        template = {"_id": "task_tpl", "status": "pending", "source": "trigger",
+                    "workflow_id": "wf_xxx", "created_by": "user_1"}
 
-        # repo.find_by_id returns the Trigger
         mock_repo = MagicMock()
         mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
         mock_repo.update = AsyncMock()
         mock_repo_cls.return_value = mock_repo
 
-        # db["workflows"].find_one returns workflow; db["tasks"].find_one returns placeholder
         mock_db = MagicMock()
-
         workflows_col = MagicMock()
         workflows_col.find_one = AsyncMock(return_value=workflow_doc)
 
         tasks_col = MagicMock()
-        tasks_col.find_one = AsyncMock(return_value=placeholder)
+        tasks_col.find_one = AsyncMock(return_value=template)
+        tasks_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="snap"))
 
-        # __getitem__ routes to the right collection
         def getitem(name):
             return {"workflows": workflows_col, "tasks": tasks_col}[name]
 
@@ -80,10 +79,14 @@ class TestExecuteScheduledWorkflow:
         result = await _execute_async("trig_xxx")
 
         assert result["status"] == "success"
-        assert result["task_id"] == "task_xxx"
-        mock_engine.run_and_persist.assert_awaited_once_with("task_xxx")
+        # Engine executes the SNAPSHOT, not the template
+        assert result["task_id"] != "task_tpl"
+        mock_engine.run_and_persist.assert_awaited_once()
+        executed_task_id = mock_engine.run_and_persist.call_args.args[0]
+        assert executed_task_id != "task_tpl"  # snapshot, not template
+        # Snapshot was inserted
+        tasks_col.insert_one.assert_awaited_once()
         mock_render.assert_called_once()
-        # last_triggered_at updated
         mock_repo.update.assert_awaited()
 
     @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
@@ -187,7 +190,10 @@ class TestExecuteScheduledWorkflow:
         workflows_col = MagicMock()
         workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
         tasks_col = MagicMock()
-        tasks_col.find_one = AsyncMock(return_value={"_id": "task_xxx"})
+        template = {"_id": "task_tpl", "status": "pending", "source": "trigger",
+                    "workflow_id": "wf_xxx", "created_by": "user_1"}
+        tasks_col.find_one = AsyncMock(return_value=template)
+        tasks_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="snap"))
 
         def getitem(name):
             return {"workflows": workflows_col, "tasks": tasks_col}[name]
@@ -204,5 +210,5 @@ class TestExecuteScheduledWorkflow:
 
         result = await _execute_async("trig_xxx")
         assert result["status"] == "error"
-        assert result["task_id"] == "task_xxx"
+        assert result["task_id"] != "task_tpl"  # snapshot, not template
         assert "Engine boom" in result["message"]

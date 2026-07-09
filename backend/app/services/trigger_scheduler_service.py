@@ -211,49 +211,50 @@ class TriggerSchedulerService:
         # Reflect the advanced state on the in-memory object for firing.
         trigger.next_trigger_at = new_next
 
-        # Dispatch execution of the *current* firing. The pending placeholder
-        # for this firing was pre-created in the previous cycle (or by the
-        # API on create/update). We do NOT create a new one here — _fire
-        # just dispatches Celery to consume the existing pending placeholder.
+        # Fire the current firing: create the placeholder Task + dispatch
+        # immediate Celery execution. The placeholder is transient — it
+        # exists only from creation until the engine transitions it to
+        # running→completed. We do NOT pre-create a placeholder for the
+        # NEXT firing; trigger.next_trigger_at serves that purpose (it was
+        # already advanced above). This avoids the impossible problem of
+        # needing two pending placeholders for one trigger at once.
         await self._fire(trigger, old_next)
-
-        # Pre-create the placeholder Task for the NEXT firing (new_next).
-        # This must happen AFTER _fire dispatches, but the current placeholder
-        # may still be pending (Celery hasn't transitioned it to running yet).
-        # That's fine: _create_placeholder_task catches DuplicateKeyError and
-        # reuses the existing one, updating its scheduled_at to new_next.
-        # When Celery picks it up, execute_scheduled_workflow finds the pending
-        # placeholder (regardless of scheduled_at) and runs it. After it
-        # transitions to running/completed, the index slot frees up and the
-        # next cycle's pre-create inserts a fresh one.
-        if new_next is not None:
-            await self._create_placeholder_task(trigger, new_next)
 
         logger.info(
             "trigger_fired",
             trigger_id=trigger.id,
             kind="cron",
-            next_at=new_next.isoformat(),
+            next_at=new_next.isoformat() if new_next else None,
         )
         return True
 
     async def _fire(self, trigger: Trigger, fire_at: datetime) -> None:
         """Dispatch immediate Celery execution for this trigger's current firing.
 
-        The pending placeholder Task should already exist (pre-created in the
-        previous poll cycle, or by the API). If it doesn't (e.g. first-ever
-        firing with no pre-created placeholder), create one on the fly.
-        """
-        from app.db.mongodb import get_database
+        Template/snapshot model: the pending placeholder Task (source="trigger")
+        is the "template" — it stays pending permanently (its scheduled_at is
+        updated to the next firing time). Celery execution snapshots a fresh
+        execution Task (source="trigger_scheduled") from the template and runs
+        THAT, leaving the template untouched. This means:
 
-        # Ensure a pending placeholder exists for this firing.
+          - The template is always pending → user can see/cancel it anytime.
+          - Modifying the trigger mid-execution doesn't affect the running
+            snapshot (it was copied from the template at dispatch time).
+          - No conflict between "current execution" and "next preview" — they
+            are separate documents.
+        """
+        # Update the template's scheduled_at to the next firing time so the
+        # frontend shows when the *next* execution will happen. The template
+        # itself stays pending.
+        from app.db.mongodb import get_database
+        from app.models.base import utc_now
+
+        next_at = trigger.next_trigger_at
         db = get_database()
-        existing = await db["tasks"].find_one(
+        await db["tasks"].update_one(
             {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
-            {"_id": 1},
+            {"$set": {"scheduled_at": next_at, "updated_at": utc_now()}},
         )
-        if existing is None:
-            await self._create_placeholder_task(trigger, fire_at)
 
         # Dispatch immediate Celery execution (no eta → no visibility_timeout
         # re-delivery risk for long schedules).
