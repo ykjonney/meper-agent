@@ -97,12 +97,16 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         return {"status": "skipped", "message": "template task not found"}
 
     # 5. Snapshot a fresh execution Task from the template. This Task is the
-    #    one that actually runs. It carries source="trigger_scheduled" so it's
-    #    distinguishable from the always-pending template (source="trigger").
+    #    one that actually runs. It starts in PENDING because the engine's
+    #    execute_task performs a PENDING→RUNNING transition internally — the
+    #    task must be PENDING for that to succeed. The PENDING window is
+    #    negligible (insert → immediate run_and_persist → transition to
+    #    RUNNING happens in the same synchronous Celery call, ~milliseconds).
     from app.models.base import generate_id, utc_now as _utc_now
     from app.models.task import TaskStatus
 
     snapshot_id = generate_id("task")
+    now = _utc_now()
     snapshot_doc = {
         "_id": snapshot_id,
         "workflow_id": template_doc["workflow_id"],
@@ -116,14 +120,14 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         "scheduled_at": template_doc.get("scheduled_at"),
         "timeline": [
             {
-                "timestamp": _utc_now().isoformat(),
+                "timestamp": now.isoformat(),
                 "event_type": "created",
                 "data": {"workflow_id": template_doc["workflow_id"], "from_trigger": trigger_id},
                 "actor": "system",
-            }
+            },
         ],
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
+        "created_at": now,
+        "updated_at": now,
         "version": 1,
     }
     await db["tasks"].insert_one(snapshot_doc)
