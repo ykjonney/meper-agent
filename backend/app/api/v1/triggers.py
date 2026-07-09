@@ -73,6 +73,36 @@ def _compute_next_trigger_at(trigger: Trigger) -> datetime | None:
     return scheduler._compute_next(trigger, now)
 
 
+async def _ensure_template_placeholder(trigger: Trigger, scheduled_at: datetime | None) -> None:
+    """Ensure the always-pending template placeholder Task exists for a trigger.
+
+    The template (source="trigger", status="pending") represents the trigger
+    configuration: it's visible in the task board, its scheduled_at shows the
+    next firing time, and cancelling it stops the trigger. This helper is
+    idempotent — if a template already exists, it just updates scheduled_at.
+    Called on create / update / toggle.
+    """
+    from app.db.mongodb import get_database
+
+    db = get_database()
+    existing = await db["tasks"].find_one(
+        {"trigger_id": trigger.id, "status": "pending", "source": "trigger"},
+        {"_id": 1},
+    )
+    scheduler = get_trigger_scheduler()
+    if existing is None:
+        await scheduler._create_placeholder_task(
+            trigger, scheduled_at or datetime.now().astimezone()
+        )
+    elif scheduled_at is not None:
+        # Template exists — just refresh its scheduled_at for display.
+        from app.models.base import utc_now
+        await db["tasks"].update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"scheduled_at": scheduled_at, "updated_at": utc_now()}},
+        )
+
+
 # ── Endpoints ──
 
 
@@ -104,12 +134,17 @@ async def create_trigger(
 
     await repo.insert(trigger)
 
-    # Set initial next_trigger_at so the polling scheduler picks it up.
-    # No Celery dispatch here — the poller fires it when due.
+    # Set initial next_trigger_at + create the template placeholder Task.
+    next_at = None
     if trigger.enabled:
         next_at = _compute_next_trigger_at(trigger)
         if next_at is not None:
             await repo.update(trigger.id, next_trigger_at=next_at)
+
+    # Always create the template placeholder (even if disabled, so it's
+    # ready when the user enables later). It stays pending permanently.
+    fresh = await repo.find_by_id(trigger.id)
+    await _ensure_template_placeholder(fresh or trigger, next_at)
 
     # Re-fetch to include computed next_trigger_at
     updated = await repo.find_by_id(trigger.id)
@@ -232,6 +267,8 @@ async def update_trigger(
         if updated_trigger.enabled:
             next_at = _compute_next_trigger_at(updated_trigger)
             await repo.update(trigger_id, next_trigger_at=next_at)
+            # Ensure template exists + refresh its scheduled_at.
+            await _ensure_template_placeholder(updated_trigger, next_at)
         else:
             # Disabled: clear next_trigger_at (poller filters on enabled anyway,
             # but clearing avoids stale due-time display).
@@ -276,11 +313,13 @@ async def toggle_trigger(
     )
 
     if body.enabled:
-        # Enable: compute next_trigger_at so the poller picks it up.
+        # Enable: compute next_trigger_at so the poller picks it up,
+        # and ensure the template placeholder exists.
         updated_trigger = await repo.find_by_id(trigger_id)
         if updated_trigger is not None:
             next_at = _compute_next_trigger_at(updated_trigger)
             await repo.update(trigger_id, next_trigger_at=next_at)
+            await _ensure_template_placeholder(updated_trigger, next_at)
     else:
         # Disable: clear next_trigger_at so the poller never fires it.
         await repo.update(trigger_id, next_trigger_at=None)
