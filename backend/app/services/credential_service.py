@@ -11,9 +11,13 @@ from typing import Any
 
 from loguru import logger
 
-from app.core.crypto import decrypt_secret, encrypt_secret, get_encryption_key, mask_secret
+from app.core.crypto import (
+    decrypt_secret,
+    encrypt_secret,
+    get_encryption_key,
+    mask_secret,
+)
 from app.db.mongodb import get_database
-from app.models.base import utc_now
 from app.models.credential import Credential
 
 COLLECTION = "credentials"

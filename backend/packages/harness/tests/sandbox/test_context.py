@@ -26,6 +26,9 @@ class _StubSandbox(Sandbox):
     def write_file(self, path, content):
         pass
 
+    def write_to_output(self, path, content):
+        pass
+
     def glob(self, path, pattern):
         return []
 

@@ -42,7 +42,7 @@ import { TaskBoardColumn } from '../components/task-board-column'
 import { TaskOutputFiles } from '../components/task-result-card'
 import { parseBackendDate } from '../lib/format'
 import { WorkflowTriggerAPI } from '../services/workflow-trigger-api'
-import { workflowsApi, type WorkflowNode } from '../services/workflows-api'
+import { workflowsApi } from '../services/workflows-api'
 import type { TriggerConfig, TriggerType } from '../types/workflow-trigger'
 import type { VariableDefinition } from '../features/workflow-editor/utils/variable-types'
 import TriggerSchedulePicker from '../components/workflows/TriggerSchedulePicker'
@@ -276,6 +276,7 @@ export default function TasksPage() {
   }, [editWorkflowDetail])
 
   /* ─── Sync form state when trigger config loads ─── */
+  /* eslint-disable react-hooks/set-state-in-effect -- form initialization from loaded data */
   useEffect(() => {
     if (editTriggerConfig) {
       setEditEnabled(editTriggerConfig.enabled)
@@ -286,6 +287,7 @@ export default function TasksPage() {
       setEditDirty(false)
     }
   }, [editTriggerConfig])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /* ─── Mutation: update scheduled task config ─── */
   const editScheduleMutation = useMutation({
@@ -1085,7 +1087,7 @@ export default function TasksPage() {
                 const config: Partial<TriggerConfig> = {
                   type: editTriggerType,
                   enabled: editEnabled,
-                  default_input: editDefaultInput as Record<string, any>,
+                  default_input: editDefaultInput as Record<string, unknown>,
                 }
                 if (editTriggerType === 'cron') {
                   config.cron_expression = editCronExpression

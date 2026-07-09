@@ -13,8 +13,9 @@ import { Drawer, Button, Input, Select, Radio, Segmented, message, Divider, Chec
 import { GlobalOutlined, CodeOutlined, PlusOutlined } from '@ant-design/icons'
 import { toolsApi } from '../services/tools-api'
 import { normalizeError } from '../services/api-client'
-import ParamEditor, { paramsToSchema } from './param-editor'
+import ParamEditor from './param-editor'
 import type { ToolParam } from './param-editor'
+import { paramsToSchema } from './param-utils'
 import KeyValueEditor from './key-value-editor'
 import type { KVPair } from './key-value-editor'
 

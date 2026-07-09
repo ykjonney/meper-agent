@@ -24,7 +24,6 @@ import {
   Drawer,
   Alert,
   Divider,
-  Upload,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -36,8 +35,6 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
   FileOutlined,
-  UploadOutlined,
-  DeleteOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons'
 import {
@@ -49,7 +46,6 @@ import {
 import { useAuthStore } from '../stores/auth-store'
 import { parseBackendDate } from '../lib/format'
 import { tasksApi, type TaskOutputFile } from '../services/tasks-api'
-import { filesApi, getFileId } from '../services/files-api'
 import FileDownloadButton from '../components/file-download-button'
 import FilePreview from '../components/file-preview'
 import { getPreviewKind } from '../lib/file-preview'
@@ -426,8 +422,6 @@ export default function WorkflowDetailPage() {
   /* ─── Trigger config state ─── */
   const [triggerOpen, setTriggerOpen] = useState(false)
   const [triggerEnabled, setTriggerEnabled] = useState(false)
-  const [triggerSummary, setTriggerSummary] = useState('')
-  const [triggerCron, setTriggerCron] = useState('')
 
   /* ─── Editing state ─── */
   const [editName, setEditName] = useState('')

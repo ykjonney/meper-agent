@@ -9,6 +9,7 @@ import { Radio, TimePicker, Input, Select } from 'antd'
 import type { RadioChangeEvent } from 'antd'
 import type { ScheduleFrequency } from '@/types/workflow-trigger'
 import { WEEKDAY_LABELS } from '@/types/workflow-trigger'
+import dayjs from 'dayjs'
 
 interface Props {
   value: string           // Cron 表达式
@@ -73,10 +74,11 @@ function buildCron(state: InternalState): string {
       const cronDays = days.map((d) => d === 7 ? 0 : d).sort().join(',')
       return `${state.minute} ${state.hour} * * ${cronDays}`
     }
-    case 'monthly':
+    case 'monthly': {
       // 默认 1 号
       const day = state.dayOfMonth || 1
       return `${state.minute} ${state.hour} ${day} * *`
+    }
     case 'custom':
       return state.customCron
   }
@@ -88,12 +90,14 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
   const [state, setState] = useState<InternalState>(() => parseCron(value))
 
   // 外部 value 变化时同步（仅在自定义模式下，用户输入直接更新）
+  /* eslint-disable react-hooks/set-state-in-effect -- sync external value */
   useEffect(() => {
     if (state.frequency === 'custom' && value !== state.customCron) {
       setState((prev) => ({ ...prev, customCron: value }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateState = useCallback((partial: Partial<InternalState>) => {
     setState((prev) => {
@@ -108,35 +112,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
     updateState({ frequency: freq })
   }
 
-  const dayjs = (() => {
-    // 动态导入 dayjs 的 TimePicker 需要
-    try {
-      return require('dayjs')
-    } catch {
-      return null
-    }
-  })()
-
   const renderTimePicker = () => {
-    if (!dayjs) {
-      // Fallback: 手动输入
-      return (
-        <div className="flex items-center gap-2 text-xs">
-          <span>时间:</span>
-          <Input
-            type="time"
-            value={`${String(state.hour).padStart(2, '0')}:${String(state.minute).padStart(2, '0')}`}
-            onChange={(e) => {
-              const [h, m] = e.target.value.split(':').map(Number)
-              updateState({ hour: h ?? 0, minute: m ?? 0 })
-            }}
-            className="!w-auto !text-xs"
-            disabled={disabled}
-          />
-        </div>
-      )
-    }
-
     return (
       <div className="flex items-center gap-2 text-xs">
         <span>时间:</span>

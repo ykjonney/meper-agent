@@ -9,7 +9,7 @@ export interface TriggerConfig {
   enabled: boolean
   cron_expression?: string
   execute_at?: string
-  default_input: Record<string, any>
+  default_input: Record<string, unknown>
   schedule_version?: number
   last_triggered_at?: string
   next_trigger_at?: string

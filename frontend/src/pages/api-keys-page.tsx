@@ -20,9 +20,7 @@ import {
   ExclamationCircleOutlined,
   LinkOutlined,
   ApiOutlined,
-  ClockCircleOutlined,
   SendOutlined,
-  EditOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -37,10 +35,9 @@ import {
   webhookKeys,
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_LABELS,
-  type Webhook,
 } from '../services/webhook-api'
-import { agentApi, type Agent } from '../services/agent-api'
-import { workflowsApi, type WorkflowSummary } from '../services/workflows-api'
+import { agentApi } from '../services/agent-api'
+import { workflowsApi } from '../services/workflows-api'
 
 /* ─── Status styles ─── */
 const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {

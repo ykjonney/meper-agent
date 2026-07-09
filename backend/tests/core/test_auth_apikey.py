@@ -1,9 +1,8 @@
 """Tests for API Key generation, verification, and auth principal."""
 
 import pytest
-
 from app.core.auth_apikey import ApiKeyPrincipal
-from app.core.errors import ForbiddenError, UnauthorizedError
+from app.core.errors import ForbiddenError
 from app.services.api_key_service import (
     _extract_prefix,
     _generate_raw_key,

@@ -33,7 +33,7 @@ def _decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
     """
     if not user_args:
         return {}
-    from app.core.crypto import decrypt_secret, CryptoError
+    from app.core.crypto import CryptoError, decrypt_secret
 
     user_schema = tool_doc.get("user_args_schema", {})
     props = user_schema.get("properties", {})

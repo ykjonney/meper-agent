@@ -46,7 +46,6 @@ async def lifespan(app: FastAPI):
     # Initialize Trigger repository and indexes
     from app.db.mongodb import get_database
     from app.services.trigger_repo import TriggerRepository
-    from app.services.trigger_scheduler_service import get_trigger_scheduler
 
     trigger_repo = TriggerRepository(get_database())
     await trigger_repo.ensure_indexes()

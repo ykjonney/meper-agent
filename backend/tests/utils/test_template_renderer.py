@@ -1,5 +1,5 @@
 """Tests for template renderer utility."""
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.utils.template_renderer import render_default_input
 

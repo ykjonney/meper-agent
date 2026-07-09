@@ -1,5 +1,5 @@
 """Template renderer for trigger default_input values."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from jinja2 import Template, TemplateError
@@ -20,8 +20,8 @@ def render_default_input(default_input: dict[str, Any]) -> dict[str, Any]:
         Rendered parameters dict.
     """
     context = {
-        "now": lambda: datetime.now(timezone.utc).isoformat(),
-        "today": lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "now": lambda: datetime.now(UTC).isoformat(),
+        "today": lambda: datetime.now(UTC).strftime("%Y-%m-%d"),
     }
 
     rendered = {}

@@ -1,7 +1,6 @@
 """Tests for Webhook CRUD, delivery, and event dispatch."""
 import hashlib
 import hmac
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -327,4 +326,4 @@ class TestEventTypes:
             "task.failed",
             "task.waiting_human",
         ]
-        assert WEBHOOK_EVENTS == expected
+        assert expected == WEBHOOK_EVENTS

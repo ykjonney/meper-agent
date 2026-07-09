@@ -38,11 +38,18 @@ def test_agent_config_with_tools():
     assert len(cfg.tools) == 2
 
 
-def test_agent_config_accepts_sandbox_instance():
+def test_agent_config_accepts_sandbox_instance(tmp_path):
     """sandbox 字段接收已构建的 Sandbox 实例（arbitrary_types_allowed）。"""
     from agent_flow_harness.sandbox import LocalSandbox
 
-    sb = LocalSandbox(sandbox_id="t", work_dir=Path("/tmp"), timeout=10)
+    work_dir = tmp_path / "work"
+    output_dir = tmp_path / "output"
+    sb = LocalSandbox(
+        sandbox_id="t",
+        work_dir=work_dir,
+        output_dir=output_dir,
+        timeout=10,
+    )
     cfg = AgentConfig(name="a", sandbox=sb)
     assert cfg.sandbox is sb
 

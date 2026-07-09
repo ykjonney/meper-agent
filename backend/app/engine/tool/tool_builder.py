@@ -19,7 +19,6 @@ from langchain_core.tools import StructuredTool
 from loguru import logger
 from pydantic import BaseModel, create_model
 
-
 # ---------------------------------------------------------------------------
 # Template rendering — simple {{ }} replacement (no Jinja2 dependency)
 # ---------------------------------------------------------------------------
@@ -232,8 +231,8 @@ async def _build_code_tool(
             return str(result)
 
         # Use sandbox bash to run the code
-        import tempfile
         import os
+        import tempfile
 
         full_code = _wrap_code_for_sandbox(code, name, kwargs)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
@@ -259,9 +258,6 @@ async def _build_code_tool(
 
 def _wrap_code_for_sandbox(code: str, func_name: str, kwargs: dict[str, Any]) -> str:
     """Wrap user code into a runnable script that calls the function and prints result."""
-    import json as _json
-
-    args_json = _json.dumps(kwargs)
     return f"""
 import json, sys
 

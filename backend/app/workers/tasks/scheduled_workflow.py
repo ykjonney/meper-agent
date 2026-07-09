@@ -12,7 +12,6 @@ from loguru import logger
 from app.db.mongodb import get_database
 from app.engine.workflow.engine import WorkflowEngine
 from app.models.base import utc_now
-from app.models.trigger import Trigger
 from app.services.trigger_repo import TriggerRepository
 from app.utils.template_renderer import render_default_input
 from app.workers.celery_app import celery_app

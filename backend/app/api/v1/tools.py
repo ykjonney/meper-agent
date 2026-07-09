@@ -1,6 +1,7 @@
 """Tool API endpoints — Markdown Skill upload + custom tool CRUD for the unified tool pool."""
 from __future__ import annotations
 
+import contextlib
 from collections import defaultdict
 from typing import Any
 
@@ -52,10 +53,8 @@ async def list_builtin_tools(
     for name, tool in _BUILTIN_TOOL_REGISTRY.items():
         params = {}
         if hasattr(tool, "args_schema") and tool.args_schema:
-            try:
+            with contextlib.suppress(Exception):
                 params = tool.args_schema.model_json_schema()
-            except Exception:
-                pass
         results.append(
             BuiltinToolResponse(name=name, description=tool.description or "", parameters=params)
         )

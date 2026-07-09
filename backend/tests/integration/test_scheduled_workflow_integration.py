@@ -16,11 +16,8 @@ verifying cross-component integration.
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.services.trigger_scheduler_service import TriggerSchedulerService
 from app.workers.tasks.scheduled_workflow import _execute_async
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -2,7 +2,6 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from loguru import logger
 from pydantic import BaseModel
 
 from app.core.errors import NotFoundError

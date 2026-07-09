@@ -45,6 +45,7 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
   const [dirty, setDirty] = useState(false)
 
   /* ─── 初始化表单（每次打开都是全新的创建） ─── */
+  /* eslint-disable react-hooks/set-state-in-effect -- form reset on modal open */
   useEffect(() => {
     if (open) {
       setEnabled(false)
@@ -55,8 +56,10 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
       setDirty(false)
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /* ─── 初始化 default_input 的默认值 ─── */
+  /* eslint-disable react-hooks/set-state-in-effect -- initialize defaults when variables loaded */
   useEffect(() => {
     if (open && variables.length > 0) {
       const defaults: Record<string, unknown> = {}
@@ -69,8 +72,8 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
         setDefaultInput(defaults)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, variables])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /* ─── 保存 ─── */
   const handleSave = async () => {
@@ -115,7 +118,7 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
       const payload: Partial<TriggerConfig> = {
         type: triggerType,
         enabled,
-        default_input: defaultInput as Record<string, any>,
+        default_input: defaultInput as Record<string, unknown>,
       }
       if (triggerType === 'cron') {
         payload.cron_expression = cronExpression

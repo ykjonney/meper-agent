@@ -1,5 +1,5 @@
 """Tests for TriggerConfig model."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.workflow import TriggerConfig
 
@@ -22,7 +22,7 @@ class TestTriggerConfig:
 
     def test_trigger_config_once(self) -> None:
         """测试一次性触发配置"""
-        execute_time = datetime(2026, 7, 10, 14, 0, tzinfo=timezone.utc)
+        execute_time = datetime(2026, 7, 10, 14, 0, tzinfo=UTC)
         config = TriggerConfig(
             type="once",
             enabled=True,
