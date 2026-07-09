@@ -26,6 +26,30 @@ _BACKEND_BUILTIN_TOOLS_TO_REPLACE = {
 }
 
 
+def _decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
+    """解密 user_args 里标记为 sensitive 的字段。
+
+    Agent 绑定时 sensitive 字段加密存储（前缀 enc:），运行时解密。
+    """
+    if not user_args:
+        return {}
+    from app.core.crypto import decrypt_secret, CryptoError
+
+    user_schema = tool_doc.get("user_args_schema", {})
+    props = user_schema.get("properties", {})
+    result = {}
+    for key, value in user_args.items():
+        prop = props.get(key, {})
+        if prop.get("sensitive") and isinstance(value, str) and value.startswith("enc:"):
+            try:
+                result[key] = decrypt_secret(value[4:])
+            except (CryptoError, Exception):
+                result[key] = value  # 解密失败用原值
+        else:
+            result[key] = value
+    return result
+
+
 async def resolve_harness_context(
     agent: dict,
     state: dict,
@@ -76,7 +100,7 @@ async def resolve_harness_context(
     # 2. 工具合并:harness 文件工具 + ask_clarification + task 工具
     harness_file_tools = [
         BUILTIN_TOOLS[name]
-        for name in ("bash", "read", "write", "glob", "grep")
+        for name in ("bash", "read", "write", "write_to_output", "glob", "grep")
         if name in BUILTIN_TOOLS
     ]
     if "ask_clarification" in BUILTIN_TOOLS:
@@ -127,14 +151,23 @@ async def resolve_harness_context(
             all_tools.extend(mcp_tools)
 
     # 4.5. 自定义工具 (openapi / code / prebuilt)
-    custom_tool_ids = agent.get("custom_tool_ids") or []
-    if custom_tool_ids:
+    custom_tools = agent.get("custom_tools") or []
+    if custom_tools:
         from app.engine.tool.tool_builder import build_tool
         from app.services.tool_service import ToolService
 
-        custom_docs = await ToolService.get_tools_by_ids(custom_tool_ids)
-        for doc in custom_docs:
-            tool = await build_tool(doc)
+        for binding in custom_tools:
+            tool_id = binding.get("tool_id", "")
+            user_args = binding.get("user_args", {})
+            if not tool_id:
+                continue
+            docs = await ToolService.get_tools_by_ids([tool_id])
+            if not docs:
+                continue
+            doc = docs[0]
+            # 解密 user_args 里的 sensitive 字段
+            user_args = _decrypt_user_args(doc, user_args)
+            tool = await build_tool(doc, user_args=user_args)
             if tool is not None:
                 all_tools.append(tool)
 

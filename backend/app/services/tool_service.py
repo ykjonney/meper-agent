@@ -95,24 +95,21 @@ class ToolService:
         name: str,
         description: str,
         source: str,
-        input_schema: dict | None = None,
-        credential_id: str = "",  # backward compat, not used
-        credential_type: str = "none",
-        credential_fields: list[str] | None = None,
-        config: dict | None = None,  # deprecated
+        user_args_schema: dict | None = None,
+        llm_args_schema: dict | None = None,
         endpoint: dict | None = None,
         code: str = "",
         prebuilt_name: str = "",
     ) -> dict:
         """Create a custom tool (openapi / code / prebuilt).
 
-        Unlike ``create_tool_from_parsed`` (which is for uploaded Markdown
-        skills), this method creates tools from user-provided configuration
-        without any file materialization.
+        Args:
+            user_args_schema: 用户参数 schema（Agent 绑定时填入）。
+                字段标记 sensitive=true 的加密存储。
+            llm_args_schema: LLM 参数 schema（运行时 LLM 填入）。
         """
         from app.models.tool import Tool
 
-        # Check name uniqueness
         existing = await ToolService.find_by_name(name)
         if existing:
             from app.core.errors import ValidationError
@@ -125,11 +122,8 @@ class ToolService:
             name=name,
             description=description,
             source=source,
-            input_schema=input_schema or {},
-            credential_id=credential_id,
-            credential_type=credential_type,
-            credential_fields=credential_fields or [],
-            config=config or {},  # backward compat
+            user_args_schema=user_args_schema or {},
+            llm_args_schema=llm_args_schema or {},
             endpoint=endpoint or {},
             code=code,
             prebuilt_name=prebuilt_name,

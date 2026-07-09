@@ -1,4 +1,10 @@
-"""Scheduled workflow execution Celery task."""
+"""Scheduled workflow execution Celery task.
+
+Refactored: operates on independent Trigger documents instead of
+embedded trigger_config in workflows collection. Uses schedule_version
+to detect stale tasks after config changes.
+"""
+import asyncio
 from typing import Any
 
 from loguru import logger
@@ -6,95 +12,165 @@ from loguru import logger
 from app.db.mongodb import get_database
 from app.engine.workflow.engine import WorkflowEngine
 from app.models.base import utc_now
-from app.services.task_service import TaskService
+from app.models.trigger import Trigger
+from app.services.trigger_repo import TriggerRepository
 from app.utils.template_renderer import render_default_input
 from app.workers.celery_app import celery_app
 
+# Reuse a single event loop across Celery task invocations.
+# asyncio.run() closes the loop after each call, but motor caches the loop
+# reference — using a closed loop on the second invocation raises RuntimeError.
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    """Return a persistent event loop for async Celery tasks."""
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+    return _loop
+
 
 @celery_app.task(name="app.workers.tasks.scheduled_workflow.execute_scheduled_workflow")
-def execute_scheduled_workflow(workflow_id: str) -> dict[str, Any]:
+def execute_scheduled_workflow(
+    trigger_id: str,
+    expected_version: int,
+) -> dict[str, Any]:
     """Execute a scheduled workflow.
 
     Celery task entry point. Delegates to async implementation.
 
     Args:
-        workflow_id: Workflow ID to execute.
+        trigger_id: Trigger document ID.
+        expected_version: The schedule_version at the time of scheduling.
 
     Returns:
         Task execution result summary.
     """
-    import asyncio
+    return _get_loop().run_until_complete(
+        _execute_async(trigger_id, expected_version)
+    )
 
-    return asyncio.run(_execute_async(workflow_id))
 
-
-async def _execute_async(workflow_id: str) -> dict[str, Any]:
+async def _execute_async(
+    trigger_id: str,
+    expected_version: int,
+) -> dict[str, Any]:
     """Async execution logic.
 
-    Load workflow → render input → create Task → run engine → update trigger.
+    Load trigger → version check → load workflow → render input
+    → create Task → run engine → self-chain.
     """
     db = get_database()
+    repo = TriggerRepository(db)
 
-    # 1. Load Workflow
-    workflow_doc = await db["workflows"].find_one({"_id": workflow_id})
+    # 1. Load trigger
+    trigger_doc = await repo.find_by_id(trigger_id)
+    if not trigger_doc:
+        logger.error("trigger_not_found", trigger_id=trigger_id)
+        return {"status": "error", "message": "trigger not found"}
+
+    if not trigger_doc.enabled:
+        logger.warning("trigger_disabled", trigger_id=trigger_id)
+        return {"status": "skipped", "message": "disabled"}
+
+    # 2. Version check — user modified config, skip this execution
+    if trigger_doc.schedule_version != expected_version:
+        logger.info(
+            "trigger_version_mismatch",
+            trigger_id=trigger_id,
+            expected=expected_version,
+            actual=trigger_doc.schedule_version,
+        )
+        # Do NOT re-schedule here — the API endpoint that bumped the
+        # version already called schedule_next with the new version.
+        # Re-scheduling would duplicate Celery tasks in the queue.
+        return {"status": "skipped", "message": "version mismatch"}
+
+    # 3. Load workflow
+    workflow_doc = await db["workflows"].find_one({"_id": trigger_doc.workflow_id})
     if not workflow_doc:
-        logger.error("scheduled_workflow_not_found", workflow_id=workflow_id)
-        return {"status": "error", "message": f"Workflow {workflow_id} not found"}
+        logger.error(
+            "workflow_not_found",
+            workflow_id=trigger_doc.workflow_id,
+            trigger_id=trigger_id,
+        )
+        return {"status": "error", "message": "workflow not found"}
 
-    trigger_config = workflow_doc.get("trigger_config", {})
-    if trigger_config.get("enabled") is False:
-        logger.warning("scheduled_workflow_disabled", workflow_id=workflow_id)
-        return {"status": "error", "message": "Trigger is disabled"}
-
-    # 2. Render default input parameters
-    default_input = trigger_config.get("default_input", {})
-    rendered_input = render_default_input(default_input)
+    # 4. Render default input parameters
+    rendered_input = render_default_input(trigger_doc.default_input)
 
     logger.info(
         "scheduled_workflow_starting",
-        workflow_id=workflow_id,
+        trigger_id=trigger_id,
+        workflow_id=trigger_doc.workflow_id,
         rendered_input=rendered_input,
     )
 
-    # 3-5. Create Task, Execute, Update trigger — all in one try/except
-    # so that a create_task failure is also caught (task_id stays "").
-    task_id = ""
+    # 5. Find placeholder Task
+    task_doc = await db["tasks"].find_one(
+        {"trigger_id": trigger_id, "status": "pending", "source": "trigger"},
+    )
+    if not task_doc:
+        logger.warning(
+            "trigger_placeholder_not_found",
+            trigger_id=trigger_id,
+        )
+        # Do NOT re-schedule here — could duplicate Celery tasks.
+        # The trigger's next execution will be set up by:
+        # - the API endpoint (if user updates the trigger), or
+        # - TriggerSchedulerService.start() on next server restart.
+        return {"status": "error", "message": "placeholder task not found"}
+
+    task_id = task_doc["_id"]
+
+    logger.info(
+        "scheduled_workflow_starting_placeholder",
+        trigger_id=trigger_id,
+        task_id=task_id,
+    )
+
+    # 6. Self-chain: schedule next execution BEFORE running the workflow,
+    # so the next Celery eta is dispatched immediately and doesn't drift
+    # if the current execution takes a long time.
+    if trigger_doc.type == "cron" and trigger_doc.enabled:
+        try:
+            from app.services.trigger_scheduler_service import TriggerSchedulerService
+
+            chain_scheduler = TriggerSchedulerService(repo=repo)
+            await chain_scheduler.schedule_next(trigger_id, exclude_task_id=task_id)
+            logger.info("trigger_self_chain_scheduled", trigger_id=trigger_id)
+        except Exception as chain_err:
+            logger.error(
+                "trigger_self_chain_failed",
+                trigger_id=trigger_id,
+                error=str(chain_err),
+            )
+
+    # 7. Execute the workflow
+    result: dict[str, Any] = {"status": "error", "task_id": task_id, "message": "unknown"}
     try:
-        task_doc = await TaskService.create_task(
-            workflow_id=workflow_id,
-            input_data=rendered_input,
-            created_by="system",
-            created_by_type="system",
-        )
-        task_id = task_doc["_id"]
-
-        logger.info(
-            "scheduled_workflow_task_created",
-            workflow_id=workflow_id,
-            task_id=task_id,
-        )
-
         engine = WorkflowEngine()
         await engine.run_and_persist(task_id)
 
         # Update last_triggered_at
-        await db["workflows"].update_one(
-            {"_id": workflow_id},
-            {"$set": {"trigger_config.last_triggered_at": utc_now()}},
-        )
+        await repo.update(trigger_id, last_triggered_at=utc_now())
 
         logger.info(
             "scheduled_workflow_completed",
-            workflow_id=workflow_id,
+            trigger_id=trigger_id,
             task_id=task_id,
         )
-        return {"status": "success", "task_id": task_id}
+
+        result = {"status": "success", "task_id": task_id}
 
     except Exception as e:
         logger.error(
             "scheduled_workflow_failed",
-            workflow_id=workflow_id,
+            trigger_id=trigger_id,
             task_id=task_id,
             error=str(e),
         )
-        return {"status": "error", "task_id": task_id, "message": str(e)}
+        result = {"status": "error", "task_id": task_id, "message": str(e)}
+
+    return result

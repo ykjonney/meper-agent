@@ -8,6 +8,7 @@ dependencies = [
     "agent-flow-harness",
     "bcrypt>=4.3.0",
     "celery>=5.6.3",
+    "croniter>=2.0.0",
     "cryptography>=45.0.0",
     "docker>=7.1.0",
     "fastapi>=0.136.3",
@@ -88,6 +89,7 @@ disable_error_code = ["no-any-return", "misc", "union-attr", "arg-type", "attr-d
 # These modules are imported by the app but lack py.typed markers.
 module = [
     "celery",
+    "croniter",
     "docker",
     "motor",
     "motor.motor_asyncio",

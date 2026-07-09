@@ -34,12 +34,17 @@ const MCP_STATUS_LABELS: Record<string, string> = {
 }
 
 /* ─── Value 类型 ─── */
+export interface CustomToolBinding {
+  tool_id: string
+  user_args: Record<string, string>
+}
+
 export interface ToolSelectorValue {
   builtin_config: string[]
   skill_ids: string[]
   mcp_connection_ids: string[]
   workflow_ids: string[]
-  custom_tool_ids: string[]
+  custom_tools: CustomToolBinding[]
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -48,7 +53,7 @@ export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
   skill_ids: [],
   mcp_connection_ids: [],
   workflow_ids: [],
-  custom_tool_ids: [],
+  custom_tools: [],
 }
 
 /* ─── Props ─── */

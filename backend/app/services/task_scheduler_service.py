@@ -111,11 +111,15 @@ class TaskSchedulerService:
         col = get_database()["tasks"]
         now = datetime.now(UTC)
 
-        # Find due tasks — query for pending with scheduled_at <= now
+        # Find due tasks — query for pending with scheduled_at <= now.
+        # Exclude trigger-sourced placeholder tasks — those are started
+        # directly by Celery at their scheduled time via
+        # execute_scheduled_workflow, not by this polling scheduler.
         cursor = col.find(
             {
                 "status": TaskStatus.PENDING.value,
                 "scheduled_at": {"$lte": now, "$ne": None},
+                "source": {"$ne": "trigger"},
             }
         ).sort("scheduled_at", 1).limit(50)
 
@@ -130,10 +134,13 @@ class TaskSchedulerService:
                 # Import here to avoid circular import
                 from app.services.task_service import TaskService
 
-                # Check concurrency limits first — skip (don't fail) if exceeded
+                # Check concurrency limits first — skip (don't fail) if exceeded.
+                # We pass the task source so trigger-sourced tasks (if any slip
+                # through the query filter) skip the per-user limit.
                 created_by = doc.get("created_by", "")
+                task_source = doc.get("source", "manual")
                 try:
-                    await TaskService._check_concurrency_limits(created_by)
+                    await TaskService._check_concurrency_limits(created_by, task_source)
                 except Exception:
                     logger.warning(
                         "task_scheduler_skip_concurrency_limit",
@@ -142,14 +149,11 @@ class TaskSchedulerService:
                     )
                     continue
 
-                await TaskService.transition_task(
-                    task_id=task_id,
-                    to_status=TaskStatus.RUNNING,
-                    triggered_by="system",
-                    triggered_by_type="system",
-                    timeline_event_type="scheduled_start",
-                    timeline_data={"scheduled_at": str(doc.get("scheduled_at", ""))},
-                )
+                # Start workflow execution via the engine. The engine calls
+                # transition_task(PENDING → RUNNING) internally — do NOT
+                # call transition_task here, or the engine would fail with
+                # RUNNING → RUNNING (invalid transition).
+                TaskService._start_workflow_execution(task_id)
                 started += 1
                 logger.info(
                     "task_scheduled_started",

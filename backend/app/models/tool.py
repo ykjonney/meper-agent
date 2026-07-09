@@ -47,14 +47,19 @@ class Tool(BaseModel):
         description="关联的 MCP 连接 ID（仅 source=mcp 时有效）",
     )
     # ── Custom tool fields (source=openapi / code / prebuilt) ──────────
-    # 工具声明需要什么凭据（不绑定具体值，Agent 配置时才绑定）
-    credential_type: str = Field(
-        default="none",
-        description="需要的凭据类型: none / api_key / bearer / basic。Agent 配置时按此类型选择凭据。",
+    # 用户参数：Agent 绑定时填入的参数（含敏感字段如 token）
+    user_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "用户参数 JSON Schema。Agent 绑定时由用户填入固定值。"
+            "字段标记 sensitive=true 的加密存储。"
+            "模板用 {{user.xxx}} 引用。不暴露给 LLM。"
+        ),
     )
-    credential_fields: list[str] = Field(
-        default_factory=list,
-        description="凭据包含的字段名列表，如 ['token'] 或 ['username','password']。用于模板引用 {{credential.token}}。",
+    # LLM 参数：运行时 LLM 调用时动态填入
+    llm_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="LLM 参数 JSON Schema。LLM 调用时根据对话上下文填入。模板用 {{llm.xxx}} 引用。",
     )
     endpoint: dict[str, Any] = Field(
         default_factory=dict,

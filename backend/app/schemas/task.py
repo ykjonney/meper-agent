@@ -93,6 +93,8 @@ class TaskResponse(BaseModel):
     timeline: list[TimelineEventResponse] = Field(default_factory=list)
     error: TaskErrorResponse | None = None
     checkpoint: CheckpointResponse | None = None
+    source: str = "manual"
+    trigger_id: str | None = None
     scheduled_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -113,6 +115,8 @@ class TaskSummary(BaseModel):
     version: int = 1
     error: TaskErrorResponse | None = None
     checkpoint: CheckpointResponse | None = None
+    source: str = "manual"
+    trigger_id: str | None = None
     scheduled_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

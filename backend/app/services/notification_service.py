@@ -66,12 +66,20 @@ class NotificationService:
         if not event.task_id:
             return
 
+        logger.debug(
+            "notification_processing",
+            event_type=event.event_type,
+            task_id=event.task_id,
+        )
+
         task = await self._get_task(event.task_id)
         if task is None:
+            logger.debug("notification_skip_no_task", task_id=event.task_id)
             return
 
         user_id = task.get("created_by", "")
         if not user_id:
+            logger.debug("notification_skip_no_user", task_id=event.task_id)
             return
 
         ws_manager = self._get_ws_manager()

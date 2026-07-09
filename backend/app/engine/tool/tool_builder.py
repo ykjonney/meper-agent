@@ -98,25 +98,26 @@ def _json_schema_to_pydantic(name: str, schema: dict[str, Any]) -> type[BaseMode
 # ---------------------------------------------------------------------------
 
 
-async def build_tool(tool_doc: dict) -> StructuredTool | None:
+async def build_tool(tool_doc: dict, *, user_args: dict | None = None) -> StructuredTool | None:
     """Build a LangChain tool from a tool document.
 
     Args:
         tool_doc: Tool document from the ``tools`` collection.
+        user_args: Agent 绑定时填入的用户参数值（已解密）。
 
     Returns:
-        A ``StructuredTool`` ready for the harness graph, or ``None`` if the
-        tool could not be built (logs a warning).
+        A ``StructuredTool`` ready for the harness graph, or ``None``.
     """
     source = tool_doc.get("source", "")
     name = tool_doc.get("name", "")
     description = tool_doc.get("description", "")
+    user_args = user_args or {}
 
     try:
         if source == "openapi":
-            return await _build_openapi_tool(tool_doc, name, description)
+            return await _build_openapi_tool(tool_doc, name, description, user_args)
         if source == "code":
-            return await _build_code_tool(tool_doc, name, description)
+            return await _build_code_tool(tool_doc, name, description, user_args)
         if source == "prebuilt":
             return _build_prebuilt_tool(tool_doc, name, description)
         logger.warning("tool_builder_unknown_source", name=name, source=source)
@@ -132,32 +133,21 @@ async def build_tool(tool_doc: dict) -> StructuredTool | None:
 
 
 async def _build_openapi_tool(
-    tool_doc: dict, name: str, description: str
+    tool_doc: dict, name: str, description: str, user_args: dict
 ) -> StructuredTool:
     """Build a tool from an OpenAPI endpoint configuration.
 
-    The endpoint dict defines method, url, headers, params with {{ }} templates
-    that get rendered from credential + config + LLM input at runtime.
+    Templates: {{user.xxx}} → user_args, {{llm.xxx}} → LLM runtime input.
     """
     endpoint = tool_doc.get("endpoint", {})
-    config = tool_doc.get("config", {})
-    input_schema = tool_doc.get("input_schema", {})
-    credential_id = tool_doc.get("credential_id", "")
+    llm_args_schema = tool_doc.get("llm_args_schema", {})
 
-    # Resolve credential once (encrypted → plaintext dict)
-    credential: dict[str, Any] = {}
-    if credential_id:
-        from app.services.credential_service import CredentialService
-        credential = await CredentialService.decrypt_credential(credential_id) or {}
-
-    args_model = _json_schema_to_pydantic(name, input_schema)
+    args_model = _json_schema_to_pydantic(name, llm_args_schema)
 
     async def _handler(**kwargs: Any) -> str:
-        # Merge all variable sources into one context
         context = {
-            "credential": credential,
-            "config": config,
-            **kwargs,  # LLM input params
+            "user": user_args,   # Agent 绑定时填入（含解密后的凭据）
+            "llm": kwargs,       # LLM 运行时填入
         }
 
         method = render_template(endpoint.get("method", "GET"), context).upper()
@@ -167,7 +157,7 @@ async def _build_openapi_tool(
         body = endpoint.get("body")
         if body:
             body = render_dict(body, context)
-        timeout = float(config.get("timeout", 30))
+        timeout = float(user_args.get("timeout", 30)) if "timeout" in user_args else 30.0
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method == "GET":
@@ -207,32 +197,23 @@ async def _build_openapi_tool(
 
 
 async def _build_code_tool(
-    tool_doc: dict, name: str, description: str
+    tool_doc: dict, name: str, description: str, user_args: dict
 ) -> StructuredTool:
     """Build a tool from user-defined Python code.
 
-    The code string must define a function whose name matches ``name`` (or
-    a ``run`` function). The function receives keyword arguments matching
-    ``input_schema`` properties and returns a string.
-
-    Execution happens via the harness Sandbox (same as bash tool).
+    User args (含敏感字段) are injected as environment variables.
+    LLM args are passed as function parameters.
     """
     code = tool_doc.get("code", "")
-    input_schema = tool_doc.get("input_schema", {})
-    config = tool_doc.get("config", {})
-    credential_id = tool_doc.get("credential_id", "")
+    llm_args_schema = tool_doc.get("llm_args_schema", {})
 
-    args_model = _json_schema_to_pydantic(name, input_schema)
+    args_model = _json_schema_to_pydantic(name, llm_args_schema)
 
     async def _handler(**kwargs: Any) -> str:
-        # Resolve credential (injected as environment variables in sandbox)
-        cred_env: dict[str, str] = {}
-        if credential_id:
-            from app.services.credential_service import CredentialService
-            cred = await CredentialService.decrypt_credential(credential_id) or {}
-            cred_env = {f"CRED_{k}": str(v) for k, v in cred.items()}
-
-        config_env = {f"CONFIG_{k}": str(v) for k, v in config.items()}
+        # User args → environment variables
+        user_env: dict[str, str] = {}
+        for k, v in user_args.items():
+            user_env[f"USER_{k}"] = str(v)
 
         # Execute code in sandbox
         from agent_flow_harness.sandbox import get_sandbox_context
@@ -260,10 +241,9 @@ async def _build_code_tool(
             script_path = f.name
 
         try:
-            env = {**cred_env, **config_env}
             result = await sandbox_ctx.sandbox.run(
                 f"python3 {os.path.basename(script_path)}",
-                env=env,
+                env=user_env,
             )
             return result.output if hasattr(result, "output") else str(result)
         finally:

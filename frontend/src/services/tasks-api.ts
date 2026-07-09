@@ -133,6 +133,8 @@ export interface TaskSummary {
   version: number
   error?: TaskError | null
   checkpoint?: Checkpoint | null
+  source?: 'manual' | 'trigger'
+  trigger_id?: string | null
   scheduled_at?: string | null
   created_at: string
   updated_at: string

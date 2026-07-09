@@ -43,8 +43,17 @@ async def lifespan(app: FastAPI):
     scheduler = get_scheduler()
     await scheduler.start()
 
+    # Initialize Trigger repository and indexes
+    from app.db.mongodb import get_database
+    from app.services.trigger_repo import TriggerRepository
+    from app.services.trigger_scheduler_service import get_trigger_scheduler
+
+    trigger_repo = TriggerRepository(get_database())
+    await trigger_repo.ensure_indexes()
+
     # Start the Trigger scheduler for cron/once workflow triggers
     trigger_scheduler = get_trigger_scheduler()
+    trigger_scheduler.set_repo(trigger_repo)
     await trigger_scheduler.start()
 
     # Initialize system roles (idempotent — only inserts missing roles)
@@ -72,9 +81,15 @@ async def lifespan(app: FastAPI):
     notification_service = NotificationService()
     notification_service.register()
 
+    # Start Redis pub/sub bridge (bridges Celery worker events → FastAPI EventBus)
+    from app.services.event_bridge import start_event_bridge_listener
+    await start_event_bridge_listener()
+
     yield
 
     # Shutdown: gracefully close connections
+    from app.services.event_bridge import stop_event_bridge_listener
+    await stop_event_bridge_listener()
     await trigger_scheduler.stop()
     await scheduler.stop()
     await close_mongodb_client()

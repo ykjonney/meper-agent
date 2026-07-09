@@ -78,26 +78,27 @@ function cronToSummary(cron: string): string {
 
   const [minStr, hourStr, domStr, , dowStr] = parts
 
-  // 每小时
+  // 每小时: "{m} * * * *"
   if (domStr === '*' && dowStr === '*' && hourStr === '*') {
-    return `每小时 (${minStr}分)`
+    return `每小时第 ${minStr} 分钟`
   }
-  // 每天
+  // 每天: "{m} {h} * * *"
   if (domStr === '*' && dowStr === '*') {
     return `每天 ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
   }
-  // 每月
+  // 每月: "{m} {h} {d} * *"
   if (domStr !== '*' && dowStr === '*') {
-    return `每月${domStr}号 ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
+    return `每月 ${domStr} 号 ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
   }
-  // 每周
+  // 每周: "{m} {h} * * {d1,d2,...}"
   if (domStr === '*' && dowStr !== '*') {
     const days = dowStr.split(',').map(Number)
       .map((d) => WEEKDAY_NAMES[d % 7])
       .join('、')
-    return `每${days} ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
+    return `每周${days} ${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}`
   }
 
+  // 自定义/无法解析 → 返回原始 cron
   return cron
 }
 
@@ -426,6 +427,7 @@ export default function WorkflowDetailPage() {
   const [triggerOpen, setTriggerOpen] = useState(false)
   const [triggerEnabled, setTriggerEnabled] = useState(false)
   const [triggerSummary, setTriggerSummary] = useState('')
+  const [triggerCron, setTriggerCron] = useState('')
 
   /* ─── Editing state ─── */
   const [editName, setEditName] = useState('')
@@ -470,17 +472,20 @@ export default function WorkflowDetailPage() {
     if (!id) return
     WorkflowTriggerAPI.getTrigger(id).then((config) => {
       setTriggerEnabled(config.enabled)
-      // 生成频率摘要
       if (config.type === 'cron' && config.cron_expression) {
         setTriggerSummary(cronToSummary(config.cron_expression))
+        setTriggerCron(config.cron_expression)
       } else if (config.type === 'once' && config.execute_at) {
         setTriggerSummary(`一次性: ${new Date(config.execute_at).toLocaleString('zh-CN')}`)
+        setTriggerCron('')
       } else {
         setTriggerSummary('')
+        setTriggerCron('')
       }
     }).catch(() => {
       setTriggerEnabled(false)
       setTriggerSummary('')
+      setTriggerCron('')
     })
   }, [id])
 
@@ -803,16 +808,13 @@ export default function WorkflowDetailPage() {
           <Button icon={<PlayCircleOutlined />} type="primary" onClick={() => setTestRunOpen(true)}>
             测试运行
           </Button>
-          <Tooltip title={triggerEnabled && triggerSummary ? triggerSummary : '配置定时触发'}>
-            <Button
-              icon={<ClockCircleOutlined />}
-              onClick={() => setTriggerOpen(true)}
-              className={triggerEnabled ? '!border-green-400 !text-green-600' : ''}
-            >
-              {triggerEnabled && triggerSummary ? triggerSummary : '定时触发'}
-              {triggerEnabled && ' ✓'}
-            </Button>
-          </Tooltip>
+          <Button
+            icon={<ClockCircleOutlined />}
+            onClick={() => setTriggerOpen(true)}
+            className={triggerEnabled ? '!border-green-400 !text-green-600' : ''}
+          >
+            定时触发{triggerEnabled && ' ✓'}
+          </Button>
           <Button icon={<HistoryOutlined />} onClick={() => setVersionOpen(true)}>
             版本
           </Button>
@@ -903,14 +905,18 @@ export default function WorkflowDetailPage() {
             setTriggerEnabled(config.enabled)
             if (config.type === 'cron' && config.cron_expression) {
               setTriggerSummary(cronToSummary(config.cron_expression))
+              setTriggerCron(config.cron_expression)
             } else if (config.type === 'once' && config.execute_at) {
               setTriggerSummary(`一次性: ${new Date(config.execute_at).toLocaleString('zh-CN')}`)
+              setTriggerCron('')
             } else {
               setTriggerSummary('')
+              setTriggerCron('')
             }
           }).catch(() => {
             setTriggerEnabled(false)
             setTriggerSummary('')
+            setTriggerCron('')
           })
         }}
       />

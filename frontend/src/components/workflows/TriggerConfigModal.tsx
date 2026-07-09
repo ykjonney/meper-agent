@@ -5,14 +5,17 @@
  * 输入参数表单（从 start node 变量自动生成）、状态显示。
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Modal, Switch, Radio, Button, message, Divider, Tooltip } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { Modal, Switch, Radio, Button, message, Divider, Tooltip, DatePicker } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { useQueryClient } from '@tanstack/react-query'
 import type { WorkflowNode } from '@/services/workflows-api'
 import type { TriggerConfig, TriggerType } from '@/types/workflow-trigger'
 import type { VariableDefinition } from '@/features/workflow-editor/utils/variable-types'
 import { WorkflowTriggerAPI } from '@/services/workflow-trigger-api'
+import { taskKeys } from '@/services/tasks-api'
 import TriggerSchedulePicker from './TriggerSchedulePicker'
 import VariableFormField from '@/features/workflow-editor/VariableFormField'
+import dayjs from 'dayjs'
 
 interface Props {
   workflowId: string
@@ -23,6 +26,8 @@ interface Props {
 }
 
 export default function TriggerConfigModal({ workflowId, workflowName, nodes, open, onClose }: Props) {
+  const queryClient = useQueryClient()
+
   // 从 start 节点提取变量定义
   const startNode = nodes.find((n) => n.type === 'start')
   const variables = useMemo<VariableDefinition[]>(
@@ -36,52 +41,24 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
   const [executeAt, setExecuteAt] = useState('')
   const [defaultInput, setDefaultInput] = useState<Record<string, unknown>>({})
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
-  // 已保存的配置（用于显示状态）
-  const [savedConfig, setSavedConfig] = useState<TriggerConfig | null>(null)
-
-  /* ─── 加载现有配置 ─── */
-  const loadConfig = useCallback(async () => {
-    setLoading(true)
-    try {
-      const config = await WorkflowTriggerAPI.getTrigger(workflowId)
-      setSavedConfig(config)
-      setEnabled(config.enabled)
-      setTriggerType(config.type)
-      setCronExpression(config.cron_expression ?? '0 9 * * *')
-      setExecuteAt(config.execute_at ?? '')
-      setDefaultInput(config.default_input ?? {})
-    } catch (err: unknown) {
-      // 404 视为未配置
-      const status = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { status?: number } }).response?.status
-        : undefined
-      if (status === 404) {
-        setSavedConfig(null)
-        setEnabled(false)
-        setTriggerType('cron')
-        setCronExpression('0 9 * * *')
-        setExecuteAt('')
-        setDefaultInput({})
-      }
-    } finally {
-      setLoading(false)
-      setDirty(false)
-    }
-  }, [workflowId])
-
+  /* ─── 初始化表单（每次打开都是全新的创建） ─── */
   useEffect(() => {
     if (open) {
-      void loadConfig()
+      setEnabled(false)
+      setTriggerType('cron')
+      setCronExpression('0 9 * * *')
+      setExecuteAt('')
+      setDefaultInput({})
+      setDirty(false)
     }
-  }, [open, loadConfig])
+  }, [open])
 
   /* ─── 初始化 default_input 的默认值 ─── */
   useEffect(() => {
-    if (open && variables.length > 0 && !dirty && !savedConfig) {
+    if (open && variables.length > 0) {
       const defaults: Record<string, unknown> = {}
       for (const v of variables) {
         if (v.constraints?.default_value !== undefined && v.constraints?.default_value !== null) {
@@ -121,6 +98,12 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
       return
     }
 
+    // 一次性触发不能选择过去的时间
+    if (triggerType === 'once' && executeAt && dayjs(executeAt).isBefore(dayjs())) {
+      message.warning('执行时间不能早于当前时间')
+      return
+    }
+
     // Cron 表达式非空验证
     if (triggerType === 'cron' && !cronExpression.trim()) {
       message.warning('请填写 Cron 表达式')
@@ -140,36 +123,17 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
         payload.execute_at = executeAt
       }
 
-      const config = await WorkflowTriggerAPI.updateTrigger(workflowId, payload)
-      setSavedConfig(config)
+      await WorkflowTriggerAPI.createTrigger(workflowId, payload)
       setDirty(false)
-      message.success('定时触发配置已保存')
+      // Invalidate tasks list so the new pending placeholder task appears
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
+      message.success('定时任务已创建')
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '保存失败'
       message.error(msg)
     } finally {
       setSaving(false)
-    }
-  }
-
-  /* ─── 删除 ─── */
-  const handleDelete = async () => {
-    try {
-      await WorkflowTriggerAPI.deleteTrigger(workflowId)
-      setSavedConfig(null)
-      setEnabled(false)
-      setTriggerType('cron')
-      setCronExpression('0 9 * * *')
-      setExecuteAt('')
-      setDefaultInput({})
-      setDirty(false)
-      message.success('定时触发配置已删除')
-      onClose()
-    } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'message' in err
-        ? (err as { message: string }).message : '删除失败'
-      message.error(msg)
     }
   }
 
@@ -190,16 +154,10 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
       footer={
         <div className="flex items-center justify-between">
           <div>
-            {savedConfig && (
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleDelete}
-                size="small"
-              >
-                删除
-              </Button>
-            )}
+            <Tooltip title="要停止定时任务，请在任务管理中取消待执行的任务">
+              <InfoCircleOutlined className="text-xs text-[#94A3B8]" />
+              <span className="text-xs text-[#94A3B8] ml-1">取消待执行任务可停止定时</span>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-2">
             <Button onClick={onClose}>关闭</Button>
@@ -207,9 +165,9 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
               type="primary"
               onClick={handleSave}
               loading={saving}
-              disabled={!dirty && !!savedConfig}
+              disabled={!dirty}
             >
-              保存
+              创建
             </Button>
           </div>
         </div>
@@ -250,7 +208,7 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
             <TriggerSchedulePicker
               value={cronExpression}
               onChange={(cron) => { setCronExpression(cron); markDirty() }}
-              disabled={loading}
+              disabled={saving}
             />
           </div>
         )}
@@ -258,11 +216,18 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
         {triggerType === 'once' && (
           <div>
             <div className="text-sm text-[#0F172A] font-medium mb-2">执行时间</div>
-            <input
-              type="datetime-local"
-              value={executeAt}
-              onChange={(e) => { setExecuteAt(e.target.value); markDirty() }}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm"
+            <DatePicker
+              showTime={{ format: 'HH:mm' }}
+              format="YYYY-MM-DD HH:mm"
+              value={executeAt ? dayjs(executeAt) : null}
+              onChange={(date) => {
+                // Send ISO string with timezone offset to avoid ambiguity
+                setExecuteAt(date ? date.toISOString() : '')
+                markDirty()
+              }}
+              disabledDate={(current) => current && current < dayjs().startOf('day')}
+              className="!w-full"
+              disabled={saving}
             />
           </div>
         )}
@@ -280,7 +245,7 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
                   variable={v}
                   value={defaultInput[v.name]}
                   onChange={(val) => setValue(v.name, val)}
-                  disabled={loading}
+                  disabled={saving}
                 />
               ))}
               <p className="text-[10px] text-[#94A3B8]">
@@ -293,24 +258,6 @@ export default function TriggerConfigModal({ workflowId, workflowName, nodes, op
             </div>
           )}
         </div>
-
-        {/* 状态信息 */}
-        {savedConfig && (savedConfig.last_triggered_at || savedConfig.next_trigger_at) && (
-          <>
-            <Divider className="!my-2" />
-            <div>
-              <div className="text-sm text-[#0F172A] font-medium mb-1">状态</div>
-              <div className="text-xs text-[#64748B] space-y-0.5">
-                {savedConfig.last_triggered_at && (
-                  <div>上次触发: {new Date(savedConfig.last_triggered_at).toLocaleString('zh-CN')}</div>
-                )}
-                {savedConfig.next_trigger_at && (
-                  <div>下次触发: {new Date(savedConfig.next_trigger_at).toLocaleString('zh-CN')}</div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </Modal>
   )

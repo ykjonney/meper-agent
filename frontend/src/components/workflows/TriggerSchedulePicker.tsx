@@ -68,13 +68,15 @@ function buildCron(state: InternalState): string {
     case 'daily':
       return `${state.minute} ${state.hour} * * *`
     case 'weekly': {
-      if (state.days.length === 0) return `${state.minute} ${state.hour} * * *`
-      // 转换内部星期 (1=Mon…7=Sun) 到 cron (0=Sun)
-      const cronDays = state.days.map((d) => d === 7 ? 0 : d).sort().join(',')
+      // 默认选择周一
+      const days = state.days.length > 0 ? state.days : [1]
+      const cronDays = days.map((d) => d === 7 ? 0 : d).sort().join(',')
       return `${state.minute} ${state.hour} * * ${cronDays}`
     }
     case 'monthly':
-      return `${state.minute} ${state.hour} ${state.dayOfMonth} * *`
+      // 默认 1 号
+      const day = state.dayOfMonth || 1
+      return `${state.minute} ${state.hour} ${day} * *`
     case 'custom':
       return state.customCron
   }

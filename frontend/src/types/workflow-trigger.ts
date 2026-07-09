@@ -1,11 +1,16 @@
 export type TriggerType = 'cron' | 'once'
 
 export interface TriggerConfig {
+  _id?: string
+  id?: string
+  workflow_id: string
+  user_id?: string
   type: TriggerType
   enabled: boolean
   cron_expression?: string
   execute_at?: string
   default_input: Record<string, any>
+  schedule_version?: number
   last_triggered_at?: string
   next_trigger_at?: string
   created_at: string

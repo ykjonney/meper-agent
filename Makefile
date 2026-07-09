@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox test lint build build-sandbox deploy deploy-check generate-api help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox deploy deploy-check generate-api help
 
 # Default target
 help:
@@ -6,6 +6,7 @@ help:
 	@echo "  make install        - Install all project dependencies"
 	@echo "  make dev            - Start development environment (Docker, sandbox disabled)"
 	@echo "  make dev-sandbox    - Start development environment with sandbox enabled"
+	@echo "  make dev-local      - Start all services locally (FastAPI + Celery + Frontend)"
 	@echo "  make test           - Run all tests"
 	@echo "  make lint           - Run linters for all packages"
 	@echo "  make build          - Build all Docker images (excluding sandbox)"
@@ -26,6 +27,15 @@ dev:
 # Requires the agent-sandbox image to be built first (run make build-sandbox)
 dev-sandbox: build-sandbox
 	SANDBOX_ENABLED=true docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up --build
+
+# Start all services locally in one terminal (Ctrl+C stops all)
+dev-local:
+	@echo "Starting local dev: FastAPI :8000 + Celery worker + Frontend :5173"
+	@trap 'kill 0' EXIT; \
+	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
+	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info) & \
+	(cd frontend && npm run dev) & \
+	wait
 
 # Run all tests
 test:

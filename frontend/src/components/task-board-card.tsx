@@ -20,6 +20,8 @@ import {
   StopOutlined,
   RedoOutlined,
   DeleteOutlined,
+  ClockCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import type { TaskSummary, NodeProgress, TaskStatusValue, CommentValue } from '../services/tasks-api'
 import { TASK_STATUS_STYLES } from '../constants/task-status'
@@ -32,6 +34,7 @@ export interface TaskBoardCardProps {
   onCancel?: (task: TaskSummary) => void
   onRetry?: (task: TaskSummary) => void
   onDelete?: (task: TaskSummary) => void
+  onEdit?: (task: TaskSummary) => void
   onApprovalSubmit?: (task: TaskSummary, action: 'approve' | 'reject', comment: CommentValue) => void
   interveneLoading?: boolean
   deleteLoading?: boolean
@@ -71,6 +74,7 @@ export function TaskBoardCard({
   onCancel,
   onRetry,
   onDelete,
+  onEdit,
   onApprovalSubmit,
   interveneLoading = false,
   deleteLoading = false,
@@ -79,8 +83,10 @@ export function TaskBoardCard({
   const style = TASK_STATUS_STYLES[status]
   const isRunning = status === 'running'
   const isWaitingHuman = status === 'waiting_human'
+  const isPending = status === 'pending'
   const showProgress = !!progress && (isRunning || isWaitingHuman)
   const isTerminal = status === 'completed' || status === 'failed' || status === 'cancelled'
+  const isScheduled = task.source === 'trigger'
 
   // BOARD_CARD_QUICK_APPROVE / BOARD_CARD_QUICK_REJECT — 看板内嵌审批弹窗
   const [approvalModalOpen, setApprovalModalOpen] = useState(false)
@@ -149,8 +155,16 @@ export function TaskBoardCard({
 
       {/* hover 时右上角浮出的操作按钮组 */}
       <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center gap-0.5 bg-canvas/90 backdrop-blur-sm rounded-md px-1 py-0.5 shadow-sm border border-line-2 z-10">
-        {isRunning && onCancel && (
-          <Tooltip title="取消">
+        {isPending && isScheduled && onEdit && (
+          <Tooltip title="修改时间">
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(task) }}
+              className="border-0 bg-transparent w-6 h-6 flex items-center justify-center rounded text-txt-muted hover:text-primary hover:bg-surface-muted transition-colors text-xs"
+            ><EditOutlined /></button>
+          </Tooltip>
+        )}
+        {(isRunning || (isPending && onCancel)) && onCancel && (
+          <Tooltip title={isPending ? '取消执行' : '取消'}>
             <button
               onClick={(e) => { e.stopPropagation(); onCancel(task) }}
               disabled={interveneLoading}
@@ -193,9 +207,14 @@ export function TaskBoardCard({
           </Tag>
         </div>
 
-        {/* 次行：工作流名称（灰色） */}
-        <div className="text-xs text-txt-3 truncate mb-2">
-          {workflowName ?? task.workflow_id}
+        {/* 次行：工作流名称（灰色）+ 定时标识 */}
+        <div className="text-xs text-txt-3 truncate mb-2 flex items-center gap-1">
+          <span className="truncate">{workflowName ?? task.workflow_id}</span>
+          {isScheduled && (
+            <Tooltip title={`定时任务${task.scheduled_at ? `: ${new Date(task.scheduled_at).toLocaleString('zh-CN')}` : ''}`}>
+              <ClockCircleOutlined className="text-[10px] text-primary shrink-0" />
+            </Tooltip>
+          )}
         </div>
 
         {/* 进度区（仅 progress 存在且 running/waiting_human 时渲染） */}

@@ -51,6 +51,9 @@ class TaskService:
         call_chain: list[str] | None = None,
         scheduled_at: datetime | None = None,
         ext_metadata: dict[str, Any] | None = None,
+        skip_execution: bool = False,
+        source: str = "manual",
+        trigger_id: str | None = None,
     ) -> dict:
         """Create a new Task in pending status.
 
@@ -108,6 +111,8 @@ class TaskService:
             parent_task_id=parent_task_id,
             call_chain=call_chain or [],
             scheduled_at=scheduled_at,
+            source=source,
+            trigger_id=trigger_id,
             timeline=[e.model_dump() for e in initial_timeline],
             created_at=now,
             updated_at=now,
@@ -139,11 +144,24 @@ class TaskService:
         await event_bus.publish(TaskEvent(
             event_type="task.created",
             task_id=task.id,
+            to_status=TaskStatus.PENDING.value,
             data={"workflow_id": workflow_id, "created_by": created_by},
         ))
 
-        # Trigger workflow engine execution in background
-        TaskService._start_workflow_execution(task.id)
+        # Also publish to Redis so Celery worker events reach FastAPI via pub/sub
+        from app.services.event_bridge import publish_task_event_to_redis
+
+        await publish_task_event_to_redis(
+            event_type="task.created",
+            task_id=task.id,
+            from_status=None,
+            to_status=TaskStatus.PENDING.value,
+            data={"workflow_id": workflow_id, "created_by": created_by},
+        )
+
+        # Trigger workflow engine execution in background (unless caller handles it)
+        if not skip_execution:
+            TaskService._start_workflow_execution(task.id)
 
         return created_doc
 
@@ -287,8 +305,11 @@ class TaskService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _check_concurrency_limits(created_by: str) -> None:
+    async def _check_concurrency_limits(created_by: str, source: str = "manual") -> None:
         """Check global and per-user concurrency limits.
+
+        Trigger-sourced tasks skip the per-user limit (they run at a
+        scheduled time and must not be blocked by manual tasks).
 
         Raises:
             ConflictError: If either limit is exceeded.
@@ -314,8 +335,8 @@ class TaskService:
                 },
             )
 
-        # Per-user limit (only when created_by is a real user)
-        if created_by and created_by not in ("system", "agent"):
+        # Per-user limit — skip for trigger-sourced tasks
+        if source != "trigger" and created_by and created_by not in ("system", "agent"):
             user_running = await col.count_documents(
                 {"status": TaskStatus.RUNNING.value, "created_by": created_by}
             )
@@ -346,10 +367,12 @@ class TaskService:
         """
         col = TaskService._collection()
 
-        # Find the oldest pending Task and atomically claim it
+        # Find the oldest pending manual Task and atomically claim it.
+        # Trigger-sourced placeholder tasks are excluded — they are
+        # started directly by Celery at their scheduled time.
         now = utc_now()
         pending = await col.find_one_and_update(
-            {"status": TaskStatus.PENDING.value},
+            {"status": TaskStatus.PENDING.value, "source": {"$ne": "trigger"}},
             {
                 "$set": {
                     "status": TaskStatus.RUNNING.value,
@@ -451,7 +474,8 @@ class TaskService:
         # Concurrency guard: pending → running
         if from_status == TaskStatus.PENDING and to_status == TaskStatus.RUNNING:
             created_by = doc.get("created_by", "")
-            await TaskService._check_concurrency_limits(created_by)
+            task_source = doc.get("source", "manual")
+            await TaskService._check_concurrency_limits(created_by, task_source)
 
         # Build update
         now = utc_now()
@@ -525,6 +549,18 @@ class TaskService:
                     triggered_by=task_id,
                 )
 
+        # Delete trigger when its pending task is cancelled (stops the chain)
+        if to_status == TaskStatus.CANCELLED and doc.get("source") == "trigger":
+            trigger_id = doc.get("trigger_id")
+            if trigger_id:
+                db = get_database()
+                await db["triggers"].delete_one({"_id": trigger_id})
+                logger.info(
+                    "trigger_deleted_by_task_cancellation",
+                    trigger_id=trigger_id,
+                    task_id=task_id,
+                )
+
         # Publish transition event
         event_bus = get_event_bus()
         await event_bus.publish(TaskEvent(
@@ -534,6 +570,17 @@ class TaskService:
             to_status=to_status.value,
             data=timeline_data or {},
         ))
+
+        # Also publish to Redis so Celery worker events reach FastAPI via pub/sub
+        from app.services.event_bridge import publish_task_event_to_redis
+
+        await publish_task_event_to_redis(
+            event_type=f"task.{to_status.value}",
+            task_id=task_id,
+            from_status=from_status.value,
+            to_status=to_status.value,
+            data=timeline_data or {},
+        )
 
         # Fire webhook events for terminal/waiting_human states
         if to_status in (

@@ -1,15 +1,9 @@
 """Workflow template API endpoints — CRUD + lifecycle."""
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
-from pymongo import ReturnDocument
 
-from app.core.errors import NotFoundError
 from app.core.security import get_current_user
-from app.db.mongodb import get_database
-from app.models.base import utc_now
-from app.models.workflow import TriggerConfig, WorkflowStatus
+from app.models.workflow import WorkflowStatus
 from app.schemas.user import UserResponse
 from app.schemas.workflow import (
     WorkflowCreate,
@@ -18,7 +12,6 @@ from app.schemas.workflow import (
     WorkflowSummary,
     WorkflowUpdate,
 )
-from app.services.trigger_scheduler_service import get_trigger_scheduler
 from app.services.workflow_service import WorkflowService
 
 router = APIRouter(
@@ -278,118 +271,4 @@ async def validate_workflow_inline(body: WorkflowCreate) -> dict:
             for issue in result.issues
         ],
     }
-
-
-# ── Trigger Config ──
-
-
-class _ToggleRequest(BaseModel):
-    """Request body for toggling trigger enabled state."""
-
-    enabled: bool
-
-
-async def _get_workflow_or_404(workflow_id: str) -> dict:
-    """Get a workflow document or raise NotFoundError."""
-    db = get_database()
-    doc = await db["workflows"].find_one({"_id": workflow_id})
-    if doc is None:
-        raise NotFoundError(
-            code="WORKFLOW_NOT_FOUND",
-            message=f"工作流模板 {workflow_id} 不存在",
-            details={"workflow_id": workflow_id},
-        )
-    return doc
-
-
-@router.post(
-    "/{workflow_id}/trigger",
-    response_model=TriggerConfig,
-    summary="Create or update trigger config",
-)
-async def set_trigger(workflow_id: str, body: TriggerConfig) -> TriggerConfig:
-    """Create or replace the trigger configuration for a workflow."""
-    await _get_workflow_or_404(workflow_id)
-
-    trigger_dict = body.model_dump()
-    trigger_dict["updated_at"] = utc_now()
-
-    db = get_database()
-    updated = await db["workflows"].find_one_and_update(
-        {"_id": workflow_id},
-        {"$set": {"trigger_config": trigger_dict, "updated_at": utc_now()}},
-        return_document=ReturnDocument.AFTER,
-    )
-
-    await get_trigger_scheduler().update_trigger(workflow_id)
-    return TriggerConfig(**updated["trigger_config"])
-
-
-@router.get(
-    "/{workflow_id}/trigger",
-    response_model=TriggerConfig,
-    summary="Get trigger config",
-)
-async def get_trigger(workflow_id: str) -> TriggerConfig:
-    """Get the trigger configuration for a workflow."""
-    doc = await _get_workflow_or_404(workflow_id)
-
-    trigger_config = doc.get("trigger_config")
-    if trigger_config is None:
-        raise NotFoundError(
-            code="TRIGGER_NOT_FOUND",
-            message=f"工作流 {workflow_id} 没有触发配置",
-            details={"workflow_id": workflow_id},
-        )
-    return TriggerConfig(**trigger_config)
-
-
-@router.delete(
-    "/{workflow_id}/trigger",
-    status_code=204,
-    summary="Delete trigger config",
-)
-async def delete_trigger(workflow_id: str) -> None:
-    """Remove the trigger configuration for a workflow."""
-    await _get_workflow_or_404(workflow_id)
-
-    db = get_database()
-    await db["workflows"].find_one_and_update(
-        {"_id": workflow_id},
-        {"$unset": {"trigger_config": ""}, "$set": {"updated_at": utc_now()}},
-    )
-
-    await get_trigger_scheduler().unregister_trigger(workflow_id)
-
-
-@router.patch(
-    "/{workflow_id}/trigger/toggle",
-    response_model=TriggerConfig,
-    summary="Toggle trigger enabled state",
-)
-async def toggle_trigger(workflow_id: str, body: _ToggleRequest) -> TriggerConfig:
-    """Toggle the enabled state of a workflow's trigger config."""
-    await _get_workflow_or_404(workflow_id)
-
-    db = get_database()
-    updated = await db["workflows"].find_one_and_update(
-        {"_id": workflow_id, "trigger_config": {"$exists": True}},
-        {"$set": {
-            "trigger_config.enabled": body.enabled,
-            "trigger_config.updated_at": utc_now(),
-            "updated_at": utc_now(),
-        }},
-        return_document=ReturnDocument.AFTER,
-    )
-
-    if updated is None:
-        raise NotFoundError(
-            code="TRIGGER_NOT_FOUND",
-            message=f"工作流 {workflow_id} 没有触发配置",
-            details={"workflow_id": workflow_id},
-        )
-
-    await get_trigger_scheduler().update_trigger(workflow_id)
-    return TriggerConfig(**updated["trigger_config"])
-
 

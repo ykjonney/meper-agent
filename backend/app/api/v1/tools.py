@@ -134,9 +134,14 @@ class CustomToolCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
     source: str = Field(..., description="openapi | code | prebuilt")
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    credential_type: str = Field(default="none", description="none / api_key / bearer / basic")
-    credential_fields: list[str] = Field(default_factory=list, description="如 ['token'] 或 ['username','password']")
+    user_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="用户参数 schema（Agent 绑定时填入）。sensitive=true 加密。",
+    )
+    llm_args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="LLM 参数 schema（运行时 LLM 填入）。",
+    )
     endpoint: dict[str, Any] = Field(default_factory=dict)
     code: str = Field(default="")
     prebuilt_name: str = Field(default="")
@@ -167,9 +172,8 @@ async def create_custom_tool(
         name=body.name,
         description=body.description,
         source=body.source,
-        input_schema=body.input_schema,
-        credential_type=body.credential_type,
-        credential_fields=body.credential_fields,
+        user_args_schema=body.user_args_schema,
+        llm_args_schema=body.llm_args_schema,
         endpoint=body.endpoint,
         code=body.code,
         prebuilt_name=body.prebuilt_name,

@@ -1,16 +1,16 @@
 /**
  * ToolCreateDrawer — create custom tools (OpenAPI / Code).
  *
- * Credential model: tool DECLARES what credential it needs (type + fields).
- * Agent config binds the actual credential at use time.
+ * Two param types:
+ * - User args: filled when Agent binds the tool (e.g. token, owner). Sensitive fields marked.
+ * - LLM args: filled by LLM at runtime (e.g. state, query).
  *
- * Param model: only one kind of params — defined here, LLM fills them at call time.
- * No "preset config" — fixed values go directly in URL/headers.
+ * Templates: {{user.xxx}} → user args, {{llm.xxx}} → LLM args.
  */
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Drawer, Button, Input, Select, Radio, Segmented, message, Divider } from 'antd'
-import { GlobalOutlined, CodeOutlined } from '@ant-design/icons'
+import { Drawer, Button, Input, Select, Radio, Segmented, message, Divider, Checkbox, Tag } from 'antd'
+import { GlobalOutlined, CodeOutlined, PlusOutlined } from '@ant-design/icons'
 import { toolsApi } from '../services/tools-api'
 import { normalizeError } from '../services/api-client'
 import ParamEditor, { paramsToSchema } from './param-editor'
@@ -27,27 +27,20 @@ export interface ToolCreateDrawerProps {
 
 type CreateMode = 'manual' | 'openapi_import'
 type ToolSource = 'openapi' | 'code'
-type CredentialType = 'none' | 'api_key' | 'bearer' | 'basic'
-
-// 凭据类型 → 默认字段名
-const CRED_FIELD_PRESETS: Record<string, string[]> = {
-  none: [],
-  api_key: ['api_key'],
-  bearer: ['token'],
-  basic: ['username', 'password'],
-}
 
 export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProps) {
   const queryClient = useQueryClient()
 
-  // ── Form state ──
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [source, setSource] = useState<ToolSource>('openapi')
   const [createMode, setCreateMode] = useState<CreateMode>('manual')
-  const [credentialType, setCredentialType] = useState<CredentialType>('none')
-  const [credentialFields, setCredentialFields] = useState<string[]>([])
-  const [params, setParams] = useState<ToolParam[]>([])
+
+  // User params (with sensitive flag)
+  const [userParams, setUserParams] = useState<(ToolParam & { sensitive?: boolean })[]>([])
+
+  // LLM params
+  const [llmParams, setLlmParams] = useState<ToolParam[]>([])
 
   // HTTP config
   const [method, setMethod] = useState('GET')
@@ -61,7 +54,6 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
   // OpenAPI import
   const [openapiSpec, setOpenapiSpec] = useState('')
 
-  // ── Mutation ──
   const createMutation = useMutation({
     mutationFn: toolsApi.createCustom,
     onSuccess: () => {
@@ -76,17 +68,26 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
 
   const resetForm = () => {
     setName(''); setDescription(''); setSource('openapi'); setCreateMode('manual')
-    setCredentialType('none'); setCredentialFields([]); setParams([])
+    setUserParams([]); setLlmParams([])
     setMethod('GET'); setUrl(''); setHeaders([]); setQueryParams([])
     setCode(''); setOpenapiSpec('')
   }
 
-  const handleCredentialTypeChange = (type: CredentialType) => {
-    setCredentialType(type)
-    setCredentialFields(CRED_FIELD_PRESETS[type] ? [...CRED_FIELD_PRESETS[type]] : [])
+  // ── Build user_args_schema with sensitive flags ──
+  const buildUserArgsSchema = () => {
+    const properties: Record<string, unknown> = {}
+    const required: string[] = []
+    for (const p of userParams) {
+      properties[p.name] = {
+        type: p.type,
+        ...(p.description ? { description: p.description } : {}),
+        ...(p.sensitive ? { sensitive: true } : {}),
+      }
+      if (p.required) required.push(p.name)
+    }
+    return { type: 'object', properties, ...(required.length ? { required } : {}) }
   }
 
-  // ── Parse OpenAPI spec ──
   const parseOpenApi = () => {
     try {
       const spec = JSON.parse(openapiSpec)
@@ -109,67 +110,45 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
         required: p.required as boolean || false,
         description: (p.description as string) || '',
       }))
-      setParams(toolParams)
-      // Auto-detect auth from OpenAPI security
-      const security = operation.security || spec.security || []
-      if (security.some((s: Record<string, unknown>) => s.bearerAuth || s.BearerAuth)) {
-        handleCredentialTypeChange('bearer')
-      } else if (security.some((s: Record<string, unknown>) => s.api_key || s.ApiKeyAuth)) {
-        handleCredentialTypeChange('api_key')
-      }
+      setLlmParams(toolParams)
       message.success(`解析成功：${toolParams.length} 个参数`)
     } catch (err) {
       message.error('JSON 解析失败：' + (err as Error).message)
     }
   }
 
-  // ── Submit ──
   const handleSubmit = () => {
     if (!name.trim()) { message.warning('请输入工具名称'); return }
-    const inputSchema = paramsToSchema(params)
     const kvToDict = (kvs: KVPair[]) => {
       const d: Record<string, string> = {}
       for (const kv of kvs) { if (kv.key.trim()) d[kv.key] = kv.value }
       return d
     }
-
     if (source === 'openapi') {
       if (!url.trim()) { message.warning('请输入 URL'); return }
       createMutation.mutate({
         name: name.trim(), description, source: 'openapi',
-        input_schema: inputSchema,
-        credential_type: credentialType,
-        credential_fields: credentialFields,
-        endpoint: {
-          method, url,
-          headers: kvToDict(headers),
-          params: kvToDict(queryParams),
-        },
+        user_args_schema: buildUserArgsSchema(),
+        llm_args_schema: paramsToSchema(llmParams),
+        endpoint: { method, url, headers: kvToDict(headers), params: kvToDict(queryParams) },
       })
     } else {
       if (!code.trim()) { message.warning('请输入代码'); return }
       createMutation.mutate({
         name: name.trim(), description, source: 'code',
-        input_schema: inputSchema,
-        credential_type: credentialType,
-        credential_fields: credentialFields,
+        user_args_schema: buildUserArgsSchema(),
+        llm_args_schema: paramsToSchema(llmParams),
         code,
       })
     }
   }
 
-  // ── Credential hint for templates ──
-  const credHint = credentialFields.length > 0
-    ? `用 {{credential.${credentialFields[0]}}} 引用凭据`
-    : ''
+  const userParamNames = userParams.map(p => p.name)
+  const llmParamNames = llmParams.map(p => p.name)
 
   return (
     <Drawer
-      title="创建自定义工具"
-      open={open}
-      onClose={onClose}
-      width={720}
-      destroyOnClose
+      title="创建自定义工具" open={open} onClose={onClose} width={720} destroyOnClose
       extra={
         <div className="flex gap-2">
           <Button onClick={onClose}>取消</Button>
@@ -178,7 +157,7 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
       }
     >
       <div className="flex flex-col gap-5 pb-8">
-        {/* ── 基本信息 ── */}
+        {/* 基本信息 */}
         <Section title="基本信息">
           <div className="space-y-3">
             <div>
@@ -187,167 +166,184 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
             </div>
             <div>
               <Label>描述</Label>
-              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如: 列出指定仓库的 GitHub Issues" />
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如: 列出 GitHub Issues" />
             </div>
             <div>
               <Label>工具类型</Label>
-              <Segmented
-                value={source}
-                onChange={(val) => setSource(val as ToolSource)}
+              <Segmented value={source} onChange={(v) => setSource(v as ToolSource)} block
                 options={[
-                  { label: 'OpenAPI（HTTP 请求）', value: 'openapi', icon: <GlobalOutlined /> },
-                  { label: 'Code（Python 代码）', value: 'code', icon: <CodeOutlined /> },
+                  { label: 'OpenAPI（HTTP）', value: 'openapi', icon: <GlobalOutlined /> },
+                  { label: 'Code（Python）', value: 'code', icon: <CodeOutlined /> },
                 ]}
-                block
               />
             </div>
           </div>
         </Section>
 
-        {/* ── 创建方式 (OpenAPI only) ── */}
+        {/* 创建方式 (OpenAPI) */}
         {source === 'openapi' && (
           <Section title="创建方式">
             <Radio.Group value={createMode} onChange={(e) => setCreateMode(e.target.value)}>
               <Radio value="manual">手动配置</Radio>
-              <Radio value="openapi_import">导入 OpenAPI 规范</Radio>
+              <Radio value="openapi_import">导入 OpenAPI</Radio>
             </Radio.Group>
             {createMode === 'openapi_import' && (
               <div className="mt-3">
                 <Label>粘贴 OpenAPI JSON</Label>
-                <TextArea rows={6} value={openapiSpec} onChange={(e) => setOpenapiSpec(e.target.value)}
-                  placeholder={'{\n  "openapi": "3.0.0",\n  "paths": { ... }\n}'} className="font-mono text-xs" />
+                <TextArea rows={6} value={openapiSpec} onChange={(e) => setOpenapiSpec(e.target.value)} className="font-mono text-xs" />
                 <Button className="mt-2" size="small" onClick={parseOpenApi}>解析并填充</Button>
-                <p className="text-[11px] text-[#94A3B8] mt-1">解析后自动填充 URL、方法和参数。</p>
               </div>
             )}
           </Section>
         )}
 
-        {/* ── 凭据声明 ── */}
-        <Section title="凭据" subtitle="声明工具需要什么类型的凭据。用户在 Agent 配置时绑定实际凭据值。">
-          <div className="space-y-3">
-            <div>
-              <Label>凭据类型</Label>
-              <Select
-                value={credentialType}
-                onChange={(val) => handleCredentialTypeChange(val as CredentialType)}
-                className="w-full"
-                options={[
-                  { value: 'none', label: '无需认证' },
-                  { value: 'api_key', label: 'API Key' },
-                  { value: 'bearer', label: 'Bearer Token' },
-                  { value: 'basic', label: 'Basic Auth' },
-                ]}
-              />
-            </div>
-            {credentialType !== 'none' && (
-              <div>
-                <Label>凭据字段名</Label>
-                <p className="text-[11px] text-[#94A3B8] mb-2">
-                  这些字段名用于在 URL / Headers 中用 <code className="text-[#6366F1]">{'{{credential.字段名}}'}</code> 引用凭据值。
-                  选择类型后会自动填充默认字段名，可修改。
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {credentialFields.map((field, i) => (
-                    <div key={i} className="flex items-center gap-1 bg-[#F1F5F9] rounded-lg px-3 py-1.5">
-                      <code className="text-xs text-[#0F172A]">{field}</code>
-                      <button
-                        className="text-[#94A3B8] hover:text-[#EF4444] ml-1"
-                        onClick={() => setCredentialFields(credentialFields.filter((_, idx) => idx !== i))}
-                      >✕</button>
-                    </div>
-                  ))}
-                  <Input
-                    size="small"
-                    placeholder="添加字段名"
-                    className="w-32"
-                    onPressEnter={(e) => {
-                      const val = (e.target as HTMLInputElement).value.trim()
-                      if (val && !credentialFields.includes(val)) {
-                        setCredentialFields([...credentialFields, val])
-                      }
-                      (e.target as HTMLInputElement).value = ''
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+        {/* 用户参数 */}
+        <Section title="用户参数" subtitle="Agent 绑定工具时由用户填入。不暴露给 LLM。标记敏感的字段加密存储。模板用 {{user.字段名}} 引用。">
+          <UserParamEditor value={userParams} onChange={setUserParams} />
         </Section>
 
-        {/* ── 参数定义 ── */}
-        <Section title="参数定义" subtitle="定义工具的输入参数。LLM 调用时填入。在 URL 中用 {{参数名}} 引用。">
-          <ParamEditor value={params} onChange={setParams} />
+        {/* LLM 参数 */}
+        <Section title="LLM 参数" subtitle="LLM 调用工具时根据对话上下文填入。模板用 {{llm.字段名}} 引用。">
+          <ParamEditor value={llmParams} onChange={setLlmParams} />
         </Section>
 
-        {/* ── HTTP 配置 (OpenAPI) ── */}
+        {/* HTTP 配置 */}
         {source === 'openapi' && (
-          <Section title="HTTP 配置" subtitle={credHint || '用 {{参数名}} 引用上方定义的参数'}>
+          <Section title="HTTP 配置" subtitle="用 {{user.xxx}} 引用用户参数，{{llm.xxx}} 引用 LLM 参数">
             <div className="space-y-4">
               <div className="grid grid-cols-[100px_1fr] gap-3 items-center">
                 <Label required>请求方法</Label>
-                <Select value={method} onChange={setMethod}
-                  options={['GET', 'POST', 'PUT', 'DELETE'].map(m => ({ value: m, label: m }))}
-                  className="w-32" />
+                <Select value={method} onChange={setMethod} className="w-32"
+                  options={['GET','POST','PUT','DELETE'].map(m => ({ value: m, label: m }))} />
               </div>
               <div>
                 <Label required>URL</Label>
-                <Input value={url} onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://api.example.com/{{path_param}}/resource" />
-                <p className="text-[11px] text-[#94A3B8] mt-1">
-                  <code className="text-[#6366F1]">{'{{参数名}}'}</code> 引用参数定义中的参数
-                  {credentialFields.length > 0 && <>, <code className="text-[#6366F1]">{'{{credential.xxx}}'}</code> 引用凭据</>}
-                </p>
+                <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.example.com/{{user.path}}/resource" />
+                {userParamNames.length > 0 && (
+                  <div className="flex gap-1.5 mt-1 flex-wrap">
+                    {userParamNames.map(n => <Tag key={n} className="!m-0 !text-[10px]" color="orange">{`{{user.${n}}}`}</Tag>)}
+                    {llmParamNames.map(n => <Tag key={n} className="!m-0 !text-[10px]" color="blue">{`{{llm.${n}}}`}</Tag>)}
+                  </div>
+                )}
               </div>
               <Divider className="!my-2" />
               <div>
                 <Label>Headers</Label>
                 <KeyValueEditor value={headers} onChange={setHeaders}
-                  keyPlaceholder="Header 名"
-                  valuePlaceholder={credentialFields.length > 0 ? `如: Bearer {{credential.${credentialFields[0]}}}` : 'Header 值'}
-                  emptyHint="暂无 Headers" />
+                  keyPlaceholder="Header 名" valuePlaceholder={'如: Bearer {{user.token}}'} emptyHint="暂无 Headers" />
               </div>
               <div>
                 <Label>Query Params</Label>
                 <KeyValueEditor value={queryParams} onChange={setQueryParams}
-                  keyPlaceholder="参数名" valuePlaceholder={'{{参数名}}'}
-                  emptyHint="暂无 Query Params" />
+                  keyPlaceholder="参数名" valuePlaceholder={'如: {{llm.state}}'} emptyHint="暂无 Query Params" />
               </div>
             </div>
           </Section>
         )}
 
-        {/* ── Code ── */}
+        {/* Code */}
         {source === 'code' && (
-          <Section title="Python 代码" subtitle="参数名自动从上方参数定义生成。凭据经环境变量 CRED_xxx 注入">
-            {params.length > 0 && (
-              <div className="mb-2 px-3 py-2 bg-[#F0F7FF] rounded-lg border border-[#93C5FD]">
-                <p className="text-[11px] text-[#2563EB] mb-1">自动生成的函数签名：</p>
-                <code className="text-xs text-[#0F172A] font-mono">
-                  def {name || 'my_tool'}({params.map(p => p.name).join(', ')}) -&gt; str:
-                </code>
+          <Section title="Python 代码" subtitle="用户参数经环境变量 USER_xxx 注入。LLM 参数作为函数参数传入。">
+            {userParamNames.length > 0 && (
+              <div className="mb-2 px-3 py-2 bg-[#FFFBEB] rounded-lg border border-[#FCD34D]">
+                <p className="text-[11px] text-[#92400E] mb-1">用户参数通过环境变量注入：</p>
+                {userParamNames.map(f => <code key={f} className="text-xs text-[#0F172A] font-mono block">os.environ['USER_{f}']</code>)}
               </div>
             )}
-            {credentialFields.length > 0 && (
-              <div className="mb-2 px-3 py-2 bg-[#FFFBEB] rounded-lg border border-[#FCD34D]">
-                <p className="text-[11px] text-[#92400E]">凭据通过环境变量注入：</p>
-                {credentialFields.map(f => (
-                  <code key={f} className="text-xs text-[#0F172A] font-mono block">
-                    os.environ['CRED_{f}']
-                  </code>
-                ))}
+            {llmParamNames.length > 0 && (
+              <div className="mb-2 px-3 py-2 bg-[#F0F7FF] rounded-lg border border-[#93C5FD]">
+                <p className="text-[11px] text-[#2563EB] mb-1">函数签名（LLM 参数）：</p>
+                <code className="text-xs text-[#0F172A] font-mono">def {name || 'my_tool'}({llmParamNames.join(', ')}) -&gt; str:</code>
               </div>
             )}
             <TextArea rows={10} value={code} onChange={(e) => setCode(e.target.value)}
-              placeholder={`# 在下方编写函数体\n# 参数名与上方参数定义一致\n\ndef ${name || 'my_tool'}(${params.map(p => p.name).join(', ')}) -> str:\n    return "result"`}
-              className="font-mono text-sm" />
-            <p className="text-[11px] text-[#94A3B8] mt-1">
-              代码在 Docker 沙箱中执行。
-            </p>
+              placeholder={`def ${name || 'my_tool'}(${llmParamNames.join(', ')}) -> str:\n    return "result"`} className="font-mono text-sm" />
+            <p className="text-[11px] text-[#94A3B8] mt-1">代码在 Docker 沙箱中执行。</p>
           </Section>
         )}
       </div>
     </Drawer>
+  )
+}
+
+// ── UserParamEditor: like ParamEditor but with sensitive checkbox ──
+
+interface UserToolParam extends ToolParam { sensitive?: boolean }
+
+function UserParamEditor({ value, onChange }: { value: UserToolParam[]; onChange: (v: UserToolParam[]) => void }) {
+  const [adding, setAdding] = useState(false)
+  const [newParam, setNewParam] = useState<UserToolParam>({ name: '', type: 'string', required: true, description: '', sensitive: false })
+
+  const addParam = () => {
+    if (!newParam.name.trim()) return
+    onChange([...value, { ...newParam, name: newParam.name.trim() }])
+    setNewParam({ name: '', type: 'string', required: true, description: '', sensitive: false })
+    setAdding(false)
+  }
+
+  return (
+    <div>
+      <div className="space-y-1.5 mb-3">
+        {value.length === 0 ? (
+          <div className="text-xs text-[#94A3B8] py-3 text-center bg-[#F8FAFC] rounded-lg border border-dashed border-[#E2E8F0]">
+            暂无用户参数（如 token、owner 等固定配置项）
+          </div>
+        ) : (
+          <div className="border border-[#E2E8F0] rounded-lg overflow-hidden divide-y divide-[#F1F5F9]">
+            {value.map((param, index) => (
+              <div key={index} className="flex items-center gap-2 px-3 py-2 hover:bg-[#F8FAFC]">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#0F172A]">{param.name}</span>
+                    {param.sensitive && <Tag color="red" className="!m-0 !text-[10px]">敏感</Tag>}
+                    {param.required && <Tag color="blue" className="!m-0 !text-[10px]">必填</Tag>}
+                  </div>
+                  {param.description && <div className="text-xs text-[#94A3B8] mt-0.5">{param.description}</div>}
+                </div>
+                <Button size="small" type="text" danger icon={<PlusOutlined style={{ transform: 'rotate(45deg)' }} />}
+                  onClick={() => onChange(value.filter((_, i) => i !== index))} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {adding ? (
+        <div className="border border-[#FCD34D] rounded-lg p-3 bg-[#FFFBEB] space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-[#64748B] mb-1">参数名 *</label>
+              <Input size="small" value={newParam.name} onChange={(e) => setNewParam({ ...newParam, name: e.target.value })} placeholder="如: token" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#64748B] mb-1">类型</label>
+              <Select size="small" value={newParam.type} onChange={(v) => setNewParam({ ...newParam, type: v })} className="w-full"
+                options={[{value:'string',label:'字符串'},{value:'integer',label:'整数'},{value:'number',label:'数字'},{value:'boolean',label:'布尔'}]} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-[#64748B] mb-1">说明</label>
+            <Input size="small" value={newParam.description} onChange={(e) => setNewParam({ ...newParam, description: e.target.value })} placeholder="如: GitHub Token" />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Checkbox checked={newParam.required} onChange={(e) => setNewParam({ ...newParam, required: e.target.checked })}>
+                <span className="text-xs text-[#64748B]">必填</span>
+              </Checkbox>
+              <Checkbox checked={newParam.sensitive} onChange={(e) => setNewParam({ ...newParam, sensitive: e.target.checked })}>
+                <span className="text-xs text-[#EF4444]">敏感（加密存储）</span>
+              </Checkbox>
+            </div>
+            <div className="flex gap-2">
+              <Button size="small" onClick={() => { setAdding(false); setNewParam({ name:'',type:'string',required:true,description:'',sensitive:false }) }}>取消</Button>
+              <Button size="small" type="primary" onClick={addParam} disabled={!newParam.name.trim()}>添加</Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => setAdding(true)} className="w-full">添加用户参数</Button>
+      )}
+    </div>
   )
 }
 
@@ -366,9 +362,5 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 }
 
 function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <label className="block text-sm text-[#0F172A] mb-1.5">
-      {children}{required && <span className="text-[#EF4444] ml-0.5">*</span>}
-    </label>
-  )
+  return <label className="block text-sm text-[#0F172A] mb-1.5">{children}{required && <span className="text-[#EF4444] ml-0.5">*</span>}</label>
 }
