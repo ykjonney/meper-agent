@@ -51,9 +51,9 @@ async def auth_and_rate_limit(
 # Register sub-routers with combined auth + rate limit
 from app.api.v1.ext import agents, tasks, workflows  # noqa: E402, F401
 
-router.include_router(agents.router, prefix="")
-router.include_router(workflows.router, prefix="")
-router.include_router(tasks.router, prefix="")
+router.include_router(agents.router, prefix="")  # type: ignore[has-type]
+router.include_router(workflows.router, prefix="")  # type: ignore[has-type]
+router.include_router(tasks.router, prefix="")  # type: ignore[has-type]
 
 
 class ExtApiStatsMiddleware(BaseHTTPMiddleware):

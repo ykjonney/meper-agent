@@ -31,7 +31,7 @@ async def event_bridge_debug() -> dict:
         }
 
     # Test Redis connectivity
-    redis_ok = False
+    redis_ok: bool | str = False
     try:
         client = await event_bridge._get_bridge_redis()
         await client.ping()

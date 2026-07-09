@@ -51,7 +51,7 @@ async def list_builtin_tools(
 
     results = []
     for name, tool in _BUILTIN_TOOL_REGISTRY.items():
-        params = {}
+        params: dict[str, Any] = {}
         if hasattr(tool, "args_schema") and tool.args_schema:
             with contextlib.suppress(Exception):
                 params = tool.args_schema.model_json_schema()
