@@ -5,10 +5,10 @@ On startup, scans for tasks stuck in waiting_human status and:
 2. Restarts timeout monitors for tasks with remaining time
 
 Also cleans up orphan ``running`` tasks left behind by a process restart:
-``run_and_persist`` runs the workflow as an in-process ``asyncio`` task, so a
-crash/restart orphans every task still in ``running``. Only ``human`` nodes
-persist a checkpoint, so such tasks cannot be resumed from their break point
-and are marked ``failed``.
+workflow execution runs in a Celery worker process, so a worker crash/restart
+orphans any task still in ``running``. Only ``human`` nodes persist a
+checkpoint, so a ``running`` task interrupted mid-``agent``/``gateway``/``tool``
+node has no resumable state and is marked ``failed``.
 """
 from __future__ import annotations
 

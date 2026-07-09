@@ -167,61 +167,29 @@ class TaskService:
 
     @staticmethod
     def _start_workflow_execution(task_id: str) -> None:
-        """Fire-and-forget: run WorkflowEngine for a newly created Task.
+        """Fire-and-forget: dispatch workflow execution to a Celery worker.
 
-        Uses ``asyncio.create_task`` for a simple in-process execution.
-        For production, replace with Celery / task queue.
+        The engine handles state transitions (PENDING→RUNNING→...) internally.
+        This replaces the previous in-process ``asyncio.create_task`` approach,
+        moving heavy workflow execution out of the FastAPI event loop and into
+        a dedicated Celery worker for process isolation and crash recovery.
         """
-        import asyncio
+        from app.workers.tasks.workflow_execution import run_workflow_task
 
-        from app.engine.workflow.engine import WorkflowEngine
-
-        async def _run() -> None:
-            try:
-                engine = WorkflowEngine()
-                await engine.run_and_persist(task_id)
-            except Exception as exc:
-                logger.error(
-                    "workflow_engine_background_error",
-                    task_id=task_id,
-                    error=str(exc),
-                )
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_run())
-        except RuntimeError:
-            logger.warning("no_event_loop_for_workflow_execution", task_id=task_id)
+        run_workflow_task.delay(task_id)
 
     @staticmethod
     def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
         Symmetric with ``_start_workflow_execution`` — used after Human node
-        intervention (approve/skip) to continue workflow execution.
-
-        Uses ``asyncio.create_task`` for in-process execution.
+        intervention (approve/skip) to continue workflow execution. Dispatched
+        to a Celery worker; the engine detects the saved checkpoint and
+        resumes from there.
         """
-        import asyncio
+        from app.workers.tasks.workflow_execution import run_workflow_task
 
-        from app.engine.workflow.engine import WorkflowEngine
-
-        async def _run() -> None:
-            try:
-                engine = WorkflowEngine()
-                await engine.run_and_persist(task_id)
-            except Exception as exc:
-                logger.error(
-                    "workflow_engine_resume_error",
-                    task_id=task_id,
-                    error=str(exc),
-                )
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_run())
-        except RuntimeError:
-            logger.warning("no_event_loop_for_workflow_resume", task_id=task_id)
+        run_workflow_task.delay(task_id)
 
     @staticmethod
     async def get_task(task_id: str) -> dict | None:
