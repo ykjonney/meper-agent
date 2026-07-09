@@ -105,12 +105,15 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
       const serverUrl = spec.servers?.[0]?.url || ''
       setUrl(serverUrl + firstPath)
       const opParams = operation.parameters || []
-      const toolParams: ToolParam[] = opParams.map((p: Record<string, unknown>) => ({
-        name: p.name as string || '',
-        type: (p.schema?.type as string || 'string') as ToolParam['type'],
-        required: p.required as boolean || false,
-        description: (p.description as string) || '',
-      }))
+      const toolParams: ToolParam[] = opParams.map((p: Record<string, unknown>) => {
+        const schema = p.schema as Record<string, unknown> | undefined
+        return {
+          name: p.name as string || '',
+          type: ((schema?.type as string) || 'string') as ToolParam['type'],
+          required: p.required as boolean || false,
+          description: (p.description as string) || '',
+        }
+      })
       setLlmParams(toolParams)
       message.success(`解析成功：${toolParams.length} 个参数`)
     } catch (err) {

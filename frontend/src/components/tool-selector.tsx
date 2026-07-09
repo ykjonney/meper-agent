@@ -44,7 +44,7 @@ export interface ToolSelectorValue {
   skill_ids: string[]
   mcp_connection_ids: string[]
   workflow_ids: string[]
-  custom_tools: CustomToolBinding[]
+  custom_tool_ids: string[]
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -53,7 +53,7 @@ export const DEFAULT_TOOL_VALUE: ToolSelectorValue = {
   skill_ids: [],
   mcp_connection_ids: [],
   workflow_ids: [],
-  custom_tools: [],
+  custom_tool_ids: [],
 }
 
 /* ─── Props ─── */

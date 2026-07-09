@@ -39,7 +39,7 @@ export default function CredentialsPage() {
       setCreateOpen(false)
       form.resetFields()
     },
-    onError: (err) => message.error(normalizeError(err).message),
+    onError: (err: unknown) => message.error(normalizeError(err as { code: string; message: string }).message),
   })
 
   const deleteMutation = useMutation({
@@ -48,7 +48,7 @@ export default function CredentialsPage() {
       message.success('凭据已删除')
       queryClient.invalidateQueries({ queryKey: credentialKeys.all })
     },
-    onError: (err) => message.error(normalizeError(err).message),
+    onError: (err: unknown) => message.error(normalizeError(err as { code: string; message: string }).message),
   })
 
   const handleDelete = (cred: Credential) => {

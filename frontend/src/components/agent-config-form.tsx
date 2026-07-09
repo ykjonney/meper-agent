@@ -89,6 +89,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           skill_ids: agent.skill_ids ?? [],
           mcp_connection_ids: agent.mcp_connection_ids ?? [],
           workflow_ids: agent.workflow_ids ?? [],
+          custom_tool_ids: agent.custom_tool_ids ?? [],
         })
       } else {
         setFormName('')
