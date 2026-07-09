@@ -422,6 +422,8 @@ export default function WorkflowDetailPage() {
   /* ─── Trigger config state ─── */
   const [triggerOpen, setTriggerOpen] = useState(false)
   const [triggerEnabled, setTriggerEnabled] = useState(false)
+  const [, setTriggerSummary] = useState('')
+  const [, setTriggerCron] = useState('')
 
   /* ─── Editing state ─── */
   const [editName, setEditName] = useState('')

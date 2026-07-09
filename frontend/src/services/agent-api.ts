@@ -25,6 +25,7 @@ export interface Agent {
   /** Built-in tool whitelist (bash/read/write) */
   builtin_config: string[]
   workflow_ids: string[]
+  custom_tool_ids: string[]
   knowledge_base_ids: string[]
   default_model: string
   max_retry: number
