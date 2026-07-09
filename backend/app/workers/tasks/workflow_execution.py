@@ -23,19 +23,7 @@ from loguru import logger
 
 from app.engine.workflow.engine import WorkflowEngine
 from app.workers.celery_app import celery_app
-
-# Reuse a single event loop across Celery task invocations on this worker.
-# asyncio.run() closes the loop after each call, but motor caches the loop
-# reference — using a closed loop on the second invocation raises RuntimeError.
-_loop: asyncio.AbstractEventLoop | None = None
-
-
-def _get_loop() -> asyncio.AbstractEventLoop:
-    """Return a persistent event loop for async Celery tasks."""
-    global _loop
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-    return _loop
+from app.workers.loop import run_async
 
 
 @celery_app.task(name="app.workers.tasks.workflow_execution.run_workflow_task")
@@ -52,7 +40,7 @@ def run_workflow_task(task_id: str) -> dict[str, Any]:
     Returns:
         Task execution result summary.
     """
-    return _get_loop().run_until_complete(_run_async(task_id))
+    return run_async(_run_async(task_id))
 
 
 async def _run_async(task_id: str) -> dict[str, Any]:

@@ -23,19 +23,7 @@ from app.models.base import utc_now
 from app.services.trigger_repo import TriggerRepository
 from app.utils.template_renderer import render_default_input
 from app.workers.celery_app import celery_app
-
-# Reuse a single event loop across Celery task invocations.
-# asyncio.run() closes the loop after each call, but motor caches the loop
-# reference — using a closed loop on the second invocation raises RuntimeError.
-_loop: asyncio.AbstractEventLoop | None = None
-
-
-def _get_loop() -> asyncio.AbstractEventLoop:
-    """Return a persistent event loop for async Celery tasks."""
-    global _loop
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-    return _loop
+from app.workers.loop import run_async
 
 
 @celery_app.task(name="app.workers.tasks.scheduled_workflow.execute_scheduled_workflow")
@@ -52,7 +40,7 @@ def execute_scheduled_workflow(trigger_id: str) -> dict[str, Any]:
     Returns:
         Task execution result summary.
     """
-    return _get_loop().run_until_complete(_execute_async(trigger_id))
+    return run_async(_execute_async(trigger_id))
 
 
 async def _execute_async(trigger_id: str) -> dict[str, Any]:
