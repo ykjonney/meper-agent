@@ -7,8 +7,6 @@ import { userApi } from '../services/user-api';
 import { roleApi } from '../services/role-api';
 import {
   toStudioUser,
-  roleKeyToDisplay,
-  roleDisplayToKey,
   permissionsToCoarse,
   defaultCoarseForRole,
   type CoarsePermKey,
@@ -16,8 +14,6 @@ import {
 import { Select } from './ui';
 import type { NormalizedApiError } from '../lib/api-client';
 import type { User } from '../types';
-
-const ROLES: User['role'][] = ['Admin', 'Developer', 'Executor', 'Viewer'];
 
 const TOGGLE_PERMS: { key: CoarsePermKey; label: string; color: string }[] = [
   { key: 'agent:write', label: 'Agent管理', color: 'border-indigo-500/30 text-indigo-400' },
@@ -37,7 +33,7 @@ export function UserManagement() {
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<User['role']>('Viewer');
+  const [newRole, setNewRole] = useState<string>('viewer');
   // Field-level / form-level error rendered inside the create-user modal so
   // the user sees why it failed instead of the dialog silently closing.
   const [createFormError, setCreateFormError] = useState<NormalizedApiError | null>(null);
@@ -65,6 +61,14 @@ export function UserManagement() {
   const users = (usersData?.items ?? []).map(toStudioUser);
   const roles = rolesData ?? [];
   const allPerms = allPermsData?.permissions ?? [];
+
+  // Drive role selectors from the dynamic roles list (system + custom). The
+  // backend role `name` is the value we submit/store; `display_name` is what
+  // the user sees. This lets custom roles created in the side panel be
+  // assigned to users instead of being hidden behind a hardcoded list.
+  const roleOptions = roles.map((r) => ({ value: r.name, label: r.display_name }));
+  const roleDisplayName = (key: string): string =>
+    roles.find((r) => r.name === key)?.display_name ?? key;
 
   const filteredUsers = users.filter(
     (u) =>
@@ -120,14 +124,14 @@ export function UserManagement() {
         username: newName,
         email: newEmail,
         password: newPassword,
-        role: roleDisplayToKey(newRole),
+        role: newRole,
       });
       // Only reset & close when the request actually succeeded — otherwise
       // the user loses what they typed and the modal vanishes with no reason.
       setNewName('');
       setNewEmail('');
       setNewPassword('');
-      setNewRole('Viewer');
+      setNewRole('viewer');
       setIsAdding(false);
     } catch (err) {
       // Show the concrete backend message (e.g. "password: ...") inside the
@@ -147,14 +151,14 @@ export function UserManagement() {
     // role — so we re-resolve: if the toggled state differs from the role
     // default, we surface a notice. For a clean MVP we update via role change
     // (see handleChangeRole) and treat per-bucket toggles as advisory.
-    if (next[permKey] !== defaultCoarseForRole(backendUser.role ? roleKeyToDisplay(backendUser.role) : 'Viewer')[permKey]) {
+    if (next[permKey] !== defaultCoarseForRole(backendUser.role || 'viewer')[permKey]) {
       setNotice('提示：后端用户权限由角色继承。如需更改权限位，请新建/编辑角色并分配。');
     }
     void userId;
   };
 
-  const handleChangeRole = (userId: string, displayRole: User['role']) => {
-    updateM.mutate({ id: userId, body: { role: roleDisplayToKey(displayRole) } });
+  const handleChangeRole = (userId: string, roleKey: string) => {
+    updateM.mutate({ id: userId, body: { role: roleKey } });
     setSelectedUserForRole(null);
   };
 
@@ -265,24 +269,24 @@ export function UserManagement() {
                           <Select
                             size="small"
                             value={user.role}
-                            onChange={(v) => handleChangeRole(user.id, (v ?? 'Viewer') as User['role'])}
+                            onChange={(v) => handleChangeRole(user.id, v ?? 'viewer')}
                             className="min-w-[120px]"
-                            options={ROLES.map((r) => ({ value: r, label: r }))}
+                            options={roleOptions}
                           />
                         ) : (
                           <span
                             onClick={() => setSelectedUserForRole(user.id)}
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide font-sans cursor-pointer hover:bg-[#121214] ${
-                              user.role === 'Admin'
+                              user.role === 'admin'
                                 ? 'bg-rose-500/10 text-rose-400'
-                                : user.role === 'Developer'
+                                : user.role === 'developer'
                                 ? 'bg-indigo-500/10 text-indigo-400'
-                                : user.role === 'Executor'
+                                : user.role === 'operator'
                                 ? 'bg-amber-500/10 text-amber-500'
                                 : 'bg-slate-900 text-slate-400'
                             }`}
                           >
-                            {user.role} ✎
+                            {roleDisplayName(user.role)} ✎
                           </span>
                         )}
                       </td>
@@ -444,12 +448,12 @@ export function UserManagement() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">赋予初始系统角色</label>
+                <label className="text-slate-400 font-medium font-sans">赋予初始角色</label>
                 <Select
                   value={newRole}
-                  onChange={(v) => setNewRole((v ?? 'Viewer') as User['role'])}
+                  onChange={(v) => setNewRole(v ?? 'viewer')}
                   placeholder="选择角色"
-                  options={ROLES.map((r) => ({ value: r, label: r }))}
+                  options={roleOptions}
                 />
               </div>
 
