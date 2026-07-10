@@ -313,10 +313,11 @@ class AgentService:
             try:
                 from app.services.session_service import SessionService
 
-                async for sess in SessionService._collection().find(
-                    {"agent_id": agent_id}, {"_id": 1}
-                ):
-                    await SessionService.delete_session(sess["_id"])
+                db = get_database()
+                cursor = db["sessions"].find({"agent_id": agent_id}, {"_id": 1})
+                session_ids = [sess["_id"] async for sess in cursor]
+                for sess_id in session_ids:
+                    await SessionService.delete_session(sess_id)
             except Exception as exc:
                 logger.warning(
                     "agent_sessions_cleanup_partial",
