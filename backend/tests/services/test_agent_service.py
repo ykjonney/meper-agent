@@ -209,6 +209,12 @@ class TestDeleteAgent:
         mock_col.find_one = AsyncMock(
             return_value={"_id": "agent_01HTEST", "name": "Test Agent"}
         )
+        # delete_agent 做引用检查 (find().to_list()) + 级联清理 sessions (async for)，
+        # 两者都走 find()。mock 为空结果，确保不触碰真实 DB。
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_cursor.__aiter__ = MagicMock(return_value=iter([]))
+        mock_col.find = MagicMock(return_value=mock_cursor)
         mock_result = MagicMock()
         mock_result.deleted_count = 1
         mock_col.delete_one = AsyncMock(return_value=mock_result)
