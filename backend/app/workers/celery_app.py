@@ -31,13 +31,13 @@ celery_app.conf.update(
     # 与取消功能正交，但提升健壮性。
     task_soft_time_limit=1800,
     task_time_limit=1860,
-    # Redis visibility_timeout must exceed the longest eta delay.
-    # Default is 3600s (1h) — eta messages consumed by the worker sit in
-    # an in-memory timer until the eta arrives, but Redis restores unacked
-    # messages after visibility_timeout expires.  For daily cron jobs the
-    # eta can be ~24h away, so the message gets endlessly cycled between
-    # "consumed → restored → consumed" and never executes.
-    broker_transport_options={"visibility_timeout": 86400 * 7},  # 7 days
+    # Redis visibility_timeout: if a worker takes a message but doesn't ack
+    # within this window, Redis restores it to the ready queue for re-delivery.
+    # The project no longer uses Celery eta (scheduling is polling-based via
+    # TriggerSchedulerService), so the default 1h is sufficient — kept at 3h
+    # for safety margin. The zombie guard in run_and_persist handles any
+    # re-delivered cancelled tasks.
+    broker_transport_options={"visibility_timeout": 3600 * 3},  # 3 hours
     # Periodic tasks (Celery Beat)
     beat_schedule={
         "cleanup-expired-workspaces": {
@@ -68,7 +68,7 @@ def _configure_checkpointer(**_kwargs: object) -> None:
             db_name=settings.MONGODB_DB_NAME,
         )
         configure_checkpointer(saver, overwrite=True)
-        logger.info("celery_checkpointer_configured", db=settings.MONGODB_DB_NAME)
+        logger.debug("celery_checkpointer_configured", db=settings.MONGODB_DB_NAME)
     except Exception as exc:
         logger.error("celery_checkpointer_config_failed", error=str(exc))
 

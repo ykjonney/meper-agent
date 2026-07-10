@@ -82,12 +82,19 @@ async def list_agents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     name: str | None = Query(None),
-    status: AgentStatus | None = Query(None),
+    status: str | None = Query(
+        None,
+        description="Filter by status (draft/published/archived). "
+        'Defaults to "published". Use "all" to return every status.',
+    ),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> AgentListResponse:
+    # Default to published so external consumers (workflow editor, etc.)
+    # only see production-ready agents. Management pages pass "all".
+    effective_status = None if status == "all" else (status or "published")
     items, total = await AgentService.list_agents(
         page=page, page_size=page_size,
-        name=name, status=status.value if status else None,
+        name=name, status=effective_status,
     )
     return AgentListResponse(
         items=[_doc_to_response(doc) for doc in items],

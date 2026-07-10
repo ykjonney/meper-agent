@@ -82,7 +82,7 @@ export default function AgentsPage() {
     page: 1,
     page_size: 50,
     ...(debouncedSearch ? { name: debouncedSearch } : {}),
-    ...(statusFilter !== 'all' ? { status: statusFilter as AgentStatus } : {}),
+    status: statusFilter === 'all' ? 'all' : (statusFilter as AgentStatus),
   }
 
   const {

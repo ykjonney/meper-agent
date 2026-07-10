@@ -235,6 +235,19 @@ class McpConnectionService:
 
         await col.delete_one({"_id": connection_id})
 
+        # 清理 agents.mcp_connection_ids 中的残留引用
+        try:
+            await get_database()["agents"].update_many(
+                {"mcp_connection_ids": connection_id},
+                {"$pull": {"mcp_connection_ids": connection_id}},
+            )
+        except Exception as exc:
+            logger.warning(
+                "mcp_agent_refs_cleanup_partial",
+                connection_id=connection_id,
+                error=str(exc),
+            )
+
         logger.info(
             "mcp_connection_deleted",
             connection_id=connection_id,

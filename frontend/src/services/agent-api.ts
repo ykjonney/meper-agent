@@ -68,7 +68,8 @@ export interface AgentListParams {
   page?: number
   page_size?: number
   name?: string
-  status?: AgentStatus
+  /** Agent status, or "all" to return every status. Defaults to published. */
+  status?: AgentStatus | 'all'
 }
 
 export interface AgentListResponse {

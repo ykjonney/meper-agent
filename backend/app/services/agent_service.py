@@ -273,6 +273,31 @@ class AgentService:
         if existing_doc is None:
             return False
 
+        # 引用检查：已发布工作流的 Agent 节点引用了此 Agent 时禁止删除。
+        # 草稿工作流不拦截——用户可以先删 Agent 再去修改草稿。
+        from app.db.mongodb import get_database
+
+        wf_col = get_database()["workflows"]
+        referencing_wfs = await wf_col.find(
+            {
+                "status": "published",
+                "nodes": {
+                    "$elemMatch": {
+                        "type": "agent",
+                        "config.agent_id": agent_id,
+                    }
+                },
+            },
+            {"name": 1},
+        ).to_list(length=100)
+        if referencing_wfs:
+            wf_names = [w.get("name", w.get("_id", "")) for w in referencing_wfs]
+            raise ConflictError(
+                code="AGENT_IN_USE",
+                message=f"Agent 正在被以下工作流引用，无法删除：{', '.join(wf_names)}",
+                details={"workflow_names": wf_names},
+            )
+
         # TODO(Story 6.x): Add active Task reference check when
         # Task data model is implemented. For now, only warn.
         if existing_doc.get("status") == AgentStatus.PUBLISHED.value:
@@ -284,6 +309,21 @@ class AgentService:
 
         result = await col.delete_one({"_id": agent_id})
         if result.deleted_count > 0:
+            # 级联删除：清理该 Agent 的所有会话（含 messages + workspace）
+            try:
+                from app.services.session_service import SessionService
+
+                async for sess in SessionService._collection().find(
+                    {"agent_id": agent_id}, {"_id": 1}
+                ):
+                    await SessionService.delete_session(sess["_id"])
+            except Exception as exc:
+                logger.warning(
+                    "agent_sessions_cleanup_partial",
+                    agent_id=agent_id,
+                    error=str(exc),
+                )
+
             logger.info(
                 "agent_deleted",
                 agent_id=agent_id,

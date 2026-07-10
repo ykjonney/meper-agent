@@ -232,6 +232,29 @@ export interface TaskOutputFile {
   updated_at: string
 }
 
+/**
+ * Agent 节点执行详情的单条 timeline 条目。
+ * 与 chat 路径的 timeline_entries 格式完全一致。
+ */
+export interface NodeTimelineEntry {
+  type: 'thinking' | 'text' | 'tool_call' | 'tool_result' | 'user'
+  content?: string
+  tool_name?: string
+  args?: Record<string, unknown>
+  id?: string
+}
+
+/**
+ * Agent 节点执行详情响应（按需从 checkpointer thread 读取）。
+ */
+export interface NodeTimelineResponse {
+  task_id: string
+  node_id: string
+  thread_id: string
+  timeline: NodeTimelineEntry[]
+  message_count: number
+}
+
 /* ─── API methods ─── */
 
 export const tasksApi = {
@@ -292,6 +315,18 @@ export const tasksApi = {
       `/api/v1/tasks/${encodeURIComponent(taskId)}/outputs`
     )
     return data
+  },
+
+  /**
+   * Get the execution trace of an Agent node (thinking/tool_call/tool_result/text).
+   * Read on demand from the LangGraph checkpointer thread.
+   * GET /api/v1/tasks/{taskId}/nodes/{nodeId}/timeline
+   */
+  async getNodeTimeline(taskId: string, nodeId: string): Promise<NodeTimelineResponse> {
+    const res = await apiClient.get<NodeTimelineResponse>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/nodes/${encodeURIComponent(nodeId)}/timeline`
+    )
+    return res.data
   },
 
   /**
