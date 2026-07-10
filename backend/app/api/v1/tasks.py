@@ -12,6 +12,8 @@ from app.models.task import TaskStatus, utc_now
 from app.schemas.common import PaginatedResponse
 from app.schemas.file_library import FileRefResponse
 from app.schemas.task import (
+    NodeTimelineEntry,
+    NodeTimelineResponse,
     TaskCreate,
     TaskIntervene,
     TaskInterveneResponse,
@@ -368,7 +370,7 @@ async def intervene_task(
             )
 
     elif body.action == "cancel":
-        # Transition to cancelled
+        # Transition to cancelled (CANCELLED is now a recoverable paused state)
         doc = await TaskService.transition_task(
             task_id=task_id,
             to_status=TaskStatus.CANCELLED,
@@ -377,9 +379,13 @@ async def intervene_task(
             timeline_event_type="cancel",
             timeline_data={"reason": body.reason or "", "action": "cancel"},
         )
+        # Notify the running worker to stop (best-effort revoke as backup;
+        # the engine also cooperatively checks the DB flag at node boundaries
+        # and inside the agent REACT loop).
+        await TaskService.cancel_running_task(task_id)
 
     elif body.action == "resume":
-        # Transition waiting_human → running
+        # Transition waiting_human → running  OR  cancelled → running
         doc = await TaskService.transition_task(
             task_id=task_id,
             to_status=TaskStatus.RUNNING,
@@ -388,34 +394,45 @@ async def intervene_task(
             timeline_event_type="resume",
             timeline_data={"reason": body.reason or "", "action": "resume"},
         )
-        # Resume workflow execution
+        # Resume workflow execution (from checkpoint — works for both
+        # waiting_human and cancelled states).
         TaskService.resume_task_execution(task_id)
 
     elif body.action == "retry":
-        # Transition failed → pending
+        # Transition failed → running（直接重新执行，不经过 pending，
+        # 因为看板不显示 pending 状态的 task，经过 pending 如果派发失败会"消失"）。
         doc = await TaskService.transition_task(
             task_id=task_id,
-            to_status=TaskStatus.PENDING,
+            to_status=TaskStatus.RUNNING,
             triggered_by=current_user.id,
             triggered_by_type="user",
             timeline_event_type="retry",
             timeline_data={"reason": body.reason or "", "action": "retry"},
         )
-        # Clear checkpoint and error
+        # 重试 = 重新开始：清除所有运行时数据 + 附属文件 + checkpointer。
+        # 让 task 回到初始状态后从头执行。
         from app.db.mongodb import get_database
         db = get_database()
         await db["tasks"].update_one(
             {"_id": task_id},
             {
                 "$set": {
-                    "checkpoint": None,
+                    "output": None,
+                    "variables": {},
+                    "variable_snapshots": [],
+                    "call_chain": [],
+                    "timeline": [],
                     "error": None,
+                    "checkpoint": None,
+                    "celery_task_id": "",
                     "updated_at": utc_now(),
                 }
             },
         )
+        # 清理附属数据：FileRef/FileUsage + workspace 文件 + checkpointer
+        await TaskService._cleanup_task_artifacts(task_id, delete_workspace=True)
         # Start workflow execution from scratch
-        TaskService._start_workflow_execution(task_id)
+        TaskService.resume_task_execution(task_id)
 
     action_messages = {
         "approve": "审批通过",
@@ -491,3 +508,49 @@ async def list_task_outputs(
     # Return as dicts so FastAPI can serialize them with the FileRefResponse
     # schema (Pydantic handles the _id → id alias from MongoDB).
     return [FileRefResponse.model_validate(doc).model_dump(mode="json") for doc in docs]
+
+
+@router.get(
+    "/{task_id}/nodes/{node_id}/timeline",
+    response_model=NodeTimelineResponse,
+    summary="Get Agent node execution detail",
+)
+async def get_node_timeline(task_id: str, node_id: str) -> NodeTimelineResponse:
+    """Return the full execution trace (thinking/tool_call/tool_result/text) of
+    an Agent node, read on demand from the LangGraph checkpointer thread.
+
+    The thread id follows the convention ``{task_id}_{node_id}`` (set in
+    ``AgentNodeExecutor``), so only ``task_id`` + ``node_id`` are needed to
+    locate the persisted messages. No graph rebuild is required —
+    ``aget_tuple`` performs a direct MongoDB ``find_one`` + deserialisation.
+
+    Returns 404 when the node has no checkpoint yet (e.g. it never executed or
+    failed before the agent call).
+    """
+    from app.core.errors import NotFoundError
+    from app.engine.harness_integration import get_checkpointer
+    from app.services.message_converters import messages_to_timeline_entries
+
+    # Confirm the task exists (404 otherwise).
+    await TaskService.get_task_or_404(task_id)
+
+    thread_id = f"{task_id}_{node_id}"
+    checkpointer = get_checkpointer()
+    tuple_ = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
+
+    if tuple_ is None or not tuple_.checkpoint:
+        raise NotFoundError(
+            code="NODE_TIMELINE_NOT_FOUND",
+            message=f"节点 {node_id} 无执行记录",
+        )
+
+    messages = tuple_.checkpoint.get("channel_values", {}).get("messages", [])
+    timeline = messages_to_timeline_entries(messages, include_user=True)
+
+    return NodeTimelineResponse(
+        task_id=task_id,
+        node_id=node_id,
+        thread_id=thread_id,
+        timeline=[NodeTimelineEntry(**e) for e in timeline],
+        message_count=len(messages),
+    )

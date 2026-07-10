@@ -298,10 +298,22 @@ class AgentNodeExecutor(BaseNodeExecutor):
         max_retry = self.node_config.get("max_retry", 0)
         retry_delay_ms = self.node_config.get("retry_delay_ms", 2000)
 
-        # thread_id 用于 LangGraph checkpointer（MongoDBSaver），每次执行业务 ID 不同
+        # thread_id 固定为 {task_id}_{node_id}，使 checkpoint 可按 task+node 反查，
+        # 供前端按需读取 agent 节点的完整执行过程（thinking/tool_call/tool_result）。
+        # 重试时由 API 层清除 LangGraph checkpointer 中该 thread 的旧数据，
+        # 避免残留消息导致 "multiple non-consecutive system messages"。
         import time as _time
 
-        _thread_id = f"{self.node_id}_{int(_time.time() * 1000)}"
+        _thread_id = f"{task_id}_{self.node_id}"
+
+        # ── 恢复路径：若 checkpoint 中有 agent_thread_id，说明此 agent 节点
+        # 之前被取消（interrupt 挂起），用 Command(resume) 续接 REACT 循环，
+        # 完整上下文（messages/tool结果/step_count）从 MongoDB checkpointer 恢复。
+        resume_thread_id = sys_vars.get("resume_agent_thread_id", "")
+        # 恢复时文件扫描不用 node_start_ts 过滤——agent 在上次执行（被取消前）
+        # 已写入 output/ 的文件 mtime 早于本次恢复时间，会被错误过滤。
+        # sha256 去重已保证不会重复注册。
+        is_resume = bool(resume_thread_id)
 
         # 组装初始消息：system prompt（含工具声明 + context 卡槽注入）+ 用户查询
         # 注意：input_prompt 已经通过 context 卡槽注入系统提示，不作为独立 user message
@@ -356,24 +368,74 @@ class AgentNodeExecutor(BaseNodeExecutor):
         )
 
         last_error: str | None = None
+        # 记录被取消时的 agent thread_id，供 engine 保存到 checkpoint
+        self.agent_thread_id: str = ""
+
         try:
             for attempt in range(1 + max_retry):
                 try:
-                    from app.engine.harness_integration import invoke
+                    # 取消检查器：每轮 REACT 循环在 compress_node 检查 task 状态，
+                    # 若已 CANCELLED 则 interrupt() 优雅挂起，完整上下文存入 checkpointer。
+                    async def _cancel_checker() -> bool:
+                        from app.db.mongodb import get_database
 
-                    result = await asyncio.wait_for(
-                        invoke(
-                            agent_doc,
-                            {
-                                "messages": initial_messages,
-                                "session_id": _thread_id,
-                                "user_id": user_id,
-                                "agent_id": agent_id,
-                            },
-                            workspace=task_workspace,
-                        ),
-                        timeout=timeout_ms / 1000,
-                    )
+                        doc = await get_database()["tasks"].find_one(
+                            {"_id": task_id}, {"status": 1},
+                        )
+                        return bool(doc and doc.get("status") == "cancelled")
+
+                    if resume_thread_id:
+                        # 恢复被取消的 agent：用 Command(resume) 续接 REACT 循环
+                        from app.engine.harness_integration import resume_agent
+
+                        result = await asyncio.wait_for(
+                            resume_agent(
+                                agent_doc,
+                                {
+                                    "messages": initial_messages,
+                                    "session_id": resume_thread_id,
+                                    "user_id": user_id,
+                                    "agent_id": agent_id,
+                                },
+                                thread_id=resume_thread_id,
+                                resume_value="continue",
+                                workspace=task_workspace,
+                                cancel_checker=_cancel_checker,
+                            ),
+                            timeout=timeout_ms / 1000,
+                        )
+                        # 恢复成功后清除标志，后续重试走正常 invoke
+                        resume_thread_id = ""
+                    else:
+                        from app.engine.harness_integration import invoke
+
+                        result = await asyncio.wait_for(
+                            invoke(
+                                agent_doc,
+                                {
+                                    "messages": initial_messages,
+                                    "session_id": _thread_id,
+                                    "user_id": user_id,
+                                    "agent_id": agent_id,
+                                },
+                                workspace=task_workspace,
+                                cancel_checker=_cancel_checker,
+                            ),
+                            timeout=timeout_ms / 1000,
+                        )
+
+                    # ── 检测 LangGraph interrupt（取消挂起）──
+                    # interrupt() 后 ainvoke 返回的 state 带 __interrupt__ 键。
+                    # 此时 agent 的完整上下文已存入 MongoDB checkpointer（按 _thread_id），
+                    # 记录 thread_id 供 engine 保存到 checkpoint，恢复时用 Command(resume) 续接。
+                    if isinstance(result, dict) and result.get("__interrupt__"):
+                        self.agent_thread_id = _thread_id
+                        return NodeResult(
+                            success=False,
+                            output={},
+                            error_message="",
+                            error_code="AGENT_INTERRUPTED",
+                        )
                     output_content = ""
                     if result.get("messages"):
                         last_msg = result["messages"][-1]
@@ -396,6 +458,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     registered_files = await self._register_task_output_files(
                         task_workspace, node_start_ts,
                         task_id=task_id, user_id=user_id,
+                        register_all=is_resume,
                     )
 
                     # 合并去重（registered 优先，保留最新的 file_id/大小/路径）
@@ -484,6 +547,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
         *,
         task_id: str,
         user_id: str,
+        register_all: bool = False,
     ) -> list[dict[str, Any]]:
         """Register files newly created in the task workspace to file_library.
 
@@ -534,8 +598,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
             except FileNotFoundError:
                 # File was removed between rglob and stat — skip.
                 continue
-            if stat.st_mtime < node_start_ts:
+            if not register_all and stat.st_mtime < node_start_ts:
                 # Pre-existing file from an earlier run; do not re-register.
+                # 恢复场景(register_all=True)跳过此过滤——agent 在上次执行
+                # （被取消前）已写入的文件 mtime 早于本次恢复时间。
                 continue
             try:
                 data = path.read_bytes()

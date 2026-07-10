@@ -21,7 +21,7 @@ from app.engine.harness_integration.context import (
     release_harness_context,
     resolve_harness_context,
 )
-from app.engine.harness_integration.execution import invoke, resume, stream
+from app.engine.harness_integration.execution import invoke, resume, resume_agent, stream
 
 __all__ = [
     "get_checkpointer",
@@ -29,5 +29,6 @@ __all__ = [
     "release_harness_context",
     "resolve_harness_context",
     "resume",
+    "resume_agent",
     "stream",
 ]

@@ -48,3 +48,61 @@ async def test_build_agent_graph_runs_llm_node(
     result = await graph.ainvoke(base_state, config=make_run_config(llm))
     assert result["step_count"] == 1
     assert result["messages"][-1].content == "graph ok"
+
+
+@pytest.mark.asyncio
+async def test_cancel_checker_triggers_interrupt(
+    agent_doc: dict, base_state, fake_llm_factory, in_memory_checkpointer
+) -> None:
+    """When cancel_checker returns True, compress_node calls interrupt() and
+    the graph suspends (result contains __interrupt__).
+    """
+    from langchain_core.messages import AIMessage
+
+    from agent_flow_harness.graph import build_config
+
+    llm = fake_llm_factory([AIMessage(content="should not reach")])
+
+    cancelled = True
+
+    async def _cancel_checker() -> bool:
+        return cancelled
+
+    graph = build_agent_graph(
+        agent_doc, checkpointer=in_memory_checkpointer, tools=[], middleware=[],
+    )
+    config = build_config(
+        agent_doc, llm, tools=[], middlewares=[],
+        thread_id="cancel-test",
+        cancel_checker=_cancel_checker,
+    )
+    result = await graph.ainvoke(base_state, config=config)
+    # Graph should be interrupted, not completed
+    assert "__interrupt__" in result, f"Expected __interrupt__, got: {result.keys()}"
+
+
+@pytest.mark.asyncio
+async def test_cancel_checker_false_runs_normally(
+    agent_doc: dict, base_state, fake_llm_factory, in_memory_checkpointer
+) -> None:
+    """When cancel_checker returns False, the graph runs normally."""
+    from langchain_core.messages import AIMessage
+
+    from agent_flow_harness.graph import build_config
+
+    llm = fake_llm_factory([AIMessage(content="done")])
+
+    async def _cancel_checker() -> bool:
+        return False
+
+    graph = build_agent_graph(
+        agent_doc, checkpointer=in_memory_checkpointer, tools=[], middleware=[],
+    )
+    config = build_config(
+        agent_doc, llm, tools=[], middlewares=[],
+        thread_id="no-cancel-test",
+        cancel_checker=_cancel_checker,
+    )
+    result = await graph.ainvoke(base_state, config=config)
+    assert "__interrupt__" not in result
+    assert result["messages"][-1].content == "done"

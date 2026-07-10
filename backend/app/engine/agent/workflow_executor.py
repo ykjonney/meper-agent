@@ -199,7 +199,7 @@ async def _intervene(
             "reject": TaskStatus.FAILED,
             "cancel": TaskStatus.CANCELLED,
             "resume": TaskStatus.RUNNING,
-            "retry": TaskStatus.PENDING,
+            "retry": TaskStatus.RUNNING,
         }
 
         target_status = action_map.get(action)
@@ -245,7 +245,7 @@ async def task_intervene(
     - ``reject`` — Reject and fail a waiting_human task
     - ``cancel`` — Cancel a pending/running/waiting_human task
     - ``resume`` — Resume execution (from waiting_human)
-    - ``retry`` — Retry a failed task (resets to pending)
+    - ``retry`` — Retry a failed task (re-executes from scratch)
 
     Args:
         task_id: The task to intervene on.

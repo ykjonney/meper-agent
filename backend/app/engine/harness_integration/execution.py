@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from agent_flow_harness.adapters.app_event import AppEvent
 
 from app.engine.harness_integration.context import (
@@ -80,8 +82,14 @@ async def invoke(
     enable_thinking: bool = False,
     workspace: Any | None = None,
     legacy_records: list[dict] | None = None,
+    cancel_checker: Callable[[], Awaitable[bool]] | None = None,
 ) -> dict:
-    """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。"""
+    """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
+
+    Args:
+        cancel_checker: 可选的异步取消检查器。传入后 compress_node 每轮
+            REACT 迭代会检查它，返回 True 时 interrupt() 优雅挂起 agent。
+    """
     from agent_flow_harness import build_agent_graph, build_config
 
     hctx = await resolve_harness_context(
@@ -100,9 +108,51 @@ async def invoke(
             context_window=hctx["context_window"],
             middlewares=hctx["middlewares"],
             thread_id=session_id,
+            cancel_checker=cancel_checker,
         )
         await _maybe_migrate_legacy(graph, config, legacy_records)
         return await graph.ainvoke(state, config=config)
+    finally:
+        release_harness_context(hctx)
+
+
+async def resume_agent(
+    agent: dict,
+    state: dict,
+    *,
+    thread_id: str,
+    resume_value: str = "continue",
+    enable_thinking: bool = False,
+    workspace: Any | None = None,
+    cancel_checker: Callable[[], Awaitable[bool]] | None = None,
+) -> dict:
+    """恢复被 interrupt() 挂起的 agent（非流式，供工作流恢复使用）。
+
+    用 ``Command(resume=resume_value)`` + 相同 ``thread_id`` 续接 LangGraph
+    checkpointer 中的状态，REACT 循环从断点继续，完整上下文（messages /
+    tool 结果 / step_count）不丢失。
+    """
+    from agent_flow_harness import build_agent_graph, build_config
+    from langgraph.types import Command
+
+    hctx = await resolve_harness_context(
+        agent, state, enable_thinking=enable_thinking, workspace=workspace,
+    )
+    try:
+        graph = build_agent_graph(
+            hctx["agent_doc"], checkpointer=get_checkpointer(),
+            middleware=hctx["middlewares"], tools=hctx["tools"],
+        )
+        config = build_config(
+            hctx["agent_doc"],
+            hctx["llm"],
+            tools=hctx["tools"],
+            context_window=hctx["context_window"],
+            middlewares=hctx["middlewares"],
+            thread_id=thread_id,
+            cancel_checker=cancel_checker,
+        )
+        return await graph.ainvoke(Command(resume=resume_value), config=config)
     finally:
         release_harness_context(hctx)
 

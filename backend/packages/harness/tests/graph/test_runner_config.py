@@ -74,3 +74,23 @@ def test_build_config_includes_optional_keys() -> None:
     assert cfg["context_window"] == 8000
     assert cfg["workspace"] == "ws"
     assert config["recursion_limit"] == 10
+
+
+def test_build_config_passes_cancel_checker() -> None:
+    """build_config should include cancel_checker in configurable when provided."""
+    llm = _stub_llm([])
+
+    async def _checker() -> bool:
+        return False
+
+    config = build_config({"tools": []}, llm, cancel_checker=_checker)
+    cfg = config["configurable"]
+    assert cfg["cancel_checker"] is _checker
+
+
+def test_build_config_omits_cancel_checker_when_none() -> None:
+    """cancel_checker should not be in configurable when not provided."""
+    llm = _stub_llm([])
+    config = build_config({"tools": []}, llm)
+    cfg = config["configurable"]
+    assert "cancel_checker" not in cfg

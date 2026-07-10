@@ -49,8 +49,26 @@ async def compress_node(
     Runs before every LLM call so the model never exceeds its token budget.
     Supports both the pluggable ``ContextStrategy`` (v0.2-5) and the built-in
     ``compress_messages`` fallback.
+
+    Cancel gate: when an optional ``cancel_checker`` async callable is provided
+    in ``configurable`` and returns ``True``, this node calls LangGraph
+    ``interrupt()`` to gracefully suspend the REACT loop. The full
+    conversation context (messages, tool results, step_count) is persisted
+    by the checkpointer; resuming with ``Command(resume=...)`` replays this
+    node, ``interrupt()`` returns the resume value, and the loop continues
+    with full context continuity.
     """
     configurable = _configurable(config)
+
+    # ── Cancel gate — runs at the top of every REACT iteration ──
+    cancel_checker = configurable.get("cancel_checker")
+    if cancel_checker is not None and await cancel_checker():
+        from langgraph.types import interrupt
+
+        interrupt({"reason": "cancelled"})
+        # interrupt() returns the resume value on resume; fall through to
+        # normal compression (the REACT loop continues with full context).
+
     context_window: int | None = configurable.get("context_window")
     context_strategy = configurable.get("context_strategy")
     llm = configurable.get("llm")
