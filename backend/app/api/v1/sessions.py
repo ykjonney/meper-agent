@@ -1,14 +1,17 @@
 """Session API endpoints — chat conversation management and file downloads."""
 import io
 import mimetypes
+import os
 import zipfile
+from contextlib import suppress
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.errors import NotFoundError
 from app.core.security import get_current_user, require_any_role
-from app.engine.tool.workspace import Workspace
+from app.engine.tool.workspace import Workspace, WorkspaceManager
 from app.models.file_library import FileConsumerKind
 from app.schemas.file_library import FileRefResponse
 from app.schemas.session import (
@@ -23,6 +26,7 @@ from app.schemas.user import UserResponse
 from app.services.file_service import FileService
 from app.services.file_storage import LocalFileStorage
 from app.services.session_service import MessageService, SessionService
+from app.utils.sanitize import sanitize_text
 
 router = APIRouter(
     prefix="/sessions",
@@ -178,24 +182,72 @@ async def delete_session(
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
+# 会话上传允许的文件扩展名白名单（默认拒绝可执行/危险类型如
+# .exe/.sh/.bat/.php/.jar 等）。按用途分组便于阅读。
+ALLOWED_UPLOAD_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        # 图片
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp",
+        # 文档
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".txt", ".md", ".csv", ".rtf",
+        # 代码与文本（供 Agent/工作流解析）
+        ".json", ".yaml", ".yml", ".xml", ".html", ".htm",
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+        ".c", ".cpp", ".h", ".sql", ".sh", ".ini", ".toml",
+    }
+)
+
 
 def _get_file_service() -> FileService:
     """FileService 依赖注入。"""
     return FileService(storage=LocalFileStorage())
 
 
-def _resolve_input_filename(input_dir, filename: str):
-    """Resolve filename conflicts by adding numeric suffix."""
-    from pathlib import Path
+def _sanitize_upload_filename(filename: str) -> str:
+    """Return a safe base filename, stripping any path components.
 
-    target = Path(input_dir) / filename
+    防御路径穿越：剥离客户端文件名中的目录前缀（``../``、绝对路径
+    等），只保留最终文件名部分。空或仅含路径分隔符的输入回退为
+    ``unnamed``。
+    """
+    if not filename:
+        return "unnamed"
+    # basename 处理 ``../``、反斜杠、绝对路径前缀
+    name = os.path.basename(filename.replace("\\", "/"))
+    name = Path(name).name  # 兜底：再次取纯文件名
+    name = name.strip()
+    if not name or name in (".", ".."):
+        return "unnamed"
+    return name
+
+
+def _resolve_input_filename(input_dir, filename: str) -> Path:
+    """Resolve filename conflicts by adding numeric suffix.
+
+    路径安全：通过 :meth:`WorkspaceManager.safe_resolve_path` 校验目标
+    落在 ``input_dir`` 之内，防止路径穿越越界写入。
+    """
+    target = WorkspaceManager.safe_resolve_path(Path(input_dir), filename)
+    if target is None:
+        raise HTTPException(
+            status_code=400,
+            detail="非法的文件名（路径越界）",
+        )
     if not target.exists():
         return target
     stem = target.stem
     suffix = target.suffix
     counter = 1
     while target.exists():
-        target = Path(input_dir) / f"{stem}_{counter}{suffix}"
+        candidate = Path(input_dir) / f"{stem}_{counter}{suffix}"
+        resolved = WorkspaceManager.safe_resolve_path(Path(input_dir), candidate.name)
+        if resolved is None:
+            raise HTTPException(
+                status_code=400,
+                detail="非法的文件名（路径越界）",
+            )
+        target = resolved
         counter += 1
     return target
 
@@ -231,7 +283,26 @@ async def upload_chat_file(
         )
 
     mime_type = file.content_type or "application/octet-stream"
-    filename = file.filename or "unnamed"
+    # 清洗文件名：剥离路径前缀，防止路径穿越（../ 越界写入）。
+    filename = _sanitize_upload_filename(file.filename or "unnamed")
+
+    # 文件类型白名单：拒绝可执行/危险扩展名（.exe/.sh/.bat 等）。
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"不支持的文件类型 {ext or '(无扩展名)'}。"
+                "仅允许图片/文档/常见代码与文本文件。"
+            ),
+        )
+
+    # SVG 是常见的 XSS 载荷载体（内嵌 <script>/onload），入库前定向清洗。
+    if ext == ".svg":
+        with suppress(Exception):  # 兜底：无法解码则原样保留
+            data = sanitize_text(
+                data.decode("utf-8", errors="replace")
+            ).encode("utf-8")
 
     # Create FileRef in file library
     file_ref = await svc.create(
@@ -280,8 +351,6 @@ async def upload_chat_file(
 
 async def _verify_session_ownership(session_id: str, user_id: str) -> Workspace:
     """Verify session exists and belongs to user, return workspace."""
-    from app.engine.tool.workspace import WorkspaceManager
-
     session_doc = await SessionService.get_session(session_id)
     if session_doc is None:
         raise NotFoundError(

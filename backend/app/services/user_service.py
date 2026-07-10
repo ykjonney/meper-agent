@@ -1,4 +1,6 @@
 """User business logic — creation, lookup, and admin initialization."""
+import re
+
 from loguru import logger
 
 from app.core.errors import ForbiddenError, NotFoundError, ValidationError
@@ -229,7 +231,7 @@ class UserService:
         col = UserService._collection()
         filter_query: dict = {}
         if username:
-            filter_query["username"] = {"$regex": username, "$options": "i"}
+            filter_query["username"] = {"$regex": re.escape(username), "$options": "i"}
         if role:
             filter_query["role"] = role
         if status:
@@ -448,6 +450,100 @@ class UserService:
 
         result = await col.delete_one({"_id": user_id})
         if result.deleted_count > 0:
+            db = get_database()
+
+            # 1. Sessions + Messages（复用 SessionService 逐个删除，含 workspace 清理）
+            try:
+                from app.services.session_service import SessionService
+
+                async for sess in db["sessions"].find({"user_id": user_id}, {"_id": 1}):
+                    await SessionService.delete_session(sess["_id"])
+            except Exception as exc:
+                logger.warning("user_sessions_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 2. Tasks
+            try:
+                await db["tasks"].delete_many({"created_by": user_id})
+            except Exception as exc:
+                logger.warning("user_tasks_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 3. Workflows + workflow_registry
+            try:
+                wf_ids = [
+                    wf["_id"]
+                    async for wf in db["workflows"].find({"created_by": user_id}, {"_id": 1})
+                ]
+                if wf_ids:
+                    await db["workflows"].delete_many({"_id": {"$in": wf_ids}})
+                    await db["workflow_registry"].delete_many(
+                        {"workflow_id": {"$in": wf_ids}}
+                    )
+            except Exception as exc:
+                logger.warning("user_workflows_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 4. Triggers
+            try:
+                await db["triggers"].delete_many({"user_id": user_id})
+            except Exception as exc:
+                logger.warning("user_triggers_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 5. Files（DB 记录 + 物理文件）
+            try:
+                from app.services.file_storage import LocalFileStorage
+
+                storage = LocalFileStorage()
+                async for f in db["file_refs"].find(
+                    {"owner_user_id": user_id}, {"storage_key": 1}
+                ):
+                    await storage.delete(f.get("storage_key", ""))
+                await db["file_refs"].delete_many({"owner_user_id": user_id})
+                await db["file_usages"].delete_many({"owner_user_id": user_id})
+            except Exception as exc:
+                logger.warning("user_files_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 6. Webhooks + delivery logs（webhook 通过 api_key_id 关联用户）
+            try:
+                api_key_ids = [
+                    ak["_id"]
+                    async for ak in db["api_keys"].find(
+                        {"owner_user_id": user_id}, {"_id": 1}
+                    )
+                ]
+                if api_key_ids:
+                    webhook_ids = [
+                        wh["_id"]
+                        async for wh in db["webhooks"].find(
+                            {"api_key_id": {"$in": api_key_ids}}, {"_id": 1}
+                        )
+                    ]
+                    if webhook_ids:
+                        await db["webhook_delivery_logs"].delete_many(
+                            {"webhook_id": {"$in": webhook_ids}}
+                        )
+                        await db["webhooks"].delete_many({"_id": {"$in": webhook_ids}})
+            except Exception as exc:
+                logger.warning("user_webhooks_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 7. API Keys
+            try:
+                await db["api_keys"].delete_many({"owner_user_id": user_id})
+            except Exception as exc:
+                logger.warning("user_api_keys_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 8. Credentials
+            try:
+                await db["credentials"].delete_many({"user_id": user_id})
+            except Exception as exc:
+                logger.warning("user_credentials_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 9. Workspace 物理目录（最后删，确保前面的文件操作已完成）
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
+
+                WorkspaceManager.delete_user_workspace(user_id)
+            except Exception as exc:
+                logger.warning("user_workspace_cleanup_partial", user_id=user_id, error=str(exc))
+
             logger.info(
                 "admin_user_deleted",
                 target_user_id=user_id,
