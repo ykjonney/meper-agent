@@ -275,8 +275,6 @@ class AgentService:
 
         # 引用检查：已发布工作流的 Agent 节点引用了此 Agent 时禁止删除。
         # 草稿工作流不拦截——用户可以先删 Agent 再去修改草稿。
-        from app.db.mongodb import get_database
-
         wf_col = get_database()["workflows"]
         referencing_wfs = await wf_col.find(
             {
