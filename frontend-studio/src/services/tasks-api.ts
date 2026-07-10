@@ -17,10 +17,12 @@ export type TaskStatusValue =
   | 'cancelled'
 
 /**
- * 看板使用的有序状态列表（6 列顺序）。
+ * 看板使用的有序状态列表（5 列顺序）。
+ *
+ * 注：pending（待执行）不作为看板列 - 定时任务统一在「定时任务」页面管理，
+ * 手动 scheduled_at 任务的待执行态不在此展示。
  */
 export const BOARD_STATUSES: TaskStatusValue[] = [
-  'pending',
   'running',
   'waiting_human',
   'completed',
@@ -134,6 +136,7 @@ export interface TaskSummary {
   error?: TaskError | null
   checkpoint?: Checkpoint | null
   scheduled_at?: string | null
+  trigger_id?: string
   created_at: string
   updated_at: string
 }
@@ -150,6 +153,10 @@ export interface TaskListParams {
   status?: string
   created_by?: string
   workflow_id?: string
+  /** 按触发器过滤：只返回该 trigger 触发产生的任务（source=trigger_scheduled）。 */
+  trigger_id?: string
+  /** 按来源过滤：manual / trigger / trigger_scheduled。 */
+  source?: string
 }
 
 export interface TaskListResponse {
