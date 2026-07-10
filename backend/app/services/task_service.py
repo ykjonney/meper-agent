@@ -281,6 +281,8 @@ class TaskService:
         status: TaskStatus | None = None,
         created_by: str | None = None,
         workflow_id: str | None = None,
+        trigger_id: str | None = None,
+        source: str | None = None,
     ) -> tuple[list[dict], int]:
         """List Tasks with optional filters.
 
@@ -294,6 +296,10 @@ class TaskService:
             query["created_by"] = created_by
         if workflow_id:
             query["workflow_id"] = workflow_id
+        if trigger_id:
+            query["trigger_id"] = trigger_id
+        if source:
+            query["source"] = source
 
         cursor = (
             TaskService._collection()

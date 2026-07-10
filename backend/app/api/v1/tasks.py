@@ -181,6 +181,8 @@ async def list_tasks(
     status: str | None = Query(default=None),
     created_by: str | None = Query(default=None),
     workflow_id: str | None = Query(default=None),
+    trigger_id: str | None = Query(default=None),
+    source: str | None = Query(default=None),
 ) -> TaskListResponse:
     """List Tasks with optional filtering and pagination."""
     status_enum = TaskStatus(status) if status else None
@@ -190,6 +192,8 @@ async def list_tasks(
         status=status_enum,
         created_by=created_by,
         workflow_id=workflow_id,
+        trigger_id=trigger_id,
+        source=source,
     )
     return TaskListResponse(
         total=total,

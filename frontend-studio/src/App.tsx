@@ -3,7 +3,7 @@ import {
   Bot, LayoutDashboard, Layers, Key, Server,
   Sun, Moon, MessageSquare, ListTodo, Sparkles, Shield,
   Wrench, Plug, UserCog, LogOut, ChevronDown,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, Clock,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
 import { useQuery, useQueries } from '@tanstack/react-query';
@@ -34,6 +34,7 @@ import { SkillDetailPage } from './components/SkillDetailPage';
 import { UserManagement } from './components/UserManagement';
 import { SystemSettings } from './components/SystemSettings';
 import { ModelsPage } from './components/ModelsPage';
+import { TriggersPage } from './components/TriggersPage';
 import { ProfilePage } from './components/ProfilePage';
 import { NotificationCenter } from './components/notification-center';
 import { useTaskRealtime } from './hooks/use-task-realtime';
@@ -58,12 +59,13 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: '会话记录', icon: MessageSquare, badge: 'HP' },
-  // 任务协作看板 badge 由下方 activeTaskCount 实时注入（待执行 + 执行中 + 等待人工）。
+  // 任务协作看板 badge 由下方 activeTaskCount 实时注入（执行中 + 等待人工）。
   { id: 'board', label: '任务协作看板', icon: ListTodo },
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, permission: 'execution:read:own' },
   { id: 'agents', label: '智能体', icon: Bot, permission: 'agent:read' },
   { id: 'models', label: '模型配置', icon: Server, permission: 'model:read' },
   { id: 'workflows', label: 'AI 工作路线', icon: Layers, permission: 'workflow:read' },
+  { id: 'triggers', label: '定时任务', icon: Clock, permission: 'workflow:read' },
   { id: 'tools', label: '内置工具', icon: Wrench, permission: 'tool:read' },
   { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
   { id: 'skills', label: '技能商店', icon: Sparkles, permission: 'tool:read' },
@@ -169,7 +171,7 @@ export default function App() {
   // 复用与 TaskBoard 相同的 taskKeys.list({status}) 缓存键，列表打开后两侧共享缓存、
   // 数字始终一致；刷新由 WebSocket 的 task_status 事件 invalidate 驱动（见
   // use-task-realtime），不做定时轮询。
-  const BOARD_BADGE_STATUSES: TaskStatusValue[] = ['pending', 'running', 'waiting_human'];
+  const BOARD_BADGE_STATUSES: TaskStatusValue[] = ['running', 'waiting_human'];
   const boardBadgeQueries = useQueries({
     queries: BOARD_BADGE_STATUSES.map((status) => ({
       queryKey: taskKeys.list({ status, page: 1, page_size: 50 }),
@@ -514,6 +516,15 @@ export default function App() {
             ) : (
               <WorkflowSpace theme={theme} onOpen={(id) => setOpenWorkflow(id)} />
             )
+          )}
+
+          {activeTab === 'triggers' && (
+            <TriggersPage
+              onViewTask={(taskId) => {
+                setActiveTab('board');
+                setActiveTraceTaskId(taskId);
+              }}
+            />
           )}
 
           {activeTab === 'tools' && <BuiltinToolsPage />}
