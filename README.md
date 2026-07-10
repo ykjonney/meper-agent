@@ -30,6 +30,7 @@ agent-flow/
 │   │   ├── models/       # MongoDB 数据模型
 │   │   ├── schemas/      # Pydantic 请求/响应模型
 │   │   ├── services/     # 业务逻辑层
+│   │   ├── utils/        # 工具函数（输入清洗、模板渲染等）
 │   │   ├── workers/      # Celery 异步任务（celery_app、beat_schedule、tasks）
 │   │   ├── cli/          # CLI 命令（create-admin 等）
 │   │   └── main.py       # FastAPI 应用入口

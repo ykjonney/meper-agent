@@ -67,8 +67,8 @@ services:
       - SANDBOX_IMAGE=${SANDBOX_IMAGE:-agent-sandbox:latest}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${WORKSPACES_HOST_DIR:-${PWD}/data/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
-      - ${SKILLS_HOST_DIR:-${PWD}/data/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
+      - ${WORKSPACES_HOST_DIR:-./data/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
+      - ${SKILLS_HOST_DIR:-./data/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
     depends_on:
       - redis
       - mongodb

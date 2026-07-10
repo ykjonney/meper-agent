@@ -33,7 +33,7 @@ dev-local:
 	@echo "Starting local dev: FastAPI :8000 + Celery worker + Frontend :5173"
 	@trap 'kill 0' EXIT; \
 	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
-	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info) & \
+	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd frontend && npm run dev) & \
 	wait
 
