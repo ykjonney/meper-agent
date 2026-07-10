@@ -32,6 +32,7 @@ import {
   agentApi,
   agentKeys,
   type Agent,
+  type AgentListParams,
   type AgentStatus,
 } from '../services/agent-api'
 import { AGENT_STATUS_STYLES } from '../constants/agent-status'
@@ -78,7 +79,7 @@ export default function AgentsPage() {
   const [creating, setCreating] = useState(false)
 
   /* ─── Query: agent list ─── */
-  const queryParams = {
+  const queryParams: AgentListParams = {
     page: 1,
     page_size: 50,
     ...(debouncedSearch ? { name: debouncedSearch } : {}),
