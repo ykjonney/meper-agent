@@ -30,8 +30,8 @@ services:
       - WORKSPACES_CONTAINER_DIR=${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
       - SKILLS_CONTAINER_DIR=${SKILLS_CONTAINER_DIR:-/data/skills}
       # Host-side paths (passed to Docker daemon for sandbox bind mounts)
-      - WORKSPACES_HOST_DIR=${WORKSPACES_HOST_DIR:-./data/workspaces}
-      - SKILLS_HOST_DIR=${SKILLS_HOST_DIR:-./data/skills}
+      - WORKSPACES_HOST_DIR=${WORKSPACES_HOST_DIR:-${HOME}/.agent-flow/workspaces}
+      - SKILLS_HOST_DIR=${SKILLS_HOST_DIR:-${HOME}/.agent-flow/skills}
       # Sandbox
       - SANDBOX_ENABLED=${SANDBOX_ENABLED:-true}
       - SANDBOX_IMAGE=${SANDBOX_IMAGE:-agent-sandbox:latest}
@@ -40,9 +40,9 @@ services:
       # Docker socket — backend spawns sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
       # Workspaces — shared between backend and sandbox containers
-      - ${WORKSPACES_HOST_DIR:-./data/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
+      - ${WORKSPACES_HOST_DIR:-${HOME}/.agent-flow/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
       # Skills — mounted read-only into sandbox containers
-      - ${SKILLS_HOST_DIR:-./data/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
+      - ${SKILLS_HOST_DIR:-${HOME}/.agent-flow/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
     depends_on:
       mongodb:
         condition: service_started
@@ -61,14 +61,14 @@ services:
     environment:
       - WORKSPACES_CONTAINER_DIR=${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
       - SKILLS_CONTAINER_DIR=${SKILLS_CONTAINER_DIR:-/data/skills}
-      - WORKSPACES_HOST_DIR=${WORKSPACES_HOST_DIR:-./data/workspaces}
-      - SKILLS_HOST_DIR=${SKILLS_HOST_DIR:-./data/skills}
+      - WORKSPACES_HOST_DIR=${WORKSPACES_HOST_DIR:-${HOME}/.agent-flow/workspaces}
+      - SKILLS_HOST_DIR=${SKILLS_HOST_DIR:-${HOME}/.agent-flow/skills}
       - SANDBOX_ENABLED=${SANDBOX_ENABLED:-true}
       - SANDBOX_IMAGE=${SANDBOX_IMAGE:-agent-sandbox:latest}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${WORKSPACES_HOST_DIR:-./data/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
-      - ${SKILLS_HOST_DIR:-./data/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
+      - ${WORKSPACES_HOST_DIR:-${HOME}/.agent-flow/workspaces}:${WORKSPACES_CONTAINER_DIR:-/data/workspaces}
+      - ${SKILLS_HOST_DIR:-${HOME}/.agent-flow/skills}:${SKILLS_CONTAINER_DIR:-/data/skills}
     depends_on:
       - redis
       - mongodb
@@ -85,7 +85,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
       MONGO_INITDB_DATABASE: agent_flow
     volumes:
-      - ${MONGODB_DATA_DIR:-./data/mongodb}:/data/db
+      - ${MONGODB_DATA_DIR:-${HOME}/.agent-flow/mongodb}:/data/db
       - ./mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
     restart: unless-stopped
 
@@ -95,7 +95,7 @@ services:
       - "6379:6379"
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - ${REDIS_DATA_DIR:-./data/redis}:/data
+      - ${REDIS_DATA_DIR:-${HOME}/.agent-flow/redis}:/data
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     restart: unless-stopped
 

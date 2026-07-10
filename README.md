@@ -254,10 +254,10 @@ cd deploy
 # 复制并编辑环境变量
 cp .env.example .env
 # 按需修改 .env 中的配置（特别是 JWT_SECRET_KEY、MONGO_ROOT_PASSWORD、ADMIN_PASSWORD 等）
-# 数据目录（WORKSPACES_HOST_DIR 等）使用 ${PWD}/data/... 默认值即可；如需自定义请改为绝对路径
+# 数据目录默认使用 ~/.agent-flow/...（与项目代码分离），无需额外配置
 
-# 创建数据目录
-mkdir -p data/mongodb data/redis data/workspaces data/skills
+# 创建数据目录（默认路径 ~/.agent-flow/）
+mkdir -p ~/.agent-flow/{mongodb,redis,workspaces,skills}
 
 # 构建 sandbox 镜像（重要，见下方说明）
 make build-sandbox
@@ -269,14 +269,14 @@ docker compose up -d
 docker compose run --rm --profile init create-admin
 ```
 
-`deploy/.env` 中的关键数据目录变量（均使用 `${PWD}` 自动解析为绝对路径）：
+`deploy/.env` 中的关键数据目录变量（均使用 `${HOME}` 自动解析为绝对路径，数据与项目代码分离）：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WORKSPACES_HOST_DIR` | `${PWD}/data/workspaces` | 宿主机工作空间目录 |
-| `SKILLS_HOST_DIR` | `${PWD}/data/skills` | 宿主机 Skill 目录 |
-| `MONGODB_DATA_DIR` | `${PWD}/data/mongodb` | MongoDB 数据持久化目录 |
-| `REDIS_DATA_DIR` | `${PWD}/data/redis` | Redis 数据持久化目录 |
+| `WORKSPACES_HOST_DIR` | `${HOME}/.agent-flow/workspaces` | 宿主机工作空间目录 |
+| `SKILLS_HOST_DIR` | `${HOME}/.agent-flow/skills` | 宿主机 Skill 目录 |
+| `MONGODB_DATA_DIR` | `${HOME}/.agent-flow/mongodb` | MongoDB 数据持久化目录 |
+| `REDIS_DATA_DIR` | `${HOME}/.agent-flow/redis` | Redis 数据持久化目录 |
 | `WORKSPACES_CONTAINER_DIR` | `/data/workspaces` | 容器内工作空间挂载点（一般无需修改） |
 | `SKILLS_CONTAINER_DIR` | `/data/skills` | 容器内 Skill 挂载点（一般无需修改） |
 

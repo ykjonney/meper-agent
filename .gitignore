@@ -60,12 +60,8 @@ Thumbs.db
 *.local
 
 # =============================================================================
-# Data directories
+# Data directories (data lives in ~/.agent-flow/, not in the project tree)
 # =============================================================================
-deploy/data/mongodb/
-deploy/data/redis/
-deploy/data/uploads/
-deploy/data/logs/
 
 # =============================================================================
 # Logs
