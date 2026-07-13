@@ -198,6 +198,15 @@ export interface StreamDoneEvent {
   done: true
   request_id: string
   session_id: string
+  usage?: {
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+    llm_calls?: number
+    tool_calls?: number
+    llm_duration?: number
+    tool_duration?: number
+  }
 }
 
 /** Union of all SSE event types */

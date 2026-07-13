@@ -90,6 +90,14 @@ export interface Message {
   isInterrupted?: boolean
   interruptQuestion?: string
   interruptOptions?: string[]
+  /** Token usage for this agent message */
+  usage?: {
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+    llm_calls?: number
+    tool_calls?: number
+  }
 }
 
 export interface ChatPanelProps {
@@ -592,7 +600,9 @@ export default function ChatPanel({
               refreshSessionFiles()
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === agentMsgId ? { ...m, requestId: event.request_id } : m,
+                  m.id === agentMsgId
+                    ? { ...m, requestId: event.request_id, usage: event.usage }
+                    : m,
                 ),
               )
             } else if ('type' in event) {
@@ -1020,7 +1030,15 @@ export default function ChatPanel({
                           </div>
                         )}
                       </div>
-                      <div className="text-[10px] text-[#94A3B8] mt-2">{msg.time}</div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[10px] text-[#94A3B8]">{msg.time}</span>
+                        {msg.usage && msg.usage.total_tokens != null && msg.usage.total_tokens > 0 && (
+                          <span className="text-[10px] text-[#94A3B8] flex items-center gap-1">
+                            · {msg.usage.total_tokens.toLocaleString()} tokens
+                            {msg.usage.llm_calls != null && msg.usage.llm_calls > 1 && ` · ${msg.usage.llm_calls} 轮`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

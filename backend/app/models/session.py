@@ -30,6 +30,7 @@ class Session(BaseModel):
     title: str = Field(default="", max_length=200, description="Session title (first message preview)")
     status: SessionStatus = Field(default=SessionStatus.ACTIVE)
     message_count: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0, description="Cumulative token usage across all agent messages")
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
@@ -52,6 +53,10 @@ class Message(BaseModel):
     timeline_entries: list[dict] = Field(
         default_factory=list,
         description="Structured timeline events (thinking/tool_call/tool_result/text) for agent messages",
+    )
+    token_usage: dict = Field(
+        default_factory=dict,
+        description="Token metrics for this agent message (total_tokens, input_tokens, output_tokens, llm_calls, etc.)",
     )
     file_ids: list[str] = Field(
         default_factory=list,

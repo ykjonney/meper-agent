@@ -48,6 +48,7 @@ class SessionService:
             "title": session.title,
             "status": session.status.value,
             "message_count": session.message_count,
+            "total_tokens": session.total_tokens,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
         }
@@ -146,6 +147,16 @@ class SessionService:
         )
         return await SessionService.get_session(session_id)
 
+    @staticmethod
+    async def add_tokens(session_id: str, tokens: int) -> None:
+        """Atomically increment the session's cumulative token usage."""
+        from app.models.base import utc_now
+
+        await SessionService._collection().update_one(
+            {"_id": session_id},
+            {"$inc": {"total_tokens": tokens}, "$set": {"updated_at": utc_now().isoformat()}},
+        )
+
 
 class MessageService:
     """Service layer for Message operations."""
@@ -163,6 +174,7 @@ class MessageService:
         content: str = "",
         timeline_entries: list[dict] | None = None,
         file_ids: list[str] | None = None,
+        token_usage: dict | None = None,
     ) -> dict:
         """Add a message to a session.
 
@@ -195,6 +207,8 @@ class MessageService:
             "file_ids": msg.file_ids,
             "created_at": msg.created_at,
         }
+        if token_usage:
+            doc["token_usage"] = token_usage
         if role == "user":
             doc["content"] = msg.content
 

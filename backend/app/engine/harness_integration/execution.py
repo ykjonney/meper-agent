@@ -47,6 +47,7 @@ async def stream(
     from agent_flow_harness.adapters import stream_events_to_app_events
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    usage_summary: dict = {}
     try:
         session_id = state.get("session_id", "")
         graph = build_agent_graph(
@@ -69,10 +70,14 @@ async def stream(
             _make_event_callback(on_event),
             enable_thinking=enable_thinking,
         )
+        # Extract token usage before hctx is released
+        for mw in hctx["middlewares"]:
+            if hasattr(mw, "summary"):
+                usage_summary = mw.summary
     finally:
         release_harness_context(hctx)
 
-    return {"step_count": 0}
+    return {"step_count": 0, "usage": usage_summary}
 
 
 async def invoke(
@@ -111,7 +116,12 @@ async def invoke(
             cancel_checker=cancel_checker,
         )
         await _maybe_migrate_legacy(graph, config, legacy_records)
-        return await graph.ainvoke(state, config=config)
+        result = await graph.ainvoke(state, config=config)
+        # Extract token usage before hctx is released
+        for mw in hctx["middlewares"]:
+            if hasattr(mw, "summary"):
+                result["usage"] = mw.summary
+        return result
     finally:
         release_harness_context(hctx)
 
@@ -171,6 +181,7 @@ async def resume(
     from langgraph.types import Command
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    usage_summary: dict = {}
     try:
         session_id = state.get("session_id", "")
         graph = build_agent_graph(
@@ -194,7 +205,11 @@ async def resume(
             _make_event_callback(on_event),
             enable_thinking=enable_thinking,
         )
+        # Extract token usage before hctx is released
+        for mw in hctx["middlewares"]:
+            if hasattr(mw, "summary"):
+                usage_summary = mw.summary
     finally:
         release_harness_context(hctx)
 
-    return {"step_count": 0}
+    return {"step_count": 0, "usage": usage_summary}
