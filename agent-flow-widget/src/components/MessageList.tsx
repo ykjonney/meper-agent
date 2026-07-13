@@ -1,21 +1,32 @@
 // agent-flow-widget/src/components/MessageList.tsx
 
 import { useEffect, useRef } from 'preact/hooks';
-import type { Message } from '../types';
+import type { Message, TimelineEntry, InterruptData } from '../types';
 import { MessageBubble } from './MessageBubble';
+import { TimelineRenderer } from './TimelineRenderer';
 
 interface MessageListProps {
   messages: Message[];
+  timeline: TimelineEntry[];
+  isLoading: boolean;
+  pendingInterrupt: InterruptData | null;
+  onInterruptAnswer: (answer: string) => void;
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({
+  messages,
+  timeline,
+  isLoading,
+  pendingInterrupt,
+  onInterruptAnswer,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, timeline]);
 
   const containerStyle: preact.JSX.CSSProperties = {
     flex: 1,
@@ -35,7 +46,9 @@ export function MessageList({ messages }: MessageListProps) {
     padding: '20px',
   };
 
-  if (messages.length === 0) {
+  const hasUserMessages = messages.some(m => m.role === 'user');
+
+  if (!hasUserMessages && timeline.length === 0 && !pendingInterrupt) {
     return (
       <div style={containerStyle}>
         <div style={emptyStyle}>
@@ -51,6 +64,22 @@ export function MessageList({ messages }: MessageListProps) {
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} />
       ))}
+
+      {/* 当前流式时间线 */}
+      {timeline.length > 0 && (
+        <TimelineRenderer
+          timeline={timeline}
+          onInterruptAnswer={pendingInterrupt ? onInterruptAnswer : undefined}
+          interruptDisabled={isLoading}
+        />
+      )}
+
+      {/* 流式加载指示器 */}
+      {isLoading && timeline.length === 0 && (
+        <div style={{ padding: '8px 16px', color: '#9CA3AF', fontSize: '13px' }}>
+          思考中...
+        </div>
+      )}
     </div>
   );
 }

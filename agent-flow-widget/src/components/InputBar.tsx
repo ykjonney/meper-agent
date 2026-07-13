@@ -7,9 +7,10 @@ interface InputBarProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export function InputBar({ value, onChange, onSubmit, disabled }: InputBarProps) {
+export function InputBar({ value, onChange, onSubmit, disabled, placeholder }: InputBarProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey && !disabled) {
@@ -58,7 +59,7 @@ export function InputBar({ value, onChange, onSubmit, disabled }: InputBarProps)
         onKeyDown={handleKeyDown as any}
         onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = '#4F46E5'; }}
         onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = '#D1D5DB'; }}
-        placeholder="输入消息..."
+        placeholder={placeholder || '输入消息...'}
         disabled={disabled}
         style={inputStyle}
       />

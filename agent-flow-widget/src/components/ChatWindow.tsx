@@ -3,6 +3,7 @@
 import { useChat } from '../hooks/useChat';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
+import { InterruptBlock } from './InterruptBlock';
 
 interface ChatWindowProps {
   title: string;
@@ -10,7 +11,18 @@ interface ChatWindowProps {
 }
 
 export function ChatWindow({ title, onClose }: ChatWindowProps) {
-  const { messages, input, setInput, sendMessage, isLoading, error, clearMessages } = useChat();
+  const {
+    messages,
+    timeline,
+    input,
+    setInput,
+    sendMessage,
+    isLoading,
+    error,
+    clearMessages,
+    pendingInterrupt,
+    resumeWithAnswer,
+  } = useChat();
 
   const windowStyle: preact.JSX.CSSProperties = {
     position: 'fixed',
@@ -55,6 +67,19 @@ export function ChatWindow({ title, onClose }: ChatWindowProps) {
     textAlign: 'center',
   };
 
+  const handleSubmit = pendingInterrupt
+    ? () => {
+        if (input.trim()) {
+          resumeWithAnswer(input.trim());
+          setInput('');
+        }
+      }
+    : sendMessage;
+
+  const inputPlaceholder = pendingInterrupt
+    ? '输入回答...'
+    : '输入消息...';
+
   return (
     <div style={windowStyle}>
       <div style={headerStyle}>
@@ -75,9 +100,30 @@ export function ChatWindow({ title, onClose }: ChatWindowProps) {
 
       {error && <div style={errorStyle}>{error}</div>}
 
-      <MessageList messages={messages} />
+      <MessageList
+        messages={messages}
+        timeline={timeline}
+        isLoading={isLoading}
+        pendingInterrupt={pendingInterrupt}
+        onInterruptAnswer={resumeWithAnswer}
+      />
 
-      <InputBar value={input} onChange={setInput} onSubmit={sendMessage} disabled={isLoading} />
+      {/* 中断提示（在消息区下方、输入框上方） */}
+      {pendingInterrupt && (
+        <InterruptBlock
+          data={pendingInterrupt}
+          onAnswer={resumeWithAnswer}
+          disabled={isLoading}
+        />
+      )}
+
+      <InputBar
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        disabled={isLoading}
+        placeholder={inputPlaceholder}
+      />
     </div>
   );
 }
