@@ -37,6 +37,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
     llm_config = doc.get("llm_config") or {}
     default_model = doc.get("default_model") or llm_config.get("default_model", "")
     max_retry = doc.get("max_retry") if "max_retry" in doc else llm_config.get("max_retry", 3)
+    max_tokens = doc.get("max_tokens", 0)
 
     return AgentResponse(
         id=doc["_id"],
@@ -49,9 +50,9 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         workflow_ids=doc.get("workflow_ids", []),
         custom_tool_ids=[b.get("tool_id", "") for b in (doc.get("custom_tools") or []) if b.get("tool_id")],
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
-        suggested_questions=doc.get("suggested_questions", []),
         default_model=default_model,
         max_retry=max_retry,
+        max_tokens=max_tokens,
         status=AgentStatus(doc["status"]),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -146,9 +147,9 @@ async def update_agent(
         workflow_ids=body.workflow_ids,
         custom_tool_ids=body.custom_tool_ids,
         knowledge_base_ids=body.knowledge_base_ids,
-        suggested_questions=body.suggested_questions,
         default_model=body.default_model,
         max_retry=body.max_retry,
+        max_tokens=body.max_tokens,
     )
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")

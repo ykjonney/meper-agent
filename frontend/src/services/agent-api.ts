@@ -27,10 +27,9 @@ export interface Agent {
   workflow_ids: string[]
   custom_tool_ids: string[]
   knowledge_base_ids: string[]
-  /** Widget 预定义问题列表 */
-  suggested_questions: string[]
   default_model: string
   max_retry: number
+  max_tokens: number
   status: AgentStatus
   created_at: string
   updated_at: string
@@ -57,10 +56,9 @@ export interface AgentUpdateInput {
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
   custom_tool_ids?: string[]
-  /** Widget 预定义问题列表 */
-  suggested_questions?: string[]
   default_model?: string
   max_retry?: number
+  max_tokens?: number
 }
 
 /** Model config update payload — kept for backward compat type exports */

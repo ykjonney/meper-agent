@@ -190,10 +190,15 @@ async def resolve_harness_context(
             if tool is not None:
                 all_tools.append(tool)
 
-    # 5. 构造最小 agent_doc
+    # 5. 构造 agent_doc(含 token budget guard 防止会话被滥用)
+    agent_max_tokens = int(agent.get("max_tokens") or 0)
+    session_token_limit = agent_max_tokens if agent_max_tokens > 0 else settings.DEFAULT_SESSION_MAX_TOKENS
     agent_doc = {
         "_id": agent.get("_id", "agent"),
         "name": agent.get("name", "agent"),
+        "guards": [
+            {"name": "token_budget", "config": {"max_total_tokens": session_token_limit}},
+        ],
     }
 
     # 6. sandbox:用 backend 配置构造 harness DockerSandbox

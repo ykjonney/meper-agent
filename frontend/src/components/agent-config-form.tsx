@@ -17,8 +17,6 @@ import {
   CloudUploadOutlined,
   StopOutlined,
   EyeOutlined,
-  PlusOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons'
 import {
   agentApi,
@@ -73,8 +71,8 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     const [formPromptSlots, setFormPromptSlots] = useState<Record<string, string>>({})
     const [formModelId, setFormModelId] = useState('')
     const [formMaxRetry, setFormMaxRetry] = useState(3)
+    const [formMaxTokens, setFormMaxTokens] = useState(0)
     const [toolConfig, setToolConfig] = useState<ToolSelectorValue>(DEFAULT_TOOL_VALUE)
-    const [formSuggestedQuestions, setFormSuggestedQuestions] = useState<string[]>([])
     const [previewOpen, setPreviewOpen] = useState(false)
     const [previewData, setPreviewData] = useState<PreviewResponse | null>(null)
     const [previewLoading, setPreviewLoading] = useState(false)
@@ -87,6 +85,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         setFormPromptSlots(agent.prompt_slots || {})
         setFormModelId(agent.default_model || '')
         setFormMaxRetry(agent.max_retry ?? 3)
+        setFormMaxTokens(agent.max_tokens ?? 0)
         setToolConfig({
           builtin_config: agent.builtin_config ?? [],
           skill_ids: agent.skill_ids ?? [],
@@ -94,15 +93,14 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           workflow_ids: agent.workflow_ids ?? [],
           custom_tool_ids: agent.custom_tool_ids ?? [],
         })
-        setFormSuggestedQuestions(agent.suggested_questions ?? [])
       } else {
         setFormName('')
         setFormDesc('')
         setFormPromptSlots({})
         setFormModelId('')
         setFormMaxRetry(3)
+        setFormMaxTokens(0)
         setToolConfig(DEFAULT_TOOL_VALUE)
-        setFormSuggestedQuestions([])
       }
     }, [agent, isEdit])
 
@@ -127,9 +125,9 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             workflow_ids: toolConfig.workflow_ids,
             custom_tool_ids: toolConfig.custom_tool_ids,
             knowledge_base_ids: agent.knowledge_base_ids,
-            suggested_questions: formSuggestedQuestions.filter(q => q.trim()),
             default_model: formModelId,
             max_retry: formMaxRetry,
+            max_tokens: formMaxTokens,
           })
         } else {
           return agentApi.create({
@@ -303,6 +301,24 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
                 当 LLM 调用失败时自动重试的次数，建议 1-5
               </div>
             </div>
+
+            <div>
+              <label className="block text-sm text-[#0F172A] mb-1.5">
+                会话 Token 上限
+              </label>
+              <InputNumber
+                min={0}
+                max={10000000}
+                step={10000}
+                value={formMaxTokens}
+                onChange={(v) => setFormMaxTokens(v ?? 0)}
+                className="w-full"
+                placeholder="0 = 使用全局默认"
+              />
+              <div className="text-[11px] text-[#94A3B8] mt-1">
+                单次会话累计 Token 上限，超出后 Agent 自动停止。0 表示使用全局默认值
+              </div>
+            </div>
           </div>
         ),
       },
@@ -314,52 +330,6 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             value={toolConfig}
             onChange={setToolConfig}
           />
-        ),
-      },
-      {
-        key: 'widget',
-        label: 'Widget 配置',
-        children: (
-          <div className="flex flex-col gap-3">
-            <div className="text-[11px] text-[#94A3B8]">
-              预定义问题会显示在聊天窗口空白状态，引导用户点击提问（最多 6 条）
-            </div>
-            {formSuggestedQuestions.map((q, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <Input
-                  placeholder="输入预定义问题"
-                  value={q}
-                  onChange={(e) => {
-                    const next = [...formSuggestedQuestions]
-                    next[idx] = e.target.value
-                    setFormSuggestedQuestions(next)
-                  }}
-                  maxLength={100}
-                  className="flex-1"
-                />
-                <Button
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => {
-                    setFormSuggestedQuestions(formSuggestedQuestions.filter((_, i) => i !== idx))
-                  }}
-                />
-              </div>
-            ))}
-            {formSuggestedQuestions.length < 6 && (
-              <Button
-                type="dashed"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  setFormSuggestedQuestions([...formSuggestedQuestions, ''])
-                }}
-                className="w-full"
-              >
-                添加预定义问题
-              </Button>
-            )}
-          </div>
         ),
       },
       ...(isEdit
@@ -471,7 +441,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     return (
       <>
         <Collapse
-          defaultActiveKey={['basic', 'prompt', 'model', 'tools', 'widget', ...(isEdit ? ['lifecycle'] : [])]}
+          defaultActiveKey={['basic', 'prompt', 'model', 'tools', ...(isEdit ? ['lifecycle'] : [])]}
           items={collapseItems}
           className="!bg-transparent"
           expandIconPosition="end"

@@ -34,9 +34,9 @@ class AgentService:
         workflow_ids: list[str] | None = None,
         custom_tool_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
-        suggested_questions: list[str] | None = None,
         default_model: str = "",
         max_retry: int = 3,
+        max_tokens: int = 0,
     ) -> dict:
         """Create a new Agent in draft status.
 
@@ -78,9 +78,9 @@ class AgentService:
             workflow_ids=workflow_ids or [],
             custom_tools=[{"tool_id": tid, "user_args": {}} for tid in (custom_tool_ids or [])],
             knowledge_base_ids=knowledge_base_ids or [],
-            suggested_questions=suggested_questions or [],
             default_model=default_model,
             max_retry=max_retry,
+            max_tokens=max_tokens,
             status=AgentStatus.DRAFT,
         )
 
@@ -95,9 +95,9 @@ class AgentService:
             "workflow_ids": agent.workflow_ids,
             "custom_tools": agent.custom_tools,
             "knowledge_base_ids": agent.knowledge_base_ids,
-            "suggested_questions": agent.suggested_questions,
             "default_model": agent.default_model,
             "max_retry": agent.max_retry,
+            "max_tokens": agent.max_tokens,
             "status": agent.status.value,
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
@@ -184,9 +184,9 @@ class AgentService:
         workflow_ids: list[str] | None = None,
         custom_tool_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
-        suggested_questions: list[str] | None = None,
         default_model: str = "",
         max_retry: int = 3,
+        max_tokens: int = 0,
     ) -> dict | None:
         """Update an existing Agent's configuration.
 
@@ -203,7 +203,6 @@ class AgentService:
             workflow_ids: New workflow IDs.
             knowledge_base_ids: New knowledge base IDs.
             default_model: New model reference.
-            max_retry: New max retry count.
 
         Returns:
             Updated Agent document, or None if not found.
@@ -249,9 +248,9 @@ class AgentService:
             "workflow_ids": workflow_ids or [],
             "custom_tools": [{"tool_id": tid, "user_args": {}} for tid in (custom_tool_ids or [])],
             "knowledge_base_ids": knowledge_base_ids or [],
-            "suggested_questions": suggested_questions or [],
             "default_model": default_model,
             "max_retry": max_retry,
+            "max_tokens": max_tokens,
             "updated_at": now_iso,
         }
 
@@ -473,9 +472,9 @@ class AgentService:
             workflow_ids=source.get("workflow_ids", []),
             custom_tool_ids=[b.get("tool_id", "") for b in (source.get("custom_tools") or []) if b.get("tool_id")],
             knowledge_base_ids=source.get("knowledge_base_ids", []),
-            suggested_questions=source.get("suggested_questions", []),
             default_model=_resolve_default_model(source),
             max_retry=_resolve_max_retry(source),
+            max_tokens=source.get("max_tokens", 0),
         )
 
 
