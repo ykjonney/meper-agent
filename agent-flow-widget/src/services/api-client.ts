@@ -24,7 +24,7 @@ export function getConfig(): WidgetConfig {
 export function buildHeaders(): HeadersInit {
   return {
     'Content-Type': 'application/json',
-    'X-Api-Key': config.apiKey,
+    Authorization: `Bearer ${config.apiKey}`,
   };
 }
 
