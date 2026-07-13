@@ -115,9 +115,17 @@ class AgentUpdate(BaseModel):
         default_factory=list,
         description="绑定的工作流 ID",
     )
+    custom_tool_ids: list[str] = Field(
+        default_factory=list,
+        description="绑定的自定义工具 ID（openapi/code/prebuilt）",
+    )
     knowledge_base_ids: list[str] = Field(
         default_factory=list,
         description="绑定的知识库 ID",
+    )
+    suggested_questions: list[str] = Field(
+        default_factory=list,
+        description="Widget 预定义问题列表（最多 6 条，每条最长 100 字符）",
     )
     default_model: str = Field(
         default="",
@@ -142,6 +150,14 @@ class AgentUpdate(BaseModel):
         """校验 key 命名/数量与每值长度，并清洗 XSS 载荷。"""
         return _validate_prompt_slots(v)
 
+    @field_validator("suggested_questions", mode="after")
+    @classmethod
+    def _validate_suggested_questions(cls, v: list[str]) -> list[str]:
+        """限制预定义问题数量和长度。"""
+        if len(v) > 6:
+            raise ValueError(f"suggested_questions 最多 6 条（当前 {len(v)} 条）")
+        return [sanitize_text(q[:100]) for q in v]
+
 
 class AgentResponse(BaseModel):
     """Agent data returned in API responses."""
@@ -154,7 +170,9 @@ class AgentResponse(BaseModel):
     mcp_connection_ids: list[str]
     builtin_config: list[str]
     workflow_ids: list[str]
+    custom_tool_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str]
+    suggested_questions: list[str]
     default_model: str = Field(default="", description="Model reference ID")
     max_retry: int = Field(default=3, description="Max LLM call retries")
     status: AgentStatus

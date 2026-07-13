@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import { toolsApi, toolKeys } from '../services/tools-api'
+import { agentKeys } from '../services/agent-api'
 import { normalizeError } from '../services/api-client'
 import type { BuiltinTool, Tool } from '../services/tools-api'
 import ToolCreateDrawer from '../components/tool-create-drawer'
@@ -64,7 +65,7 @@ function PlatformToolsTab() {
   })
 
   const { data: prebuilts, isLoading: prebuiltsLoading } = useQuery({
-    queryKey: ['prebuilt-tools'],
+    queryKey: toolKeys.prebuilts(),
     queryFn: () => toolsApi.listPrebuilt(),
   })
 
@@ -233,7 +234,7 @@ function CustomToolsTab() {
   const [searchName, setSearchName] = useState('')
 
   const { data: allCustom, isLoading } = useQuery({
-    queryKey: ['custom-tools-list'],
+    queryKey: toolKeys.customTools(),
     queryFn: async () => {
       const [r1, r2] = await Promise.all([
         toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }),
@@ -247,8 +248,9 @@ function CustomToolsTab() {
     mutationFn: toolsApi.remove,
     onSuccess: () => {
       message.success('工具已删除')
-      queryClient.invalidateQueries({ queryKey: ['custom-tools-list'] })
-      queryClient.invalidateQueries({ queryKey: ['custom-tools'] })
+      queryClient.invalidateQueries({ queryKey: toolKeys.customTools() })
+      queryClient.invalidateQueries({ queryKey: toolKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
     },
     onError: (err) => message.error(normalizeError(err as never).message),
   })

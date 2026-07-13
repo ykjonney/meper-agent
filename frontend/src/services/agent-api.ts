@@ -27,6 +27,8 @@ export interface Agent {
   workflow_ids: string[]
   custom_tool_ids: string[]
   knowledge_base_ids: string[]
+  /** Widget 预定义问题列表 */
+  suggested_questions: string[]
   default_model: string
   max_retry: number
   status: AgentStatus
@@ -54,6 +56,9 @@ export interface AgentUpdateInput {
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
+  custom_tool_ids?: string[]
+  /** Widget 预定义问题列表 */
+  suggested_questions?: string[]
   default_model?: string
   max_retry?: number
 }

@@ -363,7 +363,7 @@ function CustomToolSelector({
   onChange: (ids: string[]) => void
 }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ['custom-tools'],
+    queryKey: toolKeys.customTools(),
     queryFn: () =>
       toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }).then(async (r1) => {
         // Also fetch code + prebuilt sources and merge

@@ -17,6 +17,8 @@ import {
   CloudUploadOutlined,
   StopOutlined,
   EyeOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import {
   agentApi,
@@ -72,6 +74,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     const [formModelId, setFormModelId] = useState('')
     const [formMaxRetry, setFormMaxRetry] = useState(3)
     const [toolConfig, setToolConfig] = useState<ToolSelectorValue>(DEFAULT_TOOL_VALUE)
+    const [formSuggestedQuestions, setFormSuggestedQuestions] = useState<string[]>([])
     const [previewOpen, setPreviewOpen] = useState(false)
     const [previewData, setPreviewData] = useState<PreviewResponse | null>(null)
     const [previewLoading, setPreviewLoading] = useState(false)
@@ -91,6 +94,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           workflow_ids: agent.workflow_ids ?? [],
           custom_tool_ids: agent.custom_tool_ids ?? [],
         })
+        setFormSuggestedQuestions(agent.suggested_questions ?? [])
       } else {
         setFormName('')
         setFormDesc('')
@@ -98,6 +102,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
         setFormModelId('')
         setFormMaxRetry(3)
         setToolConfig(DEFAULT_TOOL_VALUE)
+        setFormSuggestedQuestions([])
       }
     }, [agent, isEdit])
 
@@ -120,7 +125,9 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
             mcp_connection_ids: toolConfig.mcp_connection_ids,
             builtin_config: toolConfig.builtin_config,
             workflow_ids: toolConfig.workflow_ids,
+            custom_tool_ids: toolConfig.custom_tool_ids,
             knowledge_base_ids: agent.knowledge_base_ids,
+            suggested_questions: formSuggestedQuestions.filter(q => q.trim()),
             default_model: formModelId,
             max_retry: formMaxRetry,
           })
@@ -309,6 +316,52 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
           />
         ),
       },
+      {
+        key: 'widget',
+        label: 'Widget 配置',
+        children: (
+          <div className="flex flex-col gap-3">
+            <div className="text-[11px] text-[#94A3B8]">
+              预定义问题会显示在聊天窗口空白状态，引导用户点击提问（最多 6 条）
+            </div>
+            {formSuggestedQuestions.map((q, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  placeholder="输入预定义问题"
+                  value={q}
+                  onChange={(e) => {
+                    const next = [...formSuggestedQuestions]
+                    next[idx] = e.target.value
+                    setFormSuggestedQuestions(next)
+                  }}
+                  maxLength={100}
+                  className="flex-1"
+                />
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => {
+                    setFormSuggestedQuestions(formSuggestedQuestions.filter((_, i) => i !== idx))
+                  }}
+                />
+              </div>
+            ))}
+            {formSuggestedQuestions.length < 6 && (
+              <Button
+                type="dashed"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setFormSuggestedQuestions([...formSuggestedQuestions, ''])
+                }}
+                className="w-full"
+              >
+                添加预定义问题
+              </Button>
+            )}
+          </div>
+        ),
+      },
       ...(isEdit
         ? [{
             key: 'lifecycle',
@@ -418,7 +471,7 @@ const AgentConfigForm = forwardRef<AgentConfigFormHandle, AgentConfigFormProps>(
     return (
       <>
         <Collapse
-          defaultActiveKey={['basic', 'prompt', 'model', 'tools', ...(isEdit ? ['lifecycle'] : [])]}
+          defaultActiveKey={['basic', 'prompt', 'model', 'tools', 'widget', ...(isEdit ? ['lifecycle'] : [])]}
           items={collapseItems}
           className="!bg-transparent"
           expandIconPosition="end"

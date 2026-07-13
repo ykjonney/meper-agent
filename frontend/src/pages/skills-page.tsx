@@ -19,6 +19,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
 import { toolsApi, toolKeys } from '../services/tools-api'
+import { agentKeys } from '../services/agent-api'
 import SkillUploadModal from '../components/skill-upload-modal'
 
 /* ─── Source mappings (only markdown/custom sources on this page) ─── */
@@ -35,7 +36,7 @@ export default function SkillsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
 
   /* Fetch skills filtered server-side (source=markdown only) */
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: toolKeys.list({ page_size: 100, source: 'markdown' }),
     queryFn: () => toolsApi.list({ page_size: 100, source: 'markdown' }),
   })
@@ -65,6 +66,7 @@ export default function SkillsPage() {
     mutationFn: (id: string) => toolsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: toolKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
       message.success('已删除')
     },
     onError: (err: unknown) => {
@@ -211,7 +213,10 @@ export default function SkillsPage() {
       <SkillUploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onSuccess={() => refetch()}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: toolKeys.lists() })
+          queryClient.invalidateQueries({ queryKey: agentKeys.all })
+        }}
       />
     </div>
   )
