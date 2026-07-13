@@ -49,15 +49,17 @@ class UsageMiddleware:
         return state
 
     async def after_llm(self, state: "AgentState", response: "BaseMessage") -> "AgentState":
-        # 提取 token usage（兼容 OpenAI / Anthropic 格式）
-        meta = getattr(response, "response_metadata", None) or {}
-        usage = self._extract_usage(meta)
+        # 提取 token usage,优先用 LangChain 标准的 usage_metadata 属性,
+        # 其次从 response_metadata 兼容 OpenAI/Anthropic 格式
+        usage = self._extract_usage_metadata(response)
+        if usage.get("total", 0) == 0:
+            meta = getattr(response, "response_metadata", None) or {}
+            usage = self._extract_usage(meta)
         if usage.get("total", 0) == 0 and usage.get("input", 0) == 0:
             import structlog
-            structlog.get_logger(__name__).warning(
+            structlog.get_logger(__name__).debug(
                 "usage_no_token_data",
-                response_metadata_keys=list(meta.keys()),
-                response_metadata=meta,
+                response_metadata_keys=list((getattr(response, "response_metadata", None) or {}).keys()),
             )
 
         self.metrics["input_tokens"] += usage.get("input", 0)
@@ -89,6 +91,23 @@ class UsageMiddleware:
             self.metrics["tool_duration"] += time.monotonic() - start
         self.metrics["tool_calls"] += 1
         return state
+
+    @staticmethod
+    def _extract_usage_metadata(response: "BaseMessage") -> dict[str, int]:
+        """从 LangChain 标准的 usage_metadata 属性提取 token usage。
+
+        ``usage_metadata`` 是 LangChain 统一的 token 用量属性(UsageMetadata TypedDict),
+        所有 provider 的 ChatModel 在非流式 ainvoke 时都会填充它:
+        ``{"input_tokens": N, "output_tokens": N, "total_tokens": N}``
+        """
+        um = getattr(response, "usage_metadata", None)
+        if not isinstance(um, dict):
+            return {"input": 0, "output": 0, "total": 0}
+        return {
+            "input": int(um.get("input_tokens", 0) or 0),
+            "output": int(um.get("output_tokens", 0) or 0),
+            "total": int(um.get("total_tokens", 0) or 0),
+        }
 
     @staticmethod
     def _extract_usage(meta: dict[str, Any]) -> dict[str, int]:
