@@ -42,7 +42,7 @@ def _configurable(config: RunnableConfig | None) -> dict[str, Any]:
 
 
 async def compress_node(
-    state: "AgentState", config: RunnableConfig | None = None,
+    state: "AgentState", config: RunnableConfig,
 ) -> dict[str, Any]:
     """Compress conversation history when approaching the context-window limit.
 
@@ -112,7 +112,7 @@ async def compress_node(
 
 
 async def llm_node(
-    state: "AgentState", config: RunnableConfig | None = None,
+    state: "AgentState", config: RunnableConfig,
 ) -> dict[str, Any]:
     """Single LLM invocation with tool-binding and middleware hooks.
 

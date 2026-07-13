@@ -80,7 +80,11 @@ def build_client_from_doc(
     )
 
     if compatibility == "openai":
-        return ChatOpenAI(**common_kwargs, base_url=base_url, **auth_kwargs, **thinking_kwargs)
+        return ChatOpenAI(
+            **common_kwargs, base_url=base_url,
+            stream_usage=True,
+            **auth_kwargs, **thinking_kwargs,
+        )
     if compatibility == "anthropic":
         return ChatAnthropic(**common_kwargs, base_url=base_url, **auth_kwargs, **thinking_kwargs)
     msg = f"Unsupported compatibility type: {compatibility}"
@@ -110,11 +114,16 @@ def build_client_from_env(
         model_name, provider, enable_thinking, max_tokens=None
     )
 
+    extra_kwargs: dict[str, Any] = {}
+    if cls is ChatOpenAI:
+        extra_kwargs["stream_usage"] = True
+
     return cast(
         "ChatOpenAI | ChatAnthropic",
         cls(
             model=model_name,
             temperature=temperature,
+            **extra_kwargs,
             **thinking_kwargs,
         ),
     )

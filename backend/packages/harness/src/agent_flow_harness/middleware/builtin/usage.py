@@ -52,6 +52,13 @@ class UsageMiddleware:
         # 提取 token usage（兼容 OpenAI / Anthropic 格式）
         meta = getattr(response, "response_metadata", None) or {}
         usage = self._extract_usage(meta)
+        if usage.get("total", 0) == 0 and usage.get("input", 0) == 0:
+            import structlog
+            structlog.get_logger(__name__).warning(
+                "usage_no_token_data",
+                response_metadata_keys=list(meta.keys()),
+                response_metadata=meta,
+            )
 
         self.metrics["input_tokens"] += usage.get("input", 0)
         self.metrics["output_tokens"] += usage.get("output", 0)

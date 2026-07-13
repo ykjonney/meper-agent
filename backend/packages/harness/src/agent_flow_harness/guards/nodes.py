@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 def make_guard_in_node(guard: Guard) -> Callable[..., Any]:
     """Build the pre-react guard node for *guard*."""
 
-    async def guard_in_node(state: AgentState, config: RunnableConfig | None = None) -> dict[str, Any]:
+    async def guard_in_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         _ = config
         result = await guard.check_in(state)
         return _apply_result(state, guard, result, direction="in")
@@ -36,7 +36,7 @@ def make_guard_in_node(guard: Guard) -> Callable[..., Any]:
 def make_guard_out_node(guard: Guard) -> Callable[..., Any]:
     """Build the post-react guard node for *guard*."""
 
-    async def guard_out_node(state: AgentState, config: RunnableConfig | None = None) -> dict[str, Any]:
+    async def guard_out_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         _ = config
         # By the time guard_out runs, the react output is merged into state,
         # so ``output`` is the state itself.
