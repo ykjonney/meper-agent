@@ -20,6 +20,7 @@ class SessionResponse(BaseModel):
     title: str
     status: str
     message_count: int
+    total_tokens: int = 0
     created_at: str
     updated_at: str
 
@@ -45,6 +46,7 @@ class MessageResponse(BaseModel):
     timeline_entries: list[dict] = []
     file_ids: list[str] = []
     files: list[FileRefResponse] = []
+    token_usage: dict = Field(default_factory=dict)
     created_at: str
 
     model_config = {"populate_by_name": True}

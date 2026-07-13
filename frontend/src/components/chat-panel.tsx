@@ -221,6 +221,7 @@ function historyToMessages(records: MessageRecord[]): Message[] {
       ? historyEntryToTimeline(rec.timeline_entries)
       : undefined,
     files: rec.files?.map(f => ({ id: f.id || f._id || '', name: f.name, size: f.size })),
+    usage: rec.token_usage,
   }))
 }
 

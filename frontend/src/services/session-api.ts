@@ -14,6 +14,7 @@ export interface Session {
   title: string
   status: string
   message_count: number
+  total_tokens?: number
   created_at: string
   updated_at: string
 }
@@ -29,6 +30,14 @@ export interface MessageRecord {
   file_ids?: string[]
   /** File references attached to this message */
   files?: FileRef[]
+  /** Token usage for agent messages */
+  token_usage?: {
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+    llm_calls?: number
+    tool_calls?: number
+  }
   created_at: string
 }
 

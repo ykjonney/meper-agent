@@ -44,6 +44,7 @@ def _doc_to_response(doc: dict) -> SessionResponse:
         title=doc.get("title", ""),
         status=doc.get("status", "active"),
         message_count=doc.get("message_count", 0),
+        total_tokens=doc.get("total_tokens", 0),
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
     )
@@ -59,6 +60,7 @@ def _msg_to_response(doc: dict) -> MessageResponse:
         timeline_entries=doc.get("timeline_entries", []),
         file_ids=doc.get("file_ids", []),
         files=[],  # Populated separately when needed
+        token_usage=doc.get("token_usage") or {},
         created_at=doc.get("created_at", ""),
     )
 
