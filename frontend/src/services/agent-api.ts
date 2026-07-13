@@ -22,7 +22,7 @@ export interface Agent {
   skill_ids: string[]
   /** MCP connection IDs (tools loaded from remote MCP servers) */
   mcp_connection_ids: string[]
-  /** Built-in tool whitelist (bash/read/write) */
+  /** Configurable built-in tools subset (e.g. bash/read/write/glob/grep). Capability tools like ask_clarification are always-on and excluded. */
   builtin_config: string[]
   workflow_ids: string[]
   custom_tool_ids: string[]
@@ -50,7 +50,7 @@ export interface AgentUpdateInput {
   skill_ids?: string[]
   /** MCP connection IDs */
   mcp_connection_ids?: string[]
-  /** Built-in tool whitelist (bash/read/write) */
+  /** Configurable built-in tools subset */
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]

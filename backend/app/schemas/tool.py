@@ -85,6 +85,11 @@ class BuiltinToolResponse(BaseModel):
     parameters: dict[str, Any] = Field(
         default_factory=dict, description="JSON Schema of the tool's parameters"
     )
+    configurable: bool = Field(
+        default=True,
+        description="Whether the user can enable/disable this tool per Agent. "
+        "False means always-on (e.g. capability tools like ask_clarification).",
+    )
 
 
 class ToolUploadErrorItem(BaseModel):

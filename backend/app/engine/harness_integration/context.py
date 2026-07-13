@@ -20,10 +20,18 @@ def get_checkpointer() -> Any:
     return _harness_get_checkpointer()
 
 
-# backend 工具名 → 需要被 harness 等价物替换的(bash/read/write 等)
-_BACKEND_BUILTIN_TOOLS_TO_REPLACE = {
-    "bash", "read", "write", "write_to_output", "load_skill",
-}
+# 运行时实际注入的 harness 内建工具(单一事实源)。
+# 端点 `/api/v1/tools/builtin` 与 `resolve_harness_context` 共同引用此名单,
+# 保证「端点展示的 = 运行时注入的」。
+_INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
+    "bash", "read", "write", "write_to_output", "glob", "grep", "ask_clarification",
+)
+
+# 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
+# ask_clarification 是能力型工具,关闭会导致 Agent 无法澄清,故始终开启。
+_CONFIGURABLE_BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
+    {"bash", "read", "write", "write_to_output", "glob", "grep"}
+)
 
 
 def _decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
@@ -60,8 +68,9 @@ async def resolve_harness_context(
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
     合并三层工具策略:
-      ① backend-only 工具(task/工作流工具) — 来自 workflow_executor._TASK_TOOLS
-      ② harness 文件工具(bash/read/write/glob/grep) — 委托 Sandbox
+      ① 应用层工具(task/工作流工具) — 来自 workflow_executor._TASK_TOOLS
+      ② harness 内建工具(bash/read/write/write_to_output/glob/grep/ask_clarification)
+         — 委托 Sandbox / 能力型工具,名单见 _INJECTED_BUILTIN_TOOL_NAMES
       ③ Skill(load_skill)+ MCP — harness SkillManager / McpToolLoader
 
     Args:
@@ -91,21 +100,31 @@ async def resolve_harness_context(
     from app.engine.agent.workflow_executor import _TASK_TOOLS
     from app.engine.llm_factory import get_llm_client
 
-    # 1. 解析 LLM + context_window + task 工具
+    # 1. 解析 LLM + context_window
     llm = await get_llm_client(agent, enable_thinking=enable_thinking)
     model_ref = agent.get("default_model") or (agent.get("llm_config") or {}).get("default_model", "")
     context_window = await get_context_window_async(model_ref)
-    backend_only_tools = list(_TASK_TOOLS)
 
-    # 2. 工具合并:harness 文件工具 + ask_clarification + task 工具
-    harness_file_tools = [
-        BUILTIN_TOOLS[name]
-        for name in ("bash", "read", "write", "write_to_output", "glob", "grep")
-        if name in BUILTIN_TOOLS
-    ]
-    if "ask_clarification" in BUILTIN_TOOLS:
-        harness_file_tools.append(BUILTIN_TOOLS["ask_clarification"])
-    all_tools = backend_only_tools + harness_file_tools
+    # 2. 工具合并:① 应用层 task 工具 + ② harness 内建工具
+    app_tools = list(_TASK_TOOLS)
+    # 内建工具按 agent.builtin_config 白名单过滤(opt-in):
+    #   - ask_clarification 等(configurable=false)始终注入
+    #   - bash/read/write/write_to_output/glob/grep 需在 builtin_config 中显式启用
+    #   - 为向后兼容,选中 bash 时隐式连带 read/write/write_to_output(与 preview/system-prompt 语义一致)
+    builtin_config = set(agent.get("builtin_config") or [])
+    if "bash" in builtin_config:
+        builtin_config |= {"read", "write", "write_to_output"}
+    harness_builtin_tools = []
+    for name in _INJECTED_BUILTIN_TOOL_NAMES:
+        tool = BUILTIN_TOOLS.get(name)
+        if tool is None:
+            continue
+        if name not in _CONFIGURABLE_BUILTIN_TOOL_NAMES:
+            # 始终开启的能力型工具(如 ask_clarification)
+            harness_builtin_tools.append(tool)
+        elif name in builtin_config:
+            harness_builtin_tools.append(tool)
+    all_tools = app_tools + harness_builtin_tools
 
     # 3. Skill:用 harness SkillManager 替换 backend 的 load_skill
     skills_dir = Path(settings.SKILLS_CONTAINER_DIR).expanduser()

@@ -20,7 +20,6 @@ from collections.abc import Callable
 from langchain_core.tools import tool as lc_tool
 from loguru import logger
 
-from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
 from app.models.compat import resolve_skill_ids
 
 _MAX_SKILL_CONTENT = 50_000
@@ -352,22 +351,35 @@ async def _resolve_mcp_tools(agent: dict) -> list:
 
 
 def _resolve_builtin_tools(agent: dict) -> list:
-    """Resolve built-in tools based on Agent's ``builtin_config`` whitelist."""
+    """Resolve built-in + app tools for preview (mirrors resolve_harness_context).
+
+    Uses harness's BUILTIN_TOOLS (the same instances injected at runtime),
+    filtered by the agent's ``builtin_config`` whitelist. Capability tools
+    (configurable=false, e.g. ask_clarification) are always included.
+    Task/workflow tools (_TASK_TOOLS) are always-on app-level tools.
+    """
+    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
+
     from app.engine.agent.workflow_executor import _TASK_TOOLS
+    from app.engine.harness_integration.context import (
+        _CONFIGURABLE_BUILTIN_TOOL_NAMES,
+        _INJECTED_BUILTIN_TOOL_NAMES,
+    )
 
     builtin_config = set(agent.get("builtin_config") or [])
-    _bash_tool_set = {"bash", "read", "write", "write_to_output"}
     if "bash" in builtin_config:
-        enabled_names = _bash_tool_set
-    else:
-        enabled_names = builtin_config & {"read", "write", "write_to_output"}
+        builtin_config |= {"read", "write", "write_to_output"}
 
-    base_tools = [
-        _BUILTIN_TOOL_REGISTRY[name]
-        for name in enabled_names
-        if name in _BUILTIN_TOOL_REGISTRY
-    ]
-    return [*base_tools, *_TASK_TOOLS]
+    tools: list = list(_TASK_TOOLS)  # app-level tools always on
+    for name in _INJECTED_BUILTIN_TOOL_NAMES:
+        tool = BUILTIN_TOOLS.get(name)
+        if tool is None:
+            continue
+        if name not in _CONFIGURABLE_BUILTIN_TOOL_NAMES:
+            tools.append(tool)  # always-on capability tool
+        elif name in builtin_config:
+            tools.append(tool)
+    return tools
 
 
 def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
@@ -416,7 +428,7 @@ def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
 _WORKFLOW_TOOL_NAMES = {"propose_workflow", "dispatch_workflow"}
 _TASK_TOOL_NAMES = {
     "task_query", "task_list", "task_intervene",
-    "cancel_task", "get_task_timeline", "update_task_variables",
+    "cancel_task", "update_task_variables",
 }
 
 

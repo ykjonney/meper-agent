@@ -158,31 +158,6 @@ class TestCancelTask:
         assert "cancel" in result or "task_id" in result
 
 
-class TestGetTaskTimeline:
-    """get_task_timeline function (not exposed as a tool, but kept as regular async function)."""
-
-    @pytest.mark.asyncio
-    async def test_timeline_returns_events(self):
-        """Should return timeline events."""
-        from app.engine.agent.workflow_executor import get_task_timeline
-
-        result = await get_task_timeline("task_20260611_120000")
-        assert "events" in result
-        assert "event_count" in result
-
-    @pytest.mark.asyncio
-    async def test_timeline_not_found(self):
-        """Should handle unknown task."""
-        from app.engine.agent.workflow_executor import get_task_timeline
-
-        with patch(
-            "app.engine.agent.workflow_executor.TaskService.get_task",
-            AsyncMock(return_value=None),
-        ):
-            result = await get_task_timeline("nonexistent")
-            assert "error" in result
-
-
 class TestUpdateTaskVariables:
     """update_task_variables tool."""
 
