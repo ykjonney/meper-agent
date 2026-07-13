@@ -44,6 +44,10 @@ class ExtInvokeRequest(BaseModel):
         default=None,
         description="会话 ID（不传则自动创建新会话）",
     )
+    visitor_id: str | None = Field(
+        default=None,
+        description="前端生成的访客 ID，用于会话隔离",
+    )
 
 
 class ExtInvokeResponse(BaseModel):
@@ -65,6 +69,10 @@ class ExtResumeRequest(BaseModel):
         min_length=1,
         max_length=50000,
         description="对 Agent 追问的回答",
+    )
+    visitor_id: str | None = Field(
+        default=None,
+        description="前端生成的访客 ID，用于会话隔离",
     )
 
 

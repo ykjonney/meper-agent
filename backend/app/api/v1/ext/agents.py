@@ -143,7 +143,7 @@ async def invoke_agent(
     result = await AgentExecutionService.invoke(
         agent_id=agent_id,
         body=exec_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     # Extract task_ids from execution result (if any workflow was triggered)
@@ -179,7 +179,7 @@ async def stream_agent(
     event_queue, request_id, session_id = await AgentExecutionService.stream(
         agent_id=agent_id,
         body=exec_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     async def _event_stream():
@@ -226,7 +226,7 @@ async def resume_agent(
     event_queue, request_id, session_id = await AgentExecutionService.resume(
         agent_id=agent_id,
         body=resume_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     async def _event_stream():
