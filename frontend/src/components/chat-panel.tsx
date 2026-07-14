@@ -174,12 +174,7 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
         }
         pendingToolCalls.delete(e.tool_name ?? '')
       } else {
-        // Standalone tool_result — for ask_clarification this is the user's
-        // answer from resume (tool_call was in a previous agent message).
-        // Skip it — the answer is already rendered by the tool_call's special
-        // rendering when it gets matched across messages.
-        // For other tools, show as standalone result.
-        if (e.tool_name === 'ask_clarification') continue
+        // Standalone tool_result (shouldn't happen normally, but handle gracefully)
         result.push({
           id: `h-tr-${i}`,
           type: 'tool',
@@ -223,7 +218,7 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
 
 /** Convert backend MessageRecord[] to frontend Message[] */
 function historyToMessages(records: MessageRecord[]): Message[] {
-  const messages = records.map((rec) => ({
+  return records.map((rec) => ({
     id: rec._id,
     role: rec.role,
     content: rec.content ?? '',
@@ -234,36 +229,6 @@ function historyToMessages(records: MessageRecord[]): Message[] {
     files: rec.files?.map(f => ({ id: f.id || f._id || '', name: f.name, size: f.size })),
     usage: rec.token_usage,
   }))
-
-  // Post-process: match cross-message ask_clarification tool_results back to
-  // their tool_call (which is in a previous agent message due to interrupt).
-  // The standalone tool_result carries the user's answer as `content`.
-  for (let mi = 0; mi < messages.length; mi++) {
-    const msg = messages[mi]
-    if (msg.role !== 'agent' || !msg.timeline) continue
-    for (const entry of msg.timeline) {
-      // Find standalone ask_clarification results (from resume message)
-      if (entry.type === 'tool' && entry.toolName === 'ask_clarification' && entry.result && !entry.args?.question) {
-        // Search previous agent messages for the matching tool_call (has question but no result)
-        for (let pi = mi - 1; pi >= 0; pi--) {
-          const prev = messages[pi]
-          if (prev.role !== 'agent' || !prev.timeline) continue
-          for (const prevEntry of prev.timeline) {
-            if (prevEntry.type === 'tool' && prevEntry.toolName === 'ask_clarification' && prevEntry.args?.question && !prevEntry.result) {
-              // Found the matching tool_call — fill in the answer
-              prevEntry.result = entry.result
-              break
-            }
-          }
-          if (entry.result && prev.timeline?.some(e => e.toolName === 'ask_clarification' && e.result)) break
-        }
-        // Remove the standalone entry (answer is now on the tool_call)
-        msg.timeline = msg.timeline.filter(e => e.id !== entry.id)
-      }
-    }
-  }
-
-  return messages
 }
 
 /* ─── Component ─── */

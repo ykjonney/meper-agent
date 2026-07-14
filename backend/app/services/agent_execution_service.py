@@ -226,6 +226,7 @@ class AgentExecutionService:
                     session_id, collected_timeline,
                     extra_filter_types=("interrupt",),
                     token_usage=result.get("usage"),
+                    append_to_last_agent=True,
                 )
                 await event_queue.put(
                     f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
@@ -339,8 +340,15 @@ async def _persist_agent_message(
     *,
     extra_filter_types: tuple[str, ...] = (),
     token_usage: dict | None = None,
+    append_to_last_agent: bool = False,
 ) -> None:
-    """Filter transient events and persist the agent message."""
+    """Filter transient events and persist the agent message.
+
+    Args:
+        append_to_last_agent: If True, append to the last agent message instead
+            of creating a new one. Used by resume so that tool_call and
+            tool_result for ask_clarification end up in the same message.
+    """
     filter_types = _TRANSIENT_EVENT_TYPES + extra_filter_types
     persistence_timeline = [
         e for e in collected_timeline
@@ -348,11 +356,16 @@ async def _persist_agent_message(
     ]
     if persistence_timeline:
         try:
-            await MessageService.add_message(
-                session_id=session_id, role="agent",
-                timeline_entries=persistence_timeline,
-                token_usage=token_usage or {},
-            )
+            if append_to_last_agent:
+                await MessageService.append_to_last_agent_message(
+                    session_id, persistence_timeline, token_usage=token_usage or {},
+                )
+            else:
+                await MessageService.add_message(
+                    session_id=session_id, role="agent",
+                    timeline_entries=persistence_timeline,
+                    token_usage=token_usage or {},
+                )
             # Accumulate token usage on the session
             if token_usage and token_usage.get("total_tokens"):
                 await SessionService.add_tokens(session_id, token_usage["total_tokens"])

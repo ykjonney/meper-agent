@@ -230,6 +230,42 @@ class MessageService:
         return doc
 
     @staticmethod
+    async def append_to_last_agent_message(
+        session_id: str,
+        timeline_entries: list[dict],
+        *,
+        token_usage: dict | None = None,
+    ) -> None:
+        """Append timeline entries to the last agent message in this session.
+
+        Used by resume so that tool_result (user's answer) ends up in the
+        same message as the original tool_call, keeping the conversation
+        history consistent for frontend rendering.
+        """
+        col = MessageService._collection()
+        # Find the last agent message
+        last_msg = await col.find_one(
+            {"session_id": session_id, "role": "agent"},
+            sort=[("created_at", -1)],
+        )
+        if last_msg is None:
+            # No agent message to append to — create new
+            await MessageService.add_message(
+                session_id=session_id, role="agent",
+                timeline_entries=timeline_entries,
+                token_usage=token_usage or {},
+            )
+            return
+
+        # Atomically append entries + merge token_usage
+        update_doc: dict[str, Any] = {
+            "$push": {"timeline_entries": {"$each": timeline_entries}},
+        }
+        if token_usage:
+            update_doc["$set"] = {"token_usage": token_usage}
+        await col.update_one({"_id": last_msg["_id"]}, update_doc)
+
+    @staticmethod
     async def list_messages(session_id: str) -> list[dict]:
         """List all messages for a session, ordered by creation time."""
         cursor = MessageService._collection().find({"session_id": session_id}).sort("created_at", 1)
