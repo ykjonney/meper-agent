@@ -18,9 +18,9 @@ class _LoguruHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            level = logger.level(record.levelname).name
+            level: str = logger.level(record.levelname).name
         except ValueError:
-            level = record.levelno
+            level = str(record.levelno)
         logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
 
 

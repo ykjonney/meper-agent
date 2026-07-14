@@ -1,6 +1,8 @@
 """Session and Message business logic — CRUD operations."""
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 
 from app.db.mongodb import get_database
@@ -199,7 +201,7 @@ class MessageService:
         # Agent messages do not store a top-level ``content`` field — their
         # text lives inside ``timeline_entries`` (type="text" entries). Omit
         # the key entirely so agent docs have no content field at all.
-        doc = {
+        doc: dict[str, Any] = {
             "_id": msg.id,
             "session_id": msg.session_id,
             "role": msg.role,
