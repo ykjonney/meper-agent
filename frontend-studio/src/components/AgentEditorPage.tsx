@@ -243,6 +243,10 @@ export function AgentEditorPage({
         <Field label="最大重试次数（0-10）">
           <input type="number" min="0" max="10" className={`${inputCls} font-mono`} value={form.maxRetry ?? 3} onChange={(e) => set({ maxRetry: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} />
         </Field>
+        <Field label="会话 Token 上限（0 = 全局默认）">
+          <input type="number" min="0" max="10000000" step="10000" className={`${inputCls} font-mono`} value={form.maxTokens ?? 0} onChange={(e) => set({ maxTokens: Math.max(0, Number(e.target.value) || 0) })} placeholder="0 = 使用全局默认" />
+          <div className="text-[11px] text-slate-500 mt-1">单次会话累计 Token 上限，超出后 Agent 自动停止。0 表示使用全局默认值（200000）。</div>
+        </Field>
       </Section>
 
       {/* ── Section: 工具绑定 ── */}

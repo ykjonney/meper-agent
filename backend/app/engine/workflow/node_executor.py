@@ -472,6 +472,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
                             "response": output_content,
                             "agent_id": agent_id,
                             "files": files_output,
+                            # Token usage from harness (execution.py puts mw.summary
+                            # into result["usage"]); surfaced for timeline + task total.
+                            "usage": result.get("usage") or {},
                         },
                     )
                 except TimeoutError:

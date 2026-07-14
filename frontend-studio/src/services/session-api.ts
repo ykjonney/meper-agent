@@ -4,6 +4,7 @@
  * Used by ChatPanel to load conversation history and manage sessions.
  */
 import { apiClient } from '../lib/api-client'
+import type { TokenUsage } from '../types'
 
 /* ─── Types (snake_case, matches backend schemas) ─── */
 
@@ -14,6 +15,7 @@ export interface Session {
   title: string
   status: string
   message_count: number
+  total_tokens?: number
   created_at: string
   updated_at: string
 }
@@ -29,6 +31,8 @@ export interface MessageRecord {
   file_ids?: string[]
   /** File references attached to this message */
   files?: FileRef[]
+  /** Token usage for this agent message (backend token_usage dict). */
+  token_usage?: TokenUsage
   created_at: string
 }
 

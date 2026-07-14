@@ -137,6 +137,8 @@ export interface TaskSummary {
   checkpoint?: Checkpoint | null
   scheduled_at?: string | null
   trigger_id?: string
+  /** 本次 task 所有 agent 节点累计 token 用量（后端 engine 写回） */
+  total_tokens?: number
   created_at: string
   updated_at: string
 }

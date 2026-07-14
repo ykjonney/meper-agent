@@ -111,6 +111,8 @@ class Task(BaseModel):
     scheduled_at: datetime | None = None
     # Celery AsyncResult ID，用于取消时 revoke 正在运行的 worker（兜底 SIGTERM）
     celery_task_id: str = ""
+    # 本次 task 所有 agent 节点累计 token 用量（engine 完成时写回）
+    total_tokens: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

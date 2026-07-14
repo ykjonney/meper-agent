@@ -248,9 +248,13 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                 />
               </div>
 
-              {/* 耗时 */}
-              {stage.duration && (
-                <div className={`text-[10px] mt-1 font-mono ${mutedText}`}>耗时 {stage.duration}</div>
+              {/* 耗时 / Token 消耗 */}
+              {(stage.duration || stage.tokenTotal) && (
+                <div className={`text-[10px] mt-1 font-mono ${mutedText}`}>
+                  {stage.duration && <>耗时 {stage.duration}</>}
+                  {stage.duration && stage.tokenTotal ? ' · ' : ''}
+                  {stage.tokenTotal && <>{stage.tokenTotal.toLocaleString()} tokens</>}
+                </div>
               )}
 
               {/* 展开区：该节点的事件列表 + 输出 */}
@@ -479,7 +483,10 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     const endEvt = evts.find((e) => e.event_type === 'node_complete' || e.event_type === 'node_failed')
     const duration = (startEvt && endEvt) ? humanDuration(startEvt.timestamp, endEvt.timestamp) : undefined
     const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
-    return { nodeId, nodeType, state, events: evts, duration, label }
+    // 节点 token 用量（仅 agent 节点的 node_complete 事件 data.usage 携带）
+    const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
+    const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
+    return { nodeId, nodeType, state, events: evts, duration, label, tokenTotal }
   })
 }
 

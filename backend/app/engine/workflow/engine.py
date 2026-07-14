@@ -766,12 +766,18 @@ class WorkflowEngine:
 
             self._completed_nodes.add(node_id)
 
-            # Record node complete
+            # Record node complete (include agent token usage for timeline display)
+            node_usage = result.output.get("usage") or {}
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_complete",
-                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output)},
+                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output), "usage": node_usage},
             )
+            # Accumulate task-level token total onto the Task document immediately
+            # ($inc per agent node, so pause/resume doesn't lose pre-pause usage).
+            _node_total = node_usage.get("total_tokens")
+            if isinstance(_node_total, (int, float)) and _node_total > 0:
+                await TaskService.add_total_tokens(self._task_id, int(_node_total))
 
             # Handle human: transition to waiting_human and pause execution
             if node_type == "human" and result.output.get("status") == "waiting_human":

@@ -56,6 +56,7 @@ def _doc_to_full_response(doc: dict) -> TaskResponse:
         source=doc.get("source", "manual"),
         trigger_id=doc.get("trigger_id"),
         scheduled_at=doc.get("scheduled_at"),
+        total_tokens=doc.get("total_tokens", 0),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
@@ -79,6 +80,7 @@ def _doc_to_summary(doc: dict) -> TaskSummary:
         source=doc.get("source", "manual"),
         trigger_id=doc.get("trigger_id"),
         scheduled_at=doc.get("scheduled_at"),
+        total_tokens=doc.get("total_tokens", 0),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )

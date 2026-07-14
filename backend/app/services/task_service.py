@@ -223,6 +223,21 @@ class TaskService:
             asyncio.ensure_future(_update())
 
     @staticmethod
+    async def add_total_tokens(task_id: str, delta: int) -> None:
+        """Increment the Task's cumulative token usage by *delta*.
+
+        Called by WorkflowEngine as each agent node completes, so the Flow
+        cost is visible incrementally and survives pause/resume (each Celery
+        run starts a fresh engine instance, so we persist rather than tally).
+        """
+        from app.db.mongodb import get_database
+
+        await get_database()["tasks"].update_one(
+            {"_id": task_id},
+            {"$inc": {"total_tokens": int(delta or 0)}, "$set": {"updated_at": utc_now()}},
+        )
+
+    @staticmethod
     async def cancel_running_task(task_id: str) -> None:
         """Revoke the Celery worker running *task_id* (best-effort).
 
