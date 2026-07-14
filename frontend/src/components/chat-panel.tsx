@@ -611,11 +611,16 @@ export default function ChatPanel({
               // Refresh file list after every stream completion (new or existing session)
               refreshSessionFiles()
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === agentMsgId
-                    ? { ...m, requestId: event.request_id, usage: event.usage }
-                    : m,
-                ),
+                prev.map((m) => {
+                  if (m.id !== agentMsgId) return m
+                  // Close any lingering pending/running tool entries
+                  const tl = (m.timeline ?? []).map((entry) =>
+                    entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running')
+                      ? { ...entry, toolStatus: 'success' as ToolStatus }
+                      : entry,
+                  )
+                  return { ...m, requestId: event.request_id, usage: event.usage, timeline: tl }
+                }),
               )
             } else if ('type' in event) {
               const eventType = (event as { type: string }).type

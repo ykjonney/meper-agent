@@ -11,7 +11,7 @@ import type { TabsProps } from 'antd'
 import {
   SearchOutlined, CodeOutlined, ReadOutlined, EditOutlined, ToolOutlined,
   PlusOutlined, GlobalOutlined, DeleteOutlined, SafetyOutlined,
-  FileSearchOutlined, ExportOutlined, QuestionCircleOutlined,
+  FileSearchOutlined, QuestionCircleOutlined,
   LockOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
@@ -25,7 +25,6 @@ const TOOL_ICONS: Record<string, typeof CodeOutlined> = {
   bash: CodeOutlined,
   read: ReadOutlined,
   write: EditOutlined,
-  write_to_output: ExportOutlined,
   glob: FileSearchOutlined,
   grep: FileSearchOutlined,
   ask_clarification: QuestionCircleOutlined,

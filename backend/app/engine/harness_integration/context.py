@@ -24,13 +24,13 @@ def get_checkpointer() -> Any:
 # 端点 `/api/v1/tools/builtin` 与 `resolve_harness_context` 共同引用此名单,
 # 保证「端点展示的 = 运行时注入的」。
 _INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
-    "bash", "read", "write", "write_to_output", "glob", "grep", "ask_clarification",
+    "bash", "read", "write", "glob", "grep", "ask_clarification",
 )
 
 # 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
 # ask_clarification 是能力型工具,关闭会导致 Agent 无法澄清,故始终开启。
 _CONFIGURABLE_BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
-    {"bash", "read", "write", "write_to_output", "glob", "grep"}
+    {"bash", "read", "write", "glob", "grep"}
 )
 
 

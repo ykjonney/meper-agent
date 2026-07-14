@@ -276,15 +276,14 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
     tool_desc_map = {
         "bash": "Execute shell commands (command: str)",
         "read": "Read file contents (path: str)",
-        "write": "Write content to tmp/ — for intermediate/scratch files only. These files are NOT visible or downloadable by the user. NEVER use this for files the user needs to keep.",
-        "write_to_output": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
+        "write": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
     }
 
     enabled = set(builtin_config)
     if "bash" in enabled:
-        enabled |= {"read", "write", "write_to_output"}
+        enabled |= {"read", "write"}
 
-    for name in ["bash", "read", "write", "write_to_output"]:
+    for name in ["bash", "read", "write"]:
         if name in enabled:
             desc = tool_desc_map.get(name, name)
             lines.append(f"- **{name}**: {desc}")

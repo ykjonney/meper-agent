@@ -39,12 +39,7 @@ class _ReadArgs(BaseModel):
 
 
 class _WriteArgs(BaseModel):
-    path: str = Field(..., description="要写入的文件路径")
-    content: str = Field(..., description="文件内容")
-
-
-class _WriteToOutputArgs(BaseModel):
-    path: str = Field(..., description="要写入的文件路径（相对于 output/）")
+    path: str = Field(..., description="文件路径（相对于 output 目录）")
     content: str = Field(..., description="文件内容")
 
 
@@ -92,27 +87,15 @@ async def _read(path: str) -> str:
 
 
 async def _write(path: str, content: str) -> str:
-    """写文件。委托 sandbox.write_file。"""
+    """写文件到 output 目录（用户可见/可下载）。委托 sandbox.write_file。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
         return "Error: sandbox not initialized."
     try:
         sandbox.write_file(path, content)
-        return f"Successfully wrote {len(content)} chars to {path}"
-    except Exception as exc:
-        return f"Error writing file: {exc}"
-
-
-async def _write_to_output(path: str, content: str) -> str:
-    """写文件到 output/（用户可见/可下载）。委托 sandbox.write_to_output。"""
-    sandbox = _get_sandbox_safe()
-    if sandbox is None:
-        return "Error: sandbox not initialized."
-    try:
-        sandbox.write_to_output(path, content)
         return f"Successfully wrote {len(content)} chars to output/{path}"
     except Exception as exc:
-        return f"Error writing file to output: {exc}"
+        return f"Error writing file: {exc}"
 
 
 async def _glob(path: str, pattern: str) -> str:
@@ -152,13 +135,9 @@ read = StructuredTool.from_function(
     args_schema=_ReadArgs, coroutine=_read,
 )
 write = StructuredTool.from_function(
-    _write, name="write", description="写入文件内容（到 tmp/，用户不可见）。",
+    _write, name="write",
+    description="写入文件内容到 output 目录（用户可见/可下载）。当用户要求生成、创建、保存或导出任何文件时使用此工具。",
     args_schema=_WriteArgs, coroutine=_write,
-)
-write_to_output = StructuredTool.from_function(
-    _write_to_output, name="write_to_output",
-    description="写入文件内容到 output/（用户可见/可下载）。ALWAYS use this tool when the user asks you to generate, create, save, or export any file.",
-    args_schema=_WriteToOutputArgs, coroutine=_write_to_output,
 )
 glob = StructuredTool.from_function(
     _glob, name="glob", description="按 glob 模式匹配文件。",
@@ -170,4 +149,4 @@ grep = StructuredTool.from_function(
 )
 
 
-__all__ = ["bash", "read", "write", "write_to_output", "glob", "grep"]
+__all__ = ["bash", "read", "write", "glob", "grep"]
