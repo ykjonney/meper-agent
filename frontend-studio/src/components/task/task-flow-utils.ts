@@ -56,4 +56,6 @@ export interface NodeStageInfo {
   duration?: string
   /** 节点标签（可选，来自事件 data.node_label） */
   label?: string
+  /** 节点 token 消耗（agent 节点 node_complete 事件 data.usage.total_tokens） */
+  tokenTotal?: number
 }

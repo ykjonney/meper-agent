@@ -334,6 +334,9 @@ export function TaskDetailDrawer({
                   <InfoRow label="版本" value={`v${taskDetail.version}`} />
                   <InfoRow label="创建时间" value={formatDateTime(taskDetail.created_at)} />
                   <InfoRow label="更新时间" value={formatDateTime(taskDetail.updated_at)} />
+                  {taskDetail.total_tokens ? (
+                    <InfoRow label="Token 消耗" value={`${taskDetail.total_tokens.toLocaleString()} tokens`} />
+                  ) : null}
                 </div>
               </section>
 
