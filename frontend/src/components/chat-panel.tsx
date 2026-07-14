@@ -633,16 +633,23 @@ export default function ChatPanel({
                 // The user's next message will be sent via /resume instead of /stream.
                 const evt = event as { question: string; clarification_type?: string; context?: string | null; options?: string[] | null }
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === agentMsgId
-                      ? {
-                          ...m,
-                          isInterrupted: true,
-                          interruptQuestion: evt.question,
-                          interruptOptions: evt.options ?? undefined,
-                        }
-                      : m,
-                  ),
+                  prev.map((m) => {
+                    if (m.id !== agentMsgId) return m
+                    // Close any pending/running tool entries — the tool (ask_clarification)
+                    // has finished its job by surfacing the question to the user.
+                    const tl = (m.timeline ?? []).map((entry) =>
+                      entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running')
+                        ? { ...entry, toolStatus: 'success' as ToolStatus, result: '等待用户回答' }
+                        : entry,
+                    )
+                    return {
+                      ...m,
+                      timeline: tl,
+                      isInterrupted: true,
+                      interruptQuestion: evt.question,
+                      interruptOptions: evt.options ?? undefined,
+                    }
+                  }),
                 )
                 pendingInterruptRef.current = { agentMsgId }
               } else if (eventType === 'tool_call_start') {
