@@ -8,7 +8,7 @@ Public surface:
   :class:`TimeBudgetGuard`, :class:`ToolRateLimitGuard`,
   :class:`ContentGuard`.
 * :func:`make_guard_in_node` / :func:`make_guard_out_node` node factories.
-* :data:`GUARD_REGISTRY` + :func:`resolve_guard` to build guards from an
+* :data:`GUARD_REGISTRY` + :func:`resolve_guards` to build guards from an
   Agent document's ``guards`` config entries.
 """
 
@@ -71,12 +71,6 @@ def resolve_guards(specs: list[dict[str, Any]] | None) -> list[Guard]:
     return guards
 
 
-def resolve_guard(spec: dict[str, Any]) -> Guard:
-    """Resolve a single guard spec (convenience wrapper over resolve_guards)."""
-    resolved = resolve_guards([spec])
-    return resolved[0]
-
-
 __all__ = [
     "Allow",
     "Block",
@@ -90,6 +84,5 @@ __all__ = [
     "Warn",
     "make_guard_in_node",
     "make_guard_out_node",
-    "resolve_guard",
     "resolve_guards",
 ]

@@ -17,10 +17,12 @@ export type TaskStatusValue =
   | 'cancelled'
 
 /**
- * 看板使用的有序状态列表（6 列顺序）。
+ * 看板使用的有序状态列表（5 列顺序）。
+ *
+ * 注：pending（待执行）不作为看板列 - 定时任务统一在「定时任务」页面管理，
+ * 手动 scheduled_at 任务的待执行态不在此展示。
  */
 export const BOARD_STATUSES: TaskStatusValue[] = [
-  'pending',
   'running',
   'waiting_human',
   'completed',
@@ -134,6 +136,9 @@ export interface TaskSummary {
   error?: TaskError | null
   checkpoint?: Checkpoint | null
   scheduled_at?: string | null
+  trigger_id?: string
+  /** 本次 task 所有 agent 节点累计 token 用量（后端 engine 写回） */
+  total_tokens?: number
   created_at: string
   updated_at: string
 }
@@ -150,6 +155,10 @@ export interface TaskListParams {
   status?: string
   created_by?: string
   workflow_id?: string
+  /** 按触发器过滤：只返回该 trigger 触发产生的任务（source=trigger_scheduled）。 */
+  trigger_id?: string
+  /** 按来源过滤：manual / trigger / trigger_scheduled。 */
+  source?: string
 }
 
 export interface TaskListResponse {
@@ -230,6 +239,26 @@ export interface TaskOutputFile {
   updated_at: string
 }
 
+/**
+ * Agent 节点执行详情（按需从 LangGraph checkpointer thread 读取）。
+ * 对齐后端 NodeTimelineResponse / NodeTimelineEntry（snake_case）。
+ */
+export interface NodeTimelineEntry {
+  type: 'thinking' | 'text' | 'tool_call' | 'tool_result' | 'tool' | 'user'
+  content?: string
+  tool_name?: string
+  args?: Record<string, unknown>
+  id?: string
+}
+
+export interface NodeTimelineResponse {
+  task_id: string
+  node_id: string
+  thread_id: string
+  timeline: NodeTimelineEntry[]
+  message_count: number
+}
+
 /* ─── API methods ─── */
 
 export const tasksApi = {
@@ -302,6 +331,18 @@ export const tasksApi = {
   },
 
   /**
+   * Get Agent node execution detail (thinking / tool_call / tool_result / text).
+   * Read on demand from the LangGraph checkpointer thread.
+   * GET /api/v1/tasks/{id}/nodes/{nodeId}/timeline
+   */
+  async getNodeTimeline(taskId: string, nodeId: string): Promise<NodeTimelineResponse> {
+    const res = await apiClient.get<NodeTimelineResponse>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/nodes/${encodeURIComponent(nodeId)}/timeline`,
+    )
+    return res.data
+  },
+
+  /**
    * Get task statistics (running/pending/limits).
    * GET /api/v1/tasks/stats
    */
@@ -345,6 +386,7 @@ export const taskKeys = {
   detail: (id: string) => [...taskKeys.details(), id] as const,
   logs: (id: string) => [...taskKeys.detail(id), 'logs'] as const,
   outputs: (id: string) => [...taskKeys.detail(id), 'outputs'] as const,
+  nodeTimeline: (id: string, nodeId: string) => [...taskKeys.detail(id), 'nodeTimeline', nodeId] as const,
   stats: () => [...taskKeys.all, 'stats'] as const,
   workflows: () => [...taskKeys.all, 'workflows'] as const,
 }

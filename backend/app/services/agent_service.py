@@ -32,9 +32,11 @@ class AgentService:
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
         workflow_ids: list[str] | None = None,
+        custom_tool_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         default_model: str = "",
         max_retry: int = 3,
+        max_tokens: int = 0,
     ) -> dict:
         """Create a new Agent in draft status.
 
@@ -74,9 +76,11 @@ class AgentService:
             mcp_connection_ids=mcp_connection_ids or [],
             builtin_config=builtin_config or [],
             workflow_ids=workflow_ids or [],
+            custom_tools=[{"tool_id": tid, "user_args": {}} for tid in (custom_tool_ids or [])],
             knowledge_base_ids=knowledge_base_ids or [],
             default_model=default_model,
             max_retry=max_retry,
+            max_tokens=max_tokens,
             status=AgentStatus.DRAFT,
         )
 
@@ -89,9 +93,11 @@ class AgentService:
             "mcp_connection_ids": agent.mcp_connection_ids,
             "builtin_config": agent.builtin_config,
             "workflow_ids": agent.workflow_ids,
+            "custom_tools": agent.custom_tools,
             "knowledge_base_ids": agent.knowledge_base_ids,
             "default_model": agent.default_model,
             "max_retry": agent.max_retry,
+            "max_tokens": agent.max_tokens,
             "status": agent.status.value,
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
@@ -176,9 +182,11 @@ class AgentService:
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
         workflow_ids: list[str] | None = None,
+        custom_tool_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         default_model: str = "",
         max_retry: int = 3,
+        max_tokens: int = 0,
     ) -> dict | None:
         """Update an existing Agent's configuration.
 
@@ -195,7 +203,6 @@ class AgentService:
             workflow_ids: New workflow IDs.
             knowledge_base_ids: New knowledge base IDs.
             default_model: New model reference.
-            max_retry: New max retry count.
 
         Returns:
             Updated Agent document, or None if not found.
@@ -239,9 +246,11 @@ class AgentService:
             "mcp_connection_ids": mcp_connection_ids or [],
             "builtin_config": builtin_config or [],
             "workflow_ids": workflow_ids or [],
+            "custom_tools": [{"tool_id": tid, "user_args": {}} for tid in (custom_tool_ids or [])],
             "knowledge_base_ids": knowledge_base_ids or [],
             "default_model": default_model,
             "max_retry": max_retry,
+            "max_tokens": max_tokens,
             "updated_at": now_iso,
         }
 
@@ -273,6 +282,29 @@ class AgentService:
         if existing_doc is None:
             return False
 
+        # 引用检查：已发布工作流的 Agent 节点引用了此 Agent 时禁止删除。
+        # 草稿工作流不拦截——用户可以先删 Agent 再去修改草稿。
+        wf_col = get_database()["workflows"]
+        referencing_wfs = await wf_col.find(
+            {
+                "status": "published",
+                "nodes": {
+                    "$elemMatch": {
+                        "type": "agent",
+                        "config.agent_id": agent_id,
+                    }
+                },
+            },
+            {"name": 1},
+        ).to_list(length=100)
+        if referencing_wfs:
+            wf_names = [w.get("name", w.get("_id", "")) for w in referencing_wfs]
+            raise ConflictError(
+                code="AGENT_IN_USE",
+                message=f"Agent 正在被以下工作流引用，无法删除：{', '.join(wf_names)}",
+                details={"workflow_names": wf_names},
+            )
+
         # TODO(Story 6.x): Add active Task reference check when
         # Task data model is implemented. For now, only warn.
         if existing_doc.get("status") == AgentStatus.PUBLISHED.value:
@@ -284,6 +316,22 @@ class AgentService:
 
         result = await col.delete_one({"_id": agent_id})
         if result.deleted_count > 0:
+            # 级联删除：清理该 Agent 的所有会话（含 messages + workspace）
+            try:
+                from app.services.session_service import SessionService
+
+                db = get_database()
+                cursor = db["sessions"].find({"agent_id": agent_id}, {"_id": 1})
+                session_ids = [sess["_id"] async for sess in cursor]
+                for sess_id in session_ids:
+                    await SessionService.delete_session(sess_id)
+            except Exception as exc:
+                logger.warning(
+                    "agent_sessions_cleanup_partial",
+                    agent_id=agent_id,
+                    error=str(exc),
+                )
+
             logger.info(
                 "agent_deleted",
                 agent_id=agent_id,
@@ -422,9 +470,11 @@ class AgentService:
             mcp_connection_ids=source.get("mcp_connection_ids", []),
             builtin_config=source.get("builtin_config", []),
             workflow_ids=source.get("workflow_ids", []),
+            custom_tool_ids=[b.get("tool_id", "") for b in (source.get("custom_tools") or []) if b.get("tool_id")],
             knowledge_base_ids=source.get("knowledge_base_ids", []),
             default_model=_resolve_default_model(source),
             max_retry=_resolve_max_retry(source),
+            max_tokens=source.get("max_tokens", 0),
         )
 
 

@@ -152,6 +152,7 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
       timestamp: new Date(rec.created_at).toLocaleString(),
       attachment: fileRefToAttachment(rec.files?.[0]),
       attachments: dedupOutput.length > 0 ? dedupOutput : undefined,
+      usage: rec.token_usage,
     });
   } else if (dedupOutput.length > 0) {
     // 没有最终文本但有产物文件：仍渲染一个携带附件的气泡
@@ -163,6 +164,7 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
       content: '',
       timestamp: new Date(rec.created_at).toLocaleString(),
       attachments: dedupOutput,
+      usage: rec.token_usage,
     });
   }
   return out.length
@@ -723,6 +725,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
           // and reload generated files so any new outputs appear immediately.
           refreshSessions();
           filesPanelRef.current?.refresh();
+          // Attach token usage from the done event onto the agent bubble.
+          if (evt.usage) {
+            setLiveMessages((prev) => updateMsg(prev, agentMsgId, { usage: evt.usage }));
+          }
           continue;
         }
         switch (evt.type) {
@@ -1065,6 +1071,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
                       </span>
                     )}
                     <span className="text-[#71717a] font-mono">{msg.timestamp}</span>
+                    {!isUser && msg.usage?.total_tokens ? (
+                      <span className="text-[#71717a] font-mono">
+                        · {msg.usage.total_tokens.toLocaleString()} tokens
+                        {msg.usage.llm_calls != null && msg.usage.llm_calls > 1
+                          ? ` · ${msg.usage.llm_calls} 轮`
+                          : ''}
+                      </span>
+                    ) : null}
                   </div>
                   {isTool ? (
                     <div className="max-w-2xl">

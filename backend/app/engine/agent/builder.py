@@ -20,7 +20,6 @@ from collections.abc import Callable
 from langchain_core.tools import tool as lc_tool
 from loguru import logger
 
-from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
 from app.models.compat import resolve_skill_ids
 
 _MAX_SKILL_CONTENT = 50_000
@@ -277,18 +276,41 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
     tool_desc_map = {
         "bash": "Execute shell commands (command: str)",
         "read": "Read file contents (path: str)",
-        "write": "Write content to tmp/ — for intermediate/scratch files only. These files are NOT visible or downloadable by the user. NEVER use this for files the user needs to keep.",
-        "write_to_output": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
+        "write": "Write content to output/ — these files ARE visible and downloadable by the user. ALWAYS use this tool when the user asks you to generate, create, save, or export any file (code, document, image list, report, etc.).",
     }
 
     enabled = set(builtin_config)
     if "bash" in enabled:
-        enabled |= {"read", "write", "write_to_output"}
+        enabled |= {"read", "write"}
 
-    for name in ["bash", "read", "write", "write_to_output"]:
+    for name in ["bash", "read", "write"]:
         if name in enabled:
             desc = tool_desc_map.get(name, name)
             lines.append(f"- **{name}**: {desc}")
+
+    # ask_clarification is always available (not gated by builtin_config)
+    lines.extend([
+        "",
+        "### Clarification",
+        "",
+        "When you need more information from the user, you MUST call the **ask_clarification** tool.",
+        "Do NOT ask questions in plain text — the tool provides interactive UI (option buttons,",
+        "confirmation dialogs) that plain text cannot.",
+        "",
+        "Choose the appropriate `clarification_type`:",
+        "- `missing_info`: Missing required details (e.g. file format, target audience).",
+        "  Set `options` if there are common choices.",
+        "- `ambiguous_requirement`: User's request has multiple interpretations.",
+        "  Set `options` to the distinct interpretations.",
+        "- `approach_choice`: Multiple valid approaches exist (e.g. React vs Vue).",
+        "  Set `options` to the approach names.",
+        "- `risk_confirmation`: About to perform a risky/irreversible action.",
+        "  Do NOT set `options` — the UI provides confirm/cancel buttons.",
+        "- `suggestion`: Recommending a specific approach.",
+        "  Set `options` to alternative suggestions if applicable.",
+        "",
+        "**IMPORTANT**: `options` must be a JSON array of strings, e.g. `[\"React\", \"Vue\", \"Svelte\"]`.",
+    ])
 
     return "\n".join(lines)
 
@@ -352,22 +374,35 @@ async def _resolve_mcp_tools(agent: dict) -> list:
 
 
 def _resolve_builtin_tools(agent: dict) -> list:
-    """Resolve built-in tools based on Agent's ``builtin_config`` whitelist."""
+    """Resolve built-in + app tools for preview (mirrors resolve_harness_context).
+
+    Uses harness's BUILTIN_TOOLS (the same instances injected at runtime),
+    filtered by the agent's ``builtin_config`` whitelist. Capability tools
+    (configurable=false, e.g. ask_clarification) are always included.
+    Task/workflow tools (_TASK_TOOLS) are always-on app-level tools.
+    """
+    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
+
     from app.engine.agent.workflow_executor import _TASK_TOOLS
+    from app.engine.harness_integration.context import (
+        _CONFIGURABLE_BUILTIN_TOOL_NAMES,
+        _INJECTED_BUILTIN_TOOL_NAMES,
+    )
 
     builtin_config = set(agent.get("builtin_config") or [])
-    _bash_tool_set = {"bash", "read", "write", "write_to_output"}
     if "bash" in builtin_config:
-        enabled_names = _bash_tool_set
-    else:
-        enabled_names = builtin_config & {"read", "write", "write_to_output"}
+        builtin_config |= {"read", "write", "write_to_output"}
 
-    base_tools = [
-        _BUILTIN_TOOL_REGISTRY[name]
-        for name in enabled_names
-        if name in _BUILTIN_TOOL_REGISTRY
-    ]
-    return [*base_tools, *_TASK_TOOLS]
+    tools: list = list(_TASK_TOOLS)  # app-level tools always on
+    for name in _INJECTED_BUILTIN_TOOL_NAMES:
+        tool = BUILTIN_TOOLS.get(name)
+        if tool is None:
+            continue
+        if name not in _CONFIGURABLE_BUILTIN_TOOL_NAMES:
+            tools.append(tool)  # always-on capability tool
+        elif name in builtin_config:
+            tools.append(tool)
+    return tools
 
 
 def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
@@ -416,7 +451,7 @@ def _make_skill_loader(allowed_names: set[str] | None = None) -> Callable:
 _WORKFLOW_TOOL_NAMES = {"propose_workflow", "dispatch_workflow"}
 _TASK_TOOL_NAMES = {
     "task_query", "task_list", "task_intervene",
-    "cancel_task", "get_task_timeline", "update_task_variables",
+    "cancel_task", "update_task_variables",
 }
 
 

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from langchain_core.language_models.chat_models import BaseChatModel
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
@@ -28,10 +30,12 @@ class AgentConfig(BaseModel):
     # —— 身份与提示 ——
     name: str = Field(default="agent", description="Agent 名字")
     system_prompt: str | None = Field(
-        default=None, description="完整 system prompt（直接用作 SystemMessage）"
-    )
-    prompt_slots: dict[str, Any] | None = Field(
-        default=None, description="6 段式 Slot 配置（优先于 system_prompt）"
+        default=None,
+        description=(
+            "完整 system prompt（直接用作 SystemMessage）。"
+            "应用层负责渲染（含 slot 拼接、工具声明、变量注入）；"
+            "harness 只接收最终字符串。"
+        ),
     )
 
     # —— 工具（统一 dict 格式，三层来源）——
@@ -78,8 +82,6 @@ def _config_to_doc(config: AgentConfig) -> dict[str, Any]:
         "name": config.name,
         "tools": config.tools,
     }
-    if config.prompt_slots:
-        doc["prompt_slots"] = config.prompt_slots
     if config.guards:
         doc["guards"] = config.guards
     if config.middleware:
@@ -206,12 +208,7 @@ class Agent:
         return messages
 
     async def _render_system_message(self) -> SystemMessage | None:
-        """渲染 system prompt（prompt_slots 优先，否则 system_prompt）。"""
-        if self._config.prompt_slots:
-            from agent_flow_harness.slots import render_system_prompt_simple
-
-            text = await render_system_prompt_simple(self._agent_doc)
-            return SystemMessage(content=text) if text else None
+        """返回 system prompt 作为 SystemMessage（应用层已渲染好）。"""
         if self._config.system_prompt:
             return SystemMessage(content=self._config.system_prompt)
         return None
@@ -253,8 +250,17 @@ class Agent:
         *,
         thread_id: str | None = None,
         workspace: Any | None = None,
+        cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     ) -> str:
-        """非流式执行，返回最终文本。"""
+        """非流式执行，返回最终文本。
+
+        Args:
+            input: 用户输入（字符串或预构建的 message 列表）。
+            thread_id: Checkpointer thread id（多轮对话用）。
+            workspace: 可选的工作区对象（host 提供）。
+            cancel_checker: 可选的异步取消检查器。传入后 compress_node 每轮
+                REACT 迭代会检查它，返回 True 时 interrupt() 优雅挂起 agent。
+        """
         from agent_flow_harness.subagents.delegate import extract_final_text
 
         sys_msg = await self._render_system_message()
@@ -264,7 +270,7 @@ class Agent:
             self._agent_doc, self._model,
             tools=self._tools, middlewares=self._middlewares,
             thread_id=thread_id, context_window=self._config.context_window,
-            workspace=workspace,
+            workspace=workspace, cancel_checker=cancel_checker,
         )
         pairs = self._set_contexts()
         try:
@@ -280,10 +286,17 @@ class Agent:
         thread_id: str | None = None,
         workspace: Any | None = None,
         on_event: Any | None = None,
+        enable_thinking: bool = False,
     ) -> None:
         """流式执行，通过 on_event 回调推送 AppEvent。
 
-        on_event 是 async 回调：``async def on_event(event: AppEvent) -> None``。
+        Args:
+            input: 用户输入（字符串或预构建的 message 列表）。
+            thread_id: Checkpointer thread id（多轮对话用）。
+            workspace: 可选的工作区对象（host 提供）。
+            on_event: async 回调 ``async def on_event(event: dict) -> None``，
+                接收 AppEvent.model_dump() 后的 dict。
+            enable_thinking: 是否在流式事件中包含 thinking 块。
         """
         from agent_flow_harness.adapters import stream_events_to_app_events
 
@@ -305,7 +318,62 @@ class Agent:
             # AppEvent(pydantic) → dict，保持 on_event 回调与 backend 一致
             async def _on_event_dict(app_event: Any) -> None:
                 await on_event(app_event.model_dump())
-            await stream_events_to_app_events(event_stream, _on_event_dict)
+            await stream_events_to_app_events(
+                event_stream, _on_event_dict, enable_thinking=enable_thinking,
+            )
+        finally:
+            self._reset_contexts(pairs)
+
+    async def resume(
+        self,
+        resume_value: str,
+        *,
+        thread_id: str | None = None,
+        workspace: Any | None = None,
+        on_event: Any | None = None,
+        cancel_checker: Callable[[], Awaitable[bool]] | None = None,
+        enable_thinking: bool = False,
+    ) -> Any:
+        """恢复被 interrupt 挂起的 agent，用 ``Command(resume=...)`` 续接。
+
+        当 ``on_event`` 传入时走流式（``astream_events`` + adapter），
+        否则走非流式（``ainvoke``）。
+
+        Args:
+            resume_value: 恢复值（如用户对 ask_clarification 的回答）。
+            thread_id: Checkpointer thread id（必须与挂起时一致）。
+            workspace: 可选的工作区对象。
+            on_event: 可选的 async 事件回调。传入时走流式恢复。
+            cancel_checker: 可选的异步取消检查器。
+            enable_thinking: 流式恢复时是否包含 thinking 块。
+        """
+        from langgraph.types import Command
+
+        config = build_config(
+            self._agent_doc, self._model,
+            tools=self._tools, middlewares=self._middlewares,
+            thread_id=thread_id, context_window=self._config.context_window,
+            workspace=workspace, cancel_checker=cancel_checker,
+        )
+
+        pairs = self._set_contexts()
+        try:
+            if on_event is not None:
+                from agent_flow_harness.adapters import stream_events_to_app_events
+
+                event_stream = self._graph.astream_events(
+                    Command(resume=resume_value), config=config, version="v2",
+                )
+                async def _on_event_dict(app_event: Any) -> None:
+                    await on_event(app_event.model_dump())
+                await stream_events_to_app_events(
+                    event_stream, _on_event_dict, enable_thinking=enable_thinking,
+                )
+                return {"step_count": 0}
+            else:
+                return await self._graph.ainvoke(
+                    Command(resume=resume_value), config=config,
+                )
         finally:
             self._reset_contexts(pairs)
 

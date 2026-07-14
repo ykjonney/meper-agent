@@ -1,6 +1,8 @@
 """Model business logic — CRUD operations and API key encryption."""
 from __future__ import annotations
 
+import re
+
 from loguru import logger
 
 from app.core.crypto import (
@@ -168,7 +170,7 @@ class ModelService:
         if status:
             filter_query["status"] = status
         if provider_tag:
-            filter_query["provider_tag"] = {"$regex": provider_tag, "$options": "i"}
+            filter_query["provider_tag"] = {"$regex": re.escape(provider_tag), "$options": "i"}
 
         total = await col.count_documents(filter_query)
         cursor = (
@@ -298,20 +300,22 @@ class ModelService:
         if existing_doc is None:
             return False
 
-        # Check Agent references
+        # Check Agent references — list ALL referencing agents (like TOOL_IN_USE)
         agents_col = get_database()["agents"]
-        referencing_agent = await agents_col.find_one(
+        cursor = agents_col.find(
             {"$or": [
                 {"default_model": model_id},
                 {"llm_config.default_model": model_id},  # backward compat
-            ]}
+            ]},
+            {"name": 1},
         )
-        if referencing_agent is not None:
-            agent_name = referencing_agent.get("name", "unknown")
+        referencing_agents = await cursor.to_list(length=100)
+        if referencing_agents:
+            agent_names = [a.get("name", a.get("_id", "")) for a in referencing_agents]
             raise ConflictError(
                 code="MODEL_IN_USE",
-                message=f"模型正在被 Agent '{agent_name}' 引用，无法删除",
-                details={"agent_name": agent_name},
+                message=f"模型正在被以下 Agent 引用，无法删除：{', '.join(agent_names)}",
+                details={"agent_names": agent_names},
             )
 
         result = await col.delete_one({"_id": model_id})

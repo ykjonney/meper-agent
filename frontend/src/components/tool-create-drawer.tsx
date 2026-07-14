@@ -11,7 +11,8 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Drawer, Button, Input, Select, Radio, Segmented, message, Divider, Checkbox, Tag } from 'antd'
 import { GlobalOutlined, CodeOutlined, PlusOutlined } from '@ant-design/icons'
-import { toolsApi } from '../services/tools-api'
+import { toolsApi, toolKeys } from '../services/tools-api'
+import { agentKeys } from '../services/agent-api'
 import { normalizeError } from '../services/api-client'
 import ParamEditor from './param-editor'
 import type { ToolParam } from './param-editor'
@@ -59,8 +60,9 @@ export default function ToolCreateDrawer({ open, onClose }: ToolCreateDrawerProp
     mutationFn: toolsApi.createCustom,
     onSuccess: () => {
       message.success('工具创建成功')
-      queryClient.invalidateQueries({ queryKey: ['custom-tools-list'] })
-      queryClient.invalidateQueries({ queryKey: ['custom-tools'] })
+      queryClient.invalidateQueries({ queryKey: toolKeys.customTools() })
+      queryClient.invalidateQueries({ queryKey: toolKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
       resetForm()
       onClose()
     },

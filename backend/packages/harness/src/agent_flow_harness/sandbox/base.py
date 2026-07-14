@@ -50,11 +50,6 @@ class Sandbox(ABC):
 
     @abstractmethod
     def write_file(self, path: str, content: str) -> None:
-        """写文件。"""
-        ...
-
-    @abstractmethod
-    def write_to_output(self, path: str, content: str) -> None:
         """写文件到 output 目录（用户可见/可下载）。"""
         ...
 

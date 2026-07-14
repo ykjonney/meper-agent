@@ -199,7 +199,7 @@ async def _intervene(
             "reject": TaskStatus.FAILED,
             "cancel": TaskStatus.CANCELLED,
             "resume": TaskStatus.RUNNING,
-            "retry": TaskStatus.PENDING,
+            "retry": TaskStatus.RUNNING,
         }
 
         target_status = action_map.get(action)
@@ -245,7 +245,7 @@ async def task_intervene(
     - ``reject`` — Reject and fail a waiting_human task
     - ``cancel`` — Cancel a pending/running/waiting_human task
     - ``resume`` — Resume execution (from waiting_human)
-    - ``retry`` — Retry a failed task (resets to pending)
+    - ``retry`` — Retry a failed task (re-executes from scratch)
 
     Args:
         task_id: The task to intervene on.
@@ -269,43 +269,6 @@ async def cancel_task(task_id: str, reason: str = "") -> str:
         reason: Optional reason for cancellation.
     """
     return await _intervene(task_id=task_id, action="cancel", reason=reason)
-
-
-async def get_task_timeline(task_id: str) -> str:
-    """Get the full timeline of events for a Task.
-
-    The timeline records every state transition, node execution start/
-    completion/failure, and human intervention.  Useful for diagnosing
-    what happened during workflow execution.
-
-    Args:
-        task_id: ID of the task to inspect.
-    """
-    try:
-        doc = await TaskService.get_task(task_id)
-        if doc is None:
-            return _to_json({"error": f"Task {task_id} 不存在"})
-
-        timeline = doc.get("timeline", [])
-        sanitised = [
-            {
-                "timestamp": _serialise_dt(e.get("timestamp")),
-                "event_type": e.get("event_type", ""),
-                "data": e.get("data", {}),
-                "actor": e.get("actor", ""),
-            }
-            for e in timeline
-        ]
-
-        return _to_json({
-            "task_id": task_id,
-            "current_status": doc.get("status", ""),
-            "events": sanitised,
-            "event_count": len(sanitised),
-        })
-    except Exception as exc:
-        logger.error("get_task_timeline_error", task_id=task_id, error=str(exc))
-        return _to_json({"error": f"获取 Task 时间线失败: {exc}"})
 
 
 @tool

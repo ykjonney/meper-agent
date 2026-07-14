@@ -57,6 +57,7 @@ class Agent(BaseModel):
     knowledge_base_ids: list[str] = Field(default_factory=list)
     default_model: str = Field(default="", description="Model reference (model_xxx ULID or plain name)")
     max_retry: int = Field(default=3, ge=0, le=10, description="Max LLM call retries on failure")
+    max_tokens: int = Field(default=0, ge=0, description="Session token budget (0 = use global DEFAULT_SESSION_MAX_TOKENS)")
     status: AgentStatus = Field(default=AgentStatus.DRAFT)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())

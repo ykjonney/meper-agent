@@ -56,21 +56,44 @@ def extract_final_answer(messages: list) -> str:
 def messages_to_timeline_entries(
     messages: list,
     enable_thinking: bool = False,
+    *,
+    include_user: bool = False,
 ) -> list[dict]:
-    """Build structured timeline entries for message persistence."""
-    return messages_to_sse_events(messages, enable_thinking=enable_thinking)
+    """Build structured timeline entries for message persistence.
+
+    Args:
+        include_user: When True, emit ``{"type": "user"}`` entries for
+            ``HumanMessage`` objects. Defaults to ``False`` so the chat path
+            (which stores user input as a separate ``role="user"`` Message
+            document) is unaffected. Workflow node-timeline callers set this
+            to ``True`` so the user query appears in the trace.
+    """
+    return messages_to_sse_events(
+        messages, enable_thinking=enable_thinking, include_user=include_user,
+    )
 
 
 def messages_to_sse_events(
     messages: list,
     enable_thinking: bool = False,
+    *,
+    include_user: bool = False,
 ) -> list[dict]:
     """Convert a list of LangChain messages into structured SSE event dicts."""
-    from langchain_core.messages import AIMessage, ToolMessage
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     events: list[dict] = []
     for msg in messages:
-        if isinstance(msg, AIMessage):
+        if isinstance(msg, HumanMessage):
+            # 用户输入（SystemMessage 始终跳过）。
+            # 仅当 include_user=True 时输出，避免影响 chat 路径（该路径
+            # 将用户输入作为独立 Message 文档存储）。
+            if include_user:
+                content = safe_str(msg.content)
+                if content:
+                    events.append({"type": "user", "content": content})
+
+        elif isinstance(msg, AIMessage):
             thinking_parts: list[str] = []
             text_parts: list[str] = []
 

@@ -1,6 +1,7 @@
 """Task business logic — CRUD, state machine with optimistic locking, timeline, audit."""
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 from typing import Any
 
@@ -176,20 +177,96 @@ class TaskService:
         """
         from app.workers.tasks.workflow_execution import run_workflow_task
 
-        run_workflow_task.delay(task_id)
+        result = run_workflow_task.delay(task_id)
+        # Persist the Celery task id for later cancellation (revoke).
+        TaskService._store_celery_task_id(task_id, result.id)
 
     @staticmethod
     def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
         Symmetric with ``_start_workflow_execution`` — used after Human node
-        intervention (approve/skip) to continue workflow execution. Dispatched
-        to a Celery worker; the engine detects the saved checkpoint and
-        resumes from there.
+        intervention (approve/skip) or after cancelling + resuming to continue
+        workflow execution. Dispatched to a Celery worker; the engine detects
+        the saved checkpoint and resumes from there.
         """
         from app.workers.tasks.workflow_execution import run_workflow_task
 
-        run_workflow_task.delay(task_id)
+        result = run_workflow_task.delay(task_id)
+        TaskService._store_celery_task_id(task_id, result.id)
+
+    @staticmethod
+    def _store_celery_task_id(task_id: str, celery_task_id: object) -> None:
+        """Persist the Celery AsyncResult id onto the Task document.
+
+        Called after every ``run_workflow_task.delay()`` so that
+        :meth:`cancel_running_task` can later ``revoke`` the worker.
+        Fire-and-forget on the running event loop (safe because these dispatch
+        methods are always called from async API handlers).
+        """
+        # Guard: delay() returns an AsyncResult; only persist a real string id.
+        if not isinstance(celery_task_id, str) or not celery_task_id:
+            return
+
+        import asyncio
+
+        from app.db.mongodb import get_database
+
+        async def _update() -> None:
+            await get_database()["tasks"].update_one(
+                {"_id": task_id},
+                {"$set": {"celery_task_id": celery_task_id}},
+            )
+
+        with contextlib.suppress(RuntimeError):
+            # No running loop — best-effort: skip (celery_task_id is a backup field)
+            asyncio.ensure_future(_update())
+
+    @staticmethod
+    async def add_total_tokens(task_id: str, delta: int) -> None:
+        """Increment the Task's cumulative token usage by *delta*.
+
+        Called by WorkflowEngine as each agent node completes, so the Flow
+        cost is visible incrementally and survives pause/resume (each Celery
+        run starts a fresh engine instance, so we persist rather than tally).
+        """
+        from app.db.mongodb import get_database
+
+        await get_database()["tasks"].update_one(
+            {"_id": task_id},
+            {"$inc": {"total_tokens": int(delta or 0)}, "$set": {"updated_at": utc_now()}},
+        )
+
+    @staticmethod
+    async def cancel_running_task(task_id: str) -> None:
+        """Revoke the Celery worker running *task_id* (best-effort).
+
+        Called from the cancel API after the DB status is flipped to
+        ``cancelled``. The running engine cooperatively checks the flag at
+        node boundaries and inside the agent REACT loop (via
+        ``cancel_checker``), so revocation is a **backup** for the case where
+        the agent is deep inside a long LLM HTTP call.
+        """
+        doc = await TaskService.get_task(task_id)
+        if doc is None:
+            return
+        celery_task_id = doc.get("celery_task_id", "")
+        if not celery_task_id:
+            return
+        try:
+            from app.workers.celery_app import celery_app
+
+            celery_app.control.revoke(celery_task_id, terminate=True)
+            logger.info("celery_task_revoked", task_id=task_id, celery_task_id=celery_task_id)
+        except Exception as exc:
+            # Revoke failure is non-fatal — the DB flag + cooperative check
+            # are the primary cancellation mechanism.
+            logger.warning(
+                "celery_task_revoke_failed",
+                task_id=task_id,
+                celery_task_id=celery_task_id,
+                error=str(exc),
+            )
 
     @staticmethod
     async def get_task(task_id: str) -> dict | None:
@@ -219,6 +296,8 @@ class TaskService:
         status: TaskStatus | None = None,
         created_by: str | None = None,
         workflow_id: str | None = None,
+        trigger_id: str | None = None,
+        source: str | None = None,
     ) -> tuple[list[dict], int]:
         """List Tasks with optional filters.
 
@@ -232,6 +311,10 @@ class TaskService:
             query["created_by"] = created_by
         if workflow_id:
             query["workflow_id"] = workflow_id
+        if trigger_id:
+            query["trigger_id"] = trigger_id
+        if source:
+            query["source"] = source
 
         cursor = (
             TaskService._collection()
@@ -243,6 +326,70 @@ class TaskService:
         items = await cursor.to_list(length=page_size)
         total = await TaskService._collection().count_documents(query)
         return items, total
+
+    @staticmethod
+    async def _cleanup_task_artifacts(task_id: str, *, delete_workspace: bool = True) -> None:
+        """清理 task 关联的所有附属数据。
+
+        清理范围：
+        - FileRef + FileUsage（origin_id=task_id 的文件引用和使用记录）
+        - 本地 task workspace 文件（input/output/tmp 目录）
+        - LangGraph checkpointer 数据（thread_id 以 {task_id}_ 开头）
+
+        Args:
+            task_id: Task ID.
+            delete_workspace: 是否删除本地 workspace 目录（删除 task 时 True，
+                重试时也 True——engine 会按需重建）。
+        """
+        db = get_database()
+
+        # 1. 删除 FileRef + FileUsage
+        try:
+            file_refs = db.file_refs
+            file_usages = db.file_usages
+            # 先查出关联的 file_id，再删 FileRef 和 FileUsage
+            cursor = file_refs.find(
+                {"origin_id": task_id}, {"_id": 1},
+            )
+            file_ids = [doc["_id"] async for doc in cursor]
+            if file_ids:
+                await file_usages.delete_many(
+                    {"file_id": {"$in": file_ids}},
+                )
+                await file_refs.delete_many(
+                    {"_id": {"$in": file_ids}},
+                )
+                logger.info("task_files_cleaned", task_id=task_id, count=len(file_ids))
+        except Exception as exc:
+            logger.warning("task_files_cleanup_failed", task_id=task_id, error=str(exc))
+
+        # 2. 删除本地 task workspace
+        if delete_workspace:
+            try:
+                # 需要 user_id 来定位 workspace 路径
+                task_doc = await db["tasks"].find_one({"_id": task_id}, {"created_by": 1})
+                user_id = (task_doc or {}).get("created_by", "")
+                if user_id:
+                    from app.engine.tool.workspace import WorkspaceManager
+
+                    WorkspaceManager.delete_task_workspace(user_id, task_id)
+            except Exception as exc:
+                logger.warning("task_workspace_cleanup_failed", task_id=task_id, error=str(exc))
+
+        # 3. 清理 LangGraph checkpointer（pymongo 同步 Collection）
+        try:
+            from app.engine.harness_integration import get_checkpointer
+
+            checkpointer = get_checkpointer()
+            cp_col = getattr(checkpointer, "checkpoint_collection", None)
+            writes_col = getattr(checkpointer, "writes_collection", None)
+            thread_prefix = f"{task_id}_"
+            if cp_col is not None:
+                cp_col.delete_many({"thread_id": {"$regex": f"^{thread_prefix}"}})
+            if writes_col is not None:
+                writes_col.delete_many({"thread_id": {"$regex": f"^{thread_prefix}"}})
+        except Exception as exc:
+            logger.warning("task_checkpointer_cleanup_failed", task_id=task_id, error=str(exc))
 
     @staticmethod
     async def delete_task(task_id: str) -> bool:
@@ -264,6 +411,9 @@ class TaskService:
                 message=f"Task {task_id} 状态为 {status.value}，仅允许删除终态 Task",
                 details={"task_id": task_id, "status": status.value},
             )
+
+        # 先清理附属数据（文件、workspace、checkpointer），再删 task 文档
+        await TaskService._cleanup_task_artifacts(task_id, delete_workspace=True)
 
         result = await TaskService._collection().delete_one({"_id": task_id})
         return result.deleted_count > 0
@@ -439,8 +589,14 @@ class TaskService:
                 },
             )
 
-        # Concurrency guard: pending → running
-        if from_status == TaskStatus.PENDING and to_status == TaskStatus.RUNNING:
+        # Concurrency guard: entering RUNNING state consumes a concurrency slot.
+        # Covers initial start (PENDING→RUNNING), retry (FAILED→RUNNING),
+        # and resume (CANCELLED→RUNNING).
+        if to_status == TaskStatus.RUNNING and from_status in (
+            TaskStatus.PENDING,
+            TaskStatus.CANCELLED,
+            TaskStatus.FAILED,
+        ):
             created_by = doc.get("created_by", "")
             task_source = doc.get("source", "manual")
             await TaskService._check_concurrency_limits(created_by, task_source)

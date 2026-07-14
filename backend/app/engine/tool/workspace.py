@@ -266,6 +266,49 @@ class WorkspaceManager:
         return True
 
     @staticmethod
+    def delete_task_workspace(user_id: str, task_id: str) -> bool:
+        """Remove a Task workspace directory tree.
+
+        Args:
+            user_id: Owner user ID.
+            task_id: Task ID.
+
+        Returns:
+            ``True`` if the directory existed and was removed.
+        """
+        ws = WorkspaceManager.get_task_workspace(user_id, task_id)
+        if not ws.root.exists():
+            return False
+
+        shutil.rmtree(ws.root)
+        logger.info(
+            "task_workspace_deleted",
+            user_id=user_id,
+            task_id=task_id,
+        )
+        return True
+
+    @staticmethod
+    def delete_user_workspace(user_id: str) -> bool:
+        """Remove the entire workspace directory tree for a user.
+
+        Deletes ``{WORKSPACES_ROOT}/{user_id}/`` and everything under it
+        (sessions, tasks, files). Used during user deletion cascade.
+
+        Args:
+            user_id: Owner user ID.
+
+        Returns:
+            ``True`` if the directory existed and was removed.
+        """
+        user_root = WorkspaceManager._workspaces_root() / user_id
+        if not user_root.exists():
+            return False
+        shutil.rmtree(user_root)
+        logger.info("user_workspace_deleted", user_id=user_id)
+        return True
+
+    @staticmethod
     def get_workspace_size(workspace: Workspace) -> int:
         """Calculate the total size of all files in a workspace (bytes)."""
         total = 0

@@ -76,6 +76,7 @@ start_backend() {
         --host 0.0.0.0 \
         --port 8000 \
         --reload \
+        --no-access-log \
         > "$LOG_DIR/backend.log" 2>&1 &
 
     echo $! > "$PID_DIR/backend.pid"

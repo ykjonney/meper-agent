@@ -1,6 +1,6 @@
 # Agent Flow
 
-AI Agent 编排与自动化平台。支持 Agent 管理、可视化工作流编排、MCP/Skill 工具集成、RBAC 权限控制、任务调度与执行。
+AI Agent 编排与自动化平台。支持 Agent 管理、可视化工作流编排、MCP/Skill 工具集成、RBAC 权限控制、任务调度与执行、会话级 Token 限额保护、可观测性（结构化日志 / LangSmith 链路追踪 / Token 消耗可视化）。
 
 ## 技术栈
 
@@ -30,6 +30,7 @@ agent-flow/
 │   │   ├── models/       # MongoDB 数据模型
 │   │   ├── schemas/      # Pydantic 请求/响应模型
 │   │   ├── services/     # 业务逻辑层
+│   │   ├── utils/        # 工具函数（输入清洗、模板渲染等）
 │   │   ├── workers/      # Celery 异步任务（celery_app、beat_schedule、tasks）
 │   │   ├── cli/          # CLI 命令（create-admin 等）
 │   │   └── main.py       # FastAPI 应用入口
@@ -63,7 +64,9 @@ agent-flow/
 │   ├── docker-compose.dev.yml
 │   ├── Dockerfile.caddy  # 前端静态服务 + 反向代理
 │   └── Dockerfile.sandbox# Agent 命令沙盒镜像
-└── docs/                 # 项目文档
+├── agent-flow-widget/    # 访客端嵌入式聊天插件（Preact + Shadow DOM）
+├── docs/                 # 项目文档
+└── README.md
 ```
 
 ## 前置依赖
@@ -218,7 +221,13 @@ npm run dev
 | `CELERY_RESULT_BACKEND` | Celery 结果后端地址 | `redis://localhost:6379/2` |
 | `CORS_ORIGINS` | 允许的跨域来源（逗号分隔） | `http://localhost:5173,http://localhost:3000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
+| `LOG_JSON_FORMAT` | 日志是否输出 JSON 格式 | `false` |
 | `MODEL_ENCRYPTION_KEY` | API Key 加密密钥 | — |
+| **可观测性** | | |
+| `LANGSMITH_API_KEY` | LangSmith API Key（留空则不启用链路追踪，[免费 Developer 计划](https://www.langchain.com/pricing)含 5000 traces/月） | — |
+| `LANGSMITH_PROJECT` | LangSmith 项目名称 | `agent-flow` |
+| **Token 限额** | | |
+| `DEFAULT_SESSION_MAX_TOKENS` | 单个会话累计 Token 上限（超出后 Agent 自动停止），Agent 可通过 `max_tokens` 字段单独覆盖 | `200000` |
 | **工作空间路径** | | |
 | `WORKSPACES_HOST_DIR` | 宿主机工作空间根目录，按 `{user_id}/{session_id}/` 分子目录 | `~/.agent-flow/workspaces` |
 | `WORKSPACES_CONTAINER_DIR` | 容器内工作空间路径。**本地开发无需设置**，自动推导为 `WORKSPACES_HOST_DIR`；Docker 部署时由 `docker-compose.yml` 注入 | 自动推导 |
@@ -253,10 +262,10 @@ cd deploy
 # 复制并编辑环境变量
 cp .env.example .env
 # 按需修改 .env 中的配置（特别是 JWT_SECRET_KEY、MONGO_ROOT_PASSWORD、ADMIN_PASSWORD 等）
-# 数据目录（WORKSPACES_HOST_DIR 等）使用 ${PWD}/data/... 默认值即可；如需自定义请改为绝对路径
+# 数据目录默认使用 ~/.agent-flow/...（与项目代码分离），无需额外配置
 
-# 创建数据目录
-mkdir -p data/mongodb data/redis data/workspaces data/skills
+# 创建数据目录（默认路径 ~/.agent-flow/）
+mkdir -p ~/.agent-flow/{mongodb,redis,workspaces,skills}
 
 # 构建 sandbox 镜像（重要，见下方说明）
 make build-sandbox
@@ -268,14 +277,14 @@ docker compose up -d
 docker compose run --rm --profile init create-admin
 ```
 
-`deploy/.env` 中的关键数据目录变量（均使用 `${PWD}` 自动解析为绝对路径）：
+`deploy/.env` 中的关键数据目录变量（均使用 `${HOME}` 自动解析为绝对路径，数据与项目代码分离）：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WORKSPACES_HOST_DIR` | `${PWD}/data/workspaces` | 宿主机工作空间目录 |
-| `SKILLS_HOST_DIR` | `${PWD}/data/skills` | 宿主机 Skill 目录 |
-| `MONGODB_DATA_DIR` | `${PWD}/data/mongodb` | MongoDB 数据持久化目录 |
-| `REDIS_DATA_DIR` | `${PWD}/data/redis` | Redis 数据持久化目录 |
+| `WORKSPACES_HOST_DIR` | `${HOME}/.agent-flow/workspaces` | 宿主机工作空间目录 |
+| `SKILLS_HOST_DIR` | `${HOME}/.agent-flow/skills` | 宿主机 Skill 目录 |
+| `MONGODB_DATA_DIR` | `${HOME}/.agent-flow/mongodb` | MongoDB 数据持久化目录 |
+| `REDIS_DATA_DIR` | `${HOME}/.agent-flow/redis` | Redis 数据持久化目录 |
 | `WORKSPACES_CONTAINER_DIR` | `/data/workspaces` | 容器内工作空间挂载点（一般无需修改） |
 | `SKILLS_CONTAINER_DIR` | `/data/skills` | 容器内 Skill 挂载点（一般无需修改） |
 
@@ -360,6 +369,48 @@ make deploy-check
 | Node.js | 22.x（含 npm） |
 | Python 数据科学栈 | pandas, numpy, scipy, matplotlib, openpyxl |
 
+## Chat Widget（访客端嵌入式聊天插件）
+
+项目内置一个可嵌入任意前端页面的轻量级聊天插件（`agent-flow-widget/`），通过 API Key 认证调用 agent-flow 后端 Agent，适用于客服、FAQ、外部用户交互等场景。
+
+### 特性
+
+- 轻量级（gzip 后 ~13KB），基于 Preact + Vite
+- Shadow DOM 样式隔离，不影响宿主页面
+- 响应式设计，支持拖拽调整窗口大小
+- API Key 认证 + 多访客会话隔离（visitor_id）
+- 历史会话管理（查看 / 切换 / 删除）
+- 预定义引导问题
+- 完整的 timeline 渲染（工具调用、thinking、interrupt 澄清卡片）
+
+### 使用方式
+
+后端通过 `/static/` 托管编译后的 widget JS，在目标页面引入即可：
+
+```html
+<script src="https://your-agent-flow.com/static/agent-chat.js"></script>
+<script>
+  AgentChat.init({
+    apiKey: 'sk-xxx',           // 必填：在管理后台创建 API Key
+    agentId: 'agent-123',       // 必填：目标 Agent ID
+    apiBaseUrl: 'https://your-agent-flow.com',  // 必填：后端地址
+    title: '智能助手',           // 可选：窗口标题，默认 "AI 助手"
+    position: 'bottom-right',   // 可选：浮动按钮位置
+  });
+</script>
+```
+
+> 详细文档见 [`agent-flow-widget/README.md`](agent-flow-widget/README.md)。
+
+### 本地开发
+
+```bash
+cd agent-flow-widget
+npm install
+npm run dev    # 启动测试页面 http://localhost:5174
+npm run build  # 编译到 backend/static/ 供后端托管
+```
+
 ## 路径变量说明（HOST_DIR vs CONTAINER_DIR）
 
 系统涉及两类路径变量，理解其区别对正确配置至关重要：
@@ -411,6 +462,30 @@ sandbox_docker_executed exit_code=0 duration="0.5s"
 ```
 
 若看到 `sandbox_subprocess_executed` 则说明未成功启用沙盒，仍在使用降级的 subprocess 执行。
+
+## 可观测性
+
+### Token 消耗可视化
+
+每条 AI 回复下方会显示本轮 Token 用量（如 `· 1,234 tokens · 3 轮`），数据持久化到 Message 和 Session 文档中，刷新页面不丢失。
+
+### 会话级 Token 限额
+
+通过 `DEFAULT_SESSION_MAX_TOKENS`（默认 20 万）配置全局会话 Token 上限。每个 Agent 可在配置页单独设置 `max_tokens` 字段覆盖全局默认值。超出限额时 Agent 自动停止，防止恶意消耗 LLM API 配额。
+
+### 结构化日志
+
+后端使用 loguru 统一日志管道（stdout 人类可读 + 文件 JSON 序列化）。harness 引擎的 structlog 日志自动桥接到 loguru，确保所有日志格式统一、共享同一文件 sink。uvicorn access log 已关闭以避免重复。
+
+### LangSmith 链路追踪（可选）
+
+在 `.env` 中设置 `LANGSMITH_API_KEY` 即可启用 LangSmith 链路追踪。启用后，每次 Agent 执行的 LLM 调用、工具调用、REACT 循环都会以 trace 树的形式上报到 `smith.langchain.com`，可在 Web UI 中查看完整的执行链路、Token 用量和延迟分析。
+
+```bash
+# .env 中添加
+LANGSMITH_API_KEY=lsv2_xxx
+LANGSMITH_PROJECT=agent-flow
+```
 
 ## 默认角色与权限
 

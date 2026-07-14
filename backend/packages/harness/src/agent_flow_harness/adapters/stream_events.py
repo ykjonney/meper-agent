@@ -49,6 +49,31 @@ _LLM_ERROR_KINDS = ("on_llm_error", "on_chat_model_error")
 _TOOL_ERROR_KINDS = ("on_tool_error",)
 
 
+def _extract_interrupt(error: Any) -> dict[str, Any] | None:
+    """Check if *error* is a GraphInterrupt carrying an ask_clarification payload.
+
+    LangGraph 1.2.x surfaces interrupt() inside a tool as ``on_tool_error``
+    with the ``GraphInterrupt`` object in ``data["error"]``.
+    ``GraphInterrupt.args[0]`` is a tuple of ``Interrupt`` objects,
+    each carrying a ``value`` dict with the interrupt payload.
+    """
+    # GraphInterrupt stores interrupts tuple in args[0]
+    raw = None
+    if hasattr(error, "args") and error.args:
+        raw = error.args[0]
+    elif isinstance(error, tuple):
+        raw = error
+    if raw is None:
+        return None
+    # raw is typically a tuple of Interrupt objects
+    items = raw if isinstance(raw, tuple) else (raw,)
+    for intr in items:
+        value = getattr(intr, "value", None)
+        if isinstance(value, dict) and "question" in value:
+            return value
+    return None
+
+
 async def stream_events_to_app_events(
     astream_iter: AsyncIterator[dict[str, Any]],
     on_event: Callable[[AppEvent], Awaitable[None]],
@@ -166,9 +191,25 @@ async def stream_events_to_app_events(
             )
 
         elif kind in _TOOL_ERROR_KINDS:
-            await on_event(
-                ErrorEvent(message=_error_message(data), source="tool")
-            )
+            # Check if the "error" is actually a GraphInterrupt (from
+            # ask_clarification's interrupt() call inside a tool).
+            # LangGraph 1.2.x surfaces this as on_tool_error with the
+            # GraphInterrupt object in data["error"], rather than as
+            # __interrupt__ in on_chain_end (which only ainvoke does).
+            error = data.get("error")
+            interrupt_payload = _extract_interrupt(error)
+            if interrupt_payload is not None:
+                await on_event(InterruptEvent(
+                    question=interrupt_payload.get("question", ""),
+                    clarification_type=interrupt_payload.get("type", "missing_info"),
+                    context=interrupt_payload.get("context"),
+                    options=interrupt_payload.get("options"),
+                    interrupt_id="",
+                ))
+            else:
+                await on_event(
+                    ErrorEvent(message=_error_message(data), source="tool")
+                )
 
         elif kind == "on_chain_end":
             # Detect graph-level interrupt (ask_clarification etc.).

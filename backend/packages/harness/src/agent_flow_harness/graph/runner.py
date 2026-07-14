@@ -70,6 +70,7 @@ def build_config(
     registry: ToolRegistry | None = None,
     middlewares: Any | None = None,
     recursion_limit: int = 75,
+    cancel_checker: Callable[[], Awaitable[bool]] | None = None,
 ) -> dict[str, Any]:
     """Build a ``RunnableConfig`` for the agent graph.
 
@@ -95,6 +96,11 @@ def build_config(
         middlewares: Optional pre-resolved middleware list; when ``None`` the
             harness resolves them from ``agent_doc["middleware"]``.
         recursion_limit: LangGraph recursion limit.
+        cancel_checker: Optional async callable that returns ``True`` when the
+            agent should be cancelled. When provided, ``compress_node`` polls
+            it at the top of every REACT iteration and calls ``interrupt()``
+            to gracefully suspend. On resume (``Command(resume=...)``) the loop
+            continues with full context continuity.
 
     Returns:
         A ``RunnableConfig`` dict ready to pass to ``graph.ainvoke``.
@@ -117,5 +123,7 @@ def build_config(
         configurable["context_window"] = context_window
     if workspace is not None:
         configurable["workspace"] = workspace
+    if cancel_checker is not None:
+        configurable["cancel_checker"] = cancel_checker
 
     return {"configurable": configurable, "recursion_limit": recursion_limit}

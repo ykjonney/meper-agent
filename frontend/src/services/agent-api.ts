@@ -22,13 +22,14 @@ export interface Agent {
   skill_ids: string[]
   /** MCP connection IDs (tools loaded from remote MCP servers) */
   mcp_connection_ids: string[]
-  /** Built-in tool whitelist (bash/read/write) */
+  /** Configurable built-in tools subset (e.g. bash/read/write/glob/grep). Capability tools like ask_clarification are always-on and excluded. */
   builtin_config: string[]
   workflow_ids: string[]
   custom_tool_ids: string[]
   knowledge_base_ids: string[]
   default_model: string
   max_retry: number
+  max_tokens: number
   status: AgentStatus
   created_at: string
   updated_at: string
@@ -50,12 +51,14 @@ export interface AgentUpdateInput {
   skill_ids?: string[]
   /** MCP connection IDs */
   mcp_connection_ids?: string[]
-  /** Built-in tool whitelist (bash/read/write) */
+  /** Configurable built-in tools subset */
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
+  custom_tool_ids?: string[]
   default_model?: string
   max_retry?: number
+  max_tokens?: number
 }
 
 /** Model config update payload — kept for backward compat type exports */
@@ -68,7 +71,8 @@ export interface AgentListParams {
   page?: number
   page_size?: number
   name?: string
-  status?: AgentStatus
+  /** Agent status, or "all" to return every status. Defaults to published. */
+  status?: AgentStatus | 'all'
 }
 
 export interface AgentListResponse {
@@ -194,6 +198,15 @@ export interface StreamDoneEvent {
   done: true
   request_id: string
   session_id: string
+  usage?: {
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+    llm_calls?: number
+    tool_calls?: number
+    llm_duration?: number
+    tool_duration?: number
+  }
 }
 
 /** Union of all SSE event types */

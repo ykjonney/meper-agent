@@ -37,6 +37,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
     llm_config = doc.get("llm_config") or {}
     default_model = doc.get("default_model") or llm_config.get("default_model", "")
     max_retry = doc.get("max_retry") if "max_retry" in doc else llm_config.get("max_retry", 3)
+    max_tokens = doc.get("max_tokens", 0)
 
     return AgentResponse(
         id=doc["_id"],
@@ -47,9 +48,11 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
         builtin_config=doc.get("builtin_config", []),
         workflow_ids=doc.get("workflow_ids", []),
+        custom_tool_ids=[b.get("tool_id", "") for b in (doc.get("custom_tools") or []) if b.get("tool_id")],
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
         default_model=default_model,
         max_retry=max_retry,
+        max_tokens=max_tokens,
         status=AgentStatus(doc["status"]),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
@@ -82,12 +85,19 @@ async def list_agents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     name: str | None = Query(None),
-    status: AgentStatus | None = Query(None),
+    status: str | None = Query(
+        None,
+        description="Filter by status (draft/published/archived). "
+        'Defaults to "published". Use "all" to return every status.',
+    ),
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> AgentListResponse:
+    # Default to published so external consumers (workflow editor, etc.)
+    # only see production-ready agents. Management pages pass "all".
+    effective_status = None if status == "all" else (status or "published")
     items, total = await AgentService.list_agents(
         page=page, page_size=page_size,
-        name=name, status=status.value if status else None,
+        name=name, status=effective_status,
     )
     return AgentListResponse(
         items=[_doc_to_response(doc) for doc in items],
@@ -135,9 +145,11 @@ async def update_agent(
         mcp_connection_ids=body.mcp_connection_ids,
         builtin_config=body.builtin_config,
         workflow_ids=body.workflow_ids,
+        custom_tool_ids=body.custom_tool_ids,
         knowledge_base_ids=body.knowledge_base_ids,
         default_model=body.default_model,
         max_retry=body.max_retry,
+        max_tokens=body.max_tokens,
     )
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")

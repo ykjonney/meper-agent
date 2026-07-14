@@ -1,8 +1,8 @@
 """External API — Agent resource discovery and invocation."""
 import asyncio
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.v1.ext import auth_and_rate_limit
 from app.core.auth_apikey import ApiKeyPrincipal
@@ -16,9 +16,13 @@ from app.schemas.ext_api import (
     ExtInvokeRequest,
     ExtInvokeResponse,
     ExtResumeRequest,
+    ExtSessionDetailResponse,
+    ExtSessionListResponse,
+    ExtSessionResponse,
 )
 from app.services.agent_execution_service import AgentExecutionService
 from app.services.agent_service import AgentService
+from app.services.session_service import SessionService
 
 router = APIRouter(tags=["external-agents"])
 
@@ -143,7 +147,7 @@ async def invoke_agent(
     result = await AgentExecutionService.invoke(
         agent_id=agent_id,
         body=exec_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     # Extract task_ids from execution result (if any workflow was triggered)
@@ -179,7 +183,7 @@ async def stream_agent(
     event_queue, request_id, session_id = await AgentExecutionService.stream(
         agent_id=agent_id,
         body=exec_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     async def _event_stream():
@@ -226,7 +230,7 @@ async def resume_agent(
     event_queue, request_id, session_id = await AgentExecutionService.resume(
         agent_id=agent_id,
         body=resume_request,
-        user_id=principal.owner_user_id,
+        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
     )
 
     async def _event_stream():
@@ -250,3 +254,123 @@ async def resume_agent(
             "X-Session-Id": session_id,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Session management
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/agents/{agent_id}/sessions",
+    response_model=ExtSessionListResponse,
+    summary="List visitor sessions",
+)
+async def list_visitor_sessions(
+    agent_id: str,
+    visitor_id: str = Query(..., description="访客 ID"),
+    page: int = 1,
+    page_size: int = 20,
+    principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
+) -> ExtSessionListResponse:
+    """List sessions for a specific visitor.
+
+    Sessions are keyed by ``user_id = {owner_user_id}:{visitor_id}`` to scope
+    them per visitor per API Key owner.
+    """
+    principal.require_scope("agents:invoke")
+    principal.require_agent_access(agent_id)
+
+    user_id = f"{principal.owner_user_id}:{visitor_id}"
+
+    items, total = await SessionService.list_sessions(
+        user_id=user_id,
+        agent_id=agent_id,
+        page=page,
+        page_size=page_size,
+    )
+
+    return ExtSessionListResponse(
+        items=[
+            ExtSessionResponse(
+                id=doc["_id"],
+                title=doc.get("title", ""),
+                created_at=doc.get("created_at", ""),
+                updated_at=doc.get("updated_at", ""),
+                message_count=doc.get("message_count", 0),
+            )
+            for doc in items
+        ],
+        total=total,
+    )
+
+
+@router.get(
+    "/sessions/{session_id}",
+    summary="Get session detail with messages",
+)
+async def get_session_detail(
+    session_id: str,
+    visitor_id: str = Query(..., description="访客 ID"),
+    principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
+) -> "ExtSessionDetailResponse":
+    """Get session detail including all messages.
+
+    Verifies that the session belongs to the requesting visitor.
+    """
+    principal.require_scope("agents:invoke")
+
+    user_id = f"{principal.owner_user_id}:{visitor_id}"
+
+    # Get session and verify ownership
+    session_doc = await SessionService.get_session(session_id)
+    if session_doc is None or session_doc.get("user_id") != user_id:
+        raise NotFoundError(code="SESSION_NOT_FOUND", message="会话不存在")
+
+    # Get messages
+    from app.services.session_service import MessageService
+    messages = await MessageService.list_messages(session_id)
+
+    from app.schemas.ext_api import ExtMessageResponse, ExtSessionDetailResponse
+    return ExtSessionDetailResponse(
+        id=session_doc["_id"],
+        title=session_doc.get("title", ""),
+        created_at=session_doc.get("created_at", ""),
+        updated_at=session_doc.get("updated_at", ""),
+        messages=[
+            ExtMessageResponse(
+                id=msg["_id"],
+                role=msg["role"],
+                content=msg.get("content", ""),
+                timeline_entries=msg.get("timeline_entries", []),
+                created_at=msg.get("created_at", ""),
+            )
+            for msg in messages
+        ],
+    )
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    summary="Delete a visitor session",
+)
+async def delete_session(
+    session_id: str,
+    visitor_id: str = Query(..., description="访客 ID"),
+    principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
+) -> JSONResponse:
+    """Delete a session and all its messages.
+
+    Verifies that the session belongs to the requesting visitor.
+    """
+    principal.require_scope("agents:invoke")
+
+    user_id = f"{principal.owner_user_id}:{visitor_id}"
+
+    # Verify ownership before deleting
+    session_doc = await SessionService.get_session(session_id)
+    if session_doc is None or session_doc.get("user_id") != user_id:
+        raise NotFoundError(code="SESSION_NOT_FOUND", message="会话不存在")
+
+    await SessionService.delete_session(session_id)
+    return JSONResponse({"ok": True})

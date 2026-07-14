@@ -56,6 +56,13 @@ export default function ApiKeysPage() {
   })
   const keys = keysData?.items ?? []
 
+  /* ─── Fetch agents for ID -> Name mapping ─── */
+  const { data: allAgentsData } = useQuery({
+    queryKey: ['agents', 'all-for-bindings'],
+    queryFn: () => agentApi.list({ page_size: 200 }),
+  })
+  const agentMap = new Map((allAgentsData?.items ?? []).map(a => [a.id, a.name]))
+
   /* ─── Create Key modal ─── */
   const [createKeyOpen, setCreateKeyOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -254,6 +261,22 @@ export default function ApiKeysPage() {
                       </span>
                       <span>限速 {apiKey.rate_limit}/min</span>
                     </div>
+                    {apiKey.bindings.agents.length > 0 && (
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <span className="text-[10px] text-[#94A3B8]">Agent:</span>
+                        {apiKey.bindings.agents.map(agentId => (
+                          <Tooltip key={agentId} title={`点击复制 ID: ${agentId}`}>
+                            <Tag
+                              className="!m-0 !px-1.5 !py-0 !text-[10px] !rounded cursor-pointer hover:opacity-80"
+                              style={{ color: '#0369A1', background: '#E0F2FE', borderColor: 'transparent' }}
+                              onClick={() => copyToClipboard(agentId)}
+                            >
+                              {agentMap.get(agentId) ?? agentId.slice(0, 8)}
+                            </Tag>
+                          </Tooltip>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-4 ml-3 shrink-0">

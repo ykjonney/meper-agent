@@ -159,10 +159,14 @@ class AgentExecutionService:
                 logger.error("agent_stream_error", agent_id=agent_id, request_id=request_id, error=str(exc))
                 logger.exception("agent_stream_error_traceback")
                 await event_queue.put(f"data: {safe_json({'type': 'error', 'content': str(exc)})}\n\n")
+                result = {}
             finally:
-                await _persist_agent_message(session_id, collected_timeline)
+                await _persist_agent_message(
+                    session_id, collected_timeline,
+                    token_usage=result.get("usage"),
+                )
                 await event_queue.put(
-                    f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id})}\n\n"
+                    f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
                 )
                 await event_queue.put(None)
 
@@ -189,9 +193,11 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         session_id = body.session_id
 
-        await MessageService.add_message(
-            session_id=session_id, role="user", content=body.answer,
-        )
+        # Note: user's answer is NOT stored as a separate user message.
+        # It flows through interrupt() → ToolMessage (tool_result for
+        # ask_clarification) in the agent's timeline, rendered as user input
+        # by the frontend. This keeps the conversation history accurate —
+        # the answer belongs to the tool call, not a standalone message.
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
         collected_timeline: list[dict] = []
@@ -206,7 +212,7 @@ class AgentExecutionService:
                 "session_id": session_id, "user_id": user_id,
             }
             try:
-                await harness_resume(
+                result = await harness_resume(
                     exec_doc, state, _on_event, body.answer,
                     enable_thinking=body.enable_thinking,
                 )
@@ -214,12 +220,16 @@ class AgentExecutionService:
                 logger.error("agent_resume_error", agent_id=agent_id, error=str(exc))
                 logger.exception("agent_resume_error_traceback")
                 await event_queue.put(f"data: {safe_json({'type': 'error', 'content': str(exc)})}\n\n")
+                result = {}
             finally:
                 await _persist_agent_message(
-                    session_id, collected_timeline, extra_filter_types=("interrupt",),
+                    session_id, collected_timeline,
+                    extra_filter_types=("interrupt",),
+                    token_usage=result.get("usage"),
+                    append_to_last_agent=True,
                 )
                 await event_queue.put(
-                    f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id})}\n\n"
+                    f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
                 )
                 await event_queue.put(None)
 
@@ -231,7 +241,7 @@ class AgentExecutionService:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_TRANSIENT_EVENT_TYPES = ("text_delta", "thinking_delta", "tool_call_start")
+_TRANSIENT_EVENT_TYPES = ("text_delta", "thinking_delta", "tool_call_start", "interrupt")
 
 
 async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) -> str:
@@ -329,8 +339,16 @@ async def _persist_agent_message(
     collected_timeline: list[dict],
     *,
     extra_filter_types: tuple[str, ...] = (),
+    token_usage: dict | None = None,
+    append_to_last_agent: bool = False,
 ) -> None:
-    """Filter transient events and persist the agent message."""
+    """Filter transient events and persist the agent message.
+
+    Args:
+        append_to_last_agent: If True, append to the last agent message instead
+            of creating a new one. Used by resume so that tool_call and
+            tool_result for ask_clarification end up in the same message.
+    """
     filter_types = _TRANSIENT_EVENT_TYPES + extra_filter_types
     persistence_timeline = [
         e for e in collected_timeline
@@ -338,10 +356,19 @@ async def _persist_agent_message(
     ]
     if persistence_timeline:
         try:
-            await MessageService.add_message(
-                session_id=session_id, role="agent",
-                timeline_entries=persistence_timeline,
-            )
+            if append_to_last_agent:
+                await MessageService.append_to_last_agent_message(
+                    session_id, persistence_timeline, token_usage=token_usage or {},
+                )
+            else:
+                await MessageService.add_message(
+                    session_id=session_id, role="agent",
+                    timeline_entries=persistence_timeline,
+                    token_usage=token_usage or {},
+                )
+            # Accumulate token usage on the session
+            if token_usage and token_usage.get("total_tokens"):
+                await SessionService.add_tokens(session_id, token_usage["total_tokens"])
         except Exception as exc:
             logger.error("agent_stream_persist_error", error=str(exc))
 

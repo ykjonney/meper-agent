@@ -33,6 +33,23 @@ router = APIRouter(
 )
 
 
+def _basetool_to_response(tool: Any, *, configurable: bool = True) -> BuiltinToolResponse:
+    """Serialize a LangChain BaseTool into a BuiltinToolResponse.
+
+    Shared by the builtin and app endpoints so both return the same shape.
+    """
+    params: dict[str, Any] = {}
+    if hasattr(tool, "args_schema") and tool.args_schema:
+        with contextlib.suppress(Exception):
+            params = tool.args_schema.model_json_schema()
+    return BuiltinToolResponse(
+        name=tool.name,
+        description=tool.description or "",
+        parameters=params,
+        configurable=configurable,
+    )
+
+
 @router.get(
     "/builtin",
     response_model=list[BuiltinToolResponse],
@@ -42,23 +59,50 @@ router = APIRouter(
 async def list_builtin_tools(
     _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
 ) -> list[BuiltinToolResponse]:
-    """Return the static list of built-in tools (bash / read / write).
+    """Return the built-in tools actually injected at runtime.
 
-    These tools are always available to every Agent and are not stored
-    in the database.
+    These are harness's BUILTIN_TOOLS, filtered to the subset that
+    ``resolve_harness_context`` injects (see ``_INJECTED_BUILTIN_TOOL_NAMES``).
+    The returned set always matches what an Agent can actually call.
     """
-    from app.engine.agent.builtin_tools import _BUILTIN_TOOL_REGISTRY
+    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
 
-    results = []
-    for name, tool in _BUILTIN_TOOL_REGISTRY.items():
-        params: dict[str, Any] = {}
-        if hasattr(tool, "args_schema") and tool.args_schema:
-            with contextlib.suppress(Exception):
-                params = tool.args_schema.model_json_schema()
+    from app.engine.harness_integration.context import (
+        _CONFIGURABLE_BUILTIN_TOOL_NAMES,
+        _INJECTED_BUILTIN_TOOL_NAMES,
+    )
+
+    results: list[BuiltinToolResponse] = []
+    for name in _INJECTED_BUILTIN_TOOL_NAMES:
+        tool = BUILTIN_TOOLS.get(name)
+        if tool is None:
+            continue
         results.append(
-            BuiltinToolResponse(name=name, description=tool.description or "", parameters=params)
+            _basetool_to_response(
+                tool, configurable=name in _CONFIGURABLE_BUILTIN_TOOL_NAMES
+            )
         )
     return results
+
+
+@router.get(
+    "/app",
+    response_model=list[BuiltinToolResponse],
+    summary="List app-level tools (always-on task/workflow tools)",
+    responses={403: {"description": "Forbidden — viewer+ role required"}},
+)
+async def list_app_tools(
+    _: UserResponse = Depends(require_any_role("admin", "developer", "operator", "viewer")),
+) -> list[BuiltinToolResponse]:
+    """Return the app-level tools (task/workflow management).
+
+    These tools are always available to every Agent and are not
+    configurable (``configurable=false``). They are shown in the tool
+    center for discoverability but cannot be toggled off.
+    """
+    from app.engine.agent.workflow_executor import _TASK_TOOLS
+
+    return [_basetool_to_response(tool, configurable=False) for tool in _TASK_TOOLS]
 
 
 @router.get(

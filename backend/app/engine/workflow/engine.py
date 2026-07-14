@@ -52,6 +52,8 @@ class WorkflowEngine:
         self._in_edges: dict[str, list[dict[str, Any]]] = {}  # target -> edges
         self._completed_nodes: set[str] = set()
         self._branch_scope: dict[str, dict[str, Any]] = {}  # branch_id -> isolated variables
+        # 节点边界取消时记录当前将要执行（但尚未执行）的节点，供 except 保存 checkpoint
+        self._pending_node_id: str = ""
 
     # ── Public API ──
 
@@ -79,6 +81,27 @@ class WorkflowEngine:
         task_doc = await db["tasks"].find_one({"_id": task_id})
         if task_doc is None:
             logger.error("run_and_persist_task_not_found", task_id=task_id)
+            return {}
+
+        # Zombie guard: if the task is CANCELLED (not RUNNING), refuse to
+        # execute. This handles the Celery revoke+terminate edge case where a
+        # terminated task's unacked message is restored after visibility_timeout
+        # (7 days) and re-delivered. At that point the task is already cancelled
+        # and should NOT be re-run. Only RUNNING tasks are legitimate here
+        # (the dispatchers set RUNNING before calling run_and_persist, or the
+        # engine itself marks RUNNING in execute_task for fresh runs).
+        # NOTE: compare against the raw string "cancelled" (not
+        # TaskStatus.CANCELLED.value) to avoid shadowing the module-level
+        # TaskStatus import — a local ``from app.models.task import TaskStatus``
+        # in the validation-fail branch below would turn TaskStatus into a
+        # local variable for the entire function scope.
+        task_status = task_doc.get("status", "")
+        if task_status == "cancelled":
+            logger.warning(
+                "run_and_persist_task_cancelled_skip",
+                task_id=task_id,
+                status=task_status,
+            )
             return {}
 
         workflow_id = task_doc.get("workflow_id", "")
@@ -225,14 +248,22 @@ class WorkflowEngine:
         )
         self._completed_nodes.clear()
 
-        # Mark Task as running
-        await TaskService.transition_task(
-            task_id=self._task_id,
-            to_status=TaskStatus.RUNNING,
-            triggered_by="system",
-            triggered_by_type="system",
-            timeline_event_type="started",
-        )
+        # Mark Task as running (skip if already running — e.g. retry set it
+        # directly to RUNNING before dispatching).
+        from app.db.mongodb import get_database as _get_db
+        _cur_doc = await _get_db()["tasks"].find_one({"_id": self._task_id}, {"status": 1})
+        if _cur_doc and _cur_doc.get("status") != TaskStatus.RUNNING.value:
+            await TaskService.transition_task(
+                task_id=self._task_id,
+                to_status=TaskStatus.RUNNING,
+                triggered_by="system",
+                triggered_by_type="system",
+                timeline_event_type="started",
+            )
+
+        # Reset cancel-checkpoint tracking for this execution.
+        self._cancel_checkpoint_saved = False
+        self._pending_node_id = ""
 
         try:
             # Find start node(s) — nodes with no incoming edges
@@ -260,6 +291,18 @@ class WorkflowEngine:
         except WorkflowPausedError:
             # Graceful pause — not an error, return current state.
             logger.info("workflow_paused", task_id=self._task_id)
+            return self._pool.get_all() if self._pool else {}
+
+        except WorkflowCancelledError:
+            # Task was cancelled. Two cases:
+            # 1. Agent node interrupted → checkpoint already saved by the
+            #    AGENT_INTERRUPTED handler (with agent_thread_id).
+            # 2. Node-boundary cancel → save checkpoint NOW so resume doesn't
+            #    restart from scratch. paused_at_node = the node that was about
+            #    to execute (NOT in completed_nodes), so resume re-executes it.
+            if self._pending_node_id and not getattr(self, "_cancel_checkpoint_saved", False):
+                await self._save_cancel_checkpoint(self._pending_node_id)
+            logger.info("workflow_cancelled", task_id=self._task_id)
             return self._pool.get_all() if self._pool else {}
 
         except Exception as exc:
@@ -381,8 +424,31 @@ class WorkflowEngine:
         # Restore state from checkpoint
         paused_node_id = checkpoint_data.get("paused_at_node", "")
         self._completed_nodes = set(checkpoint_data.get("completed_nodes", []))
-        # Add the paused human node to completed (it was approved/skipped)
-        self._completed_nodes.add(paused_node_id)
+        agent_thread_id = checkpoint_data.get("agent_thread_id", "")
+        human_context = checkpoint_data.get("human_context", {})
+        # 判断 checkpoint 类型：
+        # - agent_thread_id 非空 → agent 中途取消（需 Command(resume) 续接）
+        # - human_context 非空 → Human 节点暂停（节点已完成，恢复下游）
+        # - 两者皆空 → 节点边界取消（节点未执行，需重新执行它）
+        is_human_pause = bool(human_context)
+
+        if agent_thread_id:
+            # Cancel-during-agent case: the agent node was interrupted
+            # mid-REACT-loop via LangGraph interrupt(). We must RE-EXECUTE
+            # it (it is NOT in completed_nodes), but with resume_agent_thread_id
+            # so the executor calls Command(resume) to continue the agent's
+            # conversation with full context continuity. Then run downstream.
+            # Do NOT add paused_node_id to completed — it hasn't finished yet.
+            pass
+        elif is_human_pause:
+            # Human-node pause case: the paused node was approved/skipped,
+            # so mark it complete and resume from its downstream nodes.
+            self._completed_nodes.add(paused_node_id)
+        else:
+            # Node-boundary cancel case: cancellation was detected BEFORE
+            # paused_node_id started executing. Do NOT add it to completed —
+            # it needs to be re-executed. Resume by running it + downstream.
+            pass
 
         # Restore variable pool
         # Story 4-15: Ensure system variables are present in the pool even
@@ -404,7 +470,34 @@ class WorkflowEngine:
         )
 
         try:
-            # Find downstream nodes of the paused human node
+            if agent_thread_id:
+                # ── Resume after agent cancellation ──
+                # Inject the agent_thread_id into system variables so
+                # AgentNodeExecutor detects it and calls resume_agent()
+                # (Command(resume)) to continue the REACT loop with full
+                # context, instead of starting fresh.
+                self._pool.set(
+                    "system",
+                    {
+                        **(self._pool.get("system") or {}),
+                        "resume_agent_thread_id": agent_thread_id,
+                    },
+                )
+                # Re-execute the interrupted agent node (NOT in completed_nodes)
+                await self._execute_node(paused_node_id)
+                # Clear the resume flag + checkpoint now that the agent finished
+                await db["tasks"].update_one(
+                    {"_id": task_id},
+                    {"$set": {"checkpoint": None, "updated_at": utc_now()}},
+                )
+            elif not is_human_pause:
+                # ── Resume after node-boundary cancellation ──
+                # The paused_node_id was about to execute when cancellation
+                # was detected. It is NOT in completed_nodes, so re-execute
+                # it, then continue to downstream nodes.
+                await self._execute_node(paused_node_id)
+
+            # Find downstream nodes of the paused node
             downstream = self._get_downstream_nodes(paused_node_id)
 
             if not downstream:
@@ -452,6 +545,15 @@ class WorkflowEngine:
             logger.info("resume_checkpoint_paused_again", task_id=task_id)
             return self._pool.get_all() if self._pool else {}
 
+        except WorkflowCancelledError:
+            # Re-cancelled during resume. Save a checkpoint (if not already
+            # saved by the agent-interrupt handler) so a subsequent resume
+            # doesn't lose progress.
+            if self._pending_node_id and not getattr(self, "_cancel_checkpoint_saved", False):
+                await self._save_cancel_checkpoint(self._pending_node_id)
+            logger.info("resume_checkpoint_cancelled", task_id=task_id)
+            return self._pool.get_all() if self._pool else {}
+
         except Exception as exc:
             logger.error("resume_checkpoint_failed", task_id=task_id, error=str(exc))
             try:
@@ -495,6 +597,72 @@ class WorkflowEngine:
         # Fallback to legacy edges
         outgoing = self._out_edges.get(node_id, [])
         return [edge["target"] for edge in outgoing if edge.get("target")]
+
+    # ── Internal: cancellation ──
+
+    async def _check_cancelled(self, node_id: str = "") -> None:
+        """Raise :class:`WorkflowCancelledError` if the task was cancelled.
+
+        Re-reads the task status from MongoDB at each node boundary so that an
+        external cancel request (API ``intervene action=cancel``) is noticed
+        promptly. The DB flag is the single source of truth; the running engine
+        cooperatively checks it between nodes.
+
+        Args:
+            node_id: The node that is *about to* execute (passed so the
+                ``except`` handler can save a checkpoint recording which node
+                to resume from). Defaults to ``self._pending_node_id``.
+        """
+        from app.db.mongodb import get_database
+
+        if node_id:
+            self._pending_node_id = node_id
+
+        doc = await get_database()["tasks"].find_one(
+            {"_id": self._task_id}, {"status": 1},
+        )
+        if doc and doc.get("status") == TaskStatus.CANCELLED.value:
+            raise WorkflowCancelledError()
+
+    async def _save_cancel_checkpoint(self, node_id: str, agent_thread_id: str = "") -> None:
+        """Persist a checkpoint so the workflow can resume after cancellation.
+
+        Records the node that was executing when cancellation was detected,
+        the set of already-completed nodes, and a snapshot of the variable
+        pool. If the cancellation interrupted an Agent node mid-REACT-loop,
+        ``agent_thread_id`` stores the LangGraph thread id so that on resume
+        the agent's full conversation context is restored via ``Command(resume)``.
+        """
+        from app.db.mongodb import get_database
+
+        checkpoint = Checkpoint(
+            paused_at_node=node_id,
+            completed_nodes=list(self._completed_nodes),
+            variable_snapshot=self._pool.snapshot() if self._pool else {},
+            agent_thread_id=agent_thread_id,
+        )
+        safe_snapshot = json.loads(
+            json.dumps(
+                self._pool.snapshot() if self._pool else {},
+                default=str, ensure_ascii=False,
+            )
+        )
+        await get_database()["tasks"].update_one(
+            {"_id": self._task_id},
+            {
+                "$set": {
+                    "checkpoint": checkpoint.model_dump(mode="json"),
+                    "variables": safe_snapshot,
+                    "updated_at": utc_now(),
+                }
+            },
+        )
+        logger.info(
+            "cancel_checkpoint_saved",
+            task_id=self._task_id,
+            node_id=node_id,
+            agent_thread_id=agent_thread_id,
+        )
 
     # ── Internal: DAG execution ──
 
@@ -546,6 +714,9 @@ class WorkflowEngine:
 
         Returns the node result, or ``None`` if already executed / skipped.
         """
+        # Cooperative cancellation: check DB flag at every node boundary.
+        await self._check_cancelled(node_id)
+
         if node_id in self._completed_nodes:
             return None
 
@@ -578,6 +749,16 @@ class WorkflowEngine:
         # Execute
         result = await executor.execute(variables)
 
+        # ── Agent node interrupted (cancelled via LangGraph interrupt) ──
+        # The agent's REACT loop was suspended; its full context is in the
+        # checkpointer. Save a checkpoint with the agent_thread_id so resume
+        # can use Command(resume) to continue the agent with full continuity.
+        if result.error_code == "AGENT_INTERRUPTED":
+            agent_thread_id = getattr(executor, "agent_thread_id", "")
+            await self._save_cancel_checkpoint(node_id, agent_thread_id)
+            self._cancel_checkpoint_saved = True  # prevent double-save in except
+            raise WorkflowCancelledError(node_id=node_id, node_type=node_type)
+
         if result.success:
             # Store output in variable pool
             if self._pool is not None:
@@ -585,12 +766,18 @@ class WorkflowEngine:
 
             self._completed_nodes.add(node_id)
 
-            # Record node complete
+            # Record node complete (include agent token usage for timeline display)
+            node_usage = result.output.get("usage") or {}
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_complete",
-                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output)},
+                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output), "usage": node_usage},
             )
+            # Accumulate task-level token total onto the Task document immediately
+            # ($inc per agent node, so pause/resume doesn't lose pre-pause usage).
+            _node_total = node_usage.get("total_tokens")
+            if isinstance(_node_total, (int, float)) and _node_total > 0:
+                await TaskService.add_total_tokens(self._task_id, int(_node_total))
 
             # Handle human: transition to waiting_human and pause execution
             if node_type == "human" and result.output.get("status") == "waiting_human":
@@ -825,3 +1012,18 @@ class WorkflowPausedError(Exception):
         self.node_type = node_type
         self.pause_message = message
         super().__init__(message)
+
+
+class WorkflowCancelledError(Exception):
+    """Raised when a workflow is cancelled (paused for potential resume).
+
+    Triggered when the task's DB status is ``cancelled`` — either detected at
+    a node boundary (``_check_cancelled``) or when an Agent node returns
+    ``AGENT_INTERRUPTED`` (its REACT loop was suspended via LangGraph
+    ``interrupt()``).
+    """
+
+    def __init__(self, node_id: str = "", node_type: str = "", message: str = "") -> None:
+        self.node_id = node_id
+        self.node_type = node_type
+        super().__init__(message or "工作流已被取消")

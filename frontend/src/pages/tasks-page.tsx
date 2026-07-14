@@ -23,6 +23,7 @@ import {
   CheckOutlined,
   EditOutlined,
   ClockCircleOutlined,
+  CaretRightOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -39,6 +40,7 @@ import {
 import { TASK_STATUS_STYLES } from '../constants/task-status'
 import { TaskBoardColumn } from '../components/task-board-column'
 import { TaskOutputFiles } from '../components/task-result-card'
+import AgentTimeline from '../components/agent-timeline'
 import { parseBackendDate } from '../lib/format'
 import { WorkflowTriggerAPI } from '../services/workflow-trigger-api'
 import { workflowsApi } from '../services/workflows-api'
@@ -91,6 +93,8 @@ export default function TasksPage() {
   /* ─── Detail drawer state ─── */
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
 
+  /* ─── Agent node detail modal state ─── */
+  const [nodeDetail, setNodeDetail] = useState<{ taskId: string; nodeId: string } | null>(null)
   /* ─── Approval modal state ─── */
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null)
   const [approvalComment, setApprovalComment] = useState('')
@@ -204,6 +208,13 @@ export default function TasksPage() {
     queryKey: taskKeys.detail(detailTaskId ?? ''),
     queryFn: () => tasksApi.get(detailTaskId!),
     enabled: !!detailTaskId,
+  })
+
+  /* ─── Agent node timeline query（按需加载，点击查看详情时触发） ─── */
+  const { data: nodeTimelineData, isLoading: nodeTimelineLoading, error: nodeTimelineError } = useQuery({
+    queryKey: ['tasks', 'node-timeline', nodeDetail?.taskId, nodeDetail?.nodeId],
+    queryFn: () => tasksApi.getNodeTimeline(nodeDetail!.taskId, nodeDetail!.nodeId),
+    enabled: !!nodeDetail,
   })
 
   /* ─── Selected workflow schema ─── */
@@ -399,6 +410,16 @@ export default function TasksPage() {
       okText: '重试',
       cancelText: '关闭',
       onOk: () => interveneMutation.mutate({ taskId: task.id, action: 'retry', version: task.version }),
+    })
+  }, [interveneMutation])
+
+  const handleResume = useCallback((task: TaskSummary | TaskDetail) => {
+    Modal.confirm({
+      title: '确认恢复',
+      content: `确定要恢复任务「${task.id}」吗？任务将从上次中断的位置继续执行。`,
+      okText: '恢复',
+      cancelText: '关闭',
+      onOk: () => interveneMutation.mutate({ taskId: task.id, action: 'resume', version: task.version }),
     })
   }, [interveneMutation])
 
@@ -918,6 +939,19 @@ export default function TasksPage() {
                               <span className="text-xs font-medium" style={{ color: meta.color }}>{displayLabel}</span>
                               <span className="text-[11px] text-[#94A3B8]">{formatDateTime(evt.timestamp)}</span>
                               {evt.actor && <span className="text-[11px] text-[#94A3B8]">· {evt.actor}</span>}
+                              {/* Agent 节点完成后可查看执行详情 */}
+                              {isNodeEvent && nodeType === 'agent' &&
+                                (evt.event_type === 'node_complete' || evt.event_type === 'node_failed') && (
+                                <button
+                                  onClick={() => setNodeDetail({
+                                    taskId: taskDetail.id,
+                                    nodeId: evt.data?.node_id as string,
+                                  })}
+                                  className="text-[10px] text-[#1E5EFF] hover:underline border-0 bg-transparent cursor-pointer p-0 ml-1"
+                                >
+                                  查看执行详情
+                                </button>
+                              )}
                             </div>
                             {/* 所有数据统一折叠 */}
                             {hasData && (
@@ -1087,6 +1121,16 @@ export default function TasksPage() {
                     loading={interveneMutation.isPending}
                   >
                     重试
+                  </Button>
+                )}
+                {taskDetail.status === 'cancelled' && (
+                  <Button
+                    type="primary"
+                    icon={<CaretRightOutlined />}
+                    onClick={() => handleResume(taskDetail)}
+                    loading={interveneMutation.isPending}
+                  >
+                    恢复
                   </Button>
                 )}
                 {(taskDetail.status === 'completed' || taskDetail.status === 'failed' || taskDetail.status === 'cancelled') && (
@@ -1315,6 +1359,37 @@ export default function TasksPage() {
               )}
             </div>
           </div>
+        </Spin>
+      </Modal>
+
+      {/* ─── Agent 节点执行详情 Modal ─── */}
+      <Modal
+        title="Agent 执行详情"
+        open={!!nodeDetail}
+        onCancel={() => setNodeDetail(null)}
+        footer={null}
+        width={680}
+        destroyOnClose
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
+      >
+        <Spin spinning={nodeTimelineLoading}>
+          {nodeTimelineError ? (
+            <Alert
+              type="warning"
+              message="无执行记录"
+              description="该节点可能尚未执行，或执行过程中未产生 checkpoint。"
+              showIcon
+            />
+          ) : nodeTimelineData ? (
+            <>
+              <div className="flex items-center gap-3 mb-3 text-[11px] text-[#94A3B8]">
+                <span>消息数: {nodeTimelineData.message_count}</span>
+                <span>·</span>
+                <span>节点: <code className="text-[10px]">{nodeTimelineData.node_id}</code></span>
+              </div>
+              <AgentTimeline entries={nodeTimelineData.timeline} />
+            </>
+          ) : null}
         </Spin>
       </Modal>
     </div>

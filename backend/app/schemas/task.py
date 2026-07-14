@@ -96,6 +96,7 @@ class TaskResponse(BaseModel):
     source: str = "manual"
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
+    total_tokens: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -118,6 +119,7 @@ class TaskSummary(BaseModel):
     source: str = "manual"
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
+    total_tokens: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -143,3 +145,29 @@ class TaskInterveneResponse(BaseModel):
     status: TaskStatus
     version: int
     message: str = ""
+
+
+# ── Node execution detail (agent trace from checkpointer) ──
+
+
+class NodeTimelineEntry(BaseModel):
+    """单个 timeline 条目，格式与 chat 路径的 timeline_entries 对齐。
+
+    type 取值: user / thinking / text / tool_call / tool_result。
+    """
+
+    type: str
+    content: str = ""
+    tool_name: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    id: str = ""
+
+
+class NodeTimelineResponse(BaseModel):
+    """Agent 节点执行详情响应（按需从 checkpointer thread 读取）。"""
+
+    task_id: str
+    node_id: str
+    thread_id: str
+    timeline: list[NodeTimelineEntry] = Field(default_factory=list)
+    message_count: int = 0

@@ -33,6 +33,7 @@ import {
   type McpAuthType,
 } from '../services/mcp-api'
 import { toolsApi, type Tool } from '../services/tools-api'
+import { agentKeys } from '../services/agent-api'
 
 /* ─── Status mappings ─── */
 const STATUS_STYLES: Record<ConnectionStatus, { label: string; color: string; bg: string; dot: string }> = {
@@ -130,6 +131,7 @@ export default function McpPage() {
     onSuccess: () => {
       message.success('MCP 连接创建成功，工具已同步')
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
       setModalOpen(false)
     },
     onError: (err: unknown) => {
@@ -154,6 +156,7 @@ export default function McpPage() {
     onSuccess: () => {
       message.success('MCP 连接更新成功，工具已同步')
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
       setModalOpen(false)
     },
     onError: (err: unknown) => {
@@ -169,6 +172,7 @@ export default function McpPage() {
     onSuccess: () => {
       message.success('MCP 连接已删除')
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
     },
     onError: (err: unknown) => {
       const msg = err && typeof err === 'object' && 'message' in err
@@ -283,6 +287,7 @@ export default function McpPage() {
         }
       }
       queryClient.invalidateQueries({ queryKey: mcpKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '测试连接失败'

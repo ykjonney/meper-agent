@@ -4,34 +4,23 @@ Slot schema is fixed and defined in SLOT_SCHEMA:
   role → task → constraints → context → output_format → tool_declaration (auto)
 
 Templates only store default values for each slot.
+
+The SLOT_SCHEMA / SLOT_NAMES / SlotDef / TOOL_DECLARATION_SLOT constants are
+re-exported from ``agent_flow_harness.slots.schema`` (the single source of
+truth) so both harness and the application share one definition.
 """
 from __future__ import annotations
 
+# ── Fixed slot schema (re-exported from harness) ─────────────────────
+from agent_flow_harness.slots.schema import (  # noqa: F401
+    SLOT_NAMES,
+    SLOT_SCHEMA,
+    TOOL_DECLARATION_SLOT,
+    SlotDef,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.base import generate_id, utc_now
-
-# ── Fixed slot schema ────────────────────────────────────────────────
-
-class SlotDef(BaseModel):
-    """Definition of a single fixed slot (code-level constant)."""
-    name: str
-    label: str
-    required: bool = False
-
-
-SLOT_SCHEMA: list[SlotDef] = [
-    SlotDef(name="role", label="角色定义", required=True),
-    SlotDef(name="task", label="任务描述", required=True),
-    SlotDef(name="constraints", label="约束规则"),
-    SlotDef(name="context", label="上下文信息"),
-    SlotDef(name="output_format", label="输出格式"),
-]
-
-SLOT_NAMES: list[str] = [s.name for s in SLOT_SCHEMA]
-
-# tool_declaration is always appended automatically — not a user-editable slot.
-TOOL_DECLARATION_SLOT = "tool_declaration"
 
 
 class PromptTemplate(BaseModel):

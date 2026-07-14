@@ -9,10 +9,11 @@ interrupt() 返回 answer，工具把它返回给 LLM。
 """
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Annotated, Any, Literal
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 
 ClarificationType = Literal[
@@ -22,6 +23,18 @@ ClarificationType = Literal[
     "risk_confirmation",
     "suggestion",
 ]
+
+
+def _coerce_options(v: Any) -> Any:
+    """LLM 有时把 list 传成 JSON 字符串,自动解析。"""
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return v
 
 
 class _ClarificationArgs(BaseModel):
@@ -35,7 +48,7 @@ class _ClarificationArgs(BaseModel):
     context: str | None = Field(
         default=None, description="为什么需要澄清的背景说明，帮助用户理解"
     )
-    options: list[str] | None = Field(
+    options: Annotated[list[str] | None, BeforeValidator(_coerce_options)] = Field(
         default=None, description="可选项列表（approach_choice/suggestion 时提供）"
     )
 

@@ -24,14 +24,19 @@ class TaskStatus(StrEnum):
 # Map: current_status -> list of allowed next statuses
 TRANSITION_MAP: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.PENDING: [TaskStatus.RUNNING, TaskStatus.CANCELLED],
-    TaskStatus.RUNNING: [TaskStatus.WAITING_HUMAN, TaskStatus.COMPLETED, TaskStatus.FAILED],
+    TaskStatus.RUNNING: [
+        TaskStatus.WAITING_HUMAN,
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,  # 运行中可取消（优雅挂起，可恢复）
+    ],
     TaskStatus.WAITING_HUMAN: [TaskStatus.RUNNING, TaskStatus.FAILED, TaskStatus.CANCELLED],
     TaskStatus.COMPLETED: [],  # terminal
-    TaskStatus.FAILED: [TaskStatus.PENDING],  # 允许 retry
-    TaskStatus.CANCELLED: [],  # terminal
+    TaskStatus.FAILED: [TaskStatus.RUNNING],  # 允许 retry（直接重新执行）
+    TaskStatus.CANCELLED: [TaskStatus.RUNNING],  # 可恢复（CANCELLED 即暂停）
 }
 
-TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED}
 
 
 def is_valid_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:
@@ -73,6 +78,9 @@ class Checkpoint(BaseModel):
     human_context: dict[str, Any] = Field(default_factory=dict)  # {node_id, title, description, options, timeout_ms, timeout_action}
     timeout_deadline: datetime | None = None                     # 超时截止时间
     timeout_action: str = "fail"
+    # 取消（暂停）时被中断的 Agent 节点的 LangGraph thread_id。
+    # 恢复时用 Command(resume) 续接该 thread，保持 REACT 循环上下文连贯。
+    agent_thread_id: str = ""
 
 
 class Task(BaseModel):
@@ -101,6 +109,10 @@ class Task(BaseModel):
     source: str = Field(default="manual", pattern=r"^(manual|trigger|trigger_scheduled)$")
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
+    # Celery AsyncResult ID，用于取消时 revoke 正在运行的 worker（兜底 SIGTERM）
+    celery_task_id: str = ""
+    # 本次 task 所有 agent 节点累计 token 用量（engine 完成时写回）
+    total_tokens: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

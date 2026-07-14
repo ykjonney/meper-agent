@@ -5,6 +5,7 @@ workflow template with nodes, edges, status, and version info.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from loguru import logger
@@ -78,7 +79,7 @@ class WorkflowService:
         if status is not None:
             query["status"] = status.value
         if name:
-            query["name"] = {"$regex": name, "$options": "i"}
+            query["name"] = {"$regex": re.escape(name), "$options": "i"}
 
         cursor = (
             WorkflowService._collection()
@@ -150,6 +151,18 @@ class WorkflowService:
             # 同步清理 registry 索引，避免留下指向已删除模板的孤儿条目
             from app.services.workflow_registry_service import WorkflowRegistryService
             await WorkflowRegistryService.delete_by_workflow_id(workflow_id)
+            # 清理 agents.workflow_ids 中的残留引用
+            try:
+                await get_database()["agents"].update_many(
+                    {"workflow_ids": workflow_id},
+                    {"$pull": {"workflow_ids": workflow_id}},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "workflow_agent_refs_cleanup_partial",
+                    workflow_id=workflow_id,
+                    error=str(exc),
+                )
             return True
         return False
 

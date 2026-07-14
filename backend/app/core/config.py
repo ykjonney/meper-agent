@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_JSON_FORMAT: bool = False
 
+    # LangSmith tracing (optional — set API key to enable).
+    # When LANGSMITH_API_KEY is set, LangChain/LangGraph traces are sent to smith.langchain.com.
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_PROJECT: str = "agent-flow"
+
     # Model API Key encryption (Base64-encoded 32-byte AES-256 key)
     # Generate: python -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"
     MODEL_ENCRYPTION_KEY: str = ""
@@ -54,6 +59,10 @@ class Settings(BaseSettings):
     # Task concurrency limits
     TASK_GLOBAL_MAX_RUNNING: int = 50
     TASK_USER_MAX_RUNNING: int = 5
+
+    # Session token budget (cumulative tokens per session before the agent is blocked).
+    # Agents can override via their own max_tokens field (0 = use this default).
+    DEFAULT_SESSION_MAX_TOKENS: int = 200_000
 
     # Task scheduler (poll interval in seconds; set to 0 to disable)
     TASK_SCHEDULER_POLL_INTERVAL: int = 10

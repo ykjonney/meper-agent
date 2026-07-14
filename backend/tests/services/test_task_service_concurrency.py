@@ -192,6 +192,39 @@ class TestTransitionConcurrencyGuard:
 
             mock_check.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_resume_cancelled_checks_concurrency(self):
+        """cancelled → running (resume) SHOULD check concurrency limits."""
+        with (
+            patch(
+                "app.services.task_service.TaskService.get_task_or_404",
+                return_value=_fake_task({"status": "cancelled"}),
+            ),
+            patch(
+                "app.services.task_service.TaskService._check_concurrency_limits",
+                new_callable=AsyncMock,
+            ) as mock_check,
+            patch(
+                "app.services.task_service.TaskService._collection"
+            ) as mock_col,
+            patch(
+                "app.services.task_service.TaskService._write_audit_log",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_col.return_value.find_one_and_update = AsyncMock(
+                return_value=_fake_task({"status": "running", "version": 2})
+            )
+
+            from app.services.task_service import TaskService
+
+            await TaskService.transition_task(
+                task_id="task_test_001",
+                to_status=TaskStatus.RUNNING,
+            )
+
+            mock_check.assert_awaited_once()
+
 
 class TestFifoScheduling:
     """_schedule_next_pending — auto-start after terminal transition."""

@@ -84,6 +84,8 @@ export interface BuiltinTool {
   name: string
   description: string
   parameters: Record<string, unknown>
+  /** false = always-on, not user-toggleable (e.g. capability tools). */
+  configurable?: boolean
 }
 
 /* ─── API methods ─── */
@@ -107,11 +109,20 @@ export const toolsApi = {
   },
 
   /**
-   * List built-in tools (bash / read / write).
+   * List built-in tools actually injected at runtime (from harness BUILTIN_TOOLS).
    * GET /api/v1/tools/builtin
    */
   async listBuiltins(): Promise<BuiltinTool[]> {
     const res = await apiClient.get<BuiltinTool[]>('/api/v1/tools/builtin')
+    return res.data
+  },
+
+  /**
+   * List app-level tools (always-on task/workflow tools, configurable=false).
+   * GET /api/v1/tools/app
+   */
+  async listAppTools(): Promise<BuiltinTool[]> {
+    const res = await apiClient.get<BuiltinTool[]>('/api/v1/tools/app')
     return res.data
   },
 
@@ -222,6 +233,10 @@ export const toolKeys = {
   all: ['tools'] as const,
   lists: () => [...toolKeys.all, 'list'] as const,
   list: (params: ToolListParams) => [...toolKeys.lists(), params] as const,
+  builtins: () => [...toolKeys.all, 'builtin'] as const,
+  appTools: () => [...toolKeys.all, 'app'] as const,
+  prebuilts: () => [...toolKeys.all, 'prebuilt'] as const,
+  customTools: () => [...toolKeys.all, 'custom'] as const,
   details: () => [...toolKeys.all, 'detail'] as const,
   detail: (id: string) => [...toolKeys.details(), id] as const,
   files: (id: string) => [...toolKeys.detail(id), 'files'] as const,

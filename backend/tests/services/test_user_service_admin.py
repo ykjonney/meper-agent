@@ -118,6 +118,23 @@ class TestListUsers:
         assert total == 0
         assert len(items) == 0
 
+    async def test_list_users_escapes_regex_injection(self, mock_collection) -> None:
+        """问题1：username 搜索的 regex 特殊字符必须被转义。
+
+        输入 ``.*`` 时不能拼成匹配所有文档的 ``$regex: ".*"``，
+        而应转义为 ``\\.*``（字面匹配）。
+        """
+        mock_collection.count_documents.return_value = 0
+        mock_collection.find.return_value = MockMongoCursor([])
+
+        await UserService.list_users(page=1, page_size=20, username=".*")
+
+        call_kwargs = mock_collection.count_documents.call_args[0][0]
+        regex_filter = call_kwargs["username"]
+        # 转义后应包含反斜杠；原始 ".*" 不会匹配任意内容
+        assert regex_filter["$regex"] == r"\.\*"
+        assert regex_filter["$options"] == "i"
+
 
 class TestCreateUserByAdmin:
     """AC2: Admin can create users."""

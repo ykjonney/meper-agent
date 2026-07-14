@@ -6,6 +6,7 @@ Version Management flows (Stories 4-1, 4-6).
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from loguru import logger
@@ -148,8 +149,9 @@ class WorkflowRegistryService:
                 {"score": {"$meta": "textScore"}},
             ).sort([("score", {"$meta": "textScore"})]).limit(limit)
         else:
-            # Fallback: regex search
-            pattern = query.strip()
+            # Fallback: regex search — escape special chars to prevent
+            # regex injection (e.g. ".*" must not match every document).
+            pattern = re.escape(query.strip())
             if pattern:
                 cursor = col.find({
                     "published": True,

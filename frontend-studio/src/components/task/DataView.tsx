@@ -58,6 +58,8 @@ const FIELD_LABEL: Record<string, string> = {
   node_id: '节点 ID', node_type: '节点类型', node_label: '节点名称',
   output_summary: '输出摘要', output: '输出',
   response: '回答', result: '执行结果',
+  usage: 'Token 用量', total_tokens: 'Token 消耗', input_tokens: '输入 Tokens', output_tokens: '输出 Tokens',
+  llm_calls: 'LLM 调用', tool_calls: '工具调用',
   agent_id: 'Agent', tool_name: '工具名称', tool_id: '工具 ID',
   tool_description: '工具描述', instructions: '使用说明', params: '参数', note: '备注',
   decision: '审批结论', reason: '审批原因', approved_by: '审批人',

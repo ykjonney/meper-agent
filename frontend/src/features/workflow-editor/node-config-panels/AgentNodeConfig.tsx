@@ -28,8 +28,8 @@ interface Props {
 
 export default function AgentNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
   const { data: agentsData, isLoading } = useQuery({
-    queryKey: agentKeys.list({ page: 1, page_size: 100 }),
-    queryFn: () => agentApi.list({ page: 1, page_size: 100 }),
+    queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
   })
 
   const agents = agentsData?.items ?? []

@@ -11,15 +11,23 @@ import type { TabsProps } from 'antd'
 import {
   SearchOutlined, CodeOutlined, ReadOutlined, EditOutlined, ToolOutlined,
   PlusOutlined, GlobalOutlined, DeleteOutlined, SafetyOutlined,
+  FileSearchOutlined, QuestionCircleOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
-import { toolsApi } from '../services/tools-api'
+import { toolsApi, toolKeys } from '../services/tools-api'
+import { agentKeys } from '../services/agent-api'
 import { normalizeError } from '../services/api-client'
 import type { BuiltinTool, Tool } from '../services/tools-api'
 import ToolCreateDrawer from '../components/tool-create-drawer'
 
 const TOOL_ICONS: Record<string, typeof CodeOutlined> = {
-  bash: CodeOutlined, read: ReadOutlined, write: EditOutlined,
+  bash: CodeOutlined,
+  read: ReadOutlined,
+  write: EditOutlined,
+  glob: FileSearchOutlined,
+  grep: FileSearchOutlined,
+  ask_clarification: QuestionCircleOutlined,
 }
 
 export default function ToolsPage() {
@@ -46,20 +54,27 @@ function PlatformToolsTab() {
   const [searchName, setSearchName] = useState('')
 
   const { data: builtins, isLoading: builtinsLoading } = useQuery({
-    queryKey: ['builtin-tools'],
+    queryKey: toolKeys.builtins(),
     queryFn: () => toolsApi.listBuiltins(),
   })
 
+  const { data: appTools, isLoading: appToolsLoading } = useQuery({
+    queryKey: toolKeys.appTools(),
+    queryFn: () => toolsApi.listAppTools(),
+  })
+
   const { data: prebuilts, isLoading: prebuiltsLoading } = useQuery({
-    queryKey: ['prebuilt-tools'],
+    queryKey: toolKeys.prebuilts(),
     queryFn: () => toolsApi.listPrebuilt(),
   })
 
-  const filteredBuiltins = (builtins ?? []).filter(tool => {
+  const matches = (tool: { name: string; description: string }) => {
     if (!searchName) return true
     const q = searchName.toLowerCase()
     return tool.name.toLowerCase().includes(q) || tool.description.toLowerCase().includes(q)
-  })
+  }
+  const filteredBuiltins = (builtins ?? []).filter(matches)
+  const filteredAppTools = (appTools ?? []).filter(matches)
 
   return (
     <div>
@@ -92,6 +107,23 @@ function PlatformToolsTab() {
         )}
       </div>
 
+      {/* App-level tools section (always-on task/workflow tools) */}
+      <div className="mb-8">
+        <h3 className="text-sm font-semibold text-[#0F172A] mb-3 flex items-center gap-2">
+          <SafetyOutlined className="text-[#2563EB]" /> 应用工具
+          <span className="text-[11px] font-normal text-[#94A3B8]">（始终开启，不可关闭）</span>
+        </h3>
+        {appToolsLoading ? (
+          <div className="flex justify-center py-8"><Spin /></div>
+        ) : filteredAppTools.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无" className="py-8" />
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            {filteredAppTools.map(tool => <BuiltinToolCard key={tool.name} tool={tool} />)}
+          </div>
+        )}
+      </div>
+
       {/* Prebuilt tools section */}
       <div>
         <h3 className="text-sm font-semibold text-[#0F172A] mb-3 flex items-center gap-2">
@@ -118,6 +150,7 @@ function BuiltinToolCard({ tool }: { tool: BuiltinTool }) {
   const { t } = useTheme()
   const Icon = TOOL_ICONS[tool.name] ?? ToolOutlined
   const paramNames = Object.keys((tool.parameters?.properties as Record<string, unknown>) ?? {})
+  const alwaysOn = tool.configurable === false
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-sm transition-all">
       <div className="flex items-start gap-3 mb-3">
@@ -125,8 +158,16 @@ function BuiltinToolCard({ tool }: { tool: BuiltinTool }) {
           style={{ background: t.bg, color: t.primary }}>
           <Icon />
         </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[#0F172A]">{tool.name}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-medium text-[#0F172A]">{tool.name}</div>
+            {alwaysOn && (
+              <Tag className="!m-0 !px-1.5 !py-0 !text-[10px] !rounded !leading-4 flex items-center gap-0.5"
+                style={{ color: '#94A3B8', background: '#F1F5F9', borderColor: 'transparent' }}>
+                <LockOutlined className="!text-[9px]" />始终开启
+              </Tag>
+            )}
+          </div>
           <div className="text-xs text-[#64748B] line-clamp-2">{tool.description}</div>
         </div>
       </div>
@@ -192,7 +233,7 @@ function CustomToolsTab() {
   const [searchName, setSearchName] = useState('')
 
   const { data: allCustom, isLoading } = useQuery({
-    queryKey: ['custom-tools-list'],
+    queryKey: toolKeys.customTools(),
     queryFn: async () => {
       const [r1, r2] = await Promise.all([
         toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }),
@@ -206,8 +247,9 @@ function CustomToolsTab() {
     mutationFn: toolsApi.remove,
     onSuccess: () => {
       message.success('工具已删除')
-      queryClient.invalidateQueries({ queryKey: ['custom-tools-list'] })
-      queryClient.invalidateQueries({ queryKey: ['custom-tools'] })
+      queryClient.invalidateQueries({ queryKey: toolKeys.customTools() })
+      queryClient.invalidateQueries({ queryKey: toolKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: agentKeys.all })
     },
     onError: (err) => message.error(normalizeError(err as never).message),
   })

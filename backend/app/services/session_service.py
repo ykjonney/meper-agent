@@ -1,6 +1,8 @@
 """Session and Message business logic — CRUD operations."""
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 
 from app.db.mongodb import get_database
@@ -48,6 +50,7 @@ class SessionService:
             "title": session.title,
             "status": session.status.value,
             "message_count": session.message_count,
+            "total_tokens": session.total_tokens,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
         }
@@ -146,6 +149,16 @@ class SessionService:
         )
         return await SessionService.get_session(session_id)
 
+    @staticmethod
+    async def add_tokens(session_id: str, tokens: int) -> None:
+        """Atomically increment the session's cumulative token usage."""
+        from app.models.base import utc_now
+
+        await SessionService._collection().update_one(
+            {"_id": session_id},
+            {"$inc": {"total_tokens": tokens}, "$set": {"updated_at": utc_now().isoformat()}},
+        )
+
 
 class MessageService:
     """Service layer for Message operations."""
@@ -163,6 +176,7 @@ class MessageService:
         content: str = "",
         timeline_entries: list[dict] | None = None,
         file_ids: list[str] | None = None,
+        token_usage: dict | None = None,
     ) -> dict:
         """Add a message to a session.
 
@@ -187,7 +201,7 @@ class MessageService:
         # Agent messages do not store a top-level ``content`` field — their
         # text lives inside ``timeline_entries`` (type="text" entries). Omit
         # the key entirely so agent docs have no content field at all.
-        doc = {
+        doc: dict[str, Any] = {
             "_id": msg.id,
             "session_id": msg.session_id,
             "role": msg.role,
@@ -195,6 +209,8 @@ class MessageService:
             "file_ids": msg.file_ids,
             "created_at": msg.created_at,
         }
+        if token_usage:
+            doc["token_usage"] = token_usage
         if role == "user":
             doc["content"] = msg.content
 
@@ -212,6 +228,42 @@ class MessageService:
         await SessionService.update_session(session_id, update_fields)
 
         return doc
+
+    @staticmethod
+    async def append_to_last_agent_message(
+        session_id: str,
+        timeline_entries: list[dict],
+        *,
+        token_usage: dict | None = None,
+    ) -> None:
+        """Append timeline entries to the last agent message in this session.
+
+        Used by resume so that tool_result (user's answer) ends up in the
+        same message as the original tool_call, keeping the conversation
+        history consistent for frontend rendering.
+        """
+        col = MessageService._collection()
+        # Find the last agent message
+        last_msg = await col.find_one(
+            {"session_id": session_id, "role": "agent"},
+            sort=[("created_at", -1)],
+        )
+        if last_msg is None:
+            # No agent message to append to — create new
+            await MessageService.add_message(
+                session_id=session_id, role="agent",
+                timeline_entries=timeline_entries,
+                token_usage=token_usage or {},
+            )
+            return
+
+        # Atomically append entries + merge token_usage
+        update_doc: dict[str, Any] = {
+            "$push": {"timeline_entries": {"$each": timeline_entries}},
+        }
+        if token_usage:
+            update_doc["$set"] = {"token_usage": token_usage}
+        await col.update_one({"_id": last_msg["_id"]}, update_doc)
 
     @staticmethod
     async def list_messages(session_id: str) -> list[dict]:

@@ -2,7 +2,7 @@
  * ToolSelector — 四段式工具选择器组件。
  *
  * 将 Agent 工具配置拆分为四个分类：
- *  1. Built-in 工具（bash / read / write）— Checkbox 组
+ *  1. Built-in 工具（可配的文件类工具 + 始终开启的能力型工具）— 动态拉取自 /tools/builtin
  *  2. Skill 工具（source=markdown 的上传技能）— Switch 开关列表
  *  3. MCP 连接（远程工具服务器）— Switch 开关列表
  *  4. 工作流（Workflow 模板）— Switch 开关列表
@@ -10,18 +10,18 @@
  * 作为受控组件使用，value/onChange 接收/返回统一的 ToolSelectorValue。
  */
 import { useQuery } from '@tanstack/react-query'
-import { Checkbox, Switch, Skeleton, Typography, Alert, Tag } from 'antd'
+import { Switch, Skeleton, Typography, Alert, Tag } from 'antd'
 import {
   CodeOutlined,
   ApiOutlined,
   ThunderboltOutlined,
   ApartmentOutlined,
   ToolOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { toolsApi, toolKeys } from '../services/tools-api'
 import { mcpApi, mcpKeys } from '../services/mcp-api'
 import { workflowsApi, workflowKeys } from '../services/workflows-api'
-import { BUILTIN_TOOLS } from '../constants/builtin-tools'
 
 const { Text } = Typography
 
@@ -80,6 +80,11 @@ export default function ToolSelector({
   loading = false,
 }: ToolSelectorProps) {
   /* ─── 数据请求 ─── */
+  const { data: builtinsData, isLoading: builtinsLoading, isError: builtinsError } = useQuery({
+    queryKey: toolKeys.builtins(),
+    queryFn: () => toolsApi.listBuiltins(),
+  })
+
   const { data: skillsData, isLoading: skillsLoading, isError: skillsError } = useQuery({
     queryKey: toolKeys.list({ page: 1, page_size: 100, source: 'markdown' }),
     queryFn: () => toolsApi.list({ page: 1, page_size: 100, source: 'markdown' }),
@@ -99,10 +104,10 @@ export default function ToolSelector({
   const availableMcpConnections = mcpData?.items ?? []
   const availableWorkflows = wfData?.items ?? []
 
-  /* ─── Handlers ─── */
-  const handleBuiltinChange = (checked: string[]) => {
-    onChange?.(mergeValue(value, { builtin_config: checked }))
-  }
+  /* Built-in 工具拆分:可配的文件类 vs 始终开启的能力型 */
+  const allBuiltins = builtinsData ?? []
+  const configurableBuiltins = allBuiltins.filter((t) => t.configurable !== false)
+  const alwaysOnBuiltins = allBuiltins.filter((t) => t.configurable === false)
 
   /* ─── Loading ─── */
   if (loading) {
@@ -124,39 +129,51 @@ export default function ToolSelector({
           <Text strong className="text-sm">
             Built-in 工具
           </Text>
-          <Text className="text-[11px] text-[#94A3B8]">（始终可用，按需启用）</Text>
+          <Text className="text-[11px] text-[#94A3B8]">
+            （{value.builtin_config.length}/{configurableBuiltins.length} 已启用）
+          </Text>
         </div>
-        <Checkbox.Group
-          value={value.builtin_config}
-          onChange={(checked) => handleBuiltinChange(checked as string[])}
-        >
-          <div className="flex flex-wrap gap-3">
-            {BUILTIN_TOOLS.map((tool) => (
+        {builtinsError ? (
+          <Alert message="加载内建工具失败" type="error" showIcon className="!rounded-lg" />
+        ) : builtinsLoading ? (
+          <Skeleton active paragraph={{ rows: 2 }} />
+        ) : (
+          <div className="max-h-[180px] overflow-y-auto border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
+            {configurableBuiltins.map((tool) => {
+              const enabled = value.builtin_config.includes(tool.name)
+              return (
+                <div
+                  key={tool.name}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <span className="text-sm text-[#0F172A] truncate pr-2">{tool.name}</span>
+                  <Switch
+                    size="small"
+                    checked={enabled}
+                    onChange={(checked) => {
+                      const next = checked
+                        ? [...value.builtin_config, tool.name]
+                        : value.builtin_config.filter((n) => n !== tool.name)
+                      onChange?.(mergeValue(value, { builtin_config: next }))
+                    }}
+                  />
+                </div>
+              )
+            })}
+            {alwaysOnBuiltins.map((tool) => (
               <div
                 key={tool.name}
-                className={`
-                  flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer
-                  transition-colors duration-150 text-sm
-                  ${
-                    value.builtin_config.includes(tool.name)
-                      ? 'border-[#3B82F6] bg-[#EFF6FF]'
-                      : 'border-[#E2E8F0] bg-white hover:border-[#94A3B8]'
-                  }
-                `}
+                className="flex items-center justify-between px-3 py-2 bg-[#F8FAFC]"
               >
-                <Checkbox
-                  value={tool.name}
-                  checked={value.builtin_config.includes(tool.name)}
-                  className="!mr-0"
-                />
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium text-[#0F172A]">{tool.label}</span>
-                  <span className="text-[11px] text-[#94A3B8]">{tool.description}</span>
+                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                  <LockOutlined className="text-[#94A3B8] text-xs shrink-0" />
+                  <span className="text-sm text-[#0F172A] truncate">{tool.name}</span>
                 </div>
+                <Switch size="small" checked disabled />
               </div>
             ))}
           </div>
-        </Checkbox.Group>
+        )}
       </div>
 
       {/* ────────── Skill 工具 ────────── */}
@@ -346,7 +363,7 @@ function CustomToolSelector({
   onChange: (ids: string[]) => void
 }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ['custom-tools'],
+    queryKey: toolKeys.customTools(),
     queryFn: () =>
       toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }).then(async (r1) => {
         // Also fetch code + prebuilt sources and merge

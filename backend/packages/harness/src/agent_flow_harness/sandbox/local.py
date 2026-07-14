@@ -83,11 +83,6 @@ class LocalSandbox(Sandbox):
         return self._truncate(content)
 
     def write_file(self, path: str, content: str) -> None:
-        resolved = self._safe_resolve(path, for_write=True)
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-
-    def write_to_output(self, path: str, content: str) -> None:
         """写文件到 output 目录（用户可见/可下载）。"""
         resolved = self._safe_resolve_output(path)
         resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -121,9 +116,19 @@ class LocalSandbox(Sandbox):
     # ── 内部 helpers ──────────────────────────────────────────────────
 
     def _safe_resolve(self, user_path: str, *, for_write: bool) -> Path:
-        """解析路径并校验是否在 work_dir 内（防路径越权）。"""
+        """解析路径并校验是否在 work_dir 内（防路径越权）。
+
+        当模型传入绝对路径(如 /tmp/foo/bar.txt)时,提取相对部分映射到
+        work_dir 内,避免 PermissionError。
+        """
         if os.path.isabs(user_path):
-            resolved = Path(user_path).resolve()
+            # Map absolute paths into work_dir (strip leading /tmp/ or /)
+            rel = user_path.lstrip('/')
+            for prefix in ('tmp/', 'workspace/tmp/', 'workspace/'):
+                if rel.startswith(prefix):
+                    rel = rel[len(prefix):]
+                    break
+            resolved = (self._work_dir / rel).resolve()
         else:
             resolved = (self._work_dir / user_path).resolve()
         # 白名单校验：resolved 必须在 work_dir 树内
@@ -135,9 +140,17 @@ class LocalSandbox(Sandbox):
         return resolved
 
     def _safe_resolve_output(self, user_path: str) -> Path:
-        """解析路径并校验是否在 output_dir 内（防路径越权）。"""
+        """解析路径并校验是否在 output_dir 内（防路径越权）。
+
+        当模型传入绝对路径时,提取相对部分映射到 output_dir 内。
+        """
         if os.path.isabs(user_path):
-            resolved = Path(user_path).resolve()
+            rel = user_path.lstrip('/')
+            for prefix in ('output/', 'workspace/output/', 'workspace/'):
+                if rel.startswith(prefix):
+                    rel = rel[len(prefix):]
+                    break
+            resolved = (self._output_dir / rel).resolve()
         else:
             resolved = (self._output_dir / user_path).resolve()
         # 白名单校验：resolved 必须在 output_dir 树内

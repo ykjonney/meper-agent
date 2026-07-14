@@ -44,6 +44,10 @@ class ExtInvokeRequest(BaseModel):
         default=None,
         description="会话 ID（不传则自动创建新会话）",
     )
+    visitor_id: str | None = Field(
+        default=None,
+        description="前端生成的访客 ID，用于会话隔离",
+    )
 
 
 class ExtInvokeResponse(BaseModel):
@@ -65,6 +69,10 @@ class ExtResumeRequest(BaseModel):
         min_length=1,
         max_length=50000,
         description="对 Agent 追问的回答",
+    )
+    visitor_id: str | None = Field(
+        default=None,
+        description="前端生成的访客 ID，用于会话隔离",
     )
 
 
@@ -137,3 +145,45 @@ class ExtTaskResponse(BaseModel):
     error: dict | None = None
     created_at: str
     updated_at: str
+
+
+# ---------------------------------------------------------------------------
+# Session schemas
+# ---------------------------------------------------------------------------
+
+
+class ExtSessionResponse(BaseModel):
+    """Session summary for external listing."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+class ExtSessionListResponse(BaseModel):
+    """Paginated session list for external API."""
+
+    items: list[ExtSessionResponse]
+    total: int
+
+
+class ExtMessageResponse(BaseModel):
+    """Message in a session for external API."""
+
+    id: str
+    role: str
+    content: str
+    timeline_entries: list[dict] = Field(default_factory=list)
+    created_at: str
+
+
+class ExtSessionDetailResponse(BaseModel):
+    """Session detail with messages for external API."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: list[ExtMessageResponse]
