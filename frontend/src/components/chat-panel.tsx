@@ -1472,7 +1472,14 @@ function TimelineEntryCard({
       if (entry.toolName === 'ask_clarification') {
         const isWaiting = status === 'running' || status === 'pending'
         const question = entry.args?.question ? String(entry.args.question) : ''
-        const options = Array.isArray(entry.args?.options) ? (entry.args.options as string[]) : []
+        // LLM may pass options as a JSON string instead of an array
+        const rawOptions = entry.args?.options
+        let options: string[] = []
+        if (Array.isArray(rawOptions)) {
+          options = rawOptions as string[]
+        } else if (typeof rawOptions === 'string') {
+          try { options = JSON.parse(rawOptions) } catch { /* ignore */ }
+        }
         const clarificationType = entry.args?.clarification_type ? String(entry.args.clarification_type) : 'missing_info'
 
         return (
