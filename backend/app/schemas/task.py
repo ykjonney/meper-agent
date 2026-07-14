@@ -96,6 +96,7 @@ class TaskResponse(BaseModel):
     source: str = "manual"
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
+    total_tokens: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -118,6 +119,7 @@ class TaskSummary(BaseModel):
     source: str = "manual"
     trigger_id: str | None = None
     scheduled_at: datetime | None = None
+    total_tokens: int = 0
     created_at: datetime
     updated_at: datetime
 
