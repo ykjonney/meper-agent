@@ -53,22 +53,24 @@ def _extract_interrupt(error: Any) -> dict[str, Any] | None:
     """Check if *error* is a GraphInterrupt carrying an ask_clarification payload.
 
     LangGraph 1.2.x surfaces interrupt() inside a tool as ``on_tool_error``
-    with the ``GraphInterrupt`` object (or a tuple of ``Interrupt`` objects)
-    in ``data["error"]``. This extracts the payload dict if present.
+    with the ``GraphInterrupt`` object in ``data["error"]``.
+    ``GraphInterrupt.args[0]`` is a tuple of ``Interrupt`` objects,
+    each carrying a ``value`` dict with the interrupt payload.
     """
-    # GraphInterrupt wraps a tuple of Interrupt objects
-    interrupts = getattr(error, "interrupts", None)
-    if interrupts:
-        for intr in interrupts:
-            value = getattr(intr, "value", None)
-            if isinstance(value, dict) and "question" in value:
-                return value
-    # Fallback: error might be a tuple of Interrupt objects directly
-    if isinstance(error, tuple):
-        for intr in error:
-            value = getattr(intr, "value", None)
-            if isinstance(value, dict) and "question" in value:
-                return value
+    # GraphInterrupt stores interrupts tuple in args[0]
+    raw = None
+    if hasattr(error, "args") and error.args:
+        raw = error.args[0]
+    elif isinstance(error, tuple):
+        raw = error
+    if raw is None:
+        return None
+    # raw is typically a tuple of Interrupt objects
+    items = raw if isinstance(raw, tuple) else (raw,)
+    for intr in items:
+        value = getattr(intr, "value", None)
+        if isinstance(value, dict) and "question" in value:
+            return value
     return None
 
 
