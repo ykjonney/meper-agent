@@ -59,6 +59,10 @@ export type TimelineEntryType = 'thinking' | 'tool' | 'text' | 'error'
 
 export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
 
+/** Tools that use interrupt() for HITL — their tool_call/tool_result
+ *  are not rendered as normal tool entries (handled by interrupt UI instead). */
+const HITL_TOOLS = new Set(['ask_clarification'])
+
 export interface TimelineEntry {
   id: string
   type: TimelineEntryType
@@ -149,6 +153,8 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
     const e = entries[i]
 
     if (e.type === 'tool_call') {
+      // Skip HITL tools (ask_clarification) — rendered as interrupt card, not tool entry
+      if (HITL_TOOLS.has(e.tool_name ?? '')) continue
       // Create a running tool entry — will be updated when matching tool_result appears
       const entry: TimelineEntry = {
         id: `h-tc-${i}`,
@@ -163,6 +169,8 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       // Track by tool_name to match with later tool_result
       pendingToolCalls.set(e.tool_name ?? '', { idx, entry })
     } else if (e.type === 'tool_result') {
+      // Skip HITL tool results — the user's answer is already in the next user message
+      if (HITL_TOOLS.has(e.tool_name ?? '')) continue
       // Find the last pending tool_call with matching name
       const pending = pendingToolCalls.get(e.tool_name ?? '')
       if (pending) {
@@ -186,6 +194,7 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       }
     } else if (e.type === 'tool') {
       // Already merged tool entry from backend
+      if (HITL_TOOLS.has(e.tool_name ?? '')) continue
       result.push({
         id: `h-tool-${i}`,
         type: 'tool',
@@ -633,23 +642,16 @@ export default function ChatPanel({
                 // The user's next message will be sent via /resume instead of /stream.
                 const evt = event as { question: string; clarification_type?: string; context?: string | null; options?: string[] | null }
                 setMessages((prev) =>
-                  prev.map((m) => {
-                    if (m.id !== agentMsgId) return m
-                    // Close any pending/running tool entries — the tool (ask_clarification)
-                    // has finished its job by surfacing the question to the user.
-                    const tl = (m.timeline ?? []).map((entry) =>
-                      entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running')
-                        ? { ...entry, toolStatus: 'success' as ToolStatus, result: '等待用户回答' }
-                        : entry,
-                    )
-                    return {
-                      ...m,
-                      timeline: tl,
-                      isInterrupted: true,
-                      interruptQuestion: evt.question,
-                      interruptOptions: evt.options ?? undefined,
-                    }
-                  }),
+                  prev.map((m) =>
+                    m.id === agentMsgId
+                      ? {
+                          ...m,
+                          isInterrupted: true,
+                          interruptQuestion: evt.question,
+                          interruptOptions: evt.options ?? undefined,
+                        }
+                      : m,
+                  ),
                 )
                 pendingInterruptRef.current = { agentMsgId }
               } else if (eventType === 'tool_call_start') {
@@ -680,13 +682,28 @@ export default function ChatPanel({
                 scrollToBottom()
               } else if (eventType === 'tool_call') {
                 // AI finished generating tool call args — update pending entry or create new
+                const e = event as ToolCallEvent
+                // Skip HITL tools — the interrupt event handles their UI
+                if (HITL_TOOLS.has(e.tool_name)) {
+                  // Remove the pending placeholder created by tool_call_start
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== agentMsgId) return m
+                      const tl = (m.timeline ?? []).filter(
+                        (entry) => !(entry.type === 'tool' && entry.toolStatus === 'pending'),
+                      )
+                      return { ...m, timeline: tl }
+                    }),
+                  )
+                  // Don't process further — interrupt event will show the card
+                  continue
+                }
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
                   flushDelta()
                 }
                 textEntryIdRef.current = null
                 textStartedRef.current = false
-                const e = event as ToolCallEvent
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== agentMsgId) return m
@@ -720,6 +737,9 @@ export default function ChatPanel({
               } else if (eventType === 'tool_result') {
                 // Find the last matching tool entry and update it with the result
                 const e = event as ToolResultEvent
+                // Skip HITL tool results (resume after ask_clarification) —
+                // the user's answer is already shown as a user message
+                if (HITL_TOOLS.has(e.tool_name)) continue
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== agentMsgId || !m.timeline) return m
