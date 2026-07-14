@@ -33,7 +33,6 @@ def test_submodule_imports_resolve() -> None:
     for mod in (
         "agent_flow_harness.engine",
         "agent_flow_harness.graph",
-        "agent_flow_harness.adapters",
         "agent_flow_harness.guards",
         "agent_flow_harness.tools",
         "agent_flow_harness.slots",
@@ -103,14 +102,6 @@ def test_interaction_public_api_importable() -> None:
     assert ask_clarification.name == "ask_clarification"
     assert tool_search.name == "tool_search"
     assert callable(resolve_variable)
-
-
-def test_create_agent_api_importable() -> None:
-    """create_agent 高层 API 可从顶层导入。"""
-    from agent_flow_harness import Agent, AgentConfig, create_agent
-    assert AgentConfig is not None
-    assert callable(create_agent)
-    assert Agent is not None
 
 
 def test_context_engineering_importable() -> None:

@@ -1,10 +1,9 @@
-"""UsageMiddleware + create_agent middlewares 直传测试。"""
+"""UsageMiddleware token tracking tests."""
 from __future__ import annotations
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from agent_flow_harness.api import AgentConfig, create_agent
 from agent_flow_harness.middleware import UsageMiddleware, resolve_middleware
 
 
@@ -148,43 +147,3 @@ def test_resolve_by_name():
     mws = resolve_middleware([{"name": "usage"}])
     assert len(mws) == 1
     assert isinstance(mws[0], UsageMiddleware)
-
-
-# ---------------------------------------------------------------------------
-# create_agent middlewares 直传
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_create_agent_passes_middleware_instance():
-    """create_agent(middlewares=[instance]) 直传，实例被装配进 Agent。"""
-    usage = UsageMiddleware()
-    cfg = AgentConfig(name="t", system_prompt="x")
-    agent = create_agent(
-        cfg,
-        model=_FakeLLM(_ai_with_openai_usage(prompt=50, completion=10)),
-        middlewares=[usage],
-    )
-    assert usage in agent._middlewares
-    result = await agent.run("hi")
-    assert result == "ok"
-    assert usage.summary["total_tokens"] == 60
-    assert usage.summary["llm_calls"] == 1
-
-
-@pytest.mark.asyncio
-async def test_config_middleware_and_instance_merged():
-    """config 声明式 + 实例直传 合并。"""
-    usage = UsageMiddleware()
-    cfg = AgentConfig(
-        name="t", system_prompt="x",
-        middleware=[{"name": "audit"}],
-    )
-    agent = create_agent(
-        cfg,
-        model=_FakeLLM(_ai_with_openai_usage()),
-        middlewares=[usage],
-    )
-    # audit（声明式）+ usage（实例）都在
-    assert len(agent._middlewares) == 2
-    assert usage in agent._middlewares
