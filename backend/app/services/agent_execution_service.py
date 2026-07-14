@@ -193,9 +193,11 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         session_id = body.session_id
 
-        await MessageService.add_message(
-            session_id=session_id, role="user", content=body.answer,
-        )
+        # Note: user's answer is NOT stored as a separate user message.
+        # It flows through interrupt() → ToolMessage (tool_result for
+        # ask_clarification) in the agent's timeline, rendered as user input
+        # by the frontend. This keeps the conversation history accurate —
+        # the answer belongs to the tool call, not a standalone message.
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
         collected_timeline: list[dict] = []

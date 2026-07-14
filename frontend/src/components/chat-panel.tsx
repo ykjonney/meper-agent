@@ -59,10 +59,6 @@ export type TimelineEntryType = 'thinking' | 'tool' | 'text' | 'error'
 
 export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
 
-/** Tools that use interrupt() for HITL — their tool_call/tool_result
- *  are not rendered as normal tool entries (handled by interrupt UI instead). */
-const HITL_TOOLS = new Set(['ask_clarification'])
-
 export interface TimelineEntry {
   id: string
   type: TimelineEntryType
@@ -178,10 +174,9 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
         }
         pendingToolCalls.delete(e.tool_name ?? '')
       } else {
-        // Standalone tool_result (e.g. ask_clarification result from resume —
-        // the tool_call was in a previous agent message, user answer is already
-        // shown as a user message, so skip this duplicate)
-        if (HITL_TOOLS.has(e.tool_name ?? '')) continue
+        // Standalone tool_result — for ask_clarification this is the user's
+        // answer from resume (tool_call was in a previous agent message).
+        // Render it as a completed tool entry showing the user input.
         result.push({
           id: `h-tr-${i}`,
           type: 'tool',
@@ -213,13 +208,9 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
     }
   }
 
-  // Any remaining pending tool_calls without a matching tool_result
-  // are ask_clarification calls that were interrupted — mark as success
-  // since the user's answer is the result (shown as the next user message).
-  for (const { idx, entry } of pendingToolCalls.values()) {
-    result[idx] = { ...entry, toolStatus: 'success' }
-  }
-
+  // Any remaining pending tool_calls without a matching tool_result are
+  // interrupted ask_clarification calls (user hasn't answered yet).
+  // Leave them as 'running' — the special rendering shows "waiting for input".
   return result
 }
 
@@ -726,9 +717,6 @@ export default function ChatPanel({
               } else if (eventType === 'tool_result') {
                 // Find the last matching tool entry and update it with the result
                 const e = event as ToolResultEvent
-                // Skip HITL tool results (resume after ask_clarification) —
-                // the user's answer is already shown as a user message
-                if (HITL_TOOLS.has(e.tool_name)) continue
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== agentMsgId || !m.timeline) return m
@@ -1021,31 +1009,6 @@ export default function ChatPanel({
                             />
                           )
                         })}
-                        {/* Interrupt card — agent is asking for clarification */}
-                        {msg.isInterrupted && msg.interruptQuestion && (
-                          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                            <div className="flex items-start gap-2">
-                              <span className="text-blue-500 mt-0.5">❓</span>
-                              <div className="flex-1">
-                                <div className="text-sm text-[#1E40AF] font-medium whitespace-pre-wrap">{msg.interruptQuestion}</div>
-                                {msg.interruptOptions && msg.interruptOptions.length > 0 && (
-                                  <div className="flex flex-wrap gap-2 mt-2">
-                                    {msg.interruptOptions.map((opt, i) => (
-                                      <button
-                                        key={i}
-                                        onClick={() => handleSend(opt)}
-                                        className="px-3 py-1.5 rounded-lg text-xs bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 transition-colors"
-                                      >
-                                        {opt}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="text-[11px] text-blue-400 mt-2">输入回答后发送以继续…</div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         <span className="text-[10px] text-[#94A3B8]">{msg.time}</span>
@@ -1466,6 +1429,55 @@ function TimelineEntryCard({
 
     case 'tool': {
       const status = entry.toolStatus ?? 'running'
+
+      // ask_clarification: special rendering — tool result is user input
+      if (entry.toolName === 'ask_clarification') {
+        const isWaiting = status === 'running' || status === 'pending'
+        const question = entry.args?.question ? String(entry.args.question) : ''
+        const options = Array.isArray(entry.args?.options) ? (entry.args.options as string[]) : []
+        return (
+          <div className="flex flex-col gap-2">
+            {/* Question card */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-500 text-xs mt-0.5">❓</span>
+                <div className="flex-1 min-w-0">
+                  {question && (
+                    <div className="text-xs text-[#1E40AF] font-medium whitespace-pre-wrap">
+                      {question}
+                    </div>
+                  )}
+                  {options.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {options.map((opt, i) => (
+                        <button
+                          key={i}
+                          onClick={() => onSendMessage?.(opt)}
+                          className="px-2 py-1 rounded text-[11px] bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 transition-colors"
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {isWaiting && (
+                    <div className="text-[11px] text-blue-400 mt-1">输入回答后发送以继续…</div>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* User's answer — rendered as a user input bubble */}
+            {entry.result && (
+              <div className="flex flex-row-reverse">
+                <div className="max-w-[75%] rounded-xl rounded-tr-sm px-3 py-2 text-sm leading-relaxed" style={{ background: '#EFF6FF', color: '#1E40AF' }}>
+                  <div className="whitespace-pre-wrap">{entry.result}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      }
+
       const style = TOOL_STATUS_STYLE[status]
       const StatusIcon = style.icon
       const hasDetail = (entry.args && Object.keys(entry.args).length > 0) || entry.result
