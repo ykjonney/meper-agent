@@ -658,14 +658,17 @@ export default function ChatPanel({
                 pendingInterruptRef.current = { agentMsgId }
               } else if (eventType === 'tool_call_start') {
                 // AI started generating a tool call — show loading indicator
-                // Flush any pending text first
+                // Flush any pending text first (synchronously, before adding tool entry)
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
-                  flushDelta()
                 }
+                // Manually flush delta + add pending tool entry in ONE setMessages
+                // to guarantee correct ordering (text before tool).
+                const buf = deltaBufferRef.current
+                deltaBufferRef.current = null
+                rafIdRef.current = null
                 textEntryIdRef.current = null
                 textStartedRef.current = false
-                // Create a pending tool entry (tool name not yet known)
                 const pendingEntry: TimelineEntry = {
                   id: generateId(),
                   type: 'tool',
@@ -675,11 +678,17 @@ export default function ChatPanel({
                   toolStatus: 'pending',
                 }
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === agentMsgId
-                      ? { ...m, timeline: [...(m.timeline ?? []), pendingEntry] }
-                      : m,
-                  ),
+                  prev.map((m) => {
+                    if (m.id !== agentMsgId) return m
+                    const tl = [...(m.timeline ?? [])]
+                    // Flush buffered text first (if any)
+                    if (buf) {
+                      tl.push({ id: generateId(), type: 'text', content: buf.delta })
+                    }
+                    // Then add the pending tool entry
+                    tl.push(pendingEntry)
+                    return { ...m, timeline: tl }
+                  }),
                 )
                 scrollToBottom()
               } else if (eventType === 'tool_call') {
