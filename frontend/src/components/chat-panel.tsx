@@ -223,7 +223,7 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
 
 /** Convert backend MessageRecord[] to frontend Message[] */
 function historyToMessages(records: MessageRecord[]): Message[] {
-  return records.map((rec) => ({
+  const messages = records.map((rec) => ({
     id: rec._id,
     role: rec.role,
     content: rec.content ?? '',
@@ -234,6 +234,36 @@ function historyToMessages(records: MessageRecord[]): Message[] {
     files: rec.files?.map(f => ({ id: f.id || f._id || '', name: f.name, size: f.size })),
     usage: rec.token_usage,
   }))
+
+  // Post-process: match cross-message ask_clarification tool_results back to
+  // their tool_call (which is in a previous agent message due to interrupt).
+  // The standalone tool_result carries the user's answer as `content`.
+  for (let mi = 0; mi < messages.length; mi++) {
+    const msg = messages[mi]
+    if (msg.role !== 'agent' || !msg.timeline) continue
+    for (const entry of msg.timeline) {
+      // Find standalone ask_clarification results (from resume message)
+      if (entry.type === 'tool' && entry.toolName === 'ask_clarification' && entry.result && !entry.args?.question) {
+        // Search previous agent messages for the matching tool_call (has question but no result)
+        for (let pi = mi - 1; pi >= 0; pi--) {
+          const prev = messages[pi]
+          if (prev.role !== 'agent' || !prev.timeline) continue
+          for (const prevEntry of prev.timeline) {
+            if (prevEntry.type === 'tool' && prevEntry.toolName === 'ask_clarification' && prevEntry.args?.question && !prevEntry.result) {
+              // Found the matching tool_call — fill in the answer
+              prevEntry.result = entry.result
+              break
+            }
+          }
+          if (entry.result && prev.timeline?.some(e => e.toolName === 'ask_clarification' && e.result)) break
+        }
+        // Remove the standalone entry (answer is now on the tool_call)
+        msg.timeline = msg.timeline.filter(e => e.id !== entry.id)
+      }
+    }
+  }
+
+  return messages
 }
 
 /* ─── Component ─── */
