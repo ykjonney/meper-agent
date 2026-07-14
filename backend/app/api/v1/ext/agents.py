@@ -2,7 +2,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.v1.ext import auth_and_rate_limit
 from app.core.auth_apikey import ApiKeyPrincipal
@@ -23,7 +23,6 @@ from app.schemas.ext_api import (
 from app.services.agent_execution_service import AgentExecutionService
 from app.services.agent_service import AgentService
 from app.services.session_service import SessionService
-from fastapi.responses import JSONResponse
 
 router = APIRouter(tags=["external-agents"])
 

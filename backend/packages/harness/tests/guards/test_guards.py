@@ -202,7 +202,7 @@ async def test_content_empty_messages_allow() -> None:
 async def test_guard_in_node_block_sets_error() -> None:
     guard = TokenBudgetGuard(max_total_tokens=10)
     node = make_guard_in_node(guard)
-    out = await node({"total_tokens": 100})
+    out = await node({"total_tokens": 100}, {"configurable": {}})
     assert "error" in out
     assert "token_budget" in out["error"]
 
@@ -211,7 +211,7 @@ async def test_guard_in_node_block_sets_error() -> None:
 async def test_guard_in_node_warn_appends_warnings() -> None:
     guard = TokenBudgetGuard(max_total_tokens=1000)
     node = make_guard_in_node(guard)
-    out = await node({"total_tokens": 950, "warnings": ["prior"]})
+    out = await node({"total_tokens": 950, "warnings": ["prior"]}, {"configurable": {}})
     # Existing warning preserved; new warning appended.
     assert isinstance(out.get("warnings"), list)
     assert out["warnings"][0] == "prior"
@@ -223,7 +223,7 @@ async def test_guard_in_node_warn_appends_warnings() -> None:
 async def test_guard_in_node_allow_no_patch() -> None:
     guard = TokenBudgetGuard(max_total_tokens=1000)
     node = make_guard_in_node(guard)
-    out = await node({"total_tokens": 10})
+    out = await node({"total_tokens": 10}, {"configurable": {}})
     assert out == {}
 
 
@@ -232,7 +232,7 @@ async def test_guard_out_node_block_sets_error() -> None:
     guard = ToolRateLimitGuard(max_repeat_args=2)
     node = make_guard_out_node(guard)
     same = {"name": "read", "args": {"path": "x"}}
-    out = await node({"tool_calls_this_step": [same, same]})
+    out = await node({"tool_calls_this_step": [same, same]}, {"configurable": {}})
     assert "error" in out
 
 
@@ -343,5 +343,5 @@ async def test_guard_in_node_short_circuits_react(base_state) -> None:
     """
     guard = TokenBudgetGuard(max_total_tokens=10)
     node = make_guard_in_node(guard)
-    out = await node({"total_tokens": 100})
+    out = await node({"total_tokens": 100}, {"configurable": {}})
     assert out["error"]
