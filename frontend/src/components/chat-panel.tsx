@@ -1487,22 +1487,22 @@ function TimelineEntryCard({
             {/* --- Question card — style varies by type --- */}
             {clarificationType === 'risk_confirmation' ? (
               /* risk_confirmation: warning card with confirm/cancel buttons */
-              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <ExclamationCircleOutlined className="text-amber-500 text-xs mt-0.5" />
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                <div className="flex items-start gap-2.5">
+                  <ExclamationCircleOutlined className="text-amber-500 text-sm mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-[#92400E] font-medium whitespace-pre-wrap">{question}</div>
+                    <div className="text-sm text-[#92400E] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {isWaiting ? (
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex gap-2 mt-3">
                         <button
                           onClick={() => onSendMessage?.('确认')}
-                          className="px-3 py-1 rounded text-[11px] bg-red-500 text-white hover:bg-red-600 transition-colors"
+                          className="px-3.5 py-1.5 rounded-lg text-xs bg-red-500 text-white hover:bg-red-600 transition-colors"
                         >
                           确认执行
                         </button>
                         <button
                           onClick={() => onSendMessage?.('取消')}
-                          className="px-3 py-1 rounded text-[11px] bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                          className="px-3.5 py-1.5 rounded-lg text-xs bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
                         >
                           取消
                         </button>
@@ -1513,21 +1513,21 @@ function TimelineEntryCard({
               </div>
             ) : clarificationType === 'approach_choice' || clarificationType === 'ambiguous_requirement' ? (
               /* approach_choice / ambiguous_requirement: option cards (single-select) */
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <span className="text-blue-500 text-xs mt-0.5">❓</span>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-blue-500 text-sm mt-0.5">❓</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-[#1E40AF] font-medium whitespace-pre-wrap">{question}</div>
+                    <div className="text-sm text-[#1E40AF] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
-                      <div className="flex flex-col gap-1.5 mt-2">
+                      <div className="flex flex-col gap-2 mt-3">
                         {options.map((opt, i) => (
                           <button
                             key={i}
                             onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
                             disabled={!isWaiting}
-                            className={`text-left px-2.5 py-1.5 rounded text-[11px] border transition-colors ${
+                            className={`text-left px-3 py-2 rounded-lg text-xs border transition-colors ${
                               isWaiting
-                                ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                                ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100 hover:border-blue-400 cursor-pointer'
                                 : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
                             }`}
                           >
@@ -1537,26 +1537,26 @@ function TimelineEntryCard({
                       </div>
                     )}
                     {isWaiting && (
-                      <div className="text-[11px] text-blue-400 mt-1.5">选择一个选项,或输入回答后发送</div>
+                      <div className="text-[11px] text-blue-400 mt-2">选择一个选项,或输入回答后发送</div>
                     )}
                   </div>
                 </div>
               </div>
             ) : clarificationType === 'suggestion' ? (
               /* suggestion: dismissible suggestion card with accept/ignore */
-              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <span className="text-green-500 text-xs mt-0.5">💡</span>
+              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-green-500 text-sm mt-0.5">💡</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-[#166534] whitespace-pre-wrap">{question}</div>
+                    <div className="text-sm text-[#166534] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
+                      <div className="flex flex-wrap gap-2 mt-3">
                         {options.map((opt, i) => (
                           <button
                             key={i}
                             onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
                             disabled={!isWaiting}
-                            className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+                            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
                               isWaiting
                                 ? 'bg-white border-green-300 text-green-700 hover:bg-green-100 cursor-pointer'
                                 : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
@@ -1568,14 +1568,14 @@ function TimelineEntryCard({
                       </div>
                     )}
                     {isWaiting && (
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex gap-2 mt-3 items-center">
                         <button
                           onClick={() => onSendMessage?.('接受建议')}
-                          className="px-3 py-1 rounded text-[11px] bg-green-600 text-white hover:bg-green-700 transition-colors"
+                          className="px-3.5 py-1.5 rounded-lg text-xs bg-green-600 text-white hover:bg-green-700 transition-colors"
                         >
                           接受
                         </button>
-                        <span className="text-[11px] text-green-400 self-center">或输入其他回答</span>
+                        <span className="text-[11px] text-green-400">或输入其他回答</span>
                       </div>
                     )}
                   </div>
@@ -1583,19 +1583,19 @@ function TimelineEntryCard({
               </div>
             ) : (
               /* missing_info (default): question + optional quick chips */
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <span className="text-blue-500 text-xs mt-0.5">❓</span>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-blue-500 text-sm mt-0.5">❓</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-[#1E40AF] font-medium whitespace-pre-wrap">{question}</div>
+                    <div className="text-sm text-[#1E40AF] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
+                      <div className="flex flex-wrap gap-2 mt-3">
                         {options.map((opt, i) => (
                           <button
                             key={i}
                             onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
                             disabled={!isWaiting}
-                            className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+                            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
                               isWaiting
                                 ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100 cursor-pointer'
                                 : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
@@ -1607,7 +1607,7 @@ function TimelineEntryCard({
                       </div>
                     )}
                     {isWaiting && (
-                      <div className="text-[11px] text-blue-400 mt-1">输入回答后发送以继续…</div>
+                      <div className="text-[11px] text-blue-400 mt-2">输入回答后发送以继续…</div>
                     )}
                   </div>
                 </div>
