@@ -176,7 +176,10 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       } else {
         // Standalone tool_result — for ask_clarification this is the user's
         // answer from resume (tool_call was in a previous agent message).
-        // Render it as a completed tool entry showing the user input.
+        // Skip it — the answer is already rendered by the tool_call's special
+        // rendering when it gets matched across messages.
+        // For other tools, show as standalone result.
+        if (e.tool_name === 'ask_clarification') continue
         result.push({
           id: `h-tr-${i}`,
           type: 'tool',
@@ -209,8 +212,12 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
   }
 
   // Any remaining pending tool_calls without a matching tool_result are
-  // interrupted ask_clarification calls (user hasn't answered yet).
-  // Leave them as 'running' — the special rendering shows "waiting for input".
+  // ask_clarification calls whose tool_result is in a later message (from
+  // resume). Mark as 'success' — the answer is in the resumed agent message.
+  for (const { idx, entry } of pendingToolCalls.values()) {
+    result[idx] = { ...entry, toolStatus: 'success' }
+  }
+
   return result
 }
 
@@ -717,22 +724,44 @@ export default function ChatPanel({
               } else if (eventType === 'tool_result') {
                 // Find the last matching tool entry and update it with the result
                 const e = event as ToolResultEvent
-                setMessages((prev) =>
-                  prev.map((m) => {
+                setMessages((prev) => {
+                  // First try current agent message
+                  let updated = false
+                  let next = prev.map((m) => {
                     if (m.id !== agentMsgId || !m.timeline) return m
                     const tl = [...m.timeline]
-                    // Find the last tool entry with matching name that's still running
                     for (let i = tl.length - 1; i >= 0; i--) {
                       const entry = tl[i]
                       if (entry.type === 'tool' && entry.toolName === e.tool_name && entry.toolStatus === 'running') {
                         const isError = e.content?.startsWith('Error')
                         tl[i] = { ...entry, result: e.content, toolStatus: isError ? 'error' : 'success' }
+                        updated = true
                         break
                       }
                     }
-                    return { ...m, timeline: tl }
-                  }),
-                )
+                    return updated ? { ...m, timeline: tl } : m
+                  })
+                  // If not found in current message (e.g. ask_clarification tool_call
+                  // was in a previous agent message before interrupt), search all
+                  // previous agent messages for a running entry with matching name.
+                  if (!updated) {
+                    next = next.map((m) => {
+                      if (updated || m.role !== 'agent' || !m.timeline) return m
+                      const tl = [...m.timeline]
+                      for (let i = tl.length - 1; i >= 0; i--) {
+                        const entry = tl[i]
+                        if (entry.type === 'tool' && entry.toolName === e.tool_name && entry.toolStatus === 'running') {
+                          const isError = e.content?.startsWith('Error')
+                          tl[i] = { ...entry, result: e.content, toolStatus: isError ? 'error' : 'success' }
+                          updated = true
+                          break
+                        }
+                      }
+                      return updated ? { ...m, timeline: tl } : m
+                    })
+                  }
+                  return next
+                })
               } else if (eventType === 'thinking') {
                 const entry = _sseEventToTimeline(event)
                 if (entry) {
