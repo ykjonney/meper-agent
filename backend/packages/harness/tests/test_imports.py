@@ -27,7 +27,7 @@ def test_version_is_pep440_string() -> None:
 
 
 def test_submodule_imports_resolve() -> None:
-    """Each of the 6 core module packages imports without error."""
+    """Each of the core module packages imports without error."""
     import importlib
 
     for mod in (
