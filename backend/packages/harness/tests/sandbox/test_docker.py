@@ -12,7 +12,7 @@ def _make_sandbox(tmp_path, enabled=False) -> DockerSandbox:
     return DockerSandbox(
         sandbox_id="test",
         work_dir=tmp_path,
-        mounts={"tmp": tmp_path / "tmp"},
+        mounts={"tmp": tmp_path / "tmp", "output": tmp_path / "output"},
         config=config,
         timeout=10,
     )
@@ -80,11 +80,13 @@ def test_id_property(tmp_path):
 
 
 def test_file_operations_work(tmp_path):
-    """文件操作（read/write/glob/grep）在 work_dir 上工作。"""
+    """文件操作: write 写到 output_dir, read/glob/grep 读 work_dir。"""
     sb = _make_sandbox(tmp_path)
+    # write goes to output_dir
     sb.write_file("note.txt", "hello world")
-    assert sb.read_file("note.txt") == "hello world"
+    assert (tmp_path / "output" / "note.txt").read_text() == "hello world"
 
+    # read/glob operate on work_dir
     (tmp_path / "a.py").write_text("print('x')")
     matches = sb.glob(".", "*.py")
     assert any("a.py" in m for m in matches)
