@@ -8,6 +8,7 @@ import { apiClient, type NormalizedApiError } from '../lib/api-client'
 import { ENV } from '../config/env'
 import { REFRESH_TOKEN_KEY, useAuthStore } from '../stores/auth-store'
 import { authApi } from './auth-api'
+import type { TokenUsage } from '../types'
 
 /* ─── Types (snake_case, matches backend schemas) ─── */
 
@@ -28,6 +29,8 @@ export interface Agent {
   knowledge_base_ids: string[]
   default_model: string
   max_retry: number
+  /** Session token budget (0 = use global DEFAULT_SESSION_MAX_TOKENS). */
+  max_tokens: number
   status: AgentStatus
   created_at: string
   updated_at: string
@@ -55,6 +58,8 @@ export interface AgentUpdateInput {
   knowledge_base_ids?: string[]
   default_model?: string
   max_retry?: number
+  /** Session token budget (0 = use global default). */
+  max_tokens?: number
 }
 
 /** Model config update payload — kept for backward compat type exports */
@@ -193,6 +198,8 @@ export interface StreamDoneEvent {
   done: true
   request_id: string
   session_id: string
+  /** Token usage for the completed run (backend includes this on the done event). */
+  usage?: TokenUsage
 }
 
 /** Union of all SSE event types */

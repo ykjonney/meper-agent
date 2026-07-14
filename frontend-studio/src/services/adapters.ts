@@ -79,6 +79,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
     skills: [...skillsFromSkillIds, ...skillsFromMcp, ...skillsFromBuiltin, ...skillsFromWorkflows],
     lastActive: a.updated_at ? new Date(a.updated_at).toLocaleString() : '—',
     maxRetry: a.max_retry ?? 3,
+    maxTokens: a.max_tokens ?? 0,
   }
 }
 
@@ -93,6 +94,7 @@ export function fromStudioAgent(a: Agent): {
   builtin_config?: string[]
   workflow_ids?: string[]
   max_retry?: number
+  max_tokens?: number
 } {
   // Split skill view-model strings back into their origin buckets.
   const skill_ids: string[] = []
@@ -123,6 +125,7 @@ export function fromStudioAgent(a: Agent): {
     builtin_config,
     ...(workflow_ids.length ? { workflow_ids } : {}),
     max_retry: a.maxRetry ?? 3,
+    max_tokens: a.maxTokens ?? 0,
   }
 }
 

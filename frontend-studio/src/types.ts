@@ -23,6 +23,8 @@ export interface Agent {
   lastActive: string;
   /** Max retry count for execution (backend: 0-10, default 3). */
   maxRetry?: number;
+  /** Session token budget (backend max_tokens; 0 = use global default). */
+  maxTokens?: number;
 }
 
 export interface Skill {
@@ -115,6 +117,15 @@ export interface ApiKey {
   status: 'active' | 'revoked';
 }
 
+/** Token usage for an agent message (mirrors backend token_usage / SSE done usage). */
+export interface TokenUsage {
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  llm_calls?: number;
+  tool_calls?: number;
+}
+
 export interface Message {
   id: string;
   senderName: string;
@@ -139,6 +150,8 @@ export interface Message {
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
   toolStatus?: 'running' | 'success' | 'error';
+  /** Token usage for this agent message (history: rec.token_usage; stream: done event usage). */
+  usage?: TokenUsage;
 }
 
 /** 对话内可预览附件（用户上传 / agent 产出统一模型）。
