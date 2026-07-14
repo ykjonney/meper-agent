@@ -98,6 +98,8 @@ def _extract_endpoint(request: Request) -> str:
         return "agents:invoke:resume"
     if "/agents/" in path and path.endswith("/invoke"):
         return "agents:invoke"
+    if "/agents/" in path and path.endswith("/sessions"):
+        return "agents:sessions"
     if "/agents" in path:
         return "agents:read"
     if "/workflows/" in path and path.endswith("/invoke"):

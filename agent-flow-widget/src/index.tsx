@@ -19,3 +19,27 @@ function init(config: WidgetConfig): void {
 }
 
 (window as any).AgentChat = { init };
+
+// 自动初始化：检测当前 <script> 标签上的 data-* 属性
+// <script src="agent-chat.js" data-api-key="sk-xxx" data-agent-id="agent_xxx" data-api-base-url="http://..."></script>
+(function autoInit() {
+  const scripts = document.querySelectorAll('script[src]');
+  for (let i = scripts.length - 1; i >= 0; i--) {
+    const el = scripts[i] as HTMLScriptElement;
+    const agentId = el.getAttribute('data-agent-id');
+    if (!agentId) continue;
+
+    const apiKey = el.getAttribute('data-api-key') || '';
+    const apiBaseUrl = el.getAttribute('data-api-base-url') || '';
+    const title = el.getAttribute('data-title') || undefined;
+    const position = (el.getAttribute('data-position') || undefined) as WidgetConfig['position'];
+
+    const suggestedQuestionsAttr = el.getAttribute('data-suggested-questions');
+    const suggestedQuestions = suggestedQuestionsAttr
+      ? suggestedQuestionsAttr.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined;
+
+    init({ apiKey, agentId, apiBaseUrl, title, position, suggestedQuestions });
+    break; // 只初始化第一个匹配的 script
+  }
+})();

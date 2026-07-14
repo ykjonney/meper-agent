@@ -62,4 +62,4 @@ dist/agent-chat.js  29.85 kB │ gzip: 10.82 kB
 3. **unmount 安全性**：流式处理过程中如果组件 unmount，`for await` 循环仍会运行并尝试 `setState`。建议后续任务添加 AbortController 支持。
 
 ## Commit
-（待提交）
+`2302029` - feat(widget): SSE event parsing and timeline rendering

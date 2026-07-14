@@ -64,7 +64,9 @@ agent-flow/
 │   ├── docker-compose.dev.yml
 │   ├── Dockerfile.caddy  # 前端静态服务 + 反向代理
 │   └── Dockerfile.sandbox# Agent 命令沙盒镜像
-└── docs/                 # 项目文档
+├── agent-flow-widget/    # 访客端嵌入式聊天插件（Preact + Shadow DOM）
+├── docs/                 # 项目文档
+└── README.md
 ```
 
 ## 前置依赖
@@ -366,6 +368,48 @@ make deploy-check
 | 图像处理 | libjpeg-dev, zlib1g-dev, Pillow |
 | Node.js | 22.x（含 npm） |
 | Python 数据科学栈 | pandas, numpy, scipy, matplotlib, openpyxl |
+
+## Chat Widget（访客端嵌入式聊天插件）
+
+项目内置一个可嵌入任意前端页面的轻量级聊天插件（`agent-flow-widget/`），通过 API Key 认证调用 agent-flow 后端 Agent，适用于客服、FAQ、外部用户交互等场景。
+
+### 特性
+
+- 轻量级（gzip 后 ~13KB），基于 Preact + Vite
+- Shadow DOM 样式隔离，不影响宿主页面
+- 响应式设计，支持拖拽调整窗口大小
+- API Key 认证 + 多访客会话隔离（visitor_id）
+- 历史会话管理（查看 / 切换 / 删除）
+- 预定义引导问题
+- 完整的 timeline 渲染（工具调用、thinking、interrupt 澄清卡片）
+
+### 使用方式
+
+后端通过 `/static/` 托管编译后的 widget JS，在目标页面引入即可：
+
+```html
+<script src="https://your-agent-flow.com/static/agent-chat.js"></script>
+<script>
+  AgentChat.init({
+    apiKey: 'sk-xxx',           // 必填：在管理后台创建 API Key
+    agentId: 'agent-123',       // 必填：目标 Agent ID
+    apiBaseUrl: 'https://your-agent-flow.com',  // 必填：后端地址
+    title: '智能助手',           // 可选：窗口标题，默认 "AI 助手"
+    position: 'bottom-right',   // 可选：浮动按钮位置
+  });
+</script>
+```
+
+> 详细文档见 [`agent-flow-widget/README.md`](agent-flow-widget/README.md)。
+
+### 本地开发
+
+```bash
+cd agent-flow-widget
+npm install
+npm run dev    # 启动测试页面 http://localhost:5174
+npm run build  # 编译到 backend/static/ 供后端托管
+```
 
 ## 路径变量说明（HOST_DIR vs CONTAINER_DIR）
 

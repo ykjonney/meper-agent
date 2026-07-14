@@ -17,6 +17,10 @@ export default defineConfig({
       compress: {
         drop_console: true,
       },
+      format: {
+        // 保留 window.AgentChat 赋值
+        semicolons: true,
+      },
     },
   },
 });

@@ -145,3 +145,45 @@ class ExtTaskResponse(BaseModel):
     error: dict | None = None
     created_at: str
     updated_at: str
+
+
+# ---------------------------------------------------------------------------
+# Session schemas
+# ---------------------------------------------------------------------------
+
+
+class ExtSessionResponse(BaseModel):
+    """Session summary for external listing."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+class ExtSessionListResponse(BaseModel):
+    """Paginated session list for external API."""
+
+    items: list[ExtSessionResponse]
+    total: int
+
+
+class ExtMessageResponse(BaseModel):
+    """Message in a session for external API."""
+
+    id: str
+    role: str
+    content: str
+    timeline_entries: list[dict] = Field(default_factory=list)
+    created_at: str
+
+
+class ExtSessionDetailResponse(BaseModel):
+    """Session detail with messages for external API."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: list[ExtMessageResponse]

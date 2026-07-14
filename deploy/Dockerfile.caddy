@@ -1,6 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
-# --- Stage 1: Build frontend-studio ---
+# --- Stage 1: Build chat widget ---
+FROM node:22-alpine AS widget-builder
+
+WORKDIR /app
+
+COPY agent-flow-widget/package.json agent-flow-widget/package-lock.json* ./
+RUN npm ci
+
+COPY agent-flow-widget/ ./
+RUN npm run build
+
+# --- Stage 2: Build frontend-studio ---
 FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app
@@ -11,11 +22,14 @@ RUN npm ci
 COPY frontend-studio/ ./
 RUN npm run build
 
-# --- Stage 2: Caddy serving frontend + reverse proxy ---
+# --- Stage 3: Caddy serving frontend + widget + reverse proxy ---
 FROM caddy:2-alpine
 
 # Copy built frontend assets
 COPY --from=frontend-builder /app/dist /srv
+
+# Copy built widget JS
+COPY --from=widget-builder /app/dist/agent-chat.js /srv/static/agent-chat.js
 
 # Copy Caddyfile
 COPY deploy/Caddyfile /etc/caddy/Caddyfile

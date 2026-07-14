@@ -93,12 +93,7 @@ def test_config_to_doc_omits_empty():
     doc = _config_to_doc(AgentConfig(name="x"))
     assert "guards" not in doc
     assert "middleware" not in doc
-
-
-def test_config_to_doc_includes_prompt_slots():
-    cfg = AgentConfig(name="x", prompt_slots={"role": "助手"})
-    doc = _config_to_doc(cfg)
-    assert doc["prompt_slots"] == {"role": "助手"}
+    assert "prompt_slots" not in doc  # slots are app-layer; harness drops them
 
 
 # ---------------------------------------------------------------------------

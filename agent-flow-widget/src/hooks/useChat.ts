@@ -1,9 +1,11 @@
 // agent-flow-widget/src/hooks/useChat.ts
 
 import { useState, useCallback, useRef } from 'preact/hooks';
-import type { Message, TimelineEntry, InterruptData, ToolStatus } from '../types';
+import type { Message, TimelineEntry, InterruptData, ToolStatus, Session } from '../types';
 import { streamAgentMessage, resumeAgentMessage } from '../services/agent-api';
+import { listSessions, deleteSession as deleteSessionApi } from '../services/session-api';
 import { getOrCreateVisitorId } from '../lib/visitor';
+import { getConfig } from '../services/api-client';
 
 interface UseChatReturn {
   messages: Message[];
@@ -17,6 +19,12 @@ interface UseChatReturn {
   clearMessages: () => void;
   pendingInterrupt: InterruptData | null;
   resumeWithAnswer: (answer: string) => Promise<void>;
+  sessions: Session[];
+  isSessionsLoading: boolean;
+  loadSessions: () => Promise<void>;
+  switchSession: (id: string) => void;
+  deleteSession: (id: string) => Promise<void>;
+  newSession: () => void;
 }
 
 let entryCounter = 0;
@@ -42,6 +50,16 @@ function findLastEntry(
 }
 
 /**
+ * 仅检查 timeline 末尾最后一条是否匹配 type。
+ * 用于 text / thinking 等需要按顺序分组的条目——
+ * 如果中间被其他类型（如 tool_call）打断，则新建条目而非追加到旧的。
+ */
+function lastEntry(tl: TimelineEntry[], type: string): TimelineEntry | undefined {
+  const last = tl[tl.length - 1];
+  return last && last.type === type ? last : undefined;
+}
+
+/**
  * 处理 SSE 事件流，更新 timeline 与相关状态
  */
 async function processStream(
@@ -54,41 +72,38 @@ async function processStream(
   assistantMsgId: string,
   isResume: boolean
 ): Promise<void> {
+  // 跟踪是否已收到 text_delta（避免 text 事件重复）
+  let hasTextDelta = false;
+  // 收集最终的 text 内容
+  let collectedText = '';
+
   for await (const event of stream) {
     switch (event.type) {
       case 'text_delta': {
+        hasTextDelta = true;
         const content = String(event.content || '');
+        collectedText += content;
         setTimeline(prev => {
-          const last = findLastEntry(prev, 'text');
+          const last = lastEntry(prev, 'text');
           if (last) {
             return prev.map(e => e.id === last.id ? { ...e, content: e.content + content } : e);
           }
           return [...prev, { id: makeId(), type: 'text', content, timestamp: Date.now() }];
-        });
-        // 同步更新 assistant message content（向后兼容）
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === assistantMsgId);
-          if (idx === -1) return prev;
-          return prev.map((m, i) => i === idx ? { ...m, content: m.content + content } : m);
         });
         break;
       }
 
       case 'text': {
-        // text 事件可能是完整文本块，也可能是增量（取决于后端实现）
-        // 采用增量追加，与 text_delta 一致
+        // 如果已收到 text_delta，忽略 text 事件（避免重复）
+        if (hasTextDelta) break;
         const content = String(event.content || '');
+        collectedText += content;
         setTimeline(prev => {
-          const last = findLastEntry(prev, 'text');
+          const last = lastEntry(prev, 'text');
           if (last) {
             return prev.map(e => e.id === last.id ? { ...e, content: e.content + content } : e);
           }
           return [...prev, { id: makeId(), type: 'text', content, timestamp: Date.now() }];
-        });
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === assistantMsgId);
-          if (idx === -1) return prev;
-          return prev.map((m, i) => i === idx ? { ...m, content: m.content + content } : m);
         });
         break;
       }
@@ -97,7 +112,7 @@ async function processStream(
       case 'thinking': {
         const content = String(event.content || '');
         setTimeline(prev => {
-          const last = findLastEntry(prev, 'thinking');
+          const last = lastEntry(prev, 'thinking');
           if (last) {
             return prev.map(e => e.id === last.id ? { ...e, content: e.content + content } : e);
           }
@@ -206,10 +221,14 @@ async function processStream(
 
       case 'done': {
         setSessionId(String(event.session_id || ''));
+        // 将收集的 text 设置到 assistant 消息，并标记 streaming 完成
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === assistantMsgId);
           if (idx === -1) return prev;
-          return prev.map((m, i) => i === idx ? { ...m, streaming: false } : m);
+          return prev.map((m, i) => i === idx
+            ? { ...m, content: collectedText || m.content, streaming: false }
+            : m
+          );
         });
         break;
       }
@@ -225,11 +244,34 @@ export function useChat(): UseChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pendingInterrupt, setPendingInterrupt] = useState<InterruptData | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
 
   const visitorId = useRef(getOrCreateVisitorId());
+  const timelineRef = useRef<TimelineEntry[]>([]);
+  timelineRef.current = timeline;
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isLoading) return;
+
+    // 将当前 timeline 中的 text 合并到之前的 assistant 消息（如果有）
+    setMessages(prev => {
+      // 找到当前 streaming 的 assistant 消息，将其 content 更新为 timeline 中的 text
+      const streamingIdx = prev.findIndex(m => m.role === 'assistant' && m.streaming);
+      if (streamingIdx === -1) return prev;
+
+      // 从 timeline 中提取所有 text 内容
+      const textContent = timelineRef.current
+        .filter(e => e.type === 'text')
+        .map(e => e.content)
+        .join('');
+
+      if (!textContent) return prev;
+
+      return prev.map((m, i) =>
+        i === streamingIdx ? { ...m, content: textContent, streaming: false } : m
+      );
+    });
 
     const userMessage: Message = {
       id: makeId(),
@@ -317,6 +359,63 @@ export function useChat(): UseChatReturn {
     setPendingInterrupt(null);
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    setIsSessionsLoading(true);
+    try {
+      const { agentId } = getConfig();
+      const result = await listSessions(agentId, visitorId.current);
+      setSessions(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载会话列表失败');
+    } finally {
+      setIsSessionsLoading(false);
+    }
+  }, []);
+
+  const switchSession = useCallback(async (id: string) => {
+    setSessionId(id);
+    setMessages([]);
+    setTimeline([]);
+    setError(null);
+    setPendingInterrupt(null);
+
+    // 加载历史消息（每条 agent 消息携带自己的 timeline）
+    try {
+      const { getSessionDetail } = await import('../services/session-api');
+      const { messages } = await getSessionDetail(id, visitorId.current);
+      setMessages(messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载历史消息失败');
+    }
+  }, []);
+
+  const newSession = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setTimeline([]);
+    setError(null);
+    setPendingInterrupt(null);
+  }, []);
+
+  const deleteSession = useCallback(async (id: string) => {
+    try {
+      await deleteSessionApi(id, visitorId.current);
+      // 如果删除的是当前会话，清空消息
+      if (sessionId === id) {
+        setSessionId(null);
+        setMessages([]);
+        setTimeline([]);
+        setPendingInterrupt(null);
+      }
+      // 刷新列表
+      const { agentId } = getConfig();
+      const result = await listSessions(agentId, visitorId.current);
+      setSessions(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除会话失败');
+    }
+  }, [sessionId]);
+
   return {
     messages,
     timeline,
@@ -329,5 +428,11 @@ export function useChat(): UseChatReturn {
     clearMessages,
     pendingInterrupt,
     resumeWithAnswer,
+    sessions,
+    isSessionsLoading,
+    loadSessions,
+    switchSession,
+    deleteSession,
+    newSession,
   };
 }

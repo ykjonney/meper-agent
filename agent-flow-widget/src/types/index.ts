@@ -12,6 +12,8 @@ export interface WidgetConfig {
   title?: string;
   /** 可选：浮窗位置 */
   position?: 'bottom-right' | 'bottom-left';
+  /** 可选：预定义问题（覆盖后端配置） */
+  suggestedQuestions?: string[];
 }
 
 /** 时间线条目类型 */
@@ -63,6 +65,7 @@ export interface Session {
   title: string;
   createdAt: number;
   updatedAt: number;
+  messageCount?: number;
 }
 
 /** SSE 流式事件 - 扩展支持所有事件类型 */
