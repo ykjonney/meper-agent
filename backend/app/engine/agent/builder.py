@@ -288,6 +288,30 @@ def _build_builtin_tool_declaration(builtin_config: list[str]) -> str:
             desc = tool_desc_map.get(name, name)
             lines.append(f"- **{name}**: {desc}")
 
+    # ask_clarification is always available (not gated by builtin_config)
+    lines.extend([
+        "",
+        "### Clarification",
+        "",
+        "When you need more information from the user, you MUST call the **ask_clarification** tool.",
+        "Do NOT ask questions in plain text — the tool provides interactive UI (option buttons,",
+        "confirmation dialogs) that plain text cannot.",
+        "",
+        "Choose the appropriate `clarification_type`:",
+        "- `missing_info`: Missing required details (e.g. file format, target audience).",
+        "  Set `options` if there are common choices.",
+        "- `ambiguous_requirement`: User's request has multiple interpretations.",
+        "  Set `options` to the distinct interpretations.",
+        "- `approach_choice`: Multiple valid approaches exist (e.g. React vs Vue).",
+        "  Set `options` to the approach names.",
+        "- `risk_confirmation`: About to perform a risky/irreversible action.",
+        "  Do NOT set `options` — the UI provides confirm/cancel buttons.",
+        "- `suggestion`: Recommending a specific approach.",
+        "  Set `options` to alternative suggestions if applicable.",
+        "",
+        "**IMPORTANT**: `options` must be a JSON array of strings, e.g. `[\"React\", \"Vue\", \"Svelte\"]`.",
+    ])
+
     return "\n".join(lines)
 
 
