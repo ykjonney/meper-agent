@@ -1,6 +1,6 @@
 # Agent Flow
 
-AI Agent 编排与自动化平台。支持 Agent 管理、可视化工作流编排、MCP/Skill 工具集成、RBAC 权限控制、任务调度与执行。
+AI Agent 编排与自动化平台。支持 Agent 管理、可视化工作流编排、MCP/Skill 工具集成、RBAC 权限控制、任务调度与执行、会话级 Token 限额保护、可观测性（结构化日志 / LangSmith 链路追踪 / Token 消耗可视化）。
 
 ## 技术栈
 
@@ -219,7 +219,13 @@ npm run dev
 | `CELERY_RESULT_BACKEND` | Celery 结果后端地址 | `redis://localhost:6379/2` |
 | `CORS_ORIGINS` | 允许的跨域来源（逗号分隔） | `http://localhost:5173,http://localhost:3000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
+| `LOG_JSON_FORMAT` | 日志是否输出 JSON 格式 | `false` |
 | `MODEL_ENCRYPTION_KEY` | API Key 加密密钥 | — |
+| **可观测性** | | |
+| `LANGSMITH_API_KEY` | LangSmith API Key（留空则不启用链路追踪，[免费 Developer 计划](https://www.langchain.com/pricing)含 5000 traces/月） | — |
+| `LANGSMITH_PROJECT` | LangSmith 项目名称 | `agent-flow` |
+| **Token 限额** | | |
+| `DEFAULT_SESSION_MAX_TOKENS` | 单个会话累计 Token 上限（超出后 Agent 自动停止），Agent 可通过 `max_tokens` 字段单独覆盖 | `200000` |
 | **工作空间路径** | | |
 | `WORKSPACES_HOST_DIR` | 宿主机工作空间根目录，按 `{user_id}/{session_id}/` 分子目录 | `~/.agent-flow/workspaces` |
 | `WORKSPACES_CONTAINER_DIR` | 容器内工作空间路径。**本地开发无需设置**，自动推导为 `WORKSPACES_HOST_DIR`；Docker 部署时由 `docker-compose.yml` 注入 | 自动推导 |
@@ -412,6 +418,30 @@ sandbox_docker_executed exit_code=0 duration="0.5s"
 ```
 
 若看到 `sandbox_subprocess_executed` 则说明未成功启用沙盒，仍在使用降级的 subprocess 执行。
+
+## 可观测性
+
+### Token 消耗可视化
+
+每条 AI 回复下方会显示本轮 Token 用量（如 `· 1,234 tokens · 3 轮`），数据持久化到 Message 和 Session 文档中，刷新页面不丢失。
+
+### 会话级 Token 限额
+
+通过 `DEFAULT_SESSION_MAX_TOKENS`（默认 20 万）配置全局会话 Token 上限。每个 Agent 可在配置页单独设置 `max_tokens` 字段覆盖全局默认值。超出限额时 Agent 自动停止，防止恶意消耗 LLM API 配额。
+
+### 结构化日志
+
+后端使用 loguru 统一日志管道（stdout 人类可读 + 文件 JSON 序列化）。harness 引擎的 structlog 日志自动桥接到 loguru，确保所有日志格式统一、共享同一文件 sink。uvicorn access log 已关闭以避免重复。
+
+### LangSmith 链路追踪（可选）
+
+在 `.env` 中设置 `LANGSMITH_API_KEY` 即可启用 LangSmith 链路追踪。启用后，每次 Agent 执行的 LLM 调用、工具调用、REACT 循环都会以 trace 树的形式上报到 `smith.langchain.com`，可在 Web UI 中查看完整的执行链路、Token 用量和延迟分析。
+
+```bash
+# .env 中添加
+LANGSMITH_API_KEY=lsv2_xxx
+LANGSMITH_PROJECT=agent-flow
+```
 
 ## 默认角色与权限
 
