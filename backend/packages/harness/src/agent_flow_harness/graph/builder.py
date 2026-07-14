@@ -32,7 +32,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -104,18 +103,10 @@ def build_agent_graph(
     builder.add_node("llm", llm_node)
 
     # Native ToolNode with middleware wrapper.
-    # Custom error handler: re-raise GraphBubbleUp (from interrupt()) so it
-    # propagates to the graph executor instead of becoming an error ToolMessage.
-    def _tool_error_handler(exc: Exception) -> str:
-        if isinstance(exc, GraphBubbleUp):
-            raise exc
-        return f"Error: {exc!r}\n Please fix your mistakes."
-
     tool_node = ToolNode(
         tool_seq,
         name="tools",
         awrap_tool_call=make_tool_wrapper(chain),
-        handle_tool_errors=_tool_error_handler,
     )
     builder.add_node("tools", tool_node)
 
