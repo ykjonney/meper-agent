@@ -608,9 +608,11 @@ export default function ChatPanel({
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id !== agentMsgId) return m
-                  // Close any lingering pending/running tool entries
+                  // Close any lingering pending/running tool entries.
+                  // Skip ask_clarification — it's interrupted and waiting for
+                  // user input, so it should stay "running" to keep the UI interactive.
                   const tl = (m.timeline ?? []).map((entry) =>
-                    entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running')
+                    entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running') && entry.toolName !== 'ask_clarification'
                       ? { ...entry, toolStatus: 'success' as ToolStatus }
                       : entry,
                   )
