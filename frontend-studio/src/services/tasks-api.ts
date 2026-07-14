@@ -230,6 +230,26 @@ export interface TaskOutputFile {
   updated_at: string
 }
 
+/**
+ * Agent 节点执行详情（按需从 LangGraph checkpointer thread 读取）。
+ * 对齐后端 NodeTimelineResponse / NodeTimelineEntry（snake_case）。
+ */
+export interface NodeTimelineEntry {
+  type: 'thinking' | 'text' | 'tool_call' | 'tool_result' | 'tool' | 'user'
+  content?: string
+  tool_name?: string
+  args?: Record<string, unknown>
+  id?: string
+}
+
+export interface NodeTimelineResponse {
+  task_id: string
+  node_id: string
+  thread_id: string
+  timeline: NodeTimelineEntry[]
+  message_count: number
+}
+
 /* ─── API methods ─── */
 
 export const tasksApi = {
@@ -302,6 +322,18 @@ export const tasksApi = {
   },
 
   /**
+   * Get Agent node execution detail (thinking / tool_call / tool_result / text).
+   * Read on demand from the LangGraph checkpointer thread.
+   * GET /api/v1/tasks/{id}/nodes/{nodeId}/timeline
+   */
+  async getNodeTimeline(taskId: string, nodeId: string): Promise<NodeTimelineResponse> {
+    const res = await apiClient.get<NodeTimelineResponse>(
+      `/api/v1/tasks/${encodeURIComponent(taskId)}/nodes/${encodeURIComponent(nodeId)}/timeline`,
+    )
+    return res.data
+  },
+
+  /**
    * Get task statistics (running/pending/limits).
    * GET /api/v1/tasks/stats
    */
@@ -345,6 +377,7 @@ export const taskKeys = {
   detail: (id: string) => [...taskKeys.details(), id] as const,
   logs: (id: string) => [...taskKeys.detail(id), 'logs'] as const,
   outputs: (id: string) => [...taskKeys.detail(id), 'outputs'] as const,
+  nodeTimeline: (id: string, nodeId: string) => [...taskKeys.detail(id), 'nodeTimeline', nodeId] as const,
   stats: () => [...taskKeys.all, 'stats'] as const,
   workflows: () => [...taskKeys.all, 'workflows'] as const,
 }

@@ -17,11 +17,13 @@ import {
   PlayCircle, StopCircle, Workflow, Wrench, GitBranch, Split, UserCheck,
   ChevronRight, Clock, CheckCircle2, XCircle, Loader2, CircleDot, Flag,
 } from 'lucide-react'
-import type { TaskDetail, TimelineEvent } from '../../services/tasks-api'
+import { tasksApi, taskKeys, type TaskDetail, type TimelineEvent, type NodeTimelineEntry } from '../../services/tasks-api'
 import { useQuery } from '@tanstack/react-query'
 import { workflowsApi, workflowKeys } from '../../services/workflows-api'
 import { getNodeExecState, type NodeExecState, type NodeStageInfo } from './task-flow-utils'
 import { DataView } from './DataView'
+import { Spin } from '../ui'
+import AgentTimeline from './AgentTimeline'
 
 /* ─── 节点类型 → 图标 / 中文标签（与 WorkflowDesigner 的 NODE_TYPE_CONFIGS 对齐） ─── */
 
@@ -149,6 +151,16 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     queryKey: workflowKeys.detail(templateId),
     queryFn: () => workflowsApi.get(templateId),
     enabled: !!templateId,
+    staleTime: 60_000,
+    retry: 1,
+  })
+
+  // Agent 节点「执行详情」：点开才按需拉取（从 checkpointer thread 读 agent trace）
+  const [execDetailNode, setExecDetailNode] = useState<string | null>(null)
+  const { data: nodeTimeline, isLoading: nodeTimelineLoading, error: nodeTimelineError } = useQuery({
+    queryKey: taskKeys.nodeTimeline(task.id, execDetailNode ?? ''),
+    queryFn: () => tasksApi.getNodeTimeline(task.id, execDetailNode!),
+    enabled: !!execDetailNode,
     staleTime: 60_000,
     retry: 1,
   })
@@ -297,6 +309,21 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                       </div>
                     )}
                   </div>
+
+                  {/* Agent 节点执行详情：点开按需从 checkpointer 拉 agent trace */}
+                  {stage.nodeType === 'agent' && state !== 'pending' && (
+                    <NodeExecDetail
+                      active={execDetailNode === stage.nodeId}
+                      onToggle={() =>
+                        setExecDetailNode((prev) => (prev === stage.nodeId ? null : stage.nodeId))
+                      }
+                      loading={nodeTimelineLoading}
+                      error={nodeTimelineError}
+                      messageCount={nodeTimeline?.message_count}
+                      timeline={nodeTimeline?.timeline}
+                      theme={theme}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -312,6 +339,62 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
           time={terminalEvt.timestamp}
           subText={subText}
         />
+      )}
+    </div>
+  )
+}
+
+/* ─── 子组件：Agent 节点执行详情（懒加载） ─── */
+
+function NodeExecDetail({
+  active,
+  onToggle,
+  loading,
+  error,
+  messageCount,
+  timeline,
+  theme,
+}: {
+  active: boolean
+  onToggle: () => void
+  loading: boolean
+  error: unknown
+  messageCount?: number
+  timeline?: NodeTimelineEntry[]
+  theme: 'light' | 'dark'
+}) {
+  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  return (
+    <div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggle()
+        }}
+        className={`flex items-center gap-1 text-[10px] font-medium transition-colors hover:text-[#1E5EFF] ${active ? 'text-[#1E5EFF]' : mutedText}`}
+      >
+        <ChevronRight className={`w-3 h-3 transition-transform ${active ? 'rotate-90' : ''}`} />
+        {active ? '收起执行详情' : '查看执行详情'}
+      </button>
+      {active && (
+        <div onClick={(e) => e.stopPropagation()} className="mt-1.5 space-y-1.5">
+          {loading ? (
+            <div className="flex items-center justify-center py-4">
+              <Spin />
+            </div>
+          ) : error ? (
+            <div className={`text-[10px] ${theme === 'dark' ? 'text-[#EF4444]' : 'text-red-500'}`}>
+              加载失败：{(error as { message?: string })?.message ?? '请稍后重试'}
+            </div>
+          ) : timeline ? (
+            <>
+              {messageCount !== undefined && messageCount > 0 && (
+                <div className={`text-[10px] ${mutedText}`}>消息数 {messageCount}</div>
+              )}
+              <AgentTimeline entries={timeline} theme={theme} />
+            </>
+          ) : null}
+        </div>
       )}
     </div>
   )
