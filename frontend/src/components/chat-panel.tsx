@@ -208,10 +208,10 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       result.push({ id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' })
     } else if (e.type === 'text') {
       result.push({ id: `h-fa-${i}`, type: 'text', content: e.content ?? '' })
-    } else if (e.type === 'tool_call_start') {
-      // Transient streaming event — skip in history (no UI representation needed)
+    } else if (e.type === 'tool_call_start' || e.type === 'interrupt') {
+      // Transient/streaming-only events — skip in history
     } else {
-      result.push({ id: `h-unk-${i}`, type: 'error', content: JSON.stringify(e) })
+      // Unknown type — skip rather than render raw JSON
     }
   }
 

@@ -238,7 +238,7 @@ class AgentExecutionService:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_TRANSIENT_EVENT_TYPES = ("text_delta", "thinking_delta", "tool_call_start")
+_TRANSIENT_EVENT_TYPES = ("text_delta", "thinking_delta", "tool_call_start", "interrupt")
 
 
 async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) -> str:
