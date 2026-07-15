@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
 
 def get_checkpointer() -> Any:
     """返回 harness 的 checkpointer 单例。
@@ -80,6 +82,17 @@ async def resolve_harness_context(
         dict 含 keys: agent_doc, llm, tools, sb_token, ws_token,
               middlewares, context_window
     """
+    agent_id = agent.get("_id", "agent")
+    session_id = state.get("session_id", "")
+    logger.debug(
+        "harness_context_resolve_start",
+        agent_id=agent_id,
+        agent_name=agent.get("name", ""),
+        session_id=session_id,
+        enable_thinking=enable_thinking,
+        has_workspace=workspace is not None,
+    )
+
     from pathlib import Path
 
     from agent_flow_harness import (
@@ -258,6 +271,18 @@ async def resolve_harness_context(
 
     # 8. 注入 sandbox context
     sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
+
+    logger.debug(
+        "harness_context_resolved",
+        agent_id=agent_id,
+        model=model_ref,
+        context_window=context_window,
+        tool_count=len(all_tools),
+        tool_names=[getattr(t, "name", str(t)) for t in all_tools],
+        sandbox_enabled=settings.SANDBOX_ENABLED,
+        sandbox_id=sandbox_id,
+        session_token_limit=session_token_limit,
+    )
 
     return {
         "agent_doc": agent_doc,

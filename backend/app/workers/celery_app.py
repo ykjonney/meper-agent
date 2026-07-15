@@ -1,7 +1,7 @@
 """Celery application instance and configuration."""
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
-from celery.signals import worker_process_init  # type: ignore[import-untyped]
+from celery.signals import task_prerun, worker_process_init  # type: ignore[import-untyped]
 from loguru import logger
 
 from app.core.config import settings
@@ -50,14 +50,23 @@ celery_app.conf.update(
 
 
 @worker_process_init.connect
-def _configure_checkpointer(**_kwargs: object) -> None:
-    """在每个 Celery worker 子进程启动时配置 MongoDB checkpointer。
+def _init_worker(**_kwargs: object) -> None:
+    """每个 Celery worker 子进程启动时的初始化。
 
-    Celery worker 是独立进程，不走 FastAPI 的 lifespan，因此必须在
-    ``worker_process_init`` 信号中显式配置，否则 harness 默认使用
-    ``InMemorySaver``——agent 节点的 checkpoint 只存在于内存中，
-    进程重启后丢失，前端无法按 task+node 反查执行详情。
+    1. **日志初始化** — Celery worker 是独立进程，不走 FastAPI 的 lifespan，
+       ``app.main`` 里的 ``setup_logging()`` 不会执行。必须在此显式调用，
+       否则 worker 日志走 loguru 默认 sink（stderr 彩色输出），不写文件、
+       不受 ``LOG_LEVEL`` / ``LOG_JSON_FORMAT`` 控制、格式与主进程不一致。
+
+    2. **MongoDB checkpointer** — 同上，harness 默认使用 ``InMemorySaver``，
+       agent 节点的 checkpoint 只存在于内存中，进程重启后丢失，前端无法
+       按 task+node 反查执行详情。
     """
+    # 1. 日志初始化 — 必须在打任何日志之前完成
+    from app.core.logging import setup_logging
+    setup_logging()
+
+    # 2. Checkpointer 配置
     try:
         from agent_flow_harness import build_mongo_saver, configure_checkpointer
 
@@ -71,6 +80,21 @@ def _configure_checkpointer(**_kwargs: object) -> None:
         logger.debug("celery_checkpointer_configured", db=settings.MONGODB_DB_NAME)
     except Exception as exc:
         logger.error("celery_checkpointer_config_failed", error=str(exc))
+
+
+@task_prerun.connect
+def _inject_request_id(task_id=None, **_kwargs: object) -> None:
+    """在 Celery task 执行前注入 ``request_id`` 到 contextvar。
+
+    这样 worker 里所有 ``logger.xxx()`` 都能带上 task 关联标识，
+    便于在日志中按 task 反查执行链路。使用 task_id 的前 8 位作为
+    request_id（与 HTTP 请求的 8 位 hex 格式保持一致）。
+    """
+    from app.api.middleware.request_id import request_id_var
+
+    rid = (task_id or "-")[:8]
+    request_id_var.set(rid)
+    logger.contextualize(request_id=rid).__enter__()
 
 
 __all__ = ["celery_app"]
