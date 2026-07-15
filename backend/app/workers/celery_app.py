@@ -1,7 +1,10 @@
 """Celery application instance and configuration."""
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
-from celery.signals import task_prerun, worker_process_init  # type: ignore[import-untyped]
+from celery.signals import (  # type: ignore[import-untyped]
+    task_prerun,
+    worker_process_init,
+)
 from loguru import logger
 
 from app.core.config import settings
