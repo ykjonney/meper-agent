@@ -153,9 +153,10 @@ export interface ToolCallEvent {
   args: Record<string, unknown>
 }
 
-/** AI started generating a tool call (args not yet complete) */
+/** AI started generating a tool call (streaming placeholder) */
 export interface ToolCallStartEvent {
   type: 'tool_call_start'
+  tool_name?: string
 }
 
 /** Tool returned a result */
