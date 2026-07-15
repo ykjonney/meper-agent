@@ -354,13 +354,27 @@ export const agentApi = {
   },
 
   /**
+   * Resume an interrupted agent execution (after ask_clarification) via SSE.
+   * Same streaming contract as stream(): returns the raw Response so the caller
+   * consumes SSE. The user's answer is fed back so the agent continues instead
+   * of re-asking the same question. POST /api/v1/agents/{id}/resume
+   */
+  async resume(
+    agentId: string,
+    body: { session_id: string; answer: string; enable_thinking?: boolean },
+  ): Promise<Response> {
+    const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/resume`
+    return this._streamWithRetry(url, body)
+  },
+
+  /**
    * Internal: POST to SSE stream URL with fetch().  If the response is 401
    * TOKEN_EXPIRED, attempt a silent refresh once and retry.
    *
    * NOTE: standard Axios interceptors do NOT apply to fetch(), so this
    * method duplicates the minimal refresh logic seen in api-client.ts.
    */
-  async _streamWithRetry(url: string, body: ExecutionRequest, _retried = false): Promise<Response> {
+  async _streamWithRetry(url: string, body: Record<string, unknown>, _retried = false): Promise<Response> {
     const accessToken = useAuthStore.getState().accessToken
 
     const res = await fetch(url, {

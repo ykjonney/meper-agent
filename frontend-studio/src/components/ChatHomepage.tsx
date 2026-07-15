@@ -80,6 +80,9 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
       // `tool` is an already-merged entry from the backend; treat like a call.
       const name = entry.tool_name ?? '';
       const isError = typeof entry.content === 'string' && /\b(error|fail)/i.test(entry.content);
+      // ask_clarification: tool_call 阶段 agent 已发出问题并暂停等待用户回答，
+      // 标记 clarificationActive 让卡片可交互（后续 tool_result 合并时清除）。
+      const isClarification = name === 'ask_clarification';
       const idx = out.push({
         id: `${rec._id}-tool-${name}-${out.length}`,
         senderName: agentName,
@@ -90,8 +93,13 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
         status: 'tool',
         toolName: name,
         toolArgs: entry.args,
-        toolStatus: entry.type === 'tool' ? (isError ? 'error' : 'success') : 'running',
+        toolStatus: isClarification
+          ? 'success'
+          : entry.type === 'tool'
+            ? (isError ? 'error' : 'success')
+            : 'running',
         toolResult: entry.type === 'tool' ? entry.content : undefined,
+        clarificationActive: isClarification && entry.type === 'tool_call',
       }) - 1;
       if (entry.type === 'tool_call' && name) pendingTools.set(name, idx);
     } else if (entry.type === 'tool_result') {
@@ -104,6 +112,8 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
           ...out[pendingIdx],
           toolResult: entry.content ?? '',
           toolStatus: isError ? 'error' : 'success',
+          // 用户已回答 ask_clarification（tool_result 即答案），关闭交互态。
+          clarificationActive: false,
         };
         pendingTools.delete(name);
       } else {
@@ -504,6 +514,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filesPanelRef = useRef<SessionFilesPanelHandle>(null);
+  // ask_clarification 中断态：SSE 收到 interrupt 或历史回填时记录对应的 tool 消息 id，
+  // 使下一次发送走 /resume 而非 /stream（避免 agent 重复提问）。
+  const pendingInterruptRef = useRef<{ toolMsgId: string } | null>(null);
 
   const activeSession = sessions.find((s) => s._id === activeSessionId) ?? null;
   const activeAgent =
@@ -544,6 +557,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
           }
         }
         setLiveMessages(mapped);
+        // 检测未答的 ask_clarification（页面跳转后 SSE 中断导致 pendingInterruptRef 丢失）。
+        // 若有等待中的 clarification，恢复中断态，使下一次发送走 /resume 而非 /stream。
+        const pending = [...mapped].reverse().find((m) => m.clarificationActive);
+        if (pending) pendingInterruptRef.current = { toolMsgId: pending.id };
       })
       .catch((e) => {
         if (!cancelled) setStreamError(`加载会话失败：${(e as Error).message}`);
@@ -597,12 +614,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
   };
 
   /** Send a message and consume the SSE stream into liveMessages. */
-  const handleSendMessage = async (e?: FormEvent) => {
+  const handleSendMessage = async (e?: FormEvent, overrideText?: string) => {
     e?.preventDefault();
     const sessionId = activeSessionId;
     const agent = activeAgent;
     // Allow send with text only OR files only (matches legacy chat-panel.tsx).
-    const prompt = inputText.trim();
+    // overrideText 来自 ask_clarification 卡片的选项/内联回答（走 /resume）。
+    const prompt = (overrideText ?? inputText).trim();
     if ((!prompt && pendingFiles.length === 0) || !sessionId || !agent || isStreaming) return;
 
     setInputText('');
@@ -677,23 +695,55 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
       status: 'thinking',
     };
 
-    setLiveMessages((prev) => [...prev, userMsg, agentMsg]);
+    // ── 是否走 /resume：pendingInterruptRef 已设置（SSE interrupt）或存在等待中的
+    // ask_clarification（页面跳转后从历史恢复）。回答注入对应卡片作为结果，不再
+    // 单独渲染用户气泡；下次走 resume 让 agent 继续而非重复提问。
+    const resumeToolMsgId =
+      pendingInterruptRef.current?.toolMsgId ??
+      [...liveMessages].reverse().find((m) => m.clarificationActive)?.id;
+    const isResume = !!resumeToolMsgId;
+
+    setLiveMessages((prev) => {
+      if (isResume && resumeToolMsgId) {
+        // 回答作为旧 clarification 卡片的结果，关闭交互态；不渲染独立用户气泡。
+        return prev
+          .map((m) =>
+            m.id === resumeToolMsgId
+              ? {
+                  ...m,
+                  clarificationActive: false,
+                  toolResult: prompt,
+                  toolStatus: 'success' as const,
+                }
+              : m,
+          )
+          .concat(agentMsg);
+      }
+      return [...prev, userMsg, agentMsg];
+    });
+    pendingInterruptRef.current = null;
     setIsStreaming(true);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const res = await agentApi.stream(agent.id, {
-        input: prompt,
-        session_id: sessionId,
-        enable_thinking: enableThinking,
-        // file_ids: persists the reference on the user message (history).
-        // file_paths: backend embeds file contents into the LLM user message
-        // (agents.py:589-610) — without this the agent never sees the content.
-        file_ids: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
-        file_paths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
-      });
+      const res = isResume
+        ? await agentApi.resume(agent.id, {
+            session_id: sessionId,
+            answer: prompt,
+            enable_thinking: enableThinking,
+          })
+        : await agentApi.stream(agent.id, {
+            input: prompt,
+            session_id: sessionId,
+            enable_thinking: enableThinking,
+            // file_ids: persists the reference on the user message (history).
+            // file_paths: backend embeds file contents into the LLM user message
+            // (agents.py:589-610) — without this the agent never sees the content.
+            file_ids: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
+            file_paths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
+          });
       // Attachments already handed off to the execution request above
       // (pendingFiles cleared earlier in this function).
       if (!res.ok) {
@@ -833,6 +883,29 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
             break;
           case 'error':
             throw new Error(evt.content);
+          case 'interrupt': {
+            // Agent 经 ask_clarification 暂停等待用户回答：标记最近的 ask_clarification
+            // tool 消息为可交互，并记录其 id，使下一次发送走 /resume。
+            // （问题/选项/类型已在 tool_call 事件的 toolArgs 里，此处只翻转交互态。）
+            setLiveMessages((prev) => {
+              const idx = [...prev]
+                .reverse()
+                .findIndex(
+                  (m) =>
+                    m.status === 'tool' &&
+                    m.toolName === 'ask_clarification' &&
+                    !m.toolResult,
+                );
+              if (idx === -1) return prev;
+              const targetId = prev[prev.length - 1 - idx].id;
+              pendingInterruptRef.current = { toolMsgId: targetId };
+              return updateMsg(prev, targetId, {
+                clarificationActive: true,
+                toolStatus: 'success',
+              });
+            });
+            break;
+          }
           default:
             break;
         }
@@ -1082,7 +1155,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
                   </div>
                   {isTool ? (
                     <div className="max-w-2xl">
-                      <ToolCallCard msg={msg} />
+                      <ToolCallCard msg={msg} onAnswer={(a) => handleSendMessage(undefined, a)} />
                     </div>
                   ) : (
                   <div
@@ -1369,7 +1442,11 @@ function formatToolResult(raw?: string): { text: string; isJson: boolean } {
 
 const RESULT_COLLAPSE_THRESHOLD = 800;
 
-function ToolCallCard({ msg }: { msg: Message }) {
+function ToolCallCard({ msg, onAnswer }: { msg: Message; onAnswer?: (answer: string) => void }) {
+  // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
+  if (msg.toolName === 'ask_clarification') {
+    return <ClarificationCard msg={msg} onAnswer={onAnswer} />;
+  }
   const status = msg.toolStatus ?? 'running';
   const cfg = TOOL_STATUS_CFG[status];
   const [expanded, setExpanded] = useState(false);
@@ -1450,6 +1527,173 @@ function ToolCallCard({ msg }: { msg: Message }) {
               )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
+   ClarificationCard — ask_clarification 交互卡片
+   按 clarification_type 分样式渲染问题 + 选项/按钮 + 内联输入。
+   交互态（!answered && clarificationActive）选项可点、内联可填；已回答后选项
+   静态高亮、答案以 indigo 气泡附在卡片下方。暗色配色用 Tailwind opacity token，
+   明暗主题通用。对照 frontend/src/components/chat-panel.tsx 的 ask_clarification 渲染。
+   ──────────────────────────────────────────────────────────── */
+function ClarificationCard({
+  msg,
+  onAnswer,
+}: {
+  msg: Message;
+  onAnswer?: (answer: string) => void;
+}) {
+  const args = msg.toolArgs ?? {};
+  const question = args.question ? String(args.question) : '';
+  // LLM 可能把 options 传成 JSON 字符串，做一次兼容解析。
+  const rawOptions = args.options;
+  let options: string[] = [];
+  if (Array.isArray(rawOptions)) options = rawOptions as string[];
+  else if (typeof rawOptions === 'string') {
+    try {
+      options = JSON.parse(rawOptions);
+    } catch {
+      /* ignore */
+    }
+  }
+  const clarificationType = args.clarification_type
+    ? String(args.clarification_type)
+    : 'missing_info';
+  const answered = !!msg.toolResult;
+  const interactive = !answered && !!msg.clarificationActive;
+
+  const [inlineText, setInlineText] = useState('');
+  const submitInline = () => {
+    const t = inlineText.trim();
+    if (!t) return;
+    onAnswer?.(t);
+    setInlineText('');
+  };
+
+  const isRisk = clarificationType === 'risk_confirmation';
+  const isSuggestion = clarificationType === 'suggestion';
+  const verticalOptions =
+    clarificationType === 'approach_choice' || clarificationType === 'ambiguous_requirement';
+
+  const palette = isRisk
+    ? { wrap: 'bg-amber-500/10 border-amber-500/30', q: 'text-amber-200', icon: '⚠️' }
+    : isSuggestion
+      ? { wrap: 'bg-emerald-500/10 border-emerald-500/30', q: 'text-emerald-200', icon: '💡' }
+      : { wrap: 'bg-indigo-500/10 border-indigo-500/30', q: 'text-indigo-200', icon: '❓' };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={`rounded-xl rounded-tl-none border px-4 py-3 font-sans ${palette.wrap}`}>
+        <div className="flex items-start gap-2.5">
+          <span className="text-sm mt-0.5 select-none">{palette.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className={`text-[13px] whitespace-pre-wrap leading-relaxed ${palette.q}`}>
+              {question}
+            </div>
+
+            {options.length > 0 && (
+              <div className={`flex gap-2 mt-3 ${verticalOptions ? 'flex-col' : 'flex-wrap'}`}>
+                {options.map((opt, i) =>
+                  interactive ? (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => onAnswer?.(opt)}
+                      className="text-left px-3 py-1.5 rounded-lg text-xs border bg-[#121214] border-[#27272a] text-slate-200 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition cursor-pointer"
+                    >
+                      {opt}
+                    </button>
+                  ) : (
+                    <div
+                      key={i}
+                      className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                        msg.toolResult === opt
+                          ? 'bg-indigo-500/15 border-indigo-500/50 text-indigo-200 font-medium'
+                          : 'bg-[#121214]/60 border-[#27272a] text-[#71717a]'
+                      }`}
+                    >
+                      {opt}
+                      {msg.toolResult === opt && <span className="ml-1.5 text-indigo-400">✓</span>}
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
+
+            {/* risk_confirmation：确认执行 / 取消 */}
+            {interactive && isRisk && (
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => onAnswer?.('确认')}
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-rose-600 text-white hover:bg-rose-500 transition cursor-pointer"
+                >
+                  确认执行
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAnswer?.('取消')}
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-[#121214] border border-[#27272a] text-slate-300 hover:bg-[#27272a] transition cursor-pointer"
+                >
+                  取消
+                </button>
+              </div>
+            )}
+
+            {/* suggestion：接受按钮 */}
+            {interactive && isSuggestion && (
+              <div className="flex gap-2 mt-3 items-center">
+                <button
+                  type="button"
+                  onClick={() => onAnswer?.('接受建议')}
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-500 transition cursor-pointer"
+                >
+                  接受
+                </button>
+                <span className="text-[11px] text-[#71717a]">或输入其他回答</span>
+              </div>
+            )}
+
+            {/* 内联自由输入（交互态通用兜底） */}
+            {interactive && (
+              <div className="flex gap-1.5 mt-2.5">
+                <input
+                  type="text"
+                  value={inlineText}
+                  onChange={(e) => setInlineText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      submitInline();
+                    }
+                  }}
+                  placeholder="输入你的回答…"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs border border-[#27272a] bg-[#121214] text-slate-200 placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500/50"
+                />
+                <button
+                  type="button"
+                  onClick={submitInline}
+                  disabled={!inlineText.trim()}
+                  className="px-2.5 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition cursor-pointer"
+                >
+                  发送
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 用户答案：indigo 右对齐气泡 */}
+      {answered && (
+        <div className="flex flex-row-reverse">
+          <div className="max-w-[75%] rounded-xl rounded-tr-sm px-3 py-2 text-[13px] leading-relaxed bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 whitespace-pre-wrap">
+            {msg.toolResult}
+          </div>
         </div>
       )}
     </div>
