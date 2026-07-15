@@ -198,7 +198,8 @@ function historyEntryToTimeline(entries: TimelineEntryData[]): TimelineEntry[] {
       })
     } else if (e.type === 'thinking') {
       result.push({ id: `h-think-${i}`, type: 'thinking', content: e.content ?? '' })
-    } else if (e.type === 'text') {
+    } else if (e.type === 'text' || e.type === 'final_answer') {
+      // 'final_answer' is legacy v1 format — treat as text
       result.push({ id: `h-fa-${i}`, type: 'text', content: e.content ?? '' })
     } else if (e.type === 'tool_call_start' || e.type === 'interrupt') {
       // Transient/streaming-only events — skip in history
