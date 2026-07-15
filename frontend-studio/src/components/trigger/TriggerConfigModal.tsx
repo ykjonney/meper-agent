@@ -3,12 +3,18 @@
  *
  * 字段：工作流选择（创建模式）/ 只读（编辑模式）、启用开关、触发类型
  * (cron 重复 / once 一次性)、调度配置（cron 用 TriggerSchedulePicker，
- * once 用原生 datetime-local）、默认输入参数（JSON）。
+ * once 用原生 datetime-local）、默认输入参数。
  *
  * workflow Select 的 value 用 registry entry _id (wfr_，唯一稳定)，提交时
  * 解析成模板 workflow_id (wf_) 传后端 - 引擎直接按 _id 查 workflows 集合。
+ *
+ * 输入参数：选定工作流后，拉取该工作流开始节点的 output_variables，用
+ * WorkflowInputForm 按类型渲染结构化表单（与「执行参数」弹窗对齐），收集为
+ * default_input。无变量的工作流显示「无需输入参数」。
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
 import { Modal, Input, Select, Switch } from '../ui'
 import { toast } from '../ui/toast'
 import {
@@ -18,6 +24,13 @@ import {
   type TriggerType,
 } from '../../services/triggers-api'
 import type { WorkflowRegistryEntry } from '../../services/tasks-api'
+import { workflowsApi, workflowKeys, type WorkflowNode } from '../../services/workflows-api'
+import type { VariableDefinition } from '../../features/workflow-editor/utils/variable-types'
+import {
+  buildDefaultValues,
+  coerceValues,
+} from '../../features/workflow-editor/utils/workflow-input-values'
+import WorkflowInputForm from '../../features/workflow-editor/WorkflowInputForm'
 import TriggerSchedulePicker from './TriggerSchedulePicker'
 
 interface Props {
@@ -59,6 +72,29 @@ function fromDatetimeLocal(local: string): string {
   return d.toISOString()
 }
 
+/**
+ * 按 variables 构建输入值：先取各类型默认值，再用 existing（编辑模式的
+ * trigger.default_input）覆盖。number 字段需转回字符串以适配受控输入框。
+ */
+function applyExistingValues(
+  variables: VariableDefinition[],
+  existing?: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...buildDefaultValues(variables) }
+  if (!existing) return merged
+  for (const v of variables) {
+    if (!(v.name in existing)) continue
+    const ev = existing[v.name]
+    merged[v.name] =
+      v.type === 'number'
+        ? ev === null || ev === undefined
+          ? ''
+          : String(ev)
+        : ev
+  }
+  return merged
+}
+
 const datetimeInputCls =
   'h-8 w-full px-2.5 rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] text-xs ' +
   'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
@@ -78,8 +114,28 @@ export default function TriggerConfigModal({
   const [triggerType, setTriggerType] = useState<TriggerType>('cron')
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
   const [executeAt, setExecuteAt] = useState('')
-  const [defaultInputText, setDefaultInputText] = useState('{}')
+  // 结构化输入参数值（按变量名聚合）+ 校验态
+  const [inputValues, setInputValues] = useState<Record<string, unknown>>({})
+  const [inputValid, setInputValid] = useState(true)
+  const [touched, setTouched] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // 当前选中工作流对应的模板 workflow_id（wfr_ → wf_）
+  const workflowId = useMemo(() => resolveTemplateId(workflows, entryId), [workflows, entryId])
+
+  // 拉取工作流详情以提取开始节点输入变量；react-query 自动缓存，命中 WorkflowDesigner 同 key
+  const detailQuery = useQuery({
+    queryKey: workflowKeys.detail(workflowId),
+    queryFn: () => workflowsApi.get(workflowId),
+    enabled: open && !!workflowId,
+  })
+
+  // 开始节点的 output_variables
+  const variables = useMemo(() => {
+    const nodes = (detailQuery.data?.nodes ?? []) as WorkflowNode[]
+    const start = nodes.find((n) => n.type === 'start')
+    return (start?.config?.output_variables as VariableDefinition[] | undefined) ?? []
+  }, [detailQuery.data])
 
   // 打开时初始化表单
   useEffect(() => {
@@ -90,20 +146,30 @@ export default function TriggerConfigModal({
       setTriggerType(trigger.type)
       setCronExpression(trigger.cron_expression || '0 9 * * *')
       setExecuteAt(trigger.execute_at || '')
-      setDefaultInputText(JSON.stringify(trigger.default_input ?? {}, null, 2))
     } else {
       setEntryId('')
       setEnabled(false)
       setTriggerType('cron')
       setCronExpression('0 9 * * *')
       setExecuteAt('')
-      setDefaultInputText('{}')
     }
+    setInputValid(true)
+    setTouched(false)
   }, [open, isEdit, trigger])
 
+  // variables 加载/变化时（含切换工作流）重置输入值：编辑模式回填 trigger.default_input
+  useEffect(() => {
+    setInputValues(applyExistingValues(variables, isEdit ? trigger?.default_input : undefined))
+  }, [variables, isEdit, trigger])
+
   const handleSave = async () => {
+    setTouched(true)
     if (!isEdit && !entryId) {
       toast.error('请选择工作流')
+      return
+    }
+    if (variables.length > 0 && !inputValid) {
+      toast.error('请填写必填输入参数')
       return
     }
     if (triggerType === 'cron' && !cronExpression.trim()) {
@@ -115,27 +181,16 @@ export default function TriggerConfigModal({
       return
     }
 
-    // 解析 default_input JSON
-    let defaultInput: Record<string, unknown> = {}
-    const text = defaultInputText.trim()
-    if (text) {
-      try {
-        const parsed = JSON.parse(text)
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-          toast.error('输入参数必须是 JSON 对象')
-          return
-        }
-        defaultInput = parsed as Record<string, unknown>
-      } catch {
-        toast.error('输入参数 JSON 格式错误')
-        return
-      }
+    const coerced = coerceValues(variables, inputValues)
+    if (coerced.error) {
+      toast.error(coerced.error)
+      return
     }
 
     const payload: Partial<TriggerConfig> = {
       type: triggerType,
       enabled,
-      default_input: defaultInput,
+      default_input: coerced.values,
     }
     if (triggerType === 'cron') {
       payload.cron_expression = cronExpression
@@ -149,7 +204,6 @@ export default function TriggerConfigModal({
         await triggersApi.updateById(getTriggerId(trigger), payload)
         toast.success('定时任务已更新')
       } else {
-        const workflowId = resolveTemplateId(workflows, entryId)
         await triggersApi.create(workflowId, payload)
         toast.success('定时任务已创建')
       }
@@ -168,9 +222,9 @@ export default function TriggerConfigModal({
 
   // 编辑模式下展示 workflow 名（用 entryId 即 workflow_id 解析）
   const editWorkflowName =
-    workflows.find(
-      (w) => w.workflow_id === entryId || w._id === entryId,
-    )?.name || entryId
+    workflows.find((w) => w.workflow_id === entryId || w._id === entryId)?.name || entryId
+
+  const inputLoading = !!workflowId && detailQuery.isLoading
 
   return (
     <Modal
@@ -181,7 +235,9 @@ export default function TriggerConfigModal({
       okText={isEdit ? '保存' : '创建'}
       cancelText="取消"
       width={560}
-      okButtonProps={{ disabled: saving }}
+      okButtonProps={{
+        disabled: saving || inputLoading || (variables.length > 0 && !inputValid),
+      }}
     >
       <div className="space-y-4">
         {/* 工作流 */}
@@ -261,19 +317,34 @@ export default function TriggerConfigModal({
           </div>
         )}
 
-        {/* 默认输入参数 */}
+        {/* 输入参数（按开始节点变量结构化渲染） */}
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-[#fafafa]">输入参数（JSON）</div>
-          <Input.TextArea
-            rows={4}
-            value={defaultInputText}
-            onChange={(e) => setDefaultInputText(e.target.value)}
-            placeholder='{"key": "value"}'
-            className="font-mono"
-          />
-          <p className="text-[10px] text-[#71717a]">
-            定时触发时传入工作流的默认输入。支持模板语法 {'{{ now() }}'} / {'{{ today() }}'}。无输入参数可留空。
-          </p>
+          <div className="text-xs font-medium text-[#fafafa]">输入参数</div>
+          {inputLoading ? (
+            <div className="flex items-center gap-2 text-[11px] text-[#71717a] py-2">
+              <Loader2 size={13} className="animate-spin" /> 加载输入参数...
+            </div>
+          ) : variables.length > 0 ? (
+            <>
+              <WorkflowInputForm
+                variables={variables}
+                value={inputValues}
+                onChange={setInputValues}
+                onValidityChange={(v) => setInputValid(v)}
+                showErrors={touched}
+                disabled={saving}
+              />
+              <p className="text-[10px] text-[#71717a]">
+                定时触发时按以上参数传入工作流。文本字段支持模板语法 {'{{ now() }}'} / {'{{ today() }}'}。
+              </p>
+            </>
+          ) : workflowId ? (
+            <p className="text-[10px] text-[#71717a]">
+              该工作流未声明输入变量，无需填写。定时触发时若需模板变量（如 {'{{ now() }}'}），请在工作流开始节点中定义。
+            </p>
+          ) : (
+            <p className="text-[10px] text-[#71717a]">请先选择工作流。</p>
+          )}
         </div>
       </div>
     </Modal>
