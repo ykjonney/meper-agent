@@ -808,7 +808,7 @@ export default function ChatPanel({
                     if (m.id !== agentMsgId) return m
                     const tl = [...(m.timeline ?? [])]
                     // Find pending entry (created by tool_call_start)
-                    let targetIdx = tl.findIndex(
+                    const targetIdx = tl.findIndex(
                       (entry) => entry.type === 'tool' && entry.toolStatus === 'pending',
                     )
                     if (targetIdx >= 0) {
