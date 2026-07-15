@@ -77,7 +77,12 @@ class StartNodeExecutor(BaseNodeExecutor):
     """
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
-        logger.debug("node_start", node_id=self.node_id)
+        logger.debug(
+            "node_start",
+            node_id=self.node_id,
+            input_keys=list(variables.keys()),
+            has_input_mapping=bool(self.node_config.get("input_mapping")),
+        )
 
         output: dict[str, Any] = {}
 
@@ -206,8 +211,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
         agent_id = self.node_config.get("agent_id", "")
-        if not agent_id:
-            return NodeResult(success=False, output={}, error_message="agent_id 未配置")
 
         # ── Story 4-15: Read task identity from system variables ──
         # System variables (task_id, user_id) are bound to the VariablePool
@@ -217,6 +220,18 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # execution and checkpoint resume without special-casing.
         sys_vars = variables.get("system", {}) or {}
         task_id = sys_vars.get("task_id", "")
+
+        logger.debug(
+            "node_agent_start",
+            node_id=self.node_id,
+            agent_id=agent_id,
+            task_id=task_id,
+            has_input_mapping=bool(self.node_config.get("input_mapping")),
+        )
+
+        if not agent_id:
+            return NodeResult(success=False, output={}, error_message="agent_id 未配置")
+
         user_id = sys_vars.get("user_id", "")
         if not task_id or not user_id:
             missing = []

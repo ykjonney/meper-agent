@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from agent_flow_harness.adapters.app_event import AppEvent
+    from app.engine.harness_integration.adapters.app_event import AppEvent
 
 from app.engine.harness_integration.context import (
     _maybe_migrate_legacy,
@@ -44,7 +44,8 @@ async def stream(
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。"""
     from agent_flow_harness import build_agent_graph, build_config
-    from agent_flow_harness.adapters import stream_events_to_app_events
+
+    from app.engine.harness_integration.adapters import stream_events_to_app_events
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     usage_summary: dict = {}
@@ -177,8 +178,9 @@ async def resume(
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。"""
     from agent_flow_harness import build_agent_graph, build_config
-    from agent_flow_harness.adapters import stream_events_to_app_events
     from langgraph.types import Command
+
+    from app.engine.harness_integration.adapters import stream_events_to_app_events
 
     hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
     usage_summary: dict = {}

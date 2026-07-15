@@ -11,7 +11,7 @@ code emitted (``{"type": "...", ...}``).
 
 from __future__ import annotations
 
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -63,9 +63,10 @@ class TextEvent(_Base):
 
 
 class ToolCallStartEvent(_Base):
-    """Placeholder signalling a tool call is about to start (no name/args)."""
+    """Streaming placeholder signalling a tool call is being generated."""
 
     type: Literal["tool_call_start"] = "tool_call_start"
+    tool_name: str = ""
 
 
 class ToolCallEvent(_Base):
@@ -109,17 +110,17 @@ class ErrorEvent(_Base):
     source: Literal["llm", "tool", "graph"]
 
 
-AppEvent = Union[
-    ThinkingDeltaEvent,
-    ThinkingEvent,
-    TextDeltaEvent,
-    TextEvent,
-    ToolCallStartEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-    InterruptEvent,
-    ErrorEvent,
-]
+type AppEvent = (
+    ThinkingDeltaEvent
+    | ThinkingEvent
+    | TextDeltaEvent
+    | TextEvent
+    | ToolCallStartEvent
+    | ToolCallEvent
+    | ToolResultEvent
+    | InterruptEvent
+    | ErrorEvent
+)
 """Discriminated union of all application-layer events."""
 
 

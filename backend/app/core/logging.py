@@ -62,9 +62,12 @@ def _configure_structlog() -> None:
 
 
 def setup_logging() -> None:
-    """Configure loguru with stdout (concise) and file (JSON, today-only) sinks.
+    """Configure loguru with stdout (concise) and file (JSON) sinks.
 
-    Also configures structlog (harness) and stdlib logging to route through loguru.
+    - stdout: human-readable in dev, JSON in production (auto-detected from
+      ``APP_ENV`` or explicitly via ``LOG_JSON_FORMAT``).
+    - file: always JSON (``logs/app.log``), 50 MB rotation, 7-day retention.
+    - structlog (harness) and stdlib logging are routed through loguru.
     """
     # Enable LangSmith tracing if API key is configured.
     # Must be set before LangChain/LangGraph import their tracing machinery.
@@ -76,42 +79,50 @@ def setup_logging() -> None:
 
     logger.remove()
 
-    # Stdout sink — concise but keeps request_id and source location
-    logger.add(
-        sys.stdout,
-        level=settings.LOG_LEVEL,
-        format=(
-            "<green>{time:HH:mm:ss}</green> | "
-            "<level>{level: <5}</level> | "
-            "<cyan>{extra[request_id]}</cyan> | "
-            "<magenta>{name}:{function}:{line}</magenta> - "
-            "<level>{message}</level>"
-        ),
-        serialize=settings.LOG_JSON_FORMAT,
-        filter=lambda record: "request_id" in record["extra"],
-    )
+    # In production (or when explicitly requested), stdout emits JSON for
+    # log aggregation systems (ELK / Loki).  In dev, use human-readable color.
+    use_json = settings.LOG_JSON_FORMAT or settings.APP_ENV == "production"
 
-    # Stdout sink for non-request contexts
-    logger.add(
-        sys.stdout,
-        level=settings.LOG_LEVEL,
-        format=(
-            "<green>{time:HH:mm:ss}</green> | "
-            "<level>{level: <5}</level> | "
-            "<magenta>{name}:{function}:{line}</magenta> - "
-            "<level>{message}</level>"
-        ),
-        serialize=settings.LOG_JSON_FORMAT,
-        filter=lambda record: "request_id" not in record["extra"],
-    )
+    if use_json:
+        # JSON stdout — single sink covers both request and non-request logs.
+        logger.add(
+            sys.stdout,
+            level=settings.LOG_LEVEL,
+            serialize=True,
+        )
+    else:
+        # Human-readable stdout — split by request_id presence for clean columns.
+        logger.add(
+            sys.stdout,
+            level=settings.LOG_LEVEL,
+            format=(
+                "<green>{time:HH:mm:ss}</green> | "
+                "<level>{level: <5}</level> | "
+                "<cyan>{extra[request_id]}</cyan> | "
+                "<magenta>{name}:{function}:{line}</magenta> - "
+                "<level>{message}</level>"
+            ),
+            filter=lambda record: "request_id" in record["extra"],
+        )
+        logger.add(
+            sys.stdout,
+            level=settings.LOG_LEVEL,
+            format=(
+                "<green>{time:HH:mm:ss}</green> | "
+                "<level>{level: <5}</level> | "
+                "<magenta>{name}:{function}:{line}</magenta> - "
+                "<level>{message}</level>"
+            ),
+            filter=lambda record: "request_id" not in record["extra"],
+        )
 
-    # File sink — JSON, only keep today's logs
+    # File sink — JSON, 7-day retention for production debugging window.
     logger.add(
         "logs/app.log",
         level=settings.LOG_LEVEL,
         serialize=True,
         rotation="50 MB",
-        retention="1 day",
+        retention="7 days",
         compression="zip",
     )
 

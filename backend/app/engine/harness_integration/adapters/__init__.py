@@ -1,14 +1,12 @@
-"""astream_events → application-layer event adapter.
+"""Application-layer event adapter — translates harness/LangGraph events
+into the business events the frontend SSE client consumes.
 
-Public surface:
-
-* :func:`stream_events_to_app_events` — translate a native ``astream_events``
-  stream into the eight application-layer events the frontend consumes.
-* :data:`AppEvent` and the eight event model classes (see
-  :mod:`agent_flow_harness.adapters.app_event`).
+Moved from ``agent_flow_harness.adapters`` to the application layer so
+that the harness package stays a pure engine without app-specific
+event schemas.
 """
 
-from agent_flow_harness.adapters.app_event import (
+from app.engine.harness_integration.adapters.app_event import (
     AppEvent,
     ErrorEvent,
     InterruptEvent,
@@ -20,8 +18,8 @@ from agent_flow_harness.adapters.app_event import (
     ToolCallStartEvent,
     ToolResultEvent,
 )
-from agent_flow_harness.adapters.messages import messages_to_app_events
-from agent_flow_harness.adapters.stream_events import (
+from app.engine.harness_integration.adapters.messages import messages_to_app_events
+from app.engine.harness_integration.adapters.stream_events import (
     OnEventCallback,
     stream_events_to_app_events,
 )

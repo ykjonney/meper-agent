@@ -28,7 +28,7 @@ export function AgentSpace({
 
   const { data, isLoading } = useQuery({
     queryKey: agentKeys.list({}),
-    queryFn: () => agentApi.list({ page: 1, page_size: 50 }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 50, status: 'all' }),
   });
   const agents = (data?.items ?? []).map(toStudioAgent);
 

@@ -43,9 +43,12 @@ class ExceptionMiddleware(BaseHTTPMiddleware):
             request_id = getattr(request.state, "request_id", "-")
             logger.bind(request_id=request_id).warning(
                 "app_error",
+                method=request.method,
+                path=str(request.url.path),
                 code=exc.code,
                 message=exc.message,
                 status_code=exc.status_code,
+                details=exc.details,
             )
             return _error_response(
                 code=exc.code,
@@ -58,6 +61,8 @@ class ExceptionMiddleware(BaseHTTPMiddleware):
             request_id = getattr(request.state, "request_id", "-")
             logger.bind(request_id=request_id).error(
                 "unhandled_exception",
+                method=request.method,
+                path=str(request.url.path),
                 error=str(exc),
                 error_type=type(exc).__name__,
                 traceback=traceback.format_exc(),

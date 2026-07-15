@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from app.engine.harness_integration.adapters import messages_to_app_events
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-
-from agent_flow_harness.adapters import messages_to_app_events
 
 
 def _types(events):
@@ -212,7 +211,9 @@ def test_full_conversation_with_thinking_and_tools():
 async def test_symmetry_with_stream_adapter():
     """For the same AIMessage, messages_to_app_events and the stream adapter's
     on_chat_model_end path produce the same event set (AC3)."""
-    from agent_flow_harness.adapters.stream_events import stream_events_to_app_events
+    from app.engine.harness_integration.adapters.stream_events import (
+        stream_events_to_app_events,
+    )
 
     # The "ground truth" AIMessage that both paths observe.
     ai_msg = AIMessage(

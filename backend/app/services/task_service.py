@@ -73,6 +73,16 @@ class TaskService:
         Raises:
             ValidationError: If workflow_id is empty.
         """
+        logger.debug(
+            "task_create_start",
+            workflow_id=workflow_id,
+            created_by=created_by,
+            created_by_type=created_by_type,
+            source=source,
+            skip_execution=skip_execution,
+            parent_task_id=parent_task_id,
+            input_keys=list(input_data.keys()) if input_data else [],
+        )
         if not workflow_id:
             raise ValidationError(
                 code="TASK_MISSING_WORKFLOW_ID",
@@ -576,6 +586,15 @@ class TaskService:
         doc = await TaskService.get_task_or_404(task_id)
         from_status = TaskStatus(doc["status"])
         current_version = doc.get("version", 1)
+
+        logger.debug(
+            "task_transition_start",
+            task_id=task_id,
+            from_status=from_status.value,
+            to_status=to_status.value,
+            current_version=current_version,
+            triggered_by=triggered_by,
+        )
 
         # Validate transition
         if not is_valid_transition(from_status, to_status):

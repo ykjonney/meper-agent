@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
-from agent_flow_harness.adapters.app_event import (
+from app.engine.harness_integration.adapters.app_event import (
     ErrorEvent,
     TextDeltaEvent,
     TextEvent,
@@ -15,6 +13,7 @@ from agent_flow_harness.adapters.app_event import (
     ToolCallStartEvent,
     ToolResultEvent,
 )
+from pydantic import ValidationError
 
 
 def test_thinking_delta_dump() -> None:
@@ -43,7 +42,7 @@ def test_text_dump() -> None:
 
 
 def test_tool_call_start_dump() -> None:
-    assert ToolCallStartEvent().model_dump() == {"type": "tool_call_start"}
+    assert ToolCallStartEvent().model_dump() == {"type": "tool_call_start", "tool_name": ""}
 
 
 def test_tool_call_dump() -> None:

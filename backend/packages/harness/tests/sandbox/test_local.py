@@ -10,7 +10,7 @@ from agent_flow_harness.sandbox.local import LocalSandbox
 
 
 def _make_sandbox(tmp_path) -> LocalSandbox:
-    return LocalSandbox(sandbox_id="test", work_dir=tmp_path, timeout=10)
+    return LocalSandbox(sandbox_id="test", work_dir=tmp_path, output_dir=tmp_path / "output", timeout=10)
 
 
 def test_execute_command_success(tmp_path):
@@ -64,17 +64,17 @@ def test_read_file_not_found(tmp_path):
 def test_write_file_success(tmp_path):
     sb = _make_sandbox(tmp_path)
     sb.write_file("out.txt", "data")
-    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "data"
+    assert (tmp_path / "output" / "out.txt").read_text(encoding="utf-8") == "data"
 
 
 def test_write_file_creates_parent_dirs(tmp_path):
     sb = _make_sandbox(tmp_path)
     sb.write_file("sub/dir/out.txt", "data")
-    assert (tmp_path / "sub" / "dir" / "out.txt").read_text() == "data"
+    assert (tmp_path / "output" / "sub" / "dir" / "out.txt").read_text() == "data"
 
 
 def test_write_file_path_traversal_blocked(tmp_path):
-    """路径越权：写 work_dir 外应被拒。"""
+    """路径越权：写 output_dir 外应被拒。"""
     sb = _make_sandbox(tmp_path)
     with pytest.raises((PermissionError, ValueError)):
         sb.write_file("../../../evil.txt", "data")

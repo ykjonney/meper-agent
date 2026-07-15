@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent_flow_harness.adapters.app_event import (
+from .app_event import (
     TextEvent,
     ThinkingEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
-from agent_flow_harness.adapters.stream_events import (
+from .stream_events import (
     _extract_text_content,
     _extract_thinking_content,
     _iter_tool_calls,
@@ -32,7 +32,7 @@ from agent_flow_harness.adapters.stream_events import (
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
 
-    from agent_flow_harness.adapters.app_event import AppEvent
+    from .app_event import AppEvent
 
 
 def messages_to_app_events(

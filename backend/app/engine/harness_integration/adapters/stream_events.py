@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from agent_flow_harness.adapters.app_event import (
+from .app_event import (
     ErrorEvent,
     InterruptEvent,
     TextDeltaEvent,
@@ -38,7 +38,7 @@ from agent_flow_harness.adapters.app_event import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
-    from agent_flow_harness.adapters.app_event import AppEvent
+    from .app_event import AppEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -92,13 +92,6 @@ async def stream_events_to_app_events(
     """
     accumulator = _StreamingAccumulator(enable_thinking=enable_thinking)
 
-    # 缓冲 on_chat_model_end 解析出的 tool_calls。LangGraph 的事件顺序是
-    # on_chat_model_end(含 tool_calls) → on_tool_start → on_tool_end,但前端
-    # 状态机要求 tool_call_start 先于 tool_call(前端靠 tool_call_start 创建
-    # pending 条目,再用 tool_call 填充)。因此把 tool_call 延迟到 on_tool_start
-    # 时成对发出(tool_call_start → tool_call),与老引擎顺序一致。
-    pending_tool_calls: list[dict[str, Any]] = []
-
     async for event in astream_iter:
         kind = event.get("event")
         data = event.get("data") or {}
@@ -118,11 +111,17 @@ async def stream_events_to_app_events(
                     await on_event(ThinkingDeltaEvent(content=thinking))
 
             accumulator.accumulate_tool_call_chunk(chunk)
+            # 检测新的 tool_call — 第一个 chunk 到达时发 tool_call_start
+            #（流式占位符），前端据此显示加载动画。
+            # tool_call（完整数据）仍只在 on_chat_model_end 发出。
+            new_starts = accumulator.pop_new_starts()
+            if new_starts:
+                logger.info("emit_tool_call_starts", count=len(new_starts), names=[s.get("name", "") for s in new_starts])
+            for start in new_starts:
+                await on_event(ToolCallStartEvent(tool_name=start.get("name") or ""))
 
         elif kind == "on_chat_model_end":
             output = data.get("output")
-            # 只发 thinking + text;tool_call 缓冲到 pending_tool_calls,
-            # 等对应 on_tool_start 时再按正确顺序发出。
             if output is not None:
                 if enable_thinking:
                     reasoning = _extract_thinking_content(output)
@@ -131,41 +130,27 @@ async def stream_events_to_app_events(
                 content = _extract_text_content(output)
                 if content:
                     await on_event(TextEvent(content=content))
-                pending_tool_calls = [
-                    {
-                        "tool_name": tc.get("name", ""),
-                        "args": tc.get("args") or {},
-                        "id": tc.get("id", ""),
-                    }
-                    for tc in _iter_tool_calls(output)
-                ]
+                # 直接发出所有 tool_call 事件（不再缓冲到 on_tool_start）。
+                # on_chat_model_end 是 tool_call 的唯一来源，保证每个工具调用
+                # 只发出一次。LangGraph 的 astream_events(v2) 会在多个嵌套层级
+                # 冒泡 on_tool_start 事件，如果从 on_tool_start 发 tool_call 就会
+                # 产生重复。
+                for tc in _iter_tool_calls(output):
+                    await on_event(
+                        ToolCallEvent(
+                            tool_name=tc.get("name", ""),
+                            args=tc.get("args") or {},
+                            id=tc.get("id", ""),
+                        )
+                    )
             accumulator.reset()
 
         elif kind == "on_tool_start":
-            tool_name = event.get("name") or ""
-            await on_event(ToolCallStartEvent())
-            # 发出对应的 tool_call(若有缓冲)。按 tool_name 匹配;匹配不上则
-            # 发首个未发出的(兜底)。这保证 tool_call_start 永远先于 tool_call。
-            emitted = False
-            for i, tc in enumerate(pending_tool_calls):
-                if tc["tool_name"] == tool_name:
-                    await on_event(
-                        ToolCallEvent(
-                            tool_name=tc["tool_name"],
-                            args=tc["args"],
-                            id=tc["id"],
-                        )
-                    )
-                    pending_tool_calls.pop(i)
-                    emitted = True
-                    break
-            if not emitted and pending_tool_calls:
-                tc = pending_tool_calls.pop(0)
-                await on_event(
-                    ToolCallEvent(
-                        tool_name=tc["tool_name"], args=tc["args"], id=tc["id"],
-                    )
-                )
+            # 不发任何事件。tool_call 已在 on_chat_model_end 中发出（创建了
+            # 'running' 状态的条目），tool_result 在 on_tool_end 中发出。
+            # LangGraph 的 astream_events(v2) 会在多个嵌套层级冒泡 on_tool_start，
+            # 如果在此发事件就会产生重复条目。
+            pass
 
         elif kind == "on_tool_end":
             output = data.get("output")
@@ -279,20 +264,24 @@ class _StreamingAccumulator:
 
     LangGraph streams a single tool call as multiple chunks (the ``id`` /
     ``name`` arrive early; ``args`` JSON is fragmented). This accumulates them
-    per-call so the adapter *could* emit a fallback ``tool_call`` if a model
-    backend never produces a clean ``on_chat_model_end``. In the common path
-    the resolved calls come from ``output.tool_calls`` at model end; the
-    accumulator is a safety net and is reset after each model end.
+    per-call. When the first chunk with a ``name`` arrives for a given index,
+    :meth:`pop_new_starts` returns it so the adapter can emit a
+    ``tool_call_start`` event (showing a loading indicator before the full
+    args are available). The resolved ``tool_call`` events come from
+    ``output.tool_calls`` at ``on_chat_model_end``.
     """
 
     def __init__(self, *, enable_thinking: bool = False) -> None:
         self.enable_thinking = enable_thinking
         self._calls: dict[str, dict[str, Any]] = {}
+        # Indices for which a tool_call_start has already been emitted.
+        self._starts_emitted: set[str] = set()
 
     def accumulate_tool_call_chunk(self, chunk: Any) -> None:
         chunks = getattr(chunk, "tool_call_chunks", None)
         if not chunks:
             return
+        logger.debug("accumulate_tool_call_chunk", count=len(chunks))
         for piece in chunks:
             index = getattr(piece, "index", 0)
             key = str(index)
@@ -309,8 +298,24 @@ class _StreamingAccumulator:
             if args:
                 entry["args"] += args
 
+    def pop_new_starts(self) -> list[dict[str, str]]:
+        """Return entries for newly-detected tool calls (for tool_call_start).
+
+        Detects as soon as ANY chunk arrives for a given index — the ``name``
+        may arrive in a later chunk. The frontend shows a loading placeholder
+        immediately; the ``tool_call`` event at model-end fills in the real
+        name/args. Each index is returned exactly once.
+        """
+        result: list[dict[str, str]] = []
+        for key, entry in self._calls.items():
+            if key not in self._starts_emitted:
+                self._starts_emitted.add(key)
+                result.append({"name": entry.get("name") or "", "id": entry.get("id", "")})
+        return result
+
     def reset(self) -> None:
         self._calls.clear()
+        self._starts_emitted.clear()
 
     def resolved_calls(self) -> list[dict[str, Any]]:
         """Return accumulated calls (best-effort; args kept as raw string)."""

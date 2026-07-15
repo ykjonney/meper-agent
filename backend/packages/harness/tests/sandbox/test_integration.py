@@ -18,7 +18,7 @@ from agent_flow_harness.sandbox.tools import bash, glob, grep, read, write
 
 @pytest.fixture
 def sandbox_ctx(tmp_path):
-    sb = LocalSandbox(sandbox_id="itest", work_dir=tmp_path, timeout=10)
+    sb = LocalSandbox(sandbox_id="itest", work_dir=tmp_path, output_dir=tmp_path / "output", timeout=10)
     token = set_sandbox_context(SandboxContext(sandbox=sb))
     yield sb
     reset_sandbox_context(token)
@@ -26,10 +26,12 @@ def sandbox_ctx(tmp_path):
 
 @pytest.mark.asyncio
 async def test_full_write_read_cycle(sandbox_ctx):
-    """write → read 完整往返。"""
+    """write 写到 output_dir, bash 也能读取(output 是 work_dir 的子目录)。"""
     await write.ainvoke({"path": "note.txt", "content": "hello sandbox"})
-    content = await read.ainvoke({"path": "note.txt"})
-    assert content == "hello sandbox"
+    # write goes to output_dir; read from work_dir won't find it directly,
+    # but bash can access it via relative path (output/ is under work_dir.parent)
+    content = await bash.ainvoke({"command": "cat output/note.txt"})
+    assert "hello sandbox" in content
 
 
 @pytest.mark.asyncio
@@ -44,8 +46,8 @@ async def test_bash_creates_then_glob_reads(sandbox_ctx):
 
 @pytest.mark.asyncio
 async def test_grep_finds_written_content(sandbox_ctx):
-    """write 写入 → grep 搜索。"""
-    await write.ainvoke({"path": "search.py", "content": "TODO: fix this\nprint('ok')\n"})
+    """write 写到 output_dir, bash 创建文件到 work_dir → grep 搜索 work_dir。"""
+    await bash.ainvoke({"command": "echo 'TODO: fix this' > search.py"})
     result = await grep.ainvoke({"path": ".", "pattern": "TODO"})
     assert "TODO" in result
     assert "search.py" in result
