@@ -177,7 +177,22 @@ python -m app.cli create-admin \
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 4. 启动前端
+### 4. 启动 Celery Worker
+
+工作流执行、Webhook 投递、定时任务等异步任务由 Celery worker 处理，需单独启动（新开一个终端）：
+
+```bash
+cd backend
+source .venv/bin/activate  # 或 uv run 前缀
+
+celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+```
+
+> **不启动 Worker 的影响**：创建工作流任务后会一直停留在 `pending` 状态，Agent 不会执行；Webhook 投递不会触发。Agent 会话聊天（直接调用 LLM）不受影响，因为它走的是 FastAPI 同步流式接口，不经过 Celery。
+
+> **定时触发器**（cron/once）由 `TriggerSchedulerService` 在 FastAPI 进程内轮询，不依赖 Celery Beat。Beat 仅用于 `cleanup_expired_workspaces` 定时清理，本地开发可不启动。
+
+### 5. 启动前端
 
 ```bash
 cd frontend
@@ -192,7 +207,7 @@ npm install
 npm run dev
 ```
 
-### 5. 访问应用
+### 6. 访问应用
 
 | 地址 | 说明 |
 |------|------|
