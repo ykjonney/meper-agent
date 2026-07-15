@@ -451,8 +451,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark' }: ChatHomepag
 
   // ── Agents (fallback fetch if not passed in) ──
   const { data: agentsData } = useQuery({
-    queryKey: agentKeys.list({ page: 1, page_size: 50 }),
-    queryFn: () => agentApi.list({ page: 1, page_size: 50 }),
+    queryKey: agentKeys.list({ page: 1, page_size: 50, status: 'all' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 50, status: 'all' }),
     enabled: !agentsProp || agentsProp.length === 0,
     staleTime: 60_000,
   });

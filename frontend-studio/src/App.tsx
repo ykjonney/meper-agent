@@ -127,8 +127,8 @@ export default function App() {
 
   // Live agent list for the ChatHomepage agent picker + count badge.
   const { data: agentsData } = useQuery({
-    queryKey: agentKeys.list({ page: 1, page_size: 50 }),
-    queryFn: () => agentApi.list({ page: 1, page_size: 50 }),
+    queryKey: agentKeys.list({ page: 1, page_size: 50, status: 'all' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 50, status: 'all' }),
     enabled: isAuthenticated,
     staleTime: 60_000,
   });

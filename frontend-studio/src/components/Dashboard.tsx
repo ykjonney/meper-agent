@@ -43,8 +43,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
   });
 
   const { data: agentsData } = useQuery({
-    queryKey: agentKeys.list({ page: 1, page_size: 1 }),
-    queryFn: () => agentApi.list({ page: 1, page_size: 1 }),
+    queryKey: agentKeys.list({ page: 1, page_size: 1, status: 'all' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 1, status: 'all' }),
     staleTime: 60_000,
   });
 

@@ -81,7 +81,7 @@ export function TaskDetailDrawer({
   // 预加载 Agent 列表，建立 agent_id → 名称映射（供 DataView 把 agent_id 渲染成名称）
   const { data: agentListData } = useQuery({
     queryKey: agentKeys.lists(),
-    queryFn: () => agentApi.list({ page_size: 100 }),
+    queryFn: () => agentApi.list({ page_size: 100, status: 'all' }),
     enabled: open && !!taskId,
     staleTime: 60_000,
   })
