@@ -51,13 +51,24 @@ def _doc_to_response(doc: dict) -> SessionResponse:
 
 
 def _msg_to_response(doc: dict) -> MessageResponse:
-    """Convert a raw MongoDB document to MessageResponse."""
+    """Convert a raw MongoDB document to MessageResponse.
+
+    Fallback: legacy agent messages may have ``content`` but no
+    ``timeline_entries`` (pre-v2 schema). Synthesize a text entry so
+    the frontend can render them.
+    """
+    role = doc.get("role", "")
+    timeline = doc.get("timeline_entries") or []
+    content = doc.get("content", "")
+    # Legacy fallback: agent message with content but no timeline
+    if not timeline and role == "agent" and content:
+        timeline = [{"type": "text", "content": content}]
     return MessageResponse(
         _id=doc["_id"],
         session_id=doc["session_id"],
-        role=doc["role"],
-        content=doc.get("content", ""),
-        timeline_entries=doc.get("timeline_entries", []),
+        role=role,
+        content=content,
+        timeline_entries=timeline,
         file_ids=doc.get("file_ids", []),
         files=[],  # Populated separately when needed
         token_usage=doc.get("token_usage") or {},
