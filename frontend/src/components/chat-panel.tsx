@@ -90,6 +90,7 @@ export interface Message {
   isInterrupted?: boolean
   interruptQuestion?: string
   interruptOptions?: string[]
+  interruptContext?: string
   /** Token usage for this agent message */
   usage?: {
     total_tokens?: number
@@ -433,7 +434,25 @@ export default function ChatPanel({
     sessionApi.getDetail(currentSessionId)
       .then((detail) => {
         if (cancelled) return
-        setMessages(historyToMessages(detail.messages))
+        const msgs = historyToMessages(detail.messages)
+        setMessages(msgs)
+
+        // 检测是否有未回答的 ask_clarification（页面跳转后 SSE 中断导致
+        // pendingInterruptRef 丢失）。如果找到，恢复中断状态，使下一次发送
+        // 走 /resume 而非 /stream，避免 Agent 重复提出同样的问题。
+        const lastAgentMsg = [...msgs].reverse().find((m) => m.role === 'agent')
+        if (lastAgentMsg?.timeline) {
+          const hasUnanswered = lastAgentMsg.timeline.some(
+            (e) => e.type === 'tool' && e.toolName === 'ask_clarification' && !e.result,
+          )
+          if (hasUnanswered) {
+            pendingInterruptRef.current = { agentMsgId: lastAgentMsg.id }
+            setMessages((prev) =>
+              prev.map((m) => (m.id === lastAgentMsg.id ? { ...m, isInterrupted: true } : m)),
+            )
+          }
+        }
+
         // Scroll after history loads
         queueMicrotask(scrollToBottom)
       })
@@ -512,6 +531,30 @@ export default function ChatPanel({
     // Nothing to send (only files were uploaded, no text)
     if (!content) return
 
+    // 检测是否应该走 resume 路径:
+    // 1. pendingInterruptRef 已设置（正常流程中 SSE 收到 interrupt 事件）
+    // 2. 消息中存在未回答的 ask_clarification（页面跳转后 ref 丢失，但从历史恢复了消息）
+    // 任一条件满足即走 /resume，确保回答和提问构建为完整的工具调用。
+    const hasUnansweredClarification = messages.some(
+      (m) =>
+        m.role === 'agent' &&
+        m.timeline?.some(
+          (e) => e.type === 'tool' && e.toolName === 'ask_clarification' && !e.result,
+        ),
+    )
+    const isResume = pendingInterruptRef.current !== null || hasUnansweredClarification
+
+    // 找到未回答的 ask_clarification 所在的消息 ID（用于 resume 时标记已回答）
+    const interruptedMsgId =
+      pendingInterruptRef.current?.agentMsgId ??
+      messages.findLast(
+        (m) =>
+          m.role === 'agent' &&
+          m.timeline?.some(
+            (e) => e.type === 'tool' && e.toolName === 'ask_clarification' && !e.result,
+          ),
+      )?.id
+
     const userMsg: Message = {
       id: generateId(),
       role: 'user',
@@ -530,7 +573,29 @@ export default function ChatPanel({
       timeline: [],
     }
 
-    setMessages((prev) => [...prev, userMsg, agentMsg])
+    // When resuming an interrupted agent, skip the user message bubble —
+    // the answer is already shown inside the ask_clarification card's result area.
+    // Also mark the old ask_clarification entry as answered so its options disappear.
+    setMessages((prev) => {
+      if (isResume && interruptedMsgId) {
+        return prev
+          .map((m) =>
+            m.id === interruptedMsgId
+              ? {
+                  ...m,
+                  isInterrupted: false,
+                  timeline: (m.timeline ?? []).map((e) =>
+                    e.type === 'tool' && e.toolName === 'ask_clarification' && !e.result
+                      ? { ...e, result: content }
+                      : e,
+                  ),
+                }
+              : m,
+          )
+          .concat(agentMsg)
+      }
+      return [...prev, userMsg, agentMsg]
+    })
     if (!text) setInput('')
     setIsStreaming(true)
     scrollToBottom()
@@ -544,7 +609,6 @@ export default function ChatPanel({
         console.log('[ChatPanel] Upload info:', { uploadedPaths, uploadedFileIds, uploadedFileRefs })
       }
       // If resuming an interrupted agent, use /resume instead of /stream.
-      const isResume = pendingInterruptRef.current !== null
       pendingInterruptRef.current = null
       const response = isResume
         ? await agentApi.resume(agentId, {
@@ -609,10 +673,13 @@ export default function ChatPanel({
                 prev.map((m) => {
                   if (m.id !== agentMsgId) return m
                   // Close any lingering pending/running tool entries.
-                  // Skip ask_clarification — it's interrupted and waiting for
-                  // user input, so it should stay "running" to keep the UI interactive.
+                  // Skip ask_clarification (interrupted, waiting for user input).
+                  // Skip empty toolName (tool_call event not yet received).
                   const tl = (m.timeline ?? []).map((entry) =>
-                    entry.type === 'tool' && (entry.toolStatus === 'pending' || entry.toolStatus === 'running') && entry.toolName !== 'ask_clarification'
+                    entry.type === 'tool'
+                      && (entry.toolStatus === 'pending' || entry.toolStatus === 'running')
+                      && entry.toolName !== 'ask_clarification'
+                      && entry.toolName !== ''
                       ? { ...entry, toolStatus: 'success' as ToolStatus }
                       : entry,
                   )
@@ -626,6 +693,39 @@ export default function ChatPanel({
               if (eventType === 'text_delta') {
                 const delta = (event as { content: string }).content
                 appendDelta(agentMsgId, delta)
+              } else if (eventType === 'text') {
+                // Authoritative full-text event from on_chat_model_end.
+                // Flush any buffered delta first (RAF may not have fired yet),
+                // then find the last text entry and overwrite with authoritative content.
+                const content = (event as { content: string }).content
+                if (content) {
+                  if (rafIdRef.current) {
+                    cancelAnimationFrame(rafIdRef.current)
+                    deltaBufferRef.current = null
+                    rafIdRef.current = null
+                  }
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== agentMsgId) return m
+                      const tl = [...(m.timeline ?? [])]
+                      // Find the last text entry and update it
+                      let found = false
+                      for (let i = tl.length - 1; i >= 0; i--) {
+                        if (tl[i].type === 'text') {
+                          tl[i] = { ...tl[i], content }
+                          found = true
+                          break
+                        }
+                      }
+                      // No existing text entry (e.g. delta was buffered but not yet flushed)
+                      // — create one with the authoritative content.
+                      if (!found) {
+                        tl.push({ id: generateId(), type: 'text', content })
+                      }
+                      return { ...m, timeline: tl }
+                    }),
+                  )
+                }
               } else if (eventType === 'error') {
                 const errorContent = (event as { content: string }).content
                 setMessages((prev) =>
@@ -653,29 +753,29 @@ export default function ChatPanel({
                           isInterrupted: true,
                           interruptQuestion: evt.question,
                           interruptOptions: evt.options ?? undefined,
+                          interruptContext: evt.context ?? undefined,
                         }
                       : m,
                   ),
                 )
                 pendingInterruptRef.current = { agentMsgId }
               } else if (eventType === 'tool_call_start') {
-                // AI started generating a tool call — show loading indicator
-                // Flush any pending text first (synchronously, before adding tool entry)
+                // Streaming: LLM started generating tool call args.
+                // Flush buffered text first so text appears BEFORE the tool.
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
                 }
-                // Manually flush delta + add pending tool entry in ONE setMessages
-                // to guarantee correct ordering (text before tool).
                 const buf = deltaBufferRef.current
                 deltaBufferRef.current = null
                 rafIdRef.current = null
                 textEntryIdRef.current = null
                 textStartedRef.current = false
+                const e2 = event as { tool_name?: string }
                 const pendingEntry: TimelineEntry = {
                   id: generateId(),
                   type: 'tool',
                   content: '',
-                  toolName: '',
+                  toolName: e2.tool_name ?? '',
                   args: {},
                   toolStatus: 'pending',
                 }
@@ -683,42 +783,43 @@ export default function ChatPanel({
                   prev.map((m) => {
                     if (m.id !== agentMsgId) return m
                     const tl = [...(m.timeline ?? [])]
-                    // Flush buffered text first (if any)
                     if (buf) {
                       tl.push({ id: generateId(), type: 'text', content: buf.delta })
                     }
-                    // Then add the pending tool entry
                     tl.push(pendingEntry)
                     return { ...m, timeline: tl }
                   }),
                 )
                 scrollToBottom()
               } else if (eventType === 'tool_call') {
-                // AI finished generating tool call args — update pending entry or create new
+                // Model finished — full args available.
+                // Update the pending entry (from tool_call_start) or create new.
                 const e = event as ToolCallEvent
+                // Synchronous flush: drain text buffer BEFORE updating tool entry.
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
-                  flushDelta()
                 }
+                deltaBufferRef.current = null
+                rafIdRef.current = null
                 textEntryIdRef.current = null
                 textStartedRef.current = false
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== agentMsgId) return m
                     const tl = [...(m.timeline ?? [])]
-                    // Find and update the pending entry
-                    const pendingIdx = tl.findIndex(
+                    // Find pending entry (created by tool_call_start)
+                    let targetIdx = tl.findIndex(
                       (entry) => entry.type === 'tool' && entry.toolStatus === 'pending',
                     )
-                    if (pendingIdx >= 0) {
-                      tl[pendingIdx] = {
-                        ...tl[pendingIdx],
+                    if (targetIdx >= 0) {
+                      tl[targetIdx] = {
+                        ...tl[targetIdx],
                         toolName: e.tool_name,
                         args: e.args,
                         toolStatus: 'running',
                       }
                     } else {
-                      // No pending entry — create new
+                      // No pending entry — create directly in running state
                       tl.push({
                         id: generateId(),
                         type: 'tool',
@@ -832,7 +933,7 @@ export default function ChatPanel({
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [input, isStreaming, isUploading, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, refreshSessionFiles, appendDelta, flushDelta, pendingFiles])
+  }, [input, isStreaming, isUploading, agentId, enableThinking, currentSessionId, onSessionChange, scrollToBottom, refreshSessionList, refreshSessionFiles, appendDelta, flushDelta, pendingFiles, messages])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -1157,7 +1258,11 @@ export default function ChatPanel({
             <Input.TextArea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="输入测试消息..."
+              placeholder={
+                messages.some(m => m.isInterrupted)
+                  ? "👆 输入你的回答,然后按发送继续..."
+                  : "输入测试消息..."
+              }
               rows={2}
               className="rounded-xl !border-gray-200 !resize-none flex-1"
               onPressEnter={(e) => {
@@ -1472,7 +1577,6 @@ function TimelineEntryCard({
 
       // ask_clarification: render by clarification_type
       if (entry.toolName === 'ask_clarification') {
-        const isWaiting = status === 'running' || status === 'pending'
         const question = entry.args?.question ? String(entry.args.question) : ''
         // LLM may pass options as a JSON string instead of an array
         const rawOptions = entry.args?.options
@@ -1483,38 +1587,73 @@ function TimelineEntryCard({
           try { options = JSON.parse(rawOptions) } catch { /* ignore */ }
         }
         const clarificationType = entry.args?.clarification_type ? String(entry.args.clarification_type) : 'missing_info'
+        const answered = !!entry.result
+        const interactive = !answered
+
+        // Inline text input state for free-form answers
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const [inlineText, setInlineText] = useState('')
+        const handleInlineSubmit = () => {
+          const trimmed = inlineText.trim()
+          if (!trimmed) return
+          onSendMessage?.(trimmed)
+          setInlineText('')
+        }
+
+        // Shared inline input — only shown when interactive
+        const inlineInput = interactive ? (
+          <div className="flex gap-1.5 mt-2.5">
+            <input
+              type="text"
+              value={inlineText}
+              onChange={(e) => setInlineText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInlineSubmit() } }}
+              placeholder="输入你的回答…"
+              className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs border border-gray-300 bg-white focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-colors"
+            />
+            <button
+              onClick={handleInlineSubmit}
+              disabled={!inlineText.trim()}
+              className="px-2.5 py-1.5 rounded-lg text-xs bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              <SendOutlined style={{ fontSize: 10 }} />
+              发送
+            </button>
+          </div>
+        ) : null
 
         return (
           <div className="flex flex-col gap-2">
             {/* --- Question card — style varies by type --- */}
             {clarificationType === 'risk_confirmation' ? (
-              /* risk_confirmation: warning card with confirm/cancel buttons */
               <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
                 <div className="flex items-start gap-2.5">
                   <ExclamationCircleOutlined className="text-amber-500 text-sm mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-[#92400E] whitespace-pre-wrap leading-relaxed">{question}</div>
-                    {isWaiting ? (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => onSendMessage?.('确认')}
-                          className="px-3.5 py-1.5 rounded-lg text-xs bg-red-500 text-white hover:bg-red-600 transition-colors"
-                        >
-                          确认执行
-                        </button>
-                        <button
-                          onClick={() => onSendMessage?.('取消')}
-                          className="px-3.5 py-1.5 rounded-lg text-xs bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
-                        >
-                          取消
-                        </button>
-                      </div>
+                    {interactive ? (
+                      <>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => onSendMessage?.('确认')}
+                            className="px-3.5 py-1.5 rounded-lg text-xs bg-red-500 text-white hover:bg-red-600 transition-colors"
+                          >
+                            确认执行
+                          </button>
+                          <button
+                            onClick={() => onSendMessage?.('取消')}
+                            className="px-3.5 py-1.5 rounded-lg text-xs bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                          >
+                            取消
+                          </button>
+                        </div>
+                        {inlineInput}
+                      </>
                     ) : null}
                   </div>
                 </div>
               </div>
             ) : clarificationType === 'approach_choice' || clarificationType === 'ambiguous_requirement' ? (
-              /* approach_choice / ambiguous_requirement: option cards (single-select) */
               <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
                 <div className="flex items-start gap-2.5">
                   <span className="text-blue-500 text-sm mt-0.5">❓</span>
@@ -1522,30 +1661,36 @@ function TimelineEntryCard({
                     <div className="text-sm text-[#1E40AF] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
                       <div className="flex flex-col gap-2 mt-3">
-                        {options.map((opt, i) => (
-                          <button
-                            key={i}
-                            onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
-                            disabled={!isWaiting}
-                            className={`text-left px-3 py-2 rounded-lg text-xs border transition-colors ${
-                              isWaiting
-                                ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100 hover:border-blue-400 cursor-pointer'
-                                : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                        {options.map((opt, i) =>
+                          interactive ? (
+                            <button
+                              key={i}
+                              onClick={() => onSendMessage?.(opt)}
+                              className="text-left px-3 py-2 rounded-lg text-xs border transition-colors bg-white border-blue-300 text-blue-700 hover:bg-blue-100 hover:border-blue-400 cursor-pointer"
+                            >
+                              {opt}
+                            </button>
+                          ) : (
+                            <div
+                              key={i}
+                              className={`text-left px-3 py-2 rounded-lg text-xs border transition-colors ${
+                                entry.result === opt
+                                  ? 'bg-blue-100 border-blue-400 text-blue-800 font-medium'
+                                  : 'bg-white/60 border-blue-200 text-blue-400'
+                              }`}
+                            >
+                              {opt}
+                              {entry.result === opt && <span className="ml-1.5 text-blue-500">✓</span>}
+                            </div>
+                          ),
+                        )}
                       </div>
                     )}
-                    {isWaiting && (
-                      <div className="text-[11px] text-blue-400 mt-2">选择一个选项,或输入回答后发送</div>
-                    )}
+                    {inlineInput}
                   </div>
                 </div>
               </div>
             ) : clarificationType === 'suggestion' ? (
-              /* suggestion: dismissible suggestion card with accept/ignore */
               <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
                 <div className="flex items-start gap-2.5">
                   <span className="text-green-500 text-sm mt-0.5">💡</span>
@@ -1553,23 +1698,32 @@ function TimelineEntryCard({
                     <div className="text-sm text-[#166534] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3">
-                        {options.map((opt, i) => (
-                          <button
-                            key={i}
-                            onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
-                            disabled={!isWaiting}
-                            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                              isWaiting
-                                ? 'bg-white border-green-300 text-green-700 hover:bg-green-100 cursor-pointer'
-                                : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                        {options.map((opt, i) =>
+                          interactive ? (
+                            <button
+                              key={i}
+                              onClick={() => onSendMessage?.(opt)}
+                              className="px-3 py-1.5 rounded-lg text-xs border transition-colors bg-white border-green-300 text-green-700 hover:bg-green-100 cursor-pointer"
+                            >
+                              {opt}
+                            </button>
+                          ) : (
+                            <div
+                              key={i}
+                              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                                entry.result === opt
+                                  ? 'bg-green-100 border-green-400 text-green-800 font-medium'
+                                  : 'bg-white/60 border-green-200 text-green-400'
+                              }`}
+                            >
+                              {opt}
+                              {entry.result === opt && <span className="ml-1.5 text-green-500">✓</span>}
+                            </div>
+                          ),
+                        )}
                       </div>
                     )}
-                    {isWaiting && (
+                    {interactive && (
                       <div className="flex gap-2 mt-3 items-center">
                         <button
                           onClick={() => onSendMessage?.('接受建议')}
@@ -1580,11 +1734,12 @@ function TimelineEntryCard({
                         <span className="text-[11px] text-green-400">或输入其他回答</span>
                       </div>
                     )}
+                    {inlineInput}
                   </div>
                 </div>
               </div>
             ) : (
-              /* missing_info (default): question + optional quick chips */
+              /* missing_info (default) */
               <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
                 <div className="flex items-start gap-2.5">
                   <span className="text-blue-500 text-sm mt-0.5">❓</span>
@@ -1592,30 +1747,37 @@ function TimelineEntryCard({
                     <div className="text-sm text-[#1E40AF] whitespace-pre-wrap leading-relaxed">{question}</div>
                     {options.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3">
-                        {options.map((opt, i) => (
-                          <button
-                            key={i}
-                            onClick={() => isWaiting ? onSendMessage?.(opt) : undefined}
-                            disabled={!isWaiting}
-                            className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                              isWaiting
-                                ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100 cursor-pointer'
-                                : 'bg-gray-50 border-gray-200 text-gray-400 cursor-default'
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                        {options.map((opt, i) =>
+                          interactive ? (
+                            <button
+                              key={i}
+                              onClick={() => onSendMessage?.(opt)}
+                              className="px-3 py-1.5 rounded-lg text-xs border transition-colors bg-white border-blue-300 text-blue-700 hover:bg-blue-100 cursor-pointer"
+                            >
+                              {opt}
+                            </button>
+                          ) : (
+                            <div
+                              key={i}
+                              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                                entry.result === opt
+                                  ? 'bg-blue-100 border-blue-400 text-blue-800 font-medium'
+                                  : 'bg-white/60 border-blue-200 text-blue-400'
+                              }`}
+                            >
+                              {opt}
+                              {entry.result === opt && <span className="ml-1.5 text-blue-500">✓</span>}
+                            </div>
+                          ),
+                        )}
                       </div>
                     )}
-                    {isWaiting && (
-                      <div className="text-[11px] text-blue-400 mt-2">输入回答后发送以继续…</div>
-                    )}
+                    {inlineInput}
                   </div>
                 </div>
               </div>
             )}
-            {/* User's answer — rendered as a user input bubble (all types) */}
+            {/* User's answer — shown as a label below the card */}
             {entry.result && (
               <div className="flex flex-row-reverse">
                 <div className="max-w-[75%] rounded-xl rounded-tr-sm px-3 py-2 text-sm leading-relaxed" style={{ background: '#EFF6FF', color: '#1E40AF' }}>
