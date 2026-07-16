@@ -120,64 +120,33 @@ def _sanitise_task(doc: dict) -> dict:
 
 
 @tool
-async def task_query(task_id: str) -> str:
-    """Query the current execution status and output of a Task.
+async def task_query(task_ids: list[str]) -> str:
+    """Query the current execution status and output of Tasks by their IDs.
+
+    Only the tasks whose IDs are explicitly provided are returned — this
+    prevents the Agent from scanning Tasks it did not create.  Pass the
+    task IDs returned by workflow tools (e.g. ``dispatch_workflow``).
 
     Args:
-        task_id: ID of the task to query (returned by workflow tools).
+        task_ids: List of task IDs to query.
     """
     try:
-        doc = await TaskService.get_task(task_id)
-        if doc is None:
-            return _to_json({"error": f"Task {task_id} 不存在"})
-        data = _sanitise_task(doc)
-        data["type"] = "task_result"
-        return _to_json(data)
+        if not task_ids:
+            return _to_json({"error": "task_ids 不能为空"})
+
+        items: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for task_id in task_ids:
+            doc = await TaskService.get_task(task_id)
+            if doc is None:
+                missing.append(task_id)
+                continue
+            items.append(_sanitise_task(doc))
+
+        return _to_json({"items": items, "missing": missing})
     except Exception as exc:
-        logger.error("task_query_error", task_id=task_id, error=str(exc))
+        logger.error("task_query_error", task_ids=task_ids, error=str(exc))
         return _to_json({"error": f"查询 Task 失败: {exc}"})
-
-
-@tool
-async def task_list(
-    status: str = "",
-    workflow_id: str = "",
-    page: int = 1,
-    page_size: int = 20,
-) -> str:
-    """List Tasks with optional filters.
-
-    Args:
-        status: Filter by status (pending, running, waiting_human,
-            completed, failed, cancelled).  Empty string means all.
-        workflow_id: Optional workflow template ID filter.
-        page: Page number (1-based).
-        page_size: Items per page (max 100).
-    """
-    try:
-        status_enum = None
-        if status:
-            try:
-                status_enum = TaskStatus(status)
-            except ValueError:
-                return _to_json({"error": f"无效的状态: {status}"})
-
-        docs, total = await TaskService.list_tasks(
-            page=page,
-            page_size=min(page_size, 100),
-            status=status_enum,
-            workflow_id=workflow_id or None,
-        )
-
-        return _to_json({
-            "items": [_sanitise_task(d) for d in docs],
-            "total": total,
-            "page": page,
-            "page_size": min(page_size, 100),
-        })
-    except Exception as exc:
-        logger.error("task_list_error", error=str(exc))
-        return _to_json({"error": f"查询 Task 列表失败: {exc}"})
 
 
 async def _intervene(
@@ -458,7 +427,6 @@ _TASK_TOOLS: list[BaseTool] = [
     propose_workflow,
     dispatch_workflow,
     task_query,
-    task_list,
     task_intervene,
     cancel_task,
     update_task_variables,

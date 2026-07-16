@@ -1,4 +1,4 @@
-"""Tests for the workflow task tools — 8 task management tools with mocked services."""
+"""Tests for the workflow task tools — 6 task management tools with mocked services."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -11,7 +11,6 @@ from app.engine.agent.workflow_executor import (
     dispatch_workflow,
     propose_workflow,
     task_intervene,
-    task_list,
     task_query,
     update_task_variables,
 )
@@ -57,54 +56,43 @@ def _mock_services():
 
 
 class TestTaskQuery:
-    """task_query tool."""
+    """task_query tool (batch by IDs)."""
 
     @pytest.mark.asyncio
     async def test_query_returns_status(self):
-        """Should return task status with type field."""
-        result = await task_query.ainvoke({"task_id": "task_20260611_120000"})
+        """Should return task status for given IDs."""
+        result = await task_query.ainvoke({"task_ids": ["task_20260611_120000"]})
         import json
 
         data = json.loads(result)
-        assert data["type"] == "task_result"
-        assert data["status"] == "pending"
-        assert data["task_id"] == "task_20260611_120000"
+        assert "items" in data
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["status"] == "pending"
+        assert item["task_id"] == "task_20260611_120000"
 
     @pytest.mark.asyncio
     async def test_query_not_found(self):
-        """Should handle unknown task."""
+        """Should report unknown IDs in missing list."""
         with patch(
             "app.engine.agent.workflow_executor.TaskService.get_task",
             AsyncMock(return_value=None),
         ):
-            result = await task_query.ainvoke({"task_id": "nonexistent"})
+            result = await task_query.ainvoke({"task_ids": ["nonexistent"]})
             import json
 
             data = json.loads(result)
-            assert "error" in data
-
-
-class TestTaskList:
-    """task_list tool."""
+            assert data["items"] == []
+            assert data["missing"] == ["nonexistent"]
 
     @pytest.mark.asyncio
-    async def test_list_all(self):
-        """Should return paginated task list."""
-        result = await task_list.ainvoke({})
-        assert "items" in result
-        assert "total" in result
+    async def test_query_empty_ids(self):
+        """Should reject empty task_ids list."""
+        result = await task_query.ainvoke({"task_ids": []})
+        import json
 
-    @pytest.mark.asyncio
-    async def test_list_with_filter(self):
-        """Should filter by status."""
-        result = await task_list.ainvoke({"status": "pending"})
-        assert "items" in result
-
-    @pytest.mark.asyncio
-    async def test_list_invalid_status(self):
-        """Should return error for invalid status."""
-        result = await task_list.ainvoke({"status": "invalid_status"})
-        assert "error" in result
+        data = json.loads(result)
+        assert "error" in data
 
 
 class TestTaskIntervene:
@@ -189,8 +177,8 @@ class TestToolList:
     """_TASK_TOOLS export list."""
 
     def test_tool_count(self):
-        """Should export 7 task management tools (propose_workflow + dispatch_workflow + 5)."""
-        assert len(_TASK_TOOLS) == 7
+        """Should export 6 task management tools (propose_workflow + dispatch_workflow + 4)."""
+        assert len(_TASK_TOOLS) == 6
 
     def test_tool_names(self):
         """Should contain all expected tool names."""
@@ -199,7 +187,6 @@ class TestToolList:
             "propose_workflow",
             "dispatch_workflow",
             "task_query",
-            "task_list",
             "task_intervene",
             "cancel_task",
             "update_task_variables",
