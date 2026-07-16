@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import traceback
+from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def _build_log_dict(record: dict) -> dict:
     return log
 
 
-def _make_json_sink(writer) -> None:
+def _make_json_sink(writer: Callable[[str], None]) -> Callable[[object], None]:
     """Return a sink that writes compact JSON lines via ``writer``.
 
     Shared by stdout and file sinks so both emit the same flat schema. The
@@ -82,7 +83,9 @@ def _make_json_sink(writer) -> None:
     return _sink
 
 
-def _make_file_sink(path: str, max_bytes: int, backup_count: int):
+def _make_file_sink(
+    path: str, max_bytes: int, backup_count: int
+) -> Callable[[object], None]:
     """Create a file sink with size-based rotation.
 
     Wraps :class:`logging.handlers.RotatingFileHandler` so we keep rotation
