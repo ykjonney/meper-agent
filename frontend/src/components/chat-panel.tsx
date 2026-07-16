@@ -52,6 +52,7 @@ import {
 import WorkflowProposalCard, { type WorkflowProposal } from './workflow-proposal-card'
 import TaskCreatedCard, { type TaskCreated } from './task-created-card'
 import TaskResultCard, { type TaskResult } from './task-result-card'
+import { ClarificationFormCard, type ClarificationField } from './clarification-form-card'
 
 /* ─── Types ─── */
 
@@ -1590,6 +1591,30 @@ function TimelineEntryCard({
         const clarificationType = entry.args?.clarification_type ? String(entry.args.clarification_type) : 'missing_info'
         const answered = !!entry.result
         const interactive = !answered
+
+        // 表单模式：fields 提供时渲染结构化表单，单次收集多字段。
+        // fields 可能是数组或 JSON 字符串（LLM 容错）。
+        const rawFields = entry.args?.fields
+        let formFields: ClarificationField[] = []
+        if (Array.isArray(rawFields)) {
+          formFields = rawFields as ClarificationField[]
+        } else if (typeof rawFields === 'string') {
+          try { formFields = JSON.parse(rawFields) as ClarificationField[] } catch { /* ignore */ }
+        }
+        if (formFields.length > 0) {
+          return (
+            <div className="flex flex-col gap-2">
+              <ClarificationFormCard
+                question={question}
+                context={entry.args?.context ? String(entry.args.context) : undefined}
+                fields={formFields}
+                answered={answered}
+                result={entry.result}
+                onSubmit={(jsonStr) => onSendMessage?.(jsonStr)}
+              />
+            </div>
+          )
+        }
 
         // Inline text input state for free-form answers
         // eslint-disable-next-line react-hooks/rules-of-hooks

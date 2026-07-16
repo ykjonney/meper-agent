@@ -189,6 +189,7 @@ async def stream_events_to_app_events(
                     clarification_type=interrupt_payload.get("type", "missing_info"),
                     context=interrupt_payload.get("context"),
                     options=interrupt_payload.get("options"),
+                    fields=interrupt_payload.get("fields"),
                     interrupt_id="",
                 ))
             else:
@@ -212,6 +213,7 @@ async def stream_events_to_app_events(
                                 clarification_type=payload.get("type", "missing_info"),
                                 context=payload.get("context"),
                                 options=payload.get("options"),
+                                fields=payload.get("fields"),
                                 interrupt_id=getattr(intr, "id", "") or "",
                             ))
 

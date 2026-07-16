@@ -239,6 +239,29 @@ async def test_interrupt_from_chain_end():
 
 
 @pytest.mark.asyncio
+async def test_interrupt_form_fields_propagated():
+    """表单模式：payload 中的 fields 透传到 InterruptEvent（两条事件路径）。"""
+    fields = [
+        {"name": "audience", "label": "受众", "field_type": "select", "allow_other": True},
+    ]
+    # on_tool_error 路径
+    payload = {"question": "请补充", "type": "missing_info", "fields": fields}
+    gi = _GraphInterruptError((_Interrupt(value=payload),))
+    emitted = await _run([{"event": "on_tool_error", "data": {"error": gi}}])
+    ev = next(e for e in emitted if e["type"] == "interrupt")
+    assert ev["fields"] == fields
+
+    # on_chain_end 路径
+    intr = _Interrupt(value=payload)
+    emitted = await _run([{
+        "event": "on_chain_end",
+        "data": {"output": {"__interrupt__": [intr]}},
+    }])
+    ev = next(e for e in emitted if e["type"] == "interrupt")
+    assert ev["fields"] == fields
+
+
+@pytest.mark.asyncio
 async def test_tool_error_not_interrupt():
     """on_tool_error with regular exception → ErrorEvent."""
     events = [{"event": "on_tool_error", "data": {"error": RuntimeError("tool crashed")}}]

@@ -92,6 +92,11 @@ class InterruptEvent(_Base):
     Emitted when the graph encounters an ``interrupt()`` call (e.g.
     ``ask_clarification``). The host should display the question to the user
     and resume the graph with ``Command(resume=answer)``.
+
+    When ``fields`` is non-empty, the host should render a structured form
+    (one input per field) instead of a single question card; the user's
+    answers are aggregated as a JSON string and passed back via resume.
+    Each field dict mirrors ``ClarificationField.model_dump()``.
     """
 
     type: Literal["interrupt"] = "interrupt"
@@ -99,6 +104,7 @@ class InterruptEvent(_Base):
     clarification_type: str = "missing_info"
     context: str | None = None
     options: list[str] | None = None
+    fields: list[dict[str, Any]] | None = None
     interrupt_id: str = ""
 
 
