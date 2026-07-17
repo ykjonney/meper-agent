@@ -349,3 +349,36 @@ def test_intervene_reject_json_comment_renders_in_error_message(current_user: Us
         assert "60" in msg, f"json comment 未渲染进 error_message: {msg}"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_task_intervene_schema_accepts_rewind_action() -> None:
+    """Schema must accept action='rewind' and optional target_node_id/variables."""
+    from app.schemas.task import TaskIntervene
+
+    body = TaskIntervene(
+        action="rewind",
+        version=3,
+        target_node_id="node_a",
+        variables={"input": {"q": "hi"}},
+    )
+    assert body.action == "rewind"
+    assert body.target_node_id == "node_a"
+    assert body.variables == {"input": {"q": "hi"}}
+
+
+def test_task_intervene_schema_rejects_unknown_action() -> None:
+    """Unknown action must fail Pydantic validation."""
+    from app.schemas.task import TaskIntervene
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        TaskIntervene(action="bogus", version=1)
+
+
+def test_task_intervene_schema_target_and_variables_optional() -> None:
+    """For non-rewind actions, target_node_id/variables remain optional (None)."""
+    from app.schemas.task import TaskIntervene
+
+    body = TaskIntervene(action="approve", version=1)
+    assert body.target_node_id is None
+    assert body.variables is None
