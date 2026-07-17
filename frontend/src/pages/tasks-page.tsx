@@ -10,7 +10,7 @@
  */
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
-import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented, DatePicker, Switch, Radio, Divider, Select } from 'antd'
+import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented, DatePicker, Switch, Radio, Divider, Select, Tooltip } from 'antd'
 import {
   StopOutlined,
   RedoOutlined,
@@ -924,6 +924,8 @@ export default function TasksPage() {
                   ])
                   const hasAnyApproval = timeline.some(e => approveTypes.has(e.event_type))
                   const filtered = timeline.filter(e => {
+                    // 隐藏 node_start：data 仅 node_id/node_type（已拼进标签），折叠块看起来空
+                    if (e.event_type === 'node_start') return false
                     // 审批已完成 → 隐藏所有 waiting_human
                     if (hasAnyApproval && e.event_type === 'waiting_human') return false
                     // 人工审批节点的 node_complete 只是引擎恢复信号，审批事件已覆盖
