@@ -33,6 +33,7 @@ from app.core.config import settings
 from app.db.mongodb import get_database
 from app.models.channel import (
     ChannelConfig,
+    ChannelProvider,
     ChannelStatus,
     InboundEventLog,
     InboundEventLogStatus,
@@ -259,6 +260,112 @@ class ChannelService:
                 "channel %s auto-degraded after %d failures",
                 channel_id, cfg["consecutive_failures"],
             )
+
+    # ── CRUD (called by management API) ──
+
+    @staticmethod
+    async def create_channel(
+        *, name: str, provider: ChannelProvider, agent_id: str,
+        credentials: dict, owner_user_id: str,
+    ) -> ChannelConfig:
+        import secrets
+
+        from app.core.crypto import encrypt_secret
+
+        encrypted_creds = {
+            k: encrypt_secret(str(v)) for k, v in credentials.items() if v
+        }
+        cfg = ChannelConfig(
+            name=name, provider=provider, agent_id=agent_id,
+            owner_user_id=owner_user_id,
+            credentials=encrypted_creds,
+            webhook_secret=secrets.token_urlsafe(32),
+        )
+        await ChannelService._configs_coll().insert_one(cfg.model_dump(by_alias=True))
+        return cfg
+
+    @staticmethod
+    async def list_channels(
+        *, owner_user_id: str, page: int = 1, page_size: int = 20,
+    ) -> tuple[list[ChannelConfig], int]:
+        skip = (page - 1) * page_size
+        coll = ChannelService._configs_coll()
+        total = await coll.count_documents({"owner_user_id": owner_user_id})
+        cursor = coll.find({"owner_user_id": owner_user_id}).skip(skip).limit(page_size)
+        docs = await cursor.to_list(length=page_size)
+        return [ChannelConfig(**d) for d in docs], total
+
+    @staticmethod
+    async def get_channel(channel_id: str, owner_user_id: str) -> ChannelConfig | None:
+        doc = await ChannelService._configs_coll().find_one({
+            "_id": channel_id, "owner_user_id": owner_user_id,
+        })
+        return ChannelConfig(**doc) if doc else None
+
+    @staticmethod
+    async def update_channel(
+        channel_id: str, owner_user_id: str, *, name=None, agent_id=None,
+        credentials: dict | None = None, enabled=None,
+    ) -> ChannelConfig | None:
+        from app.core.crypto import encrypt_secret
+
+        update: dict = {"updated_at": datetime.now(UTC).isoformat()}
+        if name is not None:
+            update["name"] = name
+        if agent_id is not None:
+            update["agent_id"] = agent_id
+        if enabled is not None:
+            update["enabled"] = enabled
+        if credentials:
+            update["credentials"] = {
+                k: encrypt_secret(str(v)) for k, v in credentials.items() if v
+            }
+        await ChannelService._configs_coll().update_one(
+            {"_id": channel_id, "owner_user_id": owner_user_id},
+            {"$set": update},
+        )
+        return await ChannelService.get_channel(channel_id, owner_user_id)
+
+    @staticmethod
+    async def delete_channel(channel_id: str) -> None:
+        """Soft delete: disable + mark DISABLED. Keeps row for audit/event logs."""
+        await ChannelService._configs_coll().update_one(
+            {"_id": channel_id},
+            {"$set": {
+                "enabled": False,
+                "status": ChannelStatus.DISABLED,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }},
+        )
+
+    @staticmethod
+    async def set_enabled(channel_id: str, enabled: bool) -> None:
+        await ChannelService._configs_coll().update_one(
+            {"_id": channel_id},
+            {"$set": {
+                "enabled": enabled,
+                "status": ChannelStatus.ACTIVE if enabled else ChannelStatus.DISABLED,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }},
+        )
+
+    @staticmethod
+    async def reset_degraded(channel_id: str) -> None:
+        """Manually clear DEGRADED state + reset failure counter."""
+        await ChannelService._configs_coll().update_one(
+            {"_id": channel_id},
+            {"$set": {
+                "consecutive_failures": 0,
+                "status": ChannelStatus.ACTIVE,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }},
+        )
+
+    @staticmethod
+    def mask_credentials(credentials: dict) -> dict:
+        from app.core.crypto import mask_secret
+
+        return {k: mask_secret(str(v)) for k, v in credentials.items()}
 
 
 # Adapter.send() may be sync (MockChannel) or async (Lark/DingTalk/WeCom).

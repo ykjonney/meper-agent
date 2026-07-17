@@ -5,6 +5,8 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.api_keys import router as api_keys_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.channels import router as channels_router
+from app.api.v1.channels import inbound_router as channels_inbound_router
 from app.api.v1.credentials import router as credentials_router
 from app.api.v1.ext import router as ext_router
 from app.api.v1.files import router as files_router
@@ -42,4 +44,6 @@ api_v1_router.include_router(roles_router)
 api_v1_router.include_router(workflow_registry_router)
 api_v1_router.include_router(workflows_router)
 api_v1_router.include_router(webhooks_router)
+api_v1_router.include_router(channels_router)
+api_v1_router.include_router(channels_inbound_router)
 api_v1_router.include_router(ws_router)
