@@ -91,11 +91,22 @@ class ChannelService:
     # ── Orchestration ──
 
     @staticmethod
-    async def execute(inbound: InboundMessage) -> None:
+    async def execute(
+        inbound: InboundMessage, event_log_id: str | None = None
+    ) -> None:
         """Resolve session, invoke agent, send reply.
 
         TransientChannelError propagates (the Celery task retries the whole
         message). PermanentChannelError → handle_error (fallback reply).
+
+        Args:
+            inbound: The normalized inbound message to process.
+            event_log_id: Optional id of the persisted InboundEventLog. When
+                provided, handle_error is handed the *real* persisted log so it
+                can update its status to FAILED. When None (e.g. synchronous
+                test callers without a persisted log), an in-memory log is
+                reconstructed — handle_error's status update is then a no-op,
+                which is acceptable for those callers.
         """
         config = await ChannelService.get_config(inbound.channel_id)
         if config is None or not config.enabled:
@@ -108,12 +119,28 @@ class ChannelService:
             await ChannelService._reset_failure_counter(config.id)
         except PermanentChannelError as e:
             logger.warning("permanent channel error: %s", e)
-            dummy_log = InboundEventLog(
-                channel_id=inbound.channel_id,
-                platform_message_id=inbound.message_id,
-                payload=inbound.model_dump(mode="json"),
-            )
-            await ChannelService.handle_error(dummy_log, config, e)
+            if event_log_id is not None:
+                # Fetch the real persisted log so handle_error can update its
+                # status from PENDING → FAILED on the actual document.
+                real_log = await ChannelService.get_event_log(event_log_id)
+                if real_log is None:
+                    # Log was TTL'd or missing; reconstruct in-memory using the
+                    # provided id so any (no-op) update still targets that id.
+                    real_log = InboundEventLog(
+                        id=event_log_id,
+                        channel_id=inbound.channel_id,
+                        platform_message_id=inbound.message_id,
+                        payload=inbound.model_dump(mode="json"),
+                    )
+            else:
+                # Synchronous caller (e.g. tests) without a persisted log —
+                # reconstruct a fresh in-memory log (new id).
+                real_log = InboundEventLog(
+                    channel_id=inbound.channel_id,
+                    platform_message_id=inbound.message_id,
+                    payload=inbound.model_dump(mode="json"),
+                )
+            await ChannelService.handle_error(real_log, config, e)
         # TransientChannelError intentionally propagates to the Celery task.
 
     @staticmethod

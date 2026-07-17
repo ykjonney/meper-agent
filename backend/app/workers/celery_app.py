@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.workers.tasks.webhook_delivery",
         "app.workers.tasks.scheduled_workflow",
         "app.workers.tasks.workflow_execution",
+        "app.workers.tasks.channel_inbound",
     ],
 )
 
