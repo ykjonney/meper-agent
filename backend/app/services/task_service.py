@@ -953,16 +953,20 @@ class TaskService:
                 message="rewind 操作必须指定 target_node_id",
                 details={"task_id": task_id},
             )
-        if target_node_id not in completed_nodes:
-            raise ValidationError(
-                code="REWIND_TARGET_NOT_EXECUTED",
-                message=f"目标节点 {target_node_id} 未执行过，无法回退",
-                details={"task_id": task_id, "target_node_id": target_node_id},
-            )
+        # Check paused_at_node FIRST: the human pause node is typically not in
+        # completed_nodes (it is the pause point), so the "未执行过" check below
+        # would otherwise mask the more precise "当前暂停" error when the user
+        # targets the paused node itself.
         if target_node_id == paused_at_node:
             raise ValidationError(
                 code="REWIND_TARGET_IS_CURRENT",
                 message="不能退回到当前暂停的节点",
+                details={"task_id": task_id, "target_node_id": target_node_id},
+            )
+        if target_node_id not in completed_nodes:
+            raise ValidationError(
+                code="REWIND_TARGET_NOT_EXECUTED",
+                message=f"目标节点 {target_node_id} 未执行过，无法回退",
                 details={"task_id": task_id, "target_node_id": target_node_id},
             )
 

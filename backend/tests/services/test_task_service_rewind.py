@@ -210,6 +210,112 @@ class TestRewindTask:
         tl_entry = push_ops["timeline"]
         assert "start" in tl_entry["data"]["variables_overridden"]
 
+    def test_rewind_rejects_when_not_waiting_human(self, linear_wf_doc):
+        """status != waiting_human → ConflictError mentioning waiting_human."""
+        import asyncio
+        from app.core.errors import ConflictError
+
+        task_doc = {
+            "_id": "task_1", "workflow_id": "wf_test", "status": "running",
+            "version": 5, "checkpoint": {"paused_at_node": "human", "completed_nodes": ["a"]},
+        }
+        find_one = AsyncMock(side_effect=[task_doc])
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, AsyncMock()),
+            ))),
+            pytest.raises(ConflictError, match="waiting_human"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "a", None, None, "u", 5)
+            )
+
+    def test_rewind_rejects_when_no_checkpoint(self, linear_wf_doc):
+        """status=waiting_human but checkpoint=None → ConflictError mentioning checkpoint."""
+        import asyncio
+        from app.core.errors import ConflictError
+
+        task_doc = {
+            "_id": "task_1", "workflow_id": "wf_test", "status": "waiting_human",
+            "version": 5, "checkpoint": None,
+        }
+        find_one = AsyncMock(side_effect=[task_doc])
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, AsyncMock()),
+            ))),
+            pytest.raises(ConflictError, match="checkpoint"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "a", None, None, "u", 5)
+            )
+
+    def test_rewind_rejects_empty_target(self, waiting_task_doc, linear_wf_doc):
+        """target_node_id='' → ValidationError mentioning target_node_id."""
+        import asyncio
+        from app.core.errors import ValidationError
+
+        find_one = AsyncMock(side_effect=[waiting_task_doc])
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, AsyncMock()),
+            ))),
+            pytest.raises(ValidationError, match="target_node_id"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "", None, None, "u", 5)
+            )
+
+    def test_rewind_rejects_target_not_executed(self, waiting_task_doc, linear_wf_doc):
+        """target not in completed_nodes → ValidationError mentioning 未执行过."""
+        import asyncio
+        from app.core.errors import ValidationError
+
+        find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, AsyncMock()),
+            ))),
+            pytest.raises(ValidationError, match="未执行过"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "nonexistent_node", None, None, "u", 5)
+            )
+
+    def test_rewind_rejects_target_equals_paused(self, waiting_task_doc, linear_wf_doc):
+        """target == paused_at_node (=='human') → ValidationError mentioning 当前暂停."""
+        import asyncio
+        from app.core.errors import ValidationError
+
+        find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, AsyncMock()),
+            ))),
+            pytest.raises(ValidationError, match="当前暂停"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "human", None, None, "u", 5)
+            )
+
+    def test_rewind_rejects_on_version_conflict(self, waiting_task_doc, linear_wf_doc):
+        """find_one_and_update returns None (version mismatch) → ConflictError mentioning 状态已变更."""
+        import asyncio
+        from app.core.errors import ConflictError
+
+        find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
+        find_one_and_update = AsyncMock(return_value=None)  # version mismatch
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, find_one_and_update),
+            ))),
+            patch.object(TaskService, "_write_audit_log", AsyncMock()),
+            pytest.raises(ConflictError, match="状态已变更"),
+        ):
+            asyncio.run(
+                TaskService.rewind_task("task_1", "a", None, None, "u", 5)
+            )
+
 
 class _FakeColl:
     """Minimal fake MongoDB collection capturing find_one / find_one_and_update."""
