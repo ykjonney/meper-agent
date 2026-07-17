@@ -10,7 +10,7 @@
  */
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
-import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented, DatePicker, Switch, Radio, Divider } from 'antd'
+import { Button, Tag, message, Spin, Modal, Drawer, Input, Empty, Alert, Segmented, DatePicker, Switch, Radio, Divider, Select } from 'antd'
 import {
   StopOutlined,
   RedoOutlined,
@@ -24,6 +24,7 @@ import {
   EditOutlined,
   ClockCircleOutlined,
   CaretRightOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../contexts/ThemeContext'
 import {
@@ -964,6 +965,7 @@ export default function TasksPage() {
                     intervene_cancel:  { label: '人工取消',   color: '#EF4444' },
                     intervene_resume:  { label: '人工恢复',   color: '#1E5EFF' },
                     intervene_retry:    { label: '人工重试',   color: '#F59E0B' },
+                    rewoun:            { label: '已退回重跑', color: '#F59E0B' },
                   }
 
                   return (
@@ -1130,44 +1132,52 @@ export default function TasksPage() {
                     ? taskDetail.checkpoint.human_context.options.filter(Boolean)
                     : []
 
-                  if (humanOptions.length === 0) {
-                    // 无选项 → 显示通用"继续"按钮
-                    return (
-                      <Button
-                        type="primary"
-                        icon={<CheckOutlined />}
-                        onClick={() => interveneMutation.mutate({
-                          taskId: taskDetail.id,
-                          action: 'resume',
-                          version: taskDetail.version,
-                          comment: '',
-                        })}
-                        loading={interveneMutation.isPending}
-                      >
-                        继续
-                      </Button>
-                    )
-                  }
-
-                  // 有选项 → 显示批准/驳回按钮
                   return (
                     <>
+                      {humanOptions.length === 0 ? (
+                        // 无选项 → 通用"继续"按钮
+                        <Button
+                          type="primary"
+                          icon={<CheckOutlined />}
+                          onClick={() => interveneMutation.mutate({
+                            taskId: taskDetail.id,
+                            action: 'resume',
+                            version: taskDetail.version,
+                            comment: '',
+                          })}
+                          loading={interveneMutation.isPending}
+                        >
+                          继续
+                        </Button>
+                      ) : (
+                        // 有选项 → 批准/驳回
+                        <>
+                          <Button
+                            type="primary"
+                            icon={<CheckOutlined />}
+                            onClick={() => handleApprove(taskDetail)}
+                            loading={interveneMutation.isPending}
+                            style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
+                          >
+                            批准
+                          </Button>
+                          <Button
+                            danger
+                            icon={<CloseCircleOutlined />}
+                            onClick={() => handleReject(taskDetail)}
+                            loading={interveneMutation.isPending}
+                          >
+                            驳回
+                          </Button>
+                        </>
+                      )}
+                      {/* 退回重跑：无论有无 human options 都可用 */}
                       <Button
-                        type="primary"
-                        icon={<CheckOutlined />}
-                        onClick={() => handleApprove(taskDetail)}
-                        loading={interveneMutation.isPending}
-                        style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
-                      >
-                        批准
-                      </Button>
-                      <Button
-                        danger
-                        icon={<CloseCircleOutlined />}
-                        onClick={() => handleReject(taskDetail)}
+                        icon={<RollbackOutlined />}
+                        onClick={openRewindModal}
                         loading={interveneMutation.isPending}
                       >
-                        驳回
+                        退回重跑
                       </Button>
                     </>
                   )
@@ -1278,6 +1288,96 @@ export default function TasksPage() {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* ─── Rewind Modal（退回重跑）─── */}
+      <Modal
+        title="退回重跑"
+        open={rewindModalOpen}
+        onOk={handleRewind}
+        onCancel={() => setRewindModalOpen(false)}
+        okText="确定退回"
+        cancelText="取消"
+        confirmLoading={interveneMutation.isPending}
+        destroyOnClose
+        width={560}
+      >
+        {(() => {
+          if (!taskDetail?.checkpoint) {
+            return <div className="text-sm text-[#94A3B8]">无可回退的执行上下文</div>
+          }
+          const pausedAt = taskDetail.checkpoint.paused_at_node ?? ''
+          const completed = (taskDetail.checkpoint.completed_nodes ?? []).filter(n => n !== pausedAt)
+          const selectOptions = completed.map(n => {
+            const meta = rewindNodeMap[n]
+            return { value: n, label: meta ? `${meta.label} · ${meta.type}` : n }
+          })
+          const wfLoading = rewindWorkflowQuery.isLoading
+          const targetOutput = rewindTargetNode ? taskDetail.variables?.[rewindTargetNode] : undefined
+
+          return (
+            <div className="flex flex-col gap-3 py-2">
+              <p className="text-sm text-[#475569]">
+                选择一个已执行的节点，任务将从该节点重新执行其全部下游。当前审批节点（{pausedAt}）不可选。
+              </p>
+
+              {/* 目标节点选择 */}
+              <div>
+                <label className="block text-sm text-[#0F172A] mb-1.5">退回到节点 <span className="text-red-500">*</span></label>
+                <Select
+                  value={rewindTargetNode || undefined}
+                  onChange={(v: string) => setRewindTargetNode(v)}
+                  placeholder="选择一个已执行的节点"
+                  options={selectOptions}
+                  loading={wfLoading}
+                  disabled={wfLoading || completed.length === 0}
+                  showSearch
+                  optionFilterProp="label"
+                  style={{ width: '100%' }}
+                  notFoundContent={wfLoading ? <Spin size="small" /> : (completed.length === 0 ? <Empty description="无可回退的节点" /> : null)}
+                />
+              </div>
+
+              {/* 选中节点的当前输出预览（确认退回点）*/}
+              {rewindTargetNode && (
+                <div>
+                  <label className="block text-sm text-[#0F172A] mb-1.5">该节点当前输出</label>
+                  <pre className="text-xs font-mono bg-[#F8FAFC] border border-line rounded-lg p-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[#475569]">
+                    {targetOutput === undefined ? '(无输出)' : JSON.stringify(targetOutput, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* 可选：修改变量 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm text-[#0F172A]">修改变量（可选）</label>
+                  <Segmented
+                    size="small"
+                    value={rewindVarsMode}
+                    onChange={(val) => setRewindVarsMode(val as 'none' | 'json')}
+                    options={[
+                      { label: '不改', value: 'none' },
+                      { label: 'JSON 编辑', value: 'json' },
+                    ]}
+                  />
+                </div>
+                {rewindVarsMode === 'json' && (
+                  <Input.TextArea
+                    value={rewindVarsText}
+                    onChange={(e) => setRewindVarsText(e.target.value)}
+                    placeholder='{"input": {"q": "修改后的值"}}'
+                    rows={6}
+                    className="font-mono"
+                  />
+                )}
+                {rewindVarsMode === 'none' && (
+                  <div className="text-xs text-[#94A3B8]">不修改变量，仅退回并重跑下游节点。</div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
 
       {/* ─── Edit Scheduled Task Modal ─── */}
