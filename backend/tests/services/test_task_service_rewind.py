@@ -181,7 +181,65 @@ class TestRewindTask:
         # resume triggered
         assert resume_mock.call_count == 1
 
-    def test_rewind_with_variables_merges_and_snapshots(self, linear_wf_doc, waiting_task_doc):
+    def test_rewind_clears_checkpointer_threads_for_trimmed_nodes(
+        self, linear_wf_doc, waiting_task_doc,
+    ) -> None:
+        """rewind must clear LangGraph checkpointer threads for trimmed nodes.
+
+        Regression guard for "Received multiple non-consecutive system messages":
+        without cleanup, re-executing an agent node reuses its stale thread
+        ({task_id}_{node_id}) and the add_messages reducer appends a fresh
+        SystemMessage after the old history → non-consecutive system messages.
+        retry fixes this via _cleanup_task_artifacts; rewind must do the same
+        for the trimmed (target + downstream) nodes only — upstream nodes keep
+        their threads.
+        """
+        find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
+        find_one_and_update = AsyncMock(return_value={
+            **waiting_task_doc, "status": "running", "version": 6,
+            "checkpoint": {"paused_at_node": "a", "completed_nodes": ["start"]},
+        })
+        cp_col = MagicMock()
+        cp_col.delete_many = MagicMock()
+        writes_col = MagicMock()
+        writes_col.delete_many = MagicMock()
+        fake_checkpointer = MagicMock(
+            checkpoint_collection=cp_col,
+            writes_collection=writes_col,
+        )
+        with (
+            patch("app.services.task_service.get_database", MagicMock(return_value=AsyncMock(
+                __getitem__=lambda self, k: _FakeColl(find_one, find_one_and_update),
+            ))),
+            patch("app.engine.harness_integration.get_checkpointer", return_value=fake_checkpointer),
+            patch.object(TaskService, "_write_audit_log", AsyncMock()),
+            patch.object(TaskService, "resume_task_execution"),
+        ):
+            import asyncio
+            asyncio.run(
+                TaskService.rewind_task(
+                    task_id="task_1",
+                    target_node_id="a",
+                    variables=None,
+                    comment=None,
+                    triggered_by="user_1",
+                    version=5,
+                )
+            )
+
+        # Both checkpointer collections were cleaned. trim_set = {a, human}
+        # (target + downstream). The cleanup must target those threads.
+        assert cp_col.delete_many.called, "checkpoint_collection.delete_many not called"
+        assert writes_col.delete_many.called, "writes_collection.delete_many not called"
+        cp_filter = cp_col.delete_many.call_args.args[0]
+        # thread_ids for trimmed nodes must be present (task_1_a, task_1_human)
+        deleted_threads = cp_filter["thread_id"]["$in"]
+        assert "task_1_a" in deleted_threads, f"target thread missing: {deleted_threads}"
+        assert "task_1_human" in deleted_threads, f"downstream thread missing: {deleted_threads}"
+        # upstream node 'start' is NOT trimmed — its thread must NOT be deleted
+        assert "task_1_start" not in deleted_threads, f"upstream thread wrongly deleted: {deleted_threads}"
+
+
         """Providing variables merges into pool and pushes a variable_snapshots entry."""
         find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
         find_one_and_update = AsyncMock(return_value={**waiting_task_doc, "status": "running", "version": 6})

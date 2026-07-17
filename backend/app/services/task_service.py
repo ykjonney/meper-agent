@@ -402,6 +402,53 @@ class TaskService:
             logger.warning("task_checkpointer_cleanup_failed", task_id=task_id, error=str(exc))
 
     @staticmethod
+    async def _clear_checkpointer_threads(task_id: str, node_ids: set[str]) -> None:
+        """Clear LangGraph checkpointer threads for the given node IDs.
+
+        Scoped counterpart of the checkpointer cleanup in
+        :meth:`_cleanup_task_artifacts`: instead of deleting every thread under
+        ``{task_id}_`` (which would wipe upstream nodes' history too), this
+        deletes only the threads ``{task_id}_{node_id}`` for the supplied
+        nodes. Used by :meth:`rewind_task` to clear the trimmed (target +
+        downstream) nodes' threads so that re-execution starts a fresh agent
+        conversation instead of appending to stale history (which would cause
+        "Received multiple non-consecutive system messages").
+
+        Non-agent nodes have no checkpointer thread, so deleting their
+        (absent) thread is a harmless no-op.
+
+        Args:
+            task_id: Task ID.
+            node_ids: Node IDs whose threads to delete (typically the rewind
+                trim set).
+        """
+        if not node_ids:
+            return
+        try:
+            from app.engine.harness_integration import get_checkpointer
+
+            checkpointer = get_checkpointer()
+            cp_col = getattr(checkpointer, "checkpoint_collection", None)
+            writes_col = getattr(checkpointer, "writes_collection", None)
+            thread_ids = [f"{task_id}_{nid}" for nid in node_ids]
+            thread_filter = {"thread_id": {"$in": thread_ids}}
+            if cp_col is not None:
+                cp_col.delete_many(thread_filter)
+            if writes_col is not None:
+                writes_col.delete_many(thread_filter)
+            logger.info(
+                "rewind_checkpointer_cleared",
+                task_id=task_id,
+                node_count=len(node_ids),
+                thread_ids=thread_ids,
+            )
+        except Exception as exc:
+            # Cleanup is best-effort: if the checkpointer is unavailable, the
+            # rewind still proceeds (resume may fail with the system-message
+            # error, which is a clearer signal than blocking the rewind here).
+            logger.warning("rewind_checkpointer_clear_failed", task_id=task_id, error=str(exc))
+
+    @staticmethod
     async def delete_task(task_id: str) -> bool:
         """Delete a terminal Task.
 
@@ -1097,7 +1144,16 @@ class TaskService:
             version=new_version,
         )
 
-        # ── 10. Resume (fire-and-forget) ──
+        # ── 10. Clear LangGraph checkpointer threads for trimmed nodes ──
+        # Without this, re-executing a trimmed agent node reuses its stale
+        # thread ({task_id}_{node_id}) and the add_messages reducer appends a
+        # fresh SystemMessage after the old history, producing non-consecutive
+        # system messages → "Received multiple non-consecutive system messages".
+        # (retry avoids this via _cleanup_task_artifacts; rewind must do the
+        # same, scoped to the trimmed nodes so upstream threads are preserved.)
+        await TaskService._clear_checkpointer_threads(task_id, trim_set)
+
+        # ── 11. Resume (fire-and-forget) ──
         TaskService.resume_task_execution(task_id)
 
         return updated
