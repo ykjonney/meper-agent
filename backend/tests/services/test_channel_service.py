@@ -15,7 +15,6 @@ from app.channels.errors import (
     PermanentChannelError,
 )
 from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES, MockChannel
-from app.channels.registry import ChannelRegistry
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,
@@ -23,15 +22,6 @@ from app.models.channel import (
 )
 from app.schemas.execution import ExecutionResponse
 from app.services.channel_service import ChannelService
-
-
-def _ensure_mock_registered() -> None:
-    """Re-register the mock adapter. Other test modules (test_registry.py)
-    clear ChannelRegistry._registry in their setup_method and never restore
-    it, so the mock provider can be missing by the time these tests run.
-    register() just overwrites the slot, so this is idempotent.
-    """
-    ChannelRegistry.register("mock")(MockChannel)
 
 
 def _make_inbound(msg_id: str = "msg_1") -> InboundMessage:
@@ -97,7 +87,6 @@ class TestCreateOrDedupEvent:
 
 class TestExecute:
     def setup_method(self):
-        _ensure_mock_registered()
         MOCK_SENT_MESSAGES.clear()
 
     @pytest.mark.asyncio
@@ -166,7 +155,6 @@ class TestExecute:
 
 class TestHandleError:
     def setup_method(self):
-        _ensure_mock_registered()
         MOCK_SENT_MESSAGES.clear()
 
     @pytest.mark.asyncio

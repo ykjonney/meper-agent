@@ -52,8 +52,15 @@ class FakeChannel(Channel):
 
 class TestChannelRegistry:
     def setup_method(self):
-        # Registry is module-level; clean state per test
+        # Registry is module-level; save real state then start clean so this
+        # test class's isolaton doesn't wipe providers (e.g. mock) relied on
+        # by other test modules.
+        self._saved_registry = dict(ChannelRegistry._registry)
         ChannelRegistry._registry = {}
+
+    def teardown_method(self):
+        # Restore so other tests still see the real providers.
+        ChannelRegistry._registry = self._saved_registry
 
     def test_register_decorator(self):
         @ChannelRegistry.register("fake")
