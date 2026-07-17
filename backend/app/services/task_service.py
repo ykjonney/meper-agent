@@ -839,10 +839,19 @@ class TaskService:
         """Return all downstream node IDs of ``target_node_id`` (excluding target itself).
 
         Traverses ``node.config.next_nodes`` via DFS (traversal order is
-        irrelevant for transitive closure). Does NOT distinguish
-        parallel/gateway branches — per the rewind spec, *all* downstream nodes
-        (including parallel siblings) are returned so the caller can trim them
-        from ``completed_nodes`` and re-execute the whole downstream subgraph.
+        irrelevant for transitive closure).
+
+        LIMITATION: only ``config.next_nodes`` is traversed. Gateway and
+        parallel nodes store their routing targets elsewhere
+        (``config.conditions[].target``/``config.default_branch`` for gateway,
+        ``config.branches[].start_node`` for parallel) and
+        ``_migrate_edges_to_next_nodes`` (engine.py) never back-fills
+        ``next_nodes`` for those node types. As a result the downstream of a
+        gateway/parallel node — or of any node whose path crosses one — is
+        under-computed: those branches are NOT trimmed from
+        ``completed_nodes`` and on resume are silently skipped rather than
+        re-executed. This is an accepted V1 non-goal (rewind spec §1.2).
+        Rewind across gateway/parallel should therefore be used with care.
 
         Defends against cycles (though the workflow validator forbids them)
         via a ``visited`` set, and skips next-targets that are not defined as
@@ -853,8 +862,8 @@ class TaskService:
             target_node_id: Node to compute downstream of.
 
         Returns:
-            Set of node IDs reachable from ``target_node_id`` (never includes
-            ``target_node_id`` itself).
+            Set of node IDs reachable from ``target_node_id`` via
+            ``config.next_nodes`` (never includes ``target_node_id`` itself).
         """
         node_map = {n["node_id"]: n for n in workflow_doc.get("nodes", [])}
         visited: set[str] = set()
@@ -953,10 +962,12 @@ class TaskService:
                 message="rewind 操作必须指定 target_node_id",
                 details={"task_id": task_id},
             )
-        # Check paused_at_node FIRST: the human pause node is typically not in
-        # completed_nodes (it is the pause point), so the "未执行过" check below
-        # would otherwise mask the more precise "当前暂停" error when the user
-        # targets the paused node itself.
+        # Check paused_at_node FIRST to surface the more precise "当前暂停"
+        # error when the user targets the paused node itself. (The paused human
+        # node IS in completed_nodes — engine.py:767 adds it before the
+        # checkpoint is saved at engine.py:806 — so reversing these two checks
+        # wouldn't misfire, but reporting "未执行过" for the current pause node
+        # would be a confusing message.)
         if target_node_id == paused_at_node:
             raise ValidationError(
                 code="REWIND_TARGET_IS_CURRENT",

@@ -101,16 +101,24 @@ class TestRewindTask:
 
     @pytest.fixture
     def waiting_task_doc(self, linear_wf_doc):
+        # Realistic checkpoint shape: the human pause node IS in completed_nodes
+        # (engine.py:767 adds it before the checkpoint is saved at engine.py:806),
+        # and its output is in variable_snapshot. Rewinding to 'a' trims
+        # {a, human} (a's downstream is human), leaving ['start'].
         return {
             "_id": "task_1",
             "workflow_id": "wf_test",
             "status": "waiting_human",
             "version": 5,
-            "variables": {"start": {"x": 1}, "a": {"out": "v1"}},
+            "variables": {"start": {"x": 1}, "a": {"out": "v1"}, "human": {"status": "waiting_human"}},
             "checkpoint": {
                 "paused_at_node": "human",
-                "completed_nodes": ["start", "a"],
-                "variable_snapshot": {"start": {"x": 1}, "a": {"out": "v1"}},
+                "completed_nodes": ["start", "a", "human"],
+                "variable_snapshot": {
+                    "start": {"x": 1},
+                    "a": {"out": "v1"},
+                    "human": {"status": "waiting_human"},
+                },
                 "human_context": {"node_id": "human", "title": "审"},
                 "agent_thread_id": "",
             },
@@ -119,7 +127,7 @@ class TestRewindTask:
         }
 
     def test_rewind_trims_target_and_downstream_and_reruns(self, linear_wf_doc, waiting_task_doc):
-        """Rewind to 'a': completed_nodes loses 'a' (human not in completed), paused→a, human_context cleared."""
+        """Rewind to 'a': completed_nodes loses 'a' and its downstream 'human', paused→a, human_context cleared."""
         find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
         find_one_and_update = AsyncMock(return_value={
             **waiting_task_doc,
@@ -151,7 +159,8 @@ class TestRewindTask:
                 )
             )
 
-        # checkpoint trimmed: paused_at_node='a', 'a' removed from completed_nodes
+        # checkpoint trimmed: paused_at_node='a', 'a' and downstream 'human'
+        # removed from completed_nodes, leaving only ['start'].
         update_call = find_one_and_update.await_args
         set_ops = update_call.kwargs.get("update", update_call.args[-1] if update_call.args else {})["$set"]
         assert set_ops["status"] == "running"
@@ -159,8 +168,10 @@ class TestRewindTask:
         assert set_ops["checkpoint.paused_at_node"] == "a"
         assert set_ops["checkpoint.completed_nodes"] == ["start"]
         assert set_ops["checkpoint.human_context"] == {}
-        # 'a' output removed from variable_snapshot
+        # 'a' and its downstream 'human' outputs removed from variable_snapshot
         assert "a" not in set_ops["checkpoint.variable_snapshot"]
+        assert "human" not in set_ops["checkpoint.variable_snapshot"]
+        assert "start" in set_ops["checkpoint.variable_snapshot"]  # upstream preserved
         # rewoun timeline event pushed
         push_ops = update_call.kwargs.get("update", update_call.args[-1] if update_call.args else {})["$push"]
         tl_entry = push_ops["timeline"]
