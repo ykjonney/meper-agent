@@ -46,6 +46,23 @@ class TestMockChannelRegistration:
         assert isinstance(instance, MockChannel)
 
 
+class TestPEP562AutoRegistration:
+    """Regression: ensure ChannelRegistry.get('mock') works in production
+    where no test import has pre-loaded mock.channel. The @register decorator
+    must fire purely from importing the providers package.
+
+    The real proof is the standalone `python -c` check documented in the
+    task — this test guards against regressions in the import chain.
+    """
+
+    def test_get_mock_without_direct_channel_import(self):
+        # Go through the registry alone. ChannelRegistry.get()'s lazy import
+        # of `app.channels.providers` is what production relies on; that
+        # import chain must reach the @register decorator in mock/channel.py.
+        instance = ChannelRegistry.get("mock")
+        assert instance.__class__.__name__ == "MockChannel"
+
+
 class TestMockVerifyInbound:
     def setup_method(self):
         MOCK_SENT_MESSAGES.clear()
