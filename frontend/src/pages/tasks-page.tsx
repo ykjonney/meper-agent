@@ -971,11 +971,34 @@ export default function TasksPage() {
                     rewoun:            { label: '已退回重跑', color: '#F59E0B' },
                   }
 
+                  // 废弃判定：一条 node_complete/node_failed，若其 node_id 出现在其后
+                  // 某个 rewoun 的 rewound_nodes 里，说明它是被退回重跑掉的旧轮 → 标记废弃。
+                  // 旧轮记录的行内 output_summary 是真快照（保留），但其「查看执行详情」按钮
+                  // 取的 checkpointer thread 已被 rewind 清掉覆盖（新轮内容，误导），故禁用。
+                  const supersededIdx = new Set<number>()
+                  for (let i = 0; i < filtered.length; i++) {
+                    const evt = filtered[i]
+                    if (evt.event_type !== 'node_complete' && evt.event_type !== 'node_failed') continue
+                    const nodeId = evt.data?.node_id as string | undefined
+                    if (!nodeId) continue
+                    for (let j = i + 1; j < filtered.length; j++) {
+                      const later = filtered[j]
+                      if (later.event_type === 'rewoun') {
+                        const rewound = (later.data?.rewound_nodes as string[] | undefined) ?? []
+                        if (rewound.includes(nodeId)) {
+                          supersededIdx.add(i)
+                          break
+                        }
+                      }
+                    }
+                  }
+
                   return (
                     <div className="relative pl-7">
                       {/* 连续连接线 */}
                       <div className="absolute left-[9px] top-2 bottom-2 w-[2px] bg-[#E2E8F0]" />
                       {filtered.map((evt, idx) => {
+                        const superseded = supersededIdx.has(idx)
                         const meta = eventMeta[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
 
                         // 节点事件：拼接类型前缀 → "Agent 节点开始" / "输入节点完成"
@@ -992,7 +1015,7 @@ export default function TasksPage() {
                         const hasData = Object.keys(evt.data ?? {}).length > 0
 
                         return (
-                          <div key={idx} className="relative py-2">
+                          <div key={idx} className={`relative py-2${superseded ? ' opacity-50' : ''}`}>
                             {/* 时间轴圆点 */}
                             <div
                               className="absolute -left-7 top-2.5 w-[14px] h-[14px] rounded-full border-2 border-white shadow-sm z-10"
@@ -1001,20 +1024,27 @@ export default function TasksPage() {
                             {/* 事件主体 */}
                             <div className="flex items-baseline gap-2 flex-wrap">
                               <span className="text-xs font-medium" style={{ color: meta.color }}>{displayLabel}</span>
+                              {superseded && <span className="text-[10px] text-[#94A3B8] bg-[#F1F5F9] rounded px-1 py-0.5">已废弃</span>}
                               <span className="text-[11px] text-[#94A3B8]">{formatDateTime(evt.timestamp)}</span>
                               {evt.actor && <span className="text-[11px] text-[#94A3B8]">· {evt.actor}</span>}
                               {/* Agent 节点完成后可查看执行详情 */}
                               {isNodeEvent && nodeType === 'agent' &&
                                 (evt.event_type === 'node_complete' || evt.event_type === 'node_failed') && (
-                                <button
-                                  onClick={() => setNodeDetail({
-                                    taskId: taskDetail.id,
-                                    nodeId: evt.data?.node_id as string,
-                                  })}
-                                  className="text-[10px] text-[#1E5EFF] hover:underline border-0 bg-transparent cursor-pointer p-0 ml-1"
-                                >
-                                  查看执行详情
-                                </button>
+                                superseded ? (
+                                  <Tooltip title="该记录已被退回重跑覆盖，详情不可用">
+                                    <span className="text-[10px] text-[#94A3B8] cursor-not-allowed ml-1">查看执行详情</span>
+                                  </Tooltip>
+                                ) : (
+                                  <button
+                                    onClick={() => setNodeDetail({
+                                      taskId: taskDetail.id,
+                                      nodeId: evt.data?.node_id as string,
+                                    })}
+                                    className="text-[10px] text-[#1E5EFF] hover:underline border-0 bg-transparent cursor-pointer p-0 ml-1"
+                                  >
+                                    查看执行详情
+                                  </button>
+                                )
                               )}
                             </div>
                             {/* 所有数据统一折叠 */}
