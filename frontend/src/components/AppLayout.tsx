@@ -77,6 +77,7 @@ const GROUPS: NavGroup[] = [
       { label: 'MCP', path: '/mcp', key: 'mcp', permission: 'mcp:read' },
       { label: 'Skill', path: '/skills', key: 'skills', permission: 'skill:read' },
       { label: '凭据', path: '/credentials', key: 'credentials', permission: 'tool:read' },
+      { label: '渠道', path: '/channels', key: 'channels', permission: 'tool:read' },
     ],
   },
   {
@@ -108,6 +109,7 @@ const PATH_TO_GROUP: Record<string, string> = {
   '/tools': 'tools',
   '/mcp': 'tools',
   '/skills': 'tools',
+  '/channels': 'tools',
   '/users': 'users',
   '/roles': 'users',
   '/api-keys': 'system',

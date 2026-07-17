@@ -19,6 +19,7 @@ import SkillDetailPage from '../pages/skill-detail-page'
 import ExecutionLogsPage from '../pages/execution-logs-page'
 import ApiKeysPage from '../pages/api-keys-page'
 import CredentialsPage from '../pages/credentials-page'
+import ChannelsPage from '../pages/channels-page'
 import UsersPage from '../pages/users-page'
 import RolesPage from '../pages/roles-page'
 import SettingsPage from '../pages/settings-page'
@@ -48,6 +49,7 @@ export const routes = [
           { path: '/execution-logs', element: <ExecutionLogsPage /> },
           { path: '/api-keys', element: <ApiKeysPage /> },
           { path: '/credentials', element: <CredentialsPage /> },
+          { path: '/channels', element: <ChannelsPage /> },
           { path: '/users', element: <UsersPage /> },
           { path: '/roles', element: <RolesPage /> },
           { path: '/settings', element: <SettingsPage /> },
