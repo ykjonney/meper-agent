@@ -37,9 +37,14 @@ def _to_response(cfg, base_url: str) -> ChannelResponse:
     ``base_url`` is the request's base URL (no trailing slash); for list
     responses where no request body is available, an empty base_url produces
     a relative inbound_url (acceptable for list previews).
+
+    The inbound URL carries ``?secret=<webhook_secret>`` so the operator can
+    paste it directly as the platform callback URL — the inbound receiver
+    checks it as a second factor on top of each platform's signature
+    verification.
     """
     prefix = f"{base_url}/api/v1/channels/inbound" if base_url else "/api/v1/channels/inbound"
-    inbound_url = f"{prefix}/{cfg.provider}/{cfg.id}"
+    inbound_url = f"{prefix}/{cfg.provider}/{cfg.id}?secret={cfg.webhook_secret}"
     return ChannelResponse(
         id=cfg.id, name=cfg.name, provider=cfg.provider,
         agent_id=cfg.agent_id, owner_user_id=cfg.owner_user_id,
@@ -172,6 +177,16 @@ async def receive_inbound(provider: str, channel_id: str, request: Request):
     if cfg.status == ChannelStatus.DEGRADED:
         return JSONResponse(
             {"error": "channel degraded"}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    # Second-factor auth: webhook_secret in the query string. This is a
+    # defense against path-scanning forgery on top of each platform's own
+    # signature verification (which some platforms' simple robots don't
+    # provide at all). The secret is generated per channel at creation time.
+    provided_secret = request.query_params.get("secret", "")
+    if not provided_secret or provided_secret != cfg.webhook_secret:
+        return JSONResponse(
+            {"error": "invalid secret"}, status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
     try:

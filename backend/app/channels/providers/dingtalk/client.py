@@ -9,7 +9,7 @@ import logging
 
 import httpx
 
-from app.channels.errors import SendFailedError
+from app.channels.errors import InvalidCredentialsError, SendFailedError
 from app.core.crypto import decrypt_secret
 from app.models.channel import ChannelConfig
 
@@ -22,7 +22,9 @@ async def send_text_message(
     """Send a text message back to the DingTalk conversation via group robot webhook."""
     webhook_url_enc = config.credentials.get("webhook_url")
     if not webhook_url_enc:
-        raise SendFailedError("no webhook_url configured for dingtalk channel")
+        raise InvalidCredentialsError(
+            "no webhook_url configured for dingtalk channel"
+        )
     webhook_url = decrypt_secret(webhook_url_enc)
 
     payload = {

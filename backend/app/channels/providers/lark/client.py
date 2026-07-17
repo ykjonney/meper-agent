@@ -9,6 +9,7 @@ import logging
 
 import httpx
 
+from app.channels.errors import InvalidCredentialsError
 from app.core.crypto import decrypt_secret
 from app.models.channel import ChannelConfig
 
@@ -23,12 +24,18 @@ _token_cache: dict[str, tuple[str, float]] = {}
 
 async def _get_tenant_access_token(config: ChannelConfig) -> str:
     import time
-    app_id = config.credentials.get("app_id", "")
+    app_id = config.credentials.get("app_id")
+    if not app_id:
+        raise InvalidCredentialsError("missing credential: app_id")
     cached = _token_cache.get(app_id)
     if cached and cached[1] > time.time() + 60:
         return cached[0]
 
-    app_secret = decrypt_secret(config.credentials["app_secret"])
+    # app_secret is stored encrypted; the lark token endpoint wants plaintext.
+    app_secret_enc = config.credentials.get("app_secret")
+    if not app_secret_enc:
+        raise InvalidCredentialsError("missing credential: app_secret")
+    app_secret = decrypt_secret(app_secret_enc)
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(TOKEN_URL, json={
             "app_id": app_id,

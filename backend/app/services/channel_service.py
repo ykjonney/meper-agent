@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from app.channels.base import InboundMessage, OutboundEnvelope
 from app.channels.errors import (
-    InvalidCredentialsError,
+    AgentRuntimeError,
     PermanentChannelError,
     SendFailedError,
     TransientChannelError,
@@ -31,6 +31,7 @@ from app.channels.errors import (
 from app.channels.registry import ChannelRegistry
 from app.core.config import settings
 from app.db.mongodb import get_database
+from pymongo.errors import DuplicateKeyError
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,
@@ -86,7 +87,13 @@ class ChannelService:
             platform_message_id=inbound.message_id,
             payload=inbound.model_dump(mode="json"),
         )
-        await coll.insert_one(log.model_dump(by_alias=True))
+        try:
+            await coll.insert_one(log.model_dump(by_alias=True))
+        except DuplicateKeyError:
+            # Concurrent race: another request inserted the same
+            # (channel_id, platform_message_id) between our find_one and
+            # insert_one. Treat as a duplicate and ack the platform.
+            return None
         return log.id
 
     # ── Orchestration ──
@@ -222,12 +229,14 @@ class ChannelService:
             }},
         )
 
-        # 3. Credential failures degrade the channel; code bugs don't.
-        #    AgentRuntimeError is a transient code bug (the agent itself is
-        #    broken, not the channel creds), so degrading would make things
-        #    worse for every other user on this channel. Only credential
-        #    failures count toward the degrade threshold.
-        if isinstance(error, InvalidCredentialsError):
+        # 3. Per spec §5.2.4, every PermanentChannelError counts toward
+        #    consecutive_failures except AgentRuntimeError (which is a code
+        #    bug in the agent itself, not the channel — degrading would punish
+        #    every other user on this channel for a bug they didn't cause).
+        #    InvalidCredentialsError AND SendFailedError (e.g. platform API
+        #    outage) both bump; otherwise a persistently failing channel
+        #    would silently lose every message and stay ACTIVE forever.
+        if not isinstance(error, AgentRuntimeError):
             await ChannelService._bump_failure_counter(config.id)
 
     @staticmethod

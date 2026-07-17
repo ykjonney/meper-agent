@@ -110,8 +110,11 @@ class TestCreateChannel:
             assert body["id"] == "ch_new"
             # owner threaded from the authenticated user (user.id)
             assert body["owner_user_id"] == "user_admin"
-            # full inbound URL includes base_url + provider + id
-            assert body["inbound_url"].endswith("/inbound/mock/ch_new")
+            # full inbound URL includes base_url + provider + id + ?secret=...
+            assert body["inbound_url"].startswith(
+                "http://testserver/api/v1/channels/inbound/mock/ch_new?secret="
+            )
+            assert body["inbound_url"].endswith("mock_secret_at_least_16")
             # credentials always masked in the response
             assert "app_id" in body["credentials"]
             masked = body["credentials"]["app_id"]
@@ -321,7 +324,8 @@ class TestInboundWebhookE2E:
             "app.workers.tasks.channel_inbound.process_inbound.delay",
         ) as mock_delay:
             resp = client.post(
-                "/api/v1/channels/inbound/mock/ch_e2e",
+                "/api/v1/channels/inbound/mock/ch_e2e"
+                f"?secret={cfg.webhook_secret}",
                 json={
                     "message_id": "e2e_msg_1",
                     "chat_id": "e2e_chat",
@@ -443,10 +447,68 @@ class TestInboundWebhookE2E:
             new=AsyncMock(),
         ) as mock_dedup:
             resp = client.post(
-                "/api/v1/channels/inbound/mock/ch_ack",
+                "/api/v1/channels/inbound/mock/ch_ack"
+                f"?secret={cfg.webhook_secret}",
                 json={"message_id": "m", "chat_id": "c", "user_id": "u", "text": "   "},
             )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         # No event should have been persisted/dispatched.
         mock_dedup.assert_not_awaited()
+
+
+class TestInboundWebhookSecret:
+    """Second-factor auth via ?secret=<webhook_secret> (issue #3).
+
+    Each channel has a per-channel secret generated at creation time. The
+    inbound receiver enforces it as a defense against path-scanning forgery
+    on top of each platform's signature verification.
+    """
+
+    def test_missing_secret_returns_401(self, client):
+        app.dependency_overrides.clear()
+        cfg = _make_config(id="ch_sec")
+        with patch(
+            "app.services.channel_service.ChannelService.get_config",
+            new=AsyncMock(return_value=cfg),
+        ):
+            resp = client.post(
+                "/api/v1/channels/inbound/mock/ch_sec",
+                json={"message_id": "m", "chat_id": "c", "user_id": "u", "text": "x"},
+            )
+        assert resp.status_code == 401
+
+    def test_wrong_secret_returns_401(self, client):
+        app.dependency_overrides.clear()
+        cfg = _make_config(id="ch_sec")
+        with patch(
+            "app.services.channel_service.ChannelService.get_config",
+            new=AsyncMock(return_value=cfg),
+        ):
+            resp = client.post(
+                "/api/v1/channels/inbound/mock/ch_sec?secret=wrong_value",
+                json={"message_id": "m", "chat_id": "c", "user_id": "u", "text": "x"},
+            )
+        assert resp.status_code == 401
+
+    def test_correct_secret_passes_secret_gate(self, client):
+        """With the correct secret, the request proceeds past the secret check
+        into verify_inbound. We mock verify_inbound to a no-op ack to isolate
+        the secret gate."""
+        app.dependency_overrides.clear()
+        cfg = _make_config(id="ch_sec")
+        with patch(
+            "app.services.channel_service.ChannelService.get_config",
+            new=AsyncMock(return_value=cfg),
+        ), patch(
+            "app.services.channel_service.ChannelService.create_or_dedup_event",
+            new=AsyncMock(return_value=None),  # dedup → ack
+        ) as mock_dedup:
+            resp = client.post(
+                "/api/v1/channels/inbound/mock/ch_sec"
+                f"?secret={cfg.webhook_secret}",
+                json={"message_id": "m", "chat_id": "c", "user_id": "u", "text": "x"},
+            )
+        # Past the secret gate — either 200 (dedup) or a verify error, but NOT 401.
+        assert resp.status_code != 401
+        mock_dedup.assert_awaited_once()

@@ -13,6 +13,7 @@ from app.channels.errors import (
     InvalidCredentialsError,
     LLMRateLimitError,
     PermanentChannelError,
+    SendFailedError,
 )
 from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES, MockChannel
 from app.models.channel import (
@@ -83,6 +84,26 @@ class TestCreateOrDedupEvent:
 
         assert log_id is None
         mock_coll.insert_one.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_race_returns_none_on_duplicate_key(self):
+        """Regression for issue #5: find_one missed the row, then insert_one
+        lost the race against a concurrent request and hit the unique index.
+        Must surface as a clean dedup (None), NOT a DuplicateKeyError that
+        would escape the route handler as a 500."""
+        from pymongo.errors import DuplicateKeyError
+
+        mock_coll = MagicMock()
+        mock_coll.find_one = AsyncMock(return_value=None)  # race: not yet inserted
+        mock_coll.insert_one = AsyncMock(
+            side_effect=DuplicateKeyError("E11000 duplicate key")
+        )
+
+        with patch.object(ChannelService, "_event_logs_coll", return_value=mock_coll):
+            log_id = await ChannelService.create_or_dedup_event(_make_inbound())
+
+        assert log_id is None
+        mock_coll.insert_one.assert_awaited_once()
 
 
 class TestExecute:
@@ -222,6 +243,26 @@ class TestHandleError:
         ):
             await ChannelService.handle_error(
                 event_log, config, InvalidCredentialsError(),
+            )
+        mock_bump.assert_awaited_once_with(config.id)
+
+    @pytest.mark.asyncio
+    async def test_send_failed_bumps_counter(self):
+        """Spec §5.2.4: send failures also count toward consecutive_failures,
+        otherwise a persistently broken platform API would silently lose every
+        message and the channel would stay ACTIVE forever."""
+        config = _make_config()
+        event_log = _make_event_log()
+        mock_coll = MagicMock()
+        mock_coll.update_one = AsyncMock()
+
+        with patch.object(
+            ChannelService, "_event_logs_coll", return_value=mock_coll
+        ), patch.object(
+            ChannelService, "_bump_failure_counter", new=AsyncMock()
+        ) as mock_bump:
+            await ChannelService.handle_error(
+                event_log, config, SendFailedError("platform down"),
             )
         mock_bump.assert_awaited_once_with(config.id)
 
