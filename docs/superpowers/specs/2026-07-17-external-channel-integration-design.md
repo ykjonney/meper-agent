@@ -155,50 +155,60 @@ class Channel(ABC):
 
 ## 4. 数据模型
 
-参考现有 `webhook.py` / `mcp_connection.py` 风格(Pydantic + MongoDB 文档,无 ORM)。
+参考现有 `webhook.py` / `mcp_connection.py` 风格(纯 `pydantic.BaseModel` + `generate_id(prefix)` 生成 `{prefix}_{ULID}` 字符串 ID,**无 Document 基类、无 PyObjectId**)。
 
 ### 4.1 ChannelConfig
 
 ```python
 # backend/app/models/channel.py
+from enum import StrEnum
+from pydantic import BaseModel, Field
+from pydantic.config import ConfigDict
+from app.models.base import generate_id, utc_now
 
-class ChannelProvider(str, Enum):
+class ChannelProvider(StrEnum):
     LARK = "lark"
     DINGTALK = "dingtalk"
     WECOM = "wecom"
     MOCK = "mock"           # 本地测试 / CI 用
 
-class ChannelConfig(Document):
+class ChannelStatus(StrEnum):
+    ACTIVE = "active"
+    DEGRADED = "degraded"
+    DISABLED = "disabled"
+
+class ChannelConfig(BaseModel):
     """一个 channel = 一组平台凭据 + 绑定关系。"""
-    id: PyObjectId
-    name: str                          # "售后客服-飞书"
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(default_factory=lambda: generate_id("ch"), alias="_id")
+    name: str = Field(..., min_length=1, max_length=200)    # "售后客服-飞书"
     provider: ChannelProvider
 
-    # 凭据(加密存储,复用 core/crypto.py)
-    credentials: dict                  # {app_id, app_secret, verification_token, ...}
-                                       # 各平台字段不同,用 dict 灵活承载
+    # 凭据(加密存储,用 core/crypto.encrypt_secret / decrypt_secret)
+    credentials: dict = Field(default_factory=dict)         # {app_id, app_secret, ...} 各平台字段不同
 
     # 绑定(支持 1 agent : N channel)
-    agent_id: PyObjectId               # 这个 channel 把消息交给哪个 agent
-    owner_user_id: PyObjectId          # 谁创建的(权限 / scope)
+    agent_id: str                      # 这个 channel 把消息交给哪个 agent
+    owner_user_id: str                 # 谁创建的(权限 / scope)
 
     # 接收模式
-    receive_mode: Literal["webhook"] = "webhook"  # 预留 "long_poll" 给未来飞书长连接
+    receive_mode: str = "webhook"      # 预留 "long_poll" 给未来飞书长连接
 
     # 运行时状态
     enabled: bool = True
     webhook_secret: str                # 二级校验(防伪造回调)
-    status: Literal["active", "degraded", "disabled"] = "active"
+    status: ChannelStatus = ChannelStatus.ACTIVE
     consecutive_failures: int = 0      # 连续失败计数(达阈值自动 degraded)
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: str = Field(default_factory=lambda: utc_now().isoformat())
+    updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 ```
 
 **设计要点:**
 
 - `credentials` 用 `dict` 承载,因为各平台字段不同(飞书 app_id/app_secret/verification_token/encrypt_key,钉钉 app_key/app_secret/robot_code/aes_key/token,企微 corp_id/agent_id/secret/token/encoding_aes_key)。
-- 加密复用 `core/crypto.py`(Fernet 或 AES-GCM),DB 被拖库也不泄密。
+- 加密用 `core/crypto.py` 的 `encrypt_secret` / `decrypt_secret`(AES-256-GCM,master key 来自 `settings.MODEL_ENCRYPTION_KEY`),DB 被拖库也不泄密。
 - `webhook_secret` 由系统生成,附在入站 URL 或 header 里做二级校验,防回调被伪造。
 - `status` 三态:`active`(正常)/ `degraded`(连续失败被自动降级,停止接收)/ `disabled`(管理员手动禁用)。
 
@@ -221,17 +231,26 @@ class ChannelConfig(Document):
 ### 4.3 InboundEventLog(幂等去重)
 
 ```python
-# backend/app/models/channel.py
+# backend/app/models/channel.py (同文件)
 
-class InboundEventLog(Document):
+class InboundEventLogStatus(StrEnum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    FAILED = "failed"
+
+class InboundEventLog(BaseModel):
     """幂等去重 + 待处理队列。平台会重发,用 message_id 去重。"""
-    id: PyObjectId
-    channel_id: PyObjectId
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(default_factory=lambda: generate_id("inb"), alias="_id")
+    channel_id: str
     platform_message_id: str          # 唯一键
     payload: dict                     # 完整 InboundMessage(持久化后才能 ack)
-    status: Literal["pending", "processing", "done", "failed"] = "pending"
-    processed_at: datetime | None = None
+    status: InboundEventLogStatus = InboundEventLogStatus.PENDING
+    processed_at: str | None = None
     error: str | None = None
+    created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     # TTL: 24h 后自动删除(平台重试窗口一般 < 1h)
 ```
 
@@ -355,7 +374,7 @@ backend/app/
 │   └── channel.py                     ← 新增,API 请求 / 响应模型(CRUD)
 │
 └── workers/tasks/
-    └── channel_processing.py          ← 新增 Celery task
+    └── channel_inbound.py             ← 新增 Celery task
 ```
 
 **拆分原则:**
@@ -406,10 +425,13 @@ class LarkChannel(Channel):
 ### 6.3 Celery Task
 
 ```python
-# backend/app/workers/tasks/channel_processing.py
+# backend/app/workers/tasks/channel_inbound.py
+
+from app.workers.celery_app import celery_app
+from app.workers.loop import run_async
 
 @celery_app.task(
-    name="channel.process_inbound",
+    name="app.workers.tasks.channel_inbound.process_inbound",
     bind=True,
     max_retries=3,
     default_retry_delay=30,
@@ -417,15 +439,14 @@ class LarkChannel(Channel):
 def process_inbound(self, event_log_id: str):
     """处理一条入站消息。worker 进程内执行。"""
     async def _run():
-        event_log = await InboundEventLog.get(event_log_id)
-        channel_config = await ChannelConfig.get(event_log.channel_id)
+        event_log = await ChannelService.get_event_log(event_log_id)
+        channel_config = await ChannelService.get_config(event_log.channel_id)
         try:
             await ChannelService.execute(InboundMessage(**event_log.payload))
         except TransientChannelError as e:
-            # Celery 自动指数退避(30s / 60s / 120s)
-            # ⚠️ 不用 autoretry_for:需在重试耗尽时走兜底
+            # Celery 指数退避(30s / 60s / 120s)
             if self.request.retries >= self.max_retries:
-                # 重试耗尽 → 转为永久错误,走兜底回复
+                # 重试耗尽 → 转永久错误,走兜底回复
                 await ChannelService.handle_error(
                     event_log, channel_config,
                     PermanentChannelError("重试耗尽: " + str(e))
@@ -435,7 +456,7 @@ def process_inbound(self, event_log_id: str):
         except PermanentChannelError as e:
             await ChannelService.handle_error(event_log, channel_config, e)
 
-    loop.py.run(_run())  # 复用现有 sync→async 桥(workers/loop.py)
+    run_async(_run())  # 复用现有 sync→async 桥(workers/loop.py)
 ```
 
 注册到 worker:
@@ -447,7 +468,7 @@ include = [
     "app.workers.tasks.webhook_delivery",
     "app.workers.tasks.scheduled_workflow",
     "app.workers.tasks.workflow_execution",
-    "app.workers.tasks.channel_processing",   # ← 新增
+    "app.workers.tasks.channel_inbound",   # ← 新增
 ]
 ```
 
