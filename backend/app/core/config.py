@@ -147,5 +147,13 @@ class Settings(BaseSettings):
     SANDBOX_CONTAINER_WORKSPACE_DIR: str = "/workspace"
     SANDBOX_CONTAINER_SKILLS_DIR: str = "/data/skills"
 
+    # ── Channels (inbound IM integrations) ──
+    CHANNEL_INBOUND_ACK_TIMEOUT_MS: int = 2000
+    CHANNEL_EVENT_LOG_TTL_HOURS: int = 24
+    CHANNEL_MAX_RETRIES: int = 3
+    CHANNEL_SEND_MAX_RETRIES: int = 3
+    CHANNEL_DEFAULT_REPLY_ON_FAILURE: str = "处理失败,请稍后重试或联系管理员"
+    CHANNEL_DEGRADED_ON_CONSECUTIVE_FAILURES: int = 5
+
 
 settings = Settings()
