@@ -6,8 +6,8 @@ ChannelRegistry itself never needs editing.
 """
 # Following adapters added in later tasks:
 from . import (
+    dingtalk,  # noqa: F401
     lark,  # noqa: F401
     mock,  # noqa: F401
 )
-# from . import dingtalk  # noqa: F401
 # from . import wecom  # noqa: F401
