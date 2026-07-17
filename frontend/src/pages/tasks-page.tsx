@@ -252,8 +252,9 @@ export default function TasksPage() {
   const interveneMutation = useMutation({
     mutationFn: ({ taskId, action, version, comment, target_node_id, variables }: { taskId: string; action: string; version: number; comment?: CommentValue; target_node_id?: string; variables?: Record<string, unknown> }) =>
       tasksApi.intervene(taskId, { action, version, comment, target_node_id, variables }),
-    onSuccess: () => {
-      message.success('操作成功')
+    onSuccess: (data) => {
+      // 优先用后端返回的具体消息（如 rewind 的「已退回重跑」），无则兜底通用提示
+      message.success(data?.message || '操作成功')
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
       if (detailTaskId) {
         queryClient.invalidateQueries({ queryKey: taskKeys.detail(detailTaskId) })
