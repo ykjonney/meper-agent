@@ -834,6 +834,47 @@ class TaskService:
 
         return updated
 
+    @staticmethod
+    def _compute_downstream_nodes(workflow_doc: dict, target_node_id: str) -> set[str]:
+        """Return all downstream node IDs of ``target_node_id`` (excluding target itself).
+
+        Traverses ``node.config.next_nodes`` via DFS (traversal order is
+        irrelevant for transitive closure). Does NOT distinguish
+        parallel/gateway branches — per the rewind spec, *all* downstream nodes
+        (including parallel siblings) are returned so the caller can trim them
+        from ``completed_nodes`` and re-execute the whole downstream subgraph.
+
+        Defends against cycles (though the workflow validator forbids them)
+        via a ``visited`` set, and skips next-targets that are not defined as
+        nodes in the workflow.
+
+        Args:
+            workflow_doc: Raw workflow MongoDB document (must contain ``nodes``).
+            target_node_id: Node to compute downstream of.
+
+        Returns:
+            Set of node IDs reachable from ``target_node_id`` (never includes
+            ``target_node_id`` itself).
+        """
+        node_map = {n["node_id"]: n for n in workflow_doc.get("nodes", [])}
+        visited: set[str] = set()
+        stack: list[str] = [target_node_id]
+        while stack:
+            cur = stack.pop()
+            node = node_map.get(cur)
+            if not node:
+                continue
+            for nxt in (node.get("config") or {}).get("next_nodes") or []:
+                target = nxt.get("target") if isinstance(nxt, dict) else None
+                if (
+                    target
+                    and target not in visited
+                    and target in node_map
+                ):
+                    visited.add(target)
+                    stack.append(target)
+        return visited - {target_node_id}
+
     # ------------------------------------------------------------------
     # Audit log
     # ------------------------------------------------------------------
