@@ -102,6 +102,13 @@ export default function TasksPage() {
   const [approvalCommentMode, setApprovalCommentMode] = useState<'text' | 'json'>('text')
   const [approvalTask, setApprovalTask] = useState<TaskSummary | TaskDetail | null>(null)
 
+  /* ─── Rewind state（退回重跑 Modal）─── */
+  const [rewindModalOpen, setRewindModalOpen] = useState(false)
+  const [rewindTargetNode, setRewindTargetNode] = useState<string>('')
+  // 变量编辑模式：'none' = 不改变量(纯退回), 'json' = JSON 编辑
+  const [rewindVarsMode, setRewindVarsMode] = useState<'none' | 'json'>('none')
+  const [rewindVarsText, setRewindVarsText] = useState<string>('')
+
   /* ─── Edit scheduled task modal state ─── */
   const [editTask, setEditTask] = useState<TaskSummary | null>(null)
   const [editEnabled, setEditEnabled] = useState(false)
@@ -289,6 +296,23 @@ export default function TasksPage() {
     enabled: !!editTask?.workflow_id,
   })
 
+  // rewind Modal 打开时拉工作流模板，用于把 completed_nodes 的 node_id 映射成节点名
+  const rewindWorkflowQuery = useQuery({
+    queryKey: ['workflow-detail-for-rewind', rewindModalOpen && taskDetail ? taskDetail.workflow_id : ''],
+    queryFn: () => workflowsApi.get(taskDetail!.workflow_id),
+    enabled: rewindModalOpen && !!taskDetail?.workflow_id,
+    staleTime: 60_000,
+  })
+  // node_id → { label, type } 映射，供 Select 显示节点名
+  const rewindNodeMap = useMemo(() => {
+    const nodes = rewindWorkflowQuery.data?.nodes ?? []
+    const m: Record<string, { label: string; type: string }> = {}
+    for (const n of nodes) {
+      m[n.node_id] = { label: n.label || n.node_id, type: n.type }
+    }
+    return m
+  }, [rewindWorkflowQuery.data])
+
   /* ─── Derive start node variables from workflow ─── */
   const editStartNodeVars = useMemo<VariableDefinition[]>(() => {
     const startNode = editWorkflowDetail?.nodes?.find((n) => n.type === 'start')
@@ -474,6 +498,41 @@ export default function TasksPage() {
     setApprovalComment('')
     setApprovalCommentMode('text')
   }, [])
+
+  /* ─── Rewind handlers ─── */
+  const openRewindModal = useCallback(() => {
+    setRewindTargetNode('')
+    setRewindVarsMode('none')
+    // 预填当前 variable_snapshot 作为 JSON 编辑起点
+    const snapshot = taskDetail?.checkpoint?.variable_snapshot
+    setRewindVarsText(snapshot ? JSON.stringify(snapshot, null, 2) : '{}')
+    setRewindModalOpen(true)
+  }, [taskDetail])
+
+  const handleRewind = useCallback(() => {
+    if (!taskDetail) return
+    if (!rewindTargetNode) {
+      message.warning('请选择退回节点')
+      return
+    }
+    let variables: Record<string, unknown> | undefined
+    if (rewindVarsMode === 'json') {
+      try {
+        variables = JSON.parse(rewindVarsText)
+      } catch {
+        message.error('JSON 格式错误，请检查变量输入')
+        return
+      }
+    }
+    interveneMutation.mutate({
+      taskId: taskDetail.id,
+      action: 'rewind',
+      target_node_id: rewindTargetNode,
+      variables,
+      version: taskDetail.version,
+    })
+    setRewindModalOpen(false)
+  }, [taskDetail, rewindTargetNode, rewindVarsMode, rewindVarsText, interveneMutation])
 
   const handleDelete = useCallback((task: TaskSummary) => {
     Modal.confirm({
