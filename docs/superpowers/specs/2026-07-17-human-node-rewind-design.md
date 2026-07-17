@@ -189,8 +189,15 @@ def _compute_downstream_nodes(workflow: Workflow, target_node_id: str) -> set[st
 最终裁剪集 R = `{target_node_id} ∪ visited`。
 
 ### 6.2 引擎侧改动
-- `engine.py:369 resume_from_checkpoint`：**原则上不动**。它本就按 `completed_nodes` 跳过已执行节点、重跑未在集合中的节点。
-- 唯一需在实现时确认：resume 取 `paused_at_node=target` 作为起点时，是否会把 target 本身重跑（而非跳过）。若引擎逻辑是「先跳过 paused_at_node 若已在 completed_nodes 则跳过」，则需在裁剪时确保 target 已从 completed_nodes 移除（本设计第 6 步已保证 target ∈ R 被移除）。若引擎在 resume 时对 paused_at_node 有特殊「跳过」处理，需做 1 行调整使其重跑。实现阶段用单测 `test_resume_after_rewind_reruns_removed_nodes` 锁定。
+**引擎完全不用改。** 详见 `engine.py:369 resume_from_checkpoint` 的三分支逻辑（`engine.py:429-451`）：
+
+1. `agent_thread_id` 非空 → 中途取消，重跑 paused node
+2. `is_human_pause`（`human_context` 非空）→ human 暂停，**标记 paused 为 complete**，恢复下游
+3. 两者皆空 → 节点边界取消，**重跑** paused node 及其下游
+
+rewind 在第 7 步清空了 `checkpoint.human_context={}`（同时 `agent_thread_id` 本就为空，因为 human 暂停时不会有 agent thread），因此 resume 必然落到**分支 3**：重跑 `paused_at_node=target`，然后 `_execute_node` 内部按 `next_nodes` 递归执行所有下游（`engine.py:913-924`，含条件路由与 parallel 分叉）。配合 `_execute_node` 第 720 行 `if node_id in self._completed_nodes: return None`，未裁剪的节点自动跳过。
+
+结论：**rewind 只需裁剪 `completed_nodes` + 清空 `human_context` + 改 `paused_at_node=target`，引擎天然完成「重跑 target 及下游、跳过未裁剪节点」**。无需任何引擎代码改动。
 
 ## 7. 模块边界与改动清单
 
