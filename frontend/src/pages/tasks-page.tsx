@@ -242,8 +242,8 @@ export default function TasksPage() {
 
   /* ─── Mutation: intervene (cancel / retry / approve / reject) ─── */
   const interveneMutation = useMutation({
-    mutationFn: ({ taskId, action, version, comment }: { taskId: string; action: string; version: number; comment?: CommentValue }) =>
-      tasksApi.intervene(taskId, { action, version, comment }),
+    mutationFn: ({ taskId, action, version, comment, target_node_id, variables }: { taskId: string; action: string; version: number; comment?: CommentValue; target_node_id?: string; variables?: Record<string, unknown> }) =>
+      tasksApi.intervene(taskId, { action, version, comment, target_node_id, variables }),
     onSuccess: () => {
       message.success('操作成功')
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
