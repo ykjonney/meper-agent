@@ -178,6 +178,9 @@ class ChannelService:
             platform_chat_id=inbound.platform_chat_id,
             text=text,
             reply_to_message_id=inbound.message_id,
+            # Pass selected inbound-derived fields so platform adapters that
+            # need them (e.g. DingTalk's session_webhook) can reply.
+            context=_extract_send_context(inbound),
         )
         adapter = ChannelRegistry.get(config.provider)
         last_err: Exception | None = None
@@ -212,6 +215,7 @@ class ChannelService:
             platform_chat_id=inbound.platform_chat_id,
             text=error.user_message,
             reply_to_message_id=inbound.message_id,
+            context=_extract_send_context(inbound),
         )
         adapter = ChannelRegistry.get(config.provider)
         try:
@@ -391,3 +395,21 @@ async def _call_send(
     if inspect.isawaitable(result):
         return await result
     return result
+
+
+def _extract_send_context(inbound: InboundMessage) -> dict:
+    """Pull platform-specific reply state from an inbound message's raw payload.
+
+    Most platforms need nothing (they send via a stable OpenAPI + token). The
+    notable exception is DingTalk, whose bot reply address (session_webhook)
+    is embedded in each inbound event and expires after ~2h. We surface known
+    platform-specific keys here so adapters can pick them up from the
+    OutboundEnvelope without each adapter re-parsing InboundMessage.raw.
+    """
+    raw = inbound.raw or {}
+    context: dict = {}
+    # DingTalk stream / webhook both carry session_webhook on inbound events.
+    sw = raw.get("session_webhook") or raw.get("sessionWebhook")
+    if sw:
+        context["session_webhook"] = sw
+    return context

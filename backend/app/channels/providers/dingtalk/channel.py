@@ -51,6 +51,7 @@ class DingtalkChannel(Channel):
                 config=config,
                 conversation_id=envelope.platform_chat_id,
                 text=envelope.text,
+                session_webhook=envelope.context.get("session_webhook"),
             )
         except PermanentChannelError:
             raise
