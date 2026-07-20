@@ -163,6 +163,15 @@ class Settings(BaseSettings):
     CHANNEL_WECOM_LONG_CONNECTION_ENABLED: bool = False  # no SDK yet
     CHANNEL_CONNECTION_RECONNECT_INTERVAL: int = 10  # seconds between retries
     CHANNEL_CONNECTION_STARTUP_DELAY: float = 2.0  # startup grace before first connect
+    # Long-connection mode executes inbound messages directly in the FastAPI
+    # process (no Celery). These tune that in-process execution:
+    #   - EXECUTION_MAX_RETRIES: retry count for TransientChannelError
+    #     (LLM rate limit / tool blip) with exponential backoff.
+    #   - MAX_CONCURRENT_EXECUTIONS_PER_CHANNEL: per-channel semaphore cap to
+    #     prevent a single busy chat from exhausting the LLM quota. Excess
+    #     messages queue inside dispatch_inbound until a slot frees up.
+    CHANNEL_EXECUTION_MAX_RETRIES: int = 3
+    CHANNEL_MAX_CONCURRENT_EXECUTIONS_PER_CHANNEL: int = 4
 
 
 
