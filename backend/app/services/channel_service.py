@@ -276,6 +276,7 @@ class ChannelService:
     async def create_channel(
         *, name: str, provider: ChannelProvider, agent_id: str,
         credentials: dict, owner_user_id: str,
+        receive_mode: str = "webhook",
     ) -> ChannelConfig:
         import secrets
 
@@ -289,6 +290,7 @@ class ChannelService:
             owner_user_id=owner_user_id,
             credentials=encrypted_creds,
             webhook_secret=secrets.token_urlsafe(32),
+            receive_mode=receive_mode,
         )
         await ChannelService._configs_coll().insert_one(cfg.model_dump(by_alias=True))
         return cfg
@@ -315,6 +317,7 @@ class ChannelService:
     async def update_channel(
         channel_id: str, owner_user_id: str, *, name=None, agent_id=None,
         credentials: dict | None = None, enabled=None,
+        receive_mode: str | None = None,
     ) -> ChannelConfig | None:
         from app.core.crypto import encrypt_secret
 
@@ -325,6 +328,8 @@ class ChannelService:
             update["agent_id"] = agent_id
         if enabled is not None:
             update["enabled"] = enabled
+        if receive_mode is not None:
+            update["receive_mode"] = receive_mode
         if credentials:
             update["credentials"] = {
                 k: encrypt_secret(str(v)) for k, v in credentials.items() if v

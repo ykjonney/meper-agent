@@ -50,7 +50,10 @@ class ChannelConfig(BaseModel):
     agent_id: str
     owner_user_id: str
 
-    receive_mode: str = "webhook"  # reserved: "long_poll" for future Lark WebSocket
+    receive_mode: str = "webhook"
+    # "webhook": HTTP callback (requires public URL exposed to the platform)
+    # "long_connection": WebSocket/Stream client (no public URL needed;
+    #                     provider must support it — lark/dingtalk/wecom)
 
     enabled: bool = True
     webhook_secret: str = Field(..., min_length=16)  # secondary inbound verification

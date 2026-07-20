@@ -14,11 +14,15 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from app.channels.connections import get_connection_manager
 from app.channels.registry import ChannelRegistry
 from app.core.security import get_current_user, require_role
 from app.models.channel import ChannelStatus
 from app.models.user import UserRole
 from app.schemas.channel import (
+    RECEIVE_MODES,
+    RECEIVE_MODE_LONG_CONNECTION,
+    RECEIVE_MODE_WEBHOOK,
     ChannelCreateRequest,
     ChannelListResponse,
     ChannelResponse,
@@ -42,17 +46,41 @@ def _to_response(cfg, base_url: str) -> ChannelResponse:
     paste it directly as the platform callback URL — the inbound receiver
     checks it as a second factor on top of each platform's signature
     verification.
+
+    For long-connection channels the inbound URL is still emitted (it's
+    harmless) but the live ``connection_status`` is what the UI surfaces.
     """
     prefix = f"{base_url}/api/v1/channels/inbound" if base_url else "/api/v1/channels/inbound"
     inbound_url = f"{prefix}/{cfg.provider}/{cfg.id}?secret={cfg.webhook_secret}"
+    connection_status = get_connection_manager().connection_status(cfg.id)
     return ChannelResponse(
         id=cfg.id, name=cfg.name, provider=cfg.provider,
         agent_id=cfg.agent_id, owner_user_id=cfg.owner_user_id,
         enabled=cfg.enabled, status=cfg.status, receive_mode=cfg.receive_mode,
         credentials=ChannelService.mask_credentials(cfg.credentials),
         inbound_url=inbound_url,
+        connection_status=connection_status,
         created_at=cfg.created_at, updated_at=cfg.updated_at,
     )
+
+
+async def _reload(channel_id: str) -> None:
+    """Notify the connection manager of a config change. Best-effort —
+    webhook-mode channels are unaffected; failures here don't break the
+    management request."""
+    try:
+        await get_connection_manager().reload_channel(channel_id)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("connection_reload_failed channel=%s err=%s", channel_id, exc)
+
+
+def _validate_receive_mode(mode: str) -> str:
+    if mode not in RECEIVE_MODES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"invalid receive_mode: {mode!r}, must be one of {RECEIVE_MODES}",
+        )
+    return mode
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +96,32 @@ router = APIRouter(
 
 @router.get("/providers/schema", response_model=ProviderSchemaResponse)
 async def get_provider_schema() -> ProviderSchemaResponse:
-    """Return provider credential field definitions for dynamic form rendering."""
-    return ProviderSchemaResponse(providers=PROVIDER_SCHEMAS)
+    """Return provider credential field definitions + supported receive modes.
+
+    ``receive_modes`` reflects *protocol* capability merged with the runtime
+    availability of a ConnectionClient factory (e.g. wecom in first iteration
+    has no factory → only webhook is offered even though the protocol supports
+    long-connection) and the per-provider global enable flag in settings.
+    """
+    from app.core.config import settings
+
+    mgr = get_connection_manager()
+    # Map provider → long-connection enabled flag in settings
+    enable_flags = {
+        "lark": settings.CHANNEL_LARK_LONG_CONNECTION_ENABLED,
+        "dingtalk": settings.CHANNEL_DINGTALK_LONG_CONNECTION_ENABLED,
+        "wecom": settings.CHANNEL_WECOM_LONG_CONNECTION_ENABLED,
+    }
+    providers: dict[str, type] = {}
+    for name, schema in PROVIDER_SCHEMAS.items():
+        modes = list(schema.receive_modes)
+        if RECEIVE_MODE_LONG_CONNECTION in modes:
+            # Only keep long_connection if a factory is registered AND the
+            # global flag is on. Otherwise drop it so the UI doesn't offer it.
+            if not (mgr.supports(name) and enable_flags.get(name, False)):
+                modes = [m for m in modes if m != RECEIVE_MODE_LONG_CONNECTION]
+        providers[name] = schema.model_copy(update={"receive_modes": modes})
+    return ProviderSchemaResponse(providers=providers)
 
 
 @router.post("", response_model=ChannelResponse, status_code=201)
@@ -78,10 +130,13 @@ async def create_channel(
     request: Request,
     user=Depends(get_current_user),
 ) -> ChannelResponse:
+    _validate_receive_mode(body.receive_mode)
     cfg = await ChannelService.create_channel(
         name=body.name, provider=body.provider, agent_id=body.agent_id,
         credentials=body.credentials, owner_user_id=user.id,
+        receive_mode=body.receive_mode,
     )
+    await _reload(cfg.id)
     return _to_response(cfg, str(request.base_url).rstrip("/"))
 
 
@@ -119,30 +174,37 @@ async def update_channel(
     request: Request,
     user=Depends(get_current_user),
 ) -> ChannelResponse:
+    if body.receive_mode is not None:
+        _validate_receive_mode(body.receive_mode)
     cfg = await ChannelService.update_channel(
         channel_id, user.id,
         name=body.name, agent_id=body.agent_id,
         credentials=body.credentials, enabled=body.enabled,
+        receive_mode=body.receive_mode,
     )
     if cfg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
+    await _reload(channel_id)
     return _to_response(cfg, str(request.base_url).rstrip("/"))
 
 
 @router.delete("/{channel_id}", status_code=204)
 async def delete_channel(channel_id: str, user=Depends(get_current_user)) -> None:
     await ChannelService.delete_channel(channel_id)
+    await _reload(channel_id)
 
 
 @router.post("/{channel_id}/enable", status_code=200)
 async def enable_channel(channel_id: str, user=Depends(get_current_user)) -> dict:
     await ChannelService.set_enabled(channel_id, True)
+    await _reload(channel_id)
     return {"ok": True}
 
 
 @router.post("/{channel_id}/disable", status_code=200)
 async def disable_channel(channel_id: str, user=Depends(get_current_user)) -> dict:
     await ChannelService.set_enabled(channel_id, False)
+    await _reload(channel_id)
     return {"ok": True}
 
 
