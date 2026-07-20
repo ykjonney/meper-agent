@@ -512,3 +512,169 @@ class TestInboundWebhookSecret:
         # Past the secret gate — either 200 (dedup) or a verify error, but NOT 401.
         assert resp.status_code != 401
         mock_dedup.assert_awaited_once()
+
+
+# ── receive_mode + connection reload ──
+
+class TestReceiveMode:
+    def test_create_with_long_connection_mode(self, client, admin_user):
+        """create passes receive_mode through to the service."""
+        cleanup = _override_auth(admin_user)
+        try:
+            created = _make_config(
+                id="ch_lc", receive_mode="long_connection",
+            )
+            with patch(
+                "app.services.channel_service.ChannelService.create_channel",
+                new=AsyncMock(return_value=created),
+            ) as mock_create, patch(
+                "app.api.v1.channels._reload", new=AsyncMock(),
+            ) as mock_reload:
+                resp = client.post(
+                    "/api/v1/channels",
+                    json={
+                        "name": "lc-test",
+                        "provider": "mock",
+                        "agent_id": "agent_01J",
+                        "credentials": {},
+                        "receive_mode": "long_connection",
+                    },
+                )
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["receive_mode"] == "long_connection"
+            # Service received receive_mode kwarg
+            assert mock_create.call_args.kwargs["receive_mode"] == "long_connection"
+            # Connection manager was notified (hot reload)
+            mock_reload.assert_awaited_once_with("ch_lc")
+        finally:
+            cleanup()
+
+    def test_create_rejects_invalid_receive_mode(self, client, admin_user):
+        cleanup = _override_auth(admin_user)
+        try:
+            resp = client.post(
+                "/api/v1/channels",
+                json={
+                    "name": "bad", "provider": "mock",
+                    "agent_id": "agent_01J", "credentials": {},
+                    "receive_mode": "carrier_pigeon",
+                },
+            )
+            assert resp.status_code == 400
+        finally:
+            cleanup()
+
+    def test_create_defaults_to_webhook(self, client, admin_user):
+        """Omitting receive_mode defaults to webhook."""
+        cleanup = _override_auth(admin_user)
+        try:
+            created = _make_config(id="ch_def")
+            with patch(
+                "app.services.channel_service.ChannelService.create_channel",
+                new=AsyncMock(return_value=created),
+            ) as mock_create, patch(
+                "app.api.v1.channels._reload", new=AsyncMock(),
+            ):
+                client.post(
+                    "/api/v1/channels",
+                    json={"name": "t", "provider": "mock",
+                          "agent_id": "a", "credentials": {}},
+                )
+            assert mock_create.call_args.kwargs["receive_mode"] == "webhook"
+        finally:
+            cleanup()
+
+    def test_update_changes_receive_mode_and_reloads(self, client, admin_user):
+        cleanup = _override_auth(admin_user)
+        try:
+            updated = _make_config(id="ch_upd", receive_mode="long_connection")
+            with patch(
+                "app.services.channel_service.ChannelService.update_channel",
+                new=AsyncMock(return_value=updated),
+            ), patch(
+                "app.api.v1.channels._reload", new=AsyncMock(),
+            ) as mock_reload:
+                resp = client.patch(
+                    "/api/v1/channels/ch_upd",
+                    json={"receive_mode": "long_connection"},
+                )
+            assert resp.status_code == 200
+            assert resp.json()["receive_mode"] == "long_connection"
+            mock_reload.assert_awaited_once_with("ch_upd")
+        finally:
+            cleanup()
+
+    def test_delete_triggers_reload(self, client, admin_user):
+        """delete must notify the connection manager so it stops the client."""
+        cleanup = _override_auth(admin_user)
+        try:
+            with patch(
+                "app.services.channel_service.ChannelService.delete_channel",
+                new=AsyncMock(),
+            ), patch(
+                "app.api.v1.channels._reload", new=AsyncMock(),
+            ) as mock_reload:
+                resp = client.delete("/api/v1/channels/ch_del")
+            assert resp.status_code == 204
+            mock_reload.assert_awaited_once_with("ch_del")
+        finally:
+            cleanup()
+
+    def test_enable_disable_trigger_reload(self, client, admin_user):
+        cleanup = _override_auth(admin_user)
+        try:
+            for action in ("enable", "disable"):
+                with patch(
+                    f"app.services.channel_service.ChannelService.set_enabled",
+                    new=AsyncMock(),
+                ), patch(
+                    "app.api.v1.channels._reload", new=AsyncMock(),
+                ) as mock_reload:
+                    resp = client.post(f"/api/v1/channels/ch_x/{action}")
+                assert resp.status_code == 200
+                mock_reload.assert_awaited_once_with("ch_x")
+        finally:
+            cleanup()
+
+
+class TestProviderSchemaReceiveModes:
+    def test_webhook_always_offered(self, client, admin_user):
+        cleanup = _override_auth(admin_user)
+        try:
+            resp = client.get("/api/v1/channels/providers/schema")
+            for provider_name, schema in resp.json()["providers"].items():
+                assert "webhook" in schema["receive_modes"]
+        finally:
+            cleanup()
+
+    def test_long_connection_dropped_when_no_factory(self, client, admin_user):
+        """A provider whose protocol supports long-connection but has no
+        registered ConnectionClient factory should only offer webhook.
+        In the default test environment wecom has no factory (first iteration)."""
+        cleanup = _override_auth(admin_user)
+        try:
+            resp = client.get("/api/v1/channels/providers/schema")
+            providers = resp.json()["providers"]
+            # wecom has no ConnectionClient factory in first iteration
+            assert "long_connection" not in providers["wecom"]["receive_modes"]
+        finally:
+            cleanup()
+
+    def test_long_connection_offered_when_factory_registered(self, client, admin_user):
+        """Register a fake factory for a provider whose global flag is on →
+        schema should offer long_connection for that provider. dingtalk's
+        flag defaults to True but it has no built-in factory in the first
+        iteration, making it a clean test target."""
+        from app.channels.connections import get_connection_manager
+        cleanup = _override_auth(admin_user)
+        mgr = get_connection_manager()
+        # dingtalk flag defaults to True but no factory is registered yet
+        mgr.register_factory("dingtalk", lambda cfg: None)  # type: ignore[arg-type]
+        try:
+            resp = client.get("/api/v1/channels/providers/schema")
+            dt_schema = resp.json()["providers"]["dingtalk"]
+            assert "long_connection" in dt_schema["receive_modes"]
+        finally:
+            mgr._factories.pop("dingtalk", None)
+            cleanup()

@@ -1,13 +1,23 @@
-"""Lark OpenAPI client — send messages via /open-apis/im/v1/messages.
+"""Lark OpenAPI client — send messages via the lark-oapi SDK.
 
-Docs: https://open.feishu.cn/document/server-docs/im-v1/message/create
+Receives events via the long-connection client (connection.py) when the
+channel is in long_connection mode, or via the inbound webhook route when in
+webhook mode. Both paths share this single send implementation.
+
+Uses lark-oapi's Client (token management + retry built in) instead of raw
+httpx, so we no longer maintain our own tenant_access_token cache.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-import httpx
+import lark_oapi as lark
+from lark_oapi.api.im.v1 import (
+    CreateMessageRequest,
+    CreateMessageRequestBody,
+    CreateMessageResponse,
+)
 
 from app.channels.errors import InvalidCredentialsError
 from app.core.crypto import decrypt_secret
@@ -15,58 +25,85 @@ from app.models.channel import ChannelConfig
 
 logger = logging.getLogger(__name__)
 
-TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
-
-# Simple in-process token cache: {app_id: (token, expires_at)}
-_token_cache: dict[str, tuple[str, float]] = {}
+# Cache lark.Client per app_id so we don't re-auth on every send.
+# lark.Client does lazy token refresh internally.
+_client_cache: dict[str, lark.Client] = {}
 
 
-async def _get_tenant_access_token(config: ChannelConfig) -> str:
-    import time
+def _get_lark_client(config: ChannelConfig) -> lark.Client:
+    """Build (and cache) a lark-oapi Client from the channel credentials."""
     app_id = config.credentials.get("app_id")
     if not app_id:
         raise InvalidCredentialsError("missing credential: app_id")
-    cached = _token_cache.get(app_id)
-    if cached and cached[1] > time.time() + 60:
-        return cached[0]
+    cached = _client_cache.get(app_id)
+    if cached is not None:
+        return cached
 
-    # app_secret is stored encrypted; the lark token endpoint wants plaintext.
     app_secret_enc = config.credentials.get("app_secret")
     if not app_secret_enc:
         raise InvalidCredentialsError("missing credential: app_secret")
     app_secret = decrypt_secret(app_secret_enc)
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(TOKEN_URL, json={
-            "app_id": app_id,
-            "app_secret": app_secret,
-        })
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"lark token error: {data.get('msg')}")
-        token = data["tenant_access_token"]
-        expire = data.get("expire", 7200)
-        _token_cache[app_id] = (token, time.time() + expire)
-        return token
+
+    client = (
+        lark.Client.builder()
+        .app_id(app_id)
+        .app_secret(app_secret)
+        .log_level(lark.LogLevel.INFO)
+        .build()
+    )
+    _client_cache[app_id] = client
+    return client
+
+
+def _receive_id_type(receive_id: str) -> str:
+    """Infer receive_id_type from the id prefix.
+
+    chat_id  → "oc_..." or "o_..." (group chats, typically oc_)
+    open_id  → "ou_..." (user direct messages)
+    """
+    if receive_id.startswith("ou_"):
+        return "open_id"
+    return "chat_id"
 
 
 async def send_text_message(
     *, config: ChannelConfig, receive_id: str, text: str
 ) -> str:
-    """Send a text message to a chat. Returns platform message id."""
-    token = await _get_tenant_access_token(config)
+    """Send a text message. Returns the platform message id.
+
+    Raises InvalidCredentialsError on auth failure, SendFailedError on
+    platform-side rejection.
+    """
+    from app.channels.errors import SendFailedError
+
+    client = _get_lark_client(config)
     content = json.dumps({"text": text})
-    receive_id_type = "chat_id" if not receive_id.startswith("ou_") else "open_id"
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(
-            MESSAGE_URL,
-            headers={"Authorization": f"Bearer {token}"},
-            params={"receive_id_type": receive_id_type},
-            json={"receive_id": receive_id, "msg_type": "text", "content": content},
+
+    request = (
+        CreateMessageRequest.builder()
+        .receive_id_type(_receive_id_type(receive_id))
+        .request_body(
+            CreateMessageRequestBody.builder()
+            .receive_id(receive_id)
+            .msg_type("text")
+            .content(content)
+            .build()
         )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"lark send error: {data.get('msg')}")
-        return data["data"]["message_id"]
+        .build()
+    )
+
+    # lark-oapi's client is sync. Run in a thread to avoid blocking the loop.
+    import asyncio
+    response: CreateMessageResponse = await asyncio.to_thread(
+        client.im.v1.message.create, request
+    )
+
+    if not response.success():
+        msg = f"lark send failed: code={response.code} msg={response.msg}"
+        if response.code in (99991663, 99991661, 99991664):
+            # token / app_id / app_secret related codes
+            raise InvalidCredentialsError(msg)
+        raise SendFailedError(msg)
+    if response.data is None or not response.data.message_id:
+        raise SendFailedError("lark send returned no message_id")
+    return response.data.message_id

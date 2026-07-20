@@ -39,6 +39,12 @@ class OutboundEnvelope(BaseModel):
     platform_chat_id: str
     text: str
     reply_to_message_id: str | None = None
+    # Per-platform context derived from the originating inbound message.
+    # Some platforms require inbound-derived state to send a reply — e.g.
+    # DingTalk's session_webhook (a short-lived reply URL from the inbound
+    # event). Adapters read platform-specific keys from here; defaults to
+    # empty so webhook-mode channels that don't need it are unaffected.
+    context: dict = {}
 
 
 class Channel(ABC):

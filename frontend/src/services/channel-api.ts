@@ -14,6 +14,11 @@ import { apiClient } from './api-client'
 
 export type ChannelProvider = 'lark' | 'dingtalk' | 'wecom' | 'mock'
 export type ChannelStatus = 'active' | 'degraded' | 'disabled'
+export type ReceiveMode = 'webhook' | 'long_connection'
+export type ConnectionStatus =
+  | 'long_connection_connected'
+  | 'long_connection_disconnected'
+  | 'not_long_connection'
 
 export interface CredentialFieldSchema {
   key: string
@@ -25,6 +30,10 @@ export interface CredentialFieldSchema {
 export interface ProviderSchema {
   label: string
   credential_fields: CredentialFieldSchema[]
+  /** Modes the provider supports at runtime (webhook always; long_connection
+   * only if a ConnectionClient factory is registered server-side AND the
+   * global enable flag is on). */
+  receive_modes: ReceiveMode[]
 }
 
 export interface ProviderSchemaResponse {
@@ -39,10 +48,12 @@ export interface Channel {
   owner_user_id: string
   enabled: boolean
   status: ChannelStatus
-  receive_mode: string
+  receive_mode: ReceiveMode
   /** Always masked on read (server-side). */
   credentials: Record<string, string>
   inbound_url: string
+  /** Live state of the long-connection client (if in long_connection mode). */
+  connection_status: ConnectionStatus
   created_at: string
   updated_at: string
 }
@@ -52,6 +63,7 @@ export interface ChannelCreateInput {
   provider: ChannelProvider
   agent_id: string
   credentials: Record<string, string>
+  receive_mode?: ReceiveMode
 }
 
 export interface ChannelUpdateInput {
@@ -59,6 +71,7 @@ export interface ChannelUpdateInput {
   agent_id?: string
   credentials?: Record<string, string>
   enabled?: boolean
+  receive_mode?: ReceiveMode
 }
 
 export interface ChannelListParams {
