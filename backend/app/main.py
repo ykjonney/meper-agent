@@ -86,9 +86,27 @@ async def lifespan(app: FastAPI):
     from app.services.event_bridge import start_event_bridge_listener
     await start_event_bridge_listener()
 
+    # Start long-connection clients for channels in long-connection mode
+    # (no-public-URL receive). Importing the providers package triggers each
+    # provider's connection.py to register its factory with the manager.
+    try:
+        import app.channels.providers  # noqa: F401  (triggers factory registration)
+        from app.channels.connections import get_connection_manager
+
+        connection_manager = get_connection_manager()
+        await connection_manager.start()
+    except Exception as exc:  # pragma: no cover — never block startup on this
+        # Long-connection failures must not crash the server. Channels in
+        # long_connection mode will simply not receive events; webhook-mode
+        # channels are unaffected.
+        from loguru import logger as _logger
+        _logger.error("connection_manager_startup_failed err={}", exc)
+
     yield
 
     # Shutdown: gracefully close connections
+    from app.channels.connections import get_connection_manager
+    await get_connection_manager().stop()
     from app.services.event_bridge import stop_event_bridge_listener
     await stop_event_bridge_listener()
     await trigger_scheduler.stop()

@@ -155,5 +155,15 @@ class Settings(BaseSettings):
     CHANNEL_DEFAULT_REPLY_ON_FAILURE: str = "处理失败,请稍后重试或联系管理员"
     CHANNEL_DEGRADED_ON_CONSECUTIVE_FAILURES: int = 5
 
+    # ── Channels / long-connection (no-public-URL receive mode) ──
+    # Per-provider master switches. Set to False to disable long-connection
+    # entirely for a provider (channels fall back to webhook mode).
+    CHANNEL_LARK_LONG_CONNECTION_ENABLED: bool = True
+    CHANNEL_DINGTALK_LONG_CONNECTION_ENABLED: bool = True
+    CHANNEL_WECOM_LONG_CONNECTION_ENABLED: bool = False  # no SDK yet
+    CHANNEL_CONNECTION_RECONNECT_INTERVAL: int = 10  # seconds between retries
+    CHANNEL_CONNECTION_STARTUP_DELAY: float = 2.0  # startup grace before first connect
+
+
 
 settings = Settings()
