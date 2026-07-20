@@ -23,7 +23,6 @@ import {
   channelKeys,
   type Channel,
   type ChannelProvider,
-  type ConnectionStatus,
   type ProviderSchema,
   type ReceiveMode,
 } from '../services/channel-api'
