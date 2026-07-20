@@ -51,14 +51,14 @@ class LarkChannel(Channel):
         return result
 
     async def send(self, envelope: OutboundEnvelope, config: ChannelConfig) -> str:
+        # send_text_message raises InvalidCredentialsError / SendFailedError
+        # directly. Anything else (network blip, unexpected SDK exception) is
+        # treated as transient so ChannelService retries the send.
         try:
             return await send_text_message(
                 config=config, receive_id=envelope.platform_chat_id, text=envelope.text,
             )
-        except RuntimeError as e:
-            msg = str(e)
-            if "token" in msg.lower() or "credential" in msg.lower():
-                raise InvalidCredentialsError(msg) from e
-            raise SendFailedError(msg) from e
+        except (InvalidCredentialsError, SendFailedError):
+            raise
         except Exception as e:
             raise TransientChannelError(f"lark send transient: {e}") from e

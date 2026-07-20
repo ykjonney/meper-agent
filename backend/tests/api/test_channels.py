@@ -651,27 +651,30 @@ class TestProviderSchemaReceiveModes:
     def test_long_connection_dropped_when_no_factory(self, client, admin_user):
         """A provider whose protocol supports long-connection but has no
         registered ConnectionClient factory should only offer webhook.
-        In the default test environment no factories are registered yet."""
+        In the default test environment wecom has no factory (first iteration)."""
         cleanup = _override_auth(admin_user)
         try:
             resp = client.get("/api/v1/channels/providers/schema")
             providers = resp.json()["providers"]
-            # Without any factory registered, all providers offer only webhook
-            for schema in providers.values():
-                assert "long_connection" not in schema["receive_modes"]
+            # wecom has no ConnectionClient factory in first iteration
+            assert "long_connection" not in providers["wecom"]["receive_modes"]
         finally:
             cleanup()
 
     def test_long_connection_offered_when_factory_registered(self, client, admin_user):
-        """Register a fake factory for lark → schema should offer long_connection."""
+        """Register a fake factory for a provider whose global flag is on →
+        schema should offer long_connection for that provider. dingtalk's
+        flag defaults to True but it has no built-in factory in the first
+        iteration, making it a clean test target."""
         from app.channels.connections import get_connection_manager
         cleanup = _override_auth(admin_user)
         mgr = get_connection_manager()
-        mgr.register_factory("lark", lambda cfg: None)  # type: ignore[arg-type]
+        # dingtalk flag defaults to True but no factory is registered yet
+        mgr.register_factory("dingtalk", lambda cfg: None)  # type: ignore[arg-type]
         try:
             resp = client.get("/api/v1/channels/providers/schema")
-            lark_schema = resp.json()["providers"]["lark"]
-            assert "long_connection" in lark_schema["receive_modes"]
+            dt_schema = resp.json()["providers"]["dingtalk"]
+            assert "long_connection" in dt_schema["receive_modes"]
         finally:
-            mgr._factories.pop("lark", None)
+            mgr._factories.pop("dingtalk", None)
             cleanup()
