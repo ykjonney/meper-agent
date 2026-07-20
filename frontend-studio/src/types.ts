@@ -150,6 +150,9 @@ export interface Message {
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
   toolStatus?: 'running' | 'success' | 'error';
+  /** ask_clarification 等待用户回答时为 true（卡片可交互，回答走 /resume）。
+   *  来自 interrupt SSE 事件，或历史中未答的 ask_clarification tool_call。 */
+  clarificationActive?: boolean;
   /** Token usage for this agent message (history: rec.token_usage; stream: done event usage). */
   usage?: TokenUsage;
 }
