@@ -11,7 +11,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.channels.connections.base import ConnectionClient
 from app.channels.connections.dispatch import dispatch_inbound
 from app.channels.connections.manager import (
@@ -21,16 +20,14 @@ from app.channels.connections.manager import (
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,
-    ChannelStatus,
 )
-
 
 # ── Fake client for testing ──
 
 class FakeConnectionClient(ConnectionClient):
     """Test double: records every lifecycle call without touching a network."""
 
-    instances: list["FakeConnectionClient"] = []
+    instances: list[FakeConnectionClient] = []
 
     def __init__(self, config: ChannelConfig) -> None:
         super().__init__(config)
@@ -382,8 +379,9 @@ class TestDispatchInbound:
         dispatch fires execute in a background task (asyncio.create_task) so
         the SDK callback can return immediately; we await the event loop to
         let the spawned task run, then assert execute was called."""
+        from datetime import UTC, datetime
+
         from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
 
         cfg = _make_config()
         inbound = InboundMessage(
@@ -421,8 +419,9 @@ class TestDispatchInbound:
 
     async def test_dispatch_does_not_call_celery(self):
         """Regression: long-connection mode must not enqueue via Celery."""
+        from datetime import UTC, datetime
+
         from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
 
         cfg = _make_config()
         inbound = InboundMessage(
@@ -475,8 +474,9 @@ class TestDispatchInbound:
     async def test_dispatch_handles_dedup(self):
         """Duplicate event (dedup returns None) → no execute call."""
         cfg = _make_config()
+        from datetime import UTC, datetime
+
         from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
 
         inbound = InboundMessage(
             channel_id=cfg.id, platform_chat_id="c", platform_user_id="u",
@@ -507,10 +507,11 @@ class TestExecuteWithRetry:
     PermanentChannelError handled by execute, unexpected error marks log FAILED."""
 
     async def test_retries_on_transient_then_succeeds(self):
+        from datetime import UTC, datetime
+
+        from app.channels.base import InboundMessage
         from app.channels.connections.dispatch import _execute_with_retry
         from app.channels.errors import TransientChannelError
-        from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
 
         inbound = InboundMessage(
             channel_id="ch", platform_chat_id="c", platform_user_id="u",
@@ -530,10 +531,11 @@ class TestExecuteWithRetry:
             await _execute_with_retry(inbound, "inb_1", None)
 
     async def test_marks_log_failed_when_retries_exhausted(self):
+        from datetime import UTC, datetime
+
+        from app.channels.base import InboundMessage
         from app.channels.connections.dispatch import _execute_with_retry
         from app.channels.errors import LLMRateLimitError
-        from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
 
         inbound = InboundMessage(
             channel_id="ch", platform_chat_id="c", platform_user_id="u",
@@ -560,9 +562,10 @@ class TestExecuteWithRetry:
         assert update_set["status"] == "failed"
 
     async def test_unexpected_error_marks_log_failed(self):
-        from app.channels.connections.dispatch import _execute_with_retry
+        from datetime import UTC, datetime
+
         from app.channels.base import InboundMessage
-        from datetime import datetime, UTC
+        from app.channels.connections.dispatch import _execute_with_retry
 
         inbound = InboundMessage(
             channel_id="ch", platform_chat_id="c", platform_user_id="u",

@@ -90,7 +90,9 @@ async def lifespan(app: FastAPI):
     # (no-public-URL receive). Importing the providers package triggers each
     # provider's connection.py to register its factory with the manager.
     try:
-        import app.channels.providers  # noqa: F401  (triggers factory registration)
+        from app.channels import (
+            providers,  # noqa: F401  (triggers factory registration)
+        )
         from app.channels.connections import get_connection_manager
 
         connection_manager = get_connection_manager()

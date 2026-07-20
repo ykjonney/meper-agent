@@ -2,7 +2,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.services.task_service import TaskService
 
 
@@ -148,7 +147,7 @@ class TestRewindTask:
             patch.object(TaskService, "resume_task_execution") as resume_mock,
         ):
             import asyncio
-            result = asyncio.run(
+            asyncio.run(
                 TaskService.rewind_task(
                     task_id="task_1",
                     target_node_id="a",
@@ -282,6 +281,7 @@ class TestRewindTask:
     def test_rewind_rejects_when_not_waiting_human(self, linear_wf_doc):
         """status != waiting_human → ConflictError mentioning waiting_human."""
         import asyncio
+
         from app.core.errors import ConflictError
 
         task_doc = {
@@ -302,6 +302,7 @@ class TestRewindTask:
     def test_rewind_rejects_when_no_checkpoint(self, linear_wf_doc):
         """status=waiting_human but checkpoint=None → ConflictError mentioning checkpoint."""
         import asyncio
+
         from app.core.errors import ConflictError
 
         task_doc = {
@@ -322,6 +323,7 @@ class TestRewindTask:
     def test_rewind_rejects_empty_target(self, waiting_task_doc, linear_wf_doc):
         """target_node_id='' → ValidationError mentioning target_node_id."""
         import asyncio
+
         from app.core.errors import ValidationError
 
         find_one = AsyncMock(side_effect=[waiting_task_doc])
@@ -338,6 +340,7 @@ class TestRewindTask:
     def test_rewind_rejects_target_not_executed(self, waiting_task_doc, linear_wf_doc):
         """target not in completed_nodes → ValidationError mentioning 未执行过."""
         import asyncio
+
         from app.core.errors import ValidationError
 
         find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
@@ -354,6 +357,7 @@ class TestRewindTask:
     def test_rewind_rejects_target_equals_paused(self, waiting_task_doc, linear_wf_doc):
         """target == paused_at_node (=='human') → ValidationError mentioning 当前暂停."""
         import asyncio
+
         from app.core.errors import ValidationError
 
         find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])
@@ -370,6 +374,7 @@ class TestRewindTask:
     def test_rewind_rejects_on_version_conflict(self, waiting_task_doc, linear_wf_doc):
         """find_one_and_update returns None (version mismatch) → ConflictError mentioning 状态已变更."""
         import asyncio
+
         from app.core.errors import ConflictError
 
         find_one = AsyncMock(side_effect=[waiting_task_doc, linear_wf_doc])

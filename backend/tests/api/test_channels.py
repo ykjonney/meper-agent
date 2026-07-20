@@ -45,15 +45,15 @@ def _override_auth(admin_user):
 
 
 def _make_config(**overrides) -> ChannelConfig:
-    defaults = dict(
-        id="ch_01J",
-        name="test",
-        provider=ChannelProvider.MOCK,
-        agent_id="agent_01J",
-        owner_user_id="user_admin",
-        webhook_secret="mock_secret_at_least_16",
-        credentials={},
-    )
+    defaults = {
+        "id": "ch_01J",
+        "name": "test",
+        "provider": ChannelProvider.MOCK,
+        "agent_id": "agent_01J",
+        "owner_user_id": "user_admin",
+        "webhook_secret": "mock_secret_at_least_16",
+        "credentials": {},
+    }
     defaults.update(overrides)
     return ChannelConfig(**defaults)
 
@@ -626,7 +626,7 @@ class TestReceiveMode:
         try:
             for action in ("enable", "disable"):
                 with patch(
-                    f"app.services.channel_service.ChannelService.set_enabled",
+                    "app.services.channel_service.ChannelService.set_enabled",
                     new=AsyncMock(),
                 ), patch(
                     "app.api.v1.channels._reload", new=AsyncMock(),
@@ -643,7 +643,7 @@ class TestProviderSchemaReceiveModes:
         cleanup = _override_auth(admin_user)
         try:
             resp = client.get("/api/v1/channels/providers/schema")
-            for provider_name, schema in resp.json()["providers"].items():
+            for _, schema in resp.json()["providers"].items():
                 assert "webhook" in schema["receive_modes"]
         finally:
             cleanup()
@@ -662,19 +662,19 @@ class TestProviderSchemaReceiveModes:
             cleanup()
 
     def test_long_connection_offered_when_factory_registered(self, client, admin_user):
-        """Register a fake factory for a provider whose global flag is on →
-        schema should offer long_connection for that provider. dingtalk's
-        flag defaults to True but it has no built-in factory in the first
-        iteration, making it a clean test target."""
-        from app.channels.connections import get_connection_manager
+        """When a provider has a registered factory AND the global flag is on,
+        the schema should offer long_connection. In the default test
+        environment lark and dingtalk both have real factories (registered at
+        import time via app.channels.providers) and their flags default True,
+        so both should offer long_connection."""
         cleanup = _override_auth(admin_user)
-        mgr = get_connection_manager()
-        # dingtalk flag defaults to True but no factory is registered yet
-        mgr.register_factory("dingtalk", lambda cfg: None)  # type: ignore[arg-type]
         try:
             resp = client.get("/api/v1/channels/providers/schema")
-            dt_schema = resp.json()["providers"]["dingtalk"]
-            assert "long_connection" in dt_schema["receive_modes"]
+            providers = resp.json()["providers"]
+            # lark and dingtalk have real factories + flags on → offered
+            assert "long_connection" in providers["lark"]["receive_modes"]
+            assert "long_connection" in providers["dingtalk"]["receive_modes"]
+            # wecom has no factory → not offered
+            assert "long_connection" not in providers["wecom"]["receive_modes"]
         finally:
-            mgr._factories.pop("dingtalk", None)
             cleanup()

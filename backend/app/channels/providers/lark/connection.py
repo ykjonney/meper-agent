@@ -157,7 +157,7 @@ class LarkConnectionClient(ConnectionClient):
 
     # ── SDK event callback (runs in the SDK's thread) ──
 
-    def _on_message_receive(self, data: "P2ImMessageReceiveV1") -> None:
+    def _on_message_receive(self, data: P2ImMessageReceiveV1) -> None:
         """Callback fired by the lark SDK on each im.message.receive_v1 event.
 
         ``data`` is the SDK's typed event object. We reconstruct the original
@@ -191,12 +191,12 @@ class LarkConnectionClient(ConnectionClient):
         )
 
     @staticmethod
-    def _reconstruct_envelope(data: "P2ImMessageReceiveV1") -> str:
+    def _reconstruct_envelope(data: P2ImMessageReceiveV1) -> str:
         """Turn the SDK's typed event into the v2 envelope JSON webhook mode
         would have received. parse_lark_event consumes this shape."""
         # data.header / data.event are pydantic-like objects with to_dict()
-        header = {}
-        event = {}
+        header: dict = {}
+        event: dict = {}
         try:
             header = data.header.model_dump(mode="json", by_alias=True) if data.header else {}
         except Exception:

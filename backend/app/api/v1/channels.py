@@ -20,14 +20,14 @@ from app.core.security import get_current_user, require_role
 from app.models.channel import ChannelStatus
 from app.models.user import UserRole
 from app.schemas.channel import (
-    RECEIVE_MODES,
+    PROVIDER_SCHEMAS,
     RECEIVE_MODE_LONG_CONNECTION,
-    RECEIVE_MODE_WEBHOOK,
+    RECEIVE_MODES,
     ChannelCreateRequest,
     ChannelListResponse,
     ChannelResponse,
     ChannelUpdateRequest,
-    PROVIDER_SCHEMAS,
+    ProviderSchema,
     ProviderSchemaResponse,
 )
 from app.services.channel_service import ChannelService
@@ -112,14 +112,16 @@ async def get_provider_schema() -> ProviderSchemaResponse:
         "dingtalk": settings.CHANNEL_DINGTALK_LONG_CONNECTION_ENABLED,
         "wecom": settings.CHANNEL_WECOM_LONG_CONNECTION_ENABLED,
     }
-    providers: dict[str, type] = {}
+    providers: dict[str, ProviderSchema] = {}
     for name, schema in PROVIDER_SCHEMAS.items():
         modes = list(schema.receive_modes)
-        if RECEIVE_MODE_LONG_CONNECTION in modes:
-            # Only keep long_connection if a factory is registered AND the
-            # global flag is on. Otherwise drop it so the UI doesn't offer it.
-            if not (mgr.supports(name) and enable_flags.get(name, False)):
-                modes = [m for m in modes if m != RECEIVE_MODE_LONG_CONNECTION]
+        # Drop long_connection if no factory is registered AND the global
+        # flag is off — don't offer a mode the server can't actually serve.
+        if (
+            RECEIVE_MODE_LONG_CONNECTION in modes
+            and not (mgr.supports(name) and enable_flags.get(name, False))
+        ):
+            modes = [m for m in modes if m != RECEIVE_MODE_LONG_CONNECTION]
         providers[name] = schema.model_copy(update={"receive_modes": modes})
     return ProviderSchemaResponse(providers=providers)
 

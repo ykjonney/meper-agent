@@ -92,7 +92,10 @@ disable_error_code = ["no-any-return", "misc", "union-attr", "arg-type", "attr-d
 module = [
     "celery",
     "croniter",
+    "dingtalk_stream",
     "docker",
+    "lark_oapi",
+    "lark_oapi.api.im.v1",
     "motor",
     "motor.motor_asyncio",
     "redis",

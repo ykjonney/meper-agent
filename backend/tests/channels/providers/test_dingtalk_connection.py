@@ -5,7 +5,6 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.channels.connections.manager import get_connection_manager
 from app.channels.errors import InvalidCredentialsError
 from app.core.crypto import encrypt_secret

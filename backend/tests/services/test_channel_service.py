@@ -15,7 +15,7 @@ from app.channels.errors import (
     PermanentChannelError,
     SendFailedError,
 )
-from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES, MockChannel
+from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,

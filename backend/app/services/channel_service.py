@@ -21,6 +21,8 @@ import inspect
 import logging
 from datetime import UTC, datetime
 
+from pymongo.errors import DuplicateKeyError
+
 from app.channels.base import InboundMessage, OutboundEnvelope
 from app.channels.errors import (
     AgentRuntimeError,
@@ -31,7 +33,6 @@ from app.channels.errors import (
 from app.channels.registry import ChannelRegistry
 from app.core.config import settings
 from app.db.mongodb import get_database
-from pymongo.errors import DuplicateKeyError
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,
@@ -135,7 +136,7 @@ class ChannelService:
                     # Log was TTL'd or missing; reconstruct in-memory using the
                     # provided id so any (no-op) update still targets that id.
                     real_log = InboundEventLog(
-                        id=event_log_id,
+                        _id=event_log_id,
                         channel_id=inbound.channel_id,
                         platform_message_id=inbound.message_id,
                         payload=inbound.model_dump(mode="json"),

@@ -7,6 +7,7 @@ deals only with InboundMessage / OutboundEnvelope.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable
 from datetime import datetime
 from typing import ClassVar
 
@@ -74,8 +75,15 @@ class Channel(ABC):
         """
 
     @abstractmethod
-    def send(self, envelope: OutboundEnvelope, config: ChannelConfig) -> str:
+    def send(
+        self, envelope: OutboundEnvelope, config: ChannelConfig
+    ) -> str | Awaitable[str]:
         """Call platform OpenAPI to send a message. Returns platform message id.
+
+        May be sync (returns str, e.g. MockChannel) or async (returns an
+        awaitable resolving to str, e.g. Lark/DingTalk). Callers go through
+        ChannelService._call_send which normalizes both forms via
+        inspect.isawaitable.
 
         Raises TransientChannelError on retryable failures, PermanentChannelError
         (e.g. InvalidCredentialsError / SendFailedError) otherwise.

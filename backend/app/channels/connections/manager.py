@@ -23,9 +23,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from app.models.channel import ChannelConfig, ChannelProvider
+
+if TYPE_CHECKING:
+    # Avoid circular import at runtime — ConnectionClient lives in
+    # connections.base, which itself imports from this module indirectly.
+    from app.channels.connections.base import ConnectionClient
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +45,7 @@ class ChannelConnectionManager:
         # provider name -> factory
         self._factories: dict[str, ConnectionClientFactory] = {}
         # channel_id -> live client
-        self._clients: dict[str, "ConnectionClient"] = {}
+        self._clients: dict[str, ConnectionClient] = {}
         # channel_id -> asyncio task running the client's connect loop
         self._tasks: dict[str, asyncio.Task] = {}
         # channel_id -> asyncio.Semaphore capping concurrent inline executions
@@ -208,7 +214,7 @@ class ChannelConnectionManager:
             self._tasks[cfg.id] = task
         logger.info("connection_started channel=%s provider=%s", cfg.id, provider)
 
-    async def _run_channel(self, channel_id: str, client: "ConnectionClient") -> None:
+    async def _run_channel(self, channel_id: str, client: ConnectionClient) -> None:
         """Run one connection, reconnecting on failure until cancelled.
 
         Reconnect uses CHANNEL_CONNECTION_RECONNECT_INTERVAL seconds between

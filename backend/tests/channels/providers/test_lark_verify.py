@@ -4,12 +4,11 @@ import hmac
 import time
 
 import pytest
-
 from app.channels.providers.lark.verify import (
-    verify_lark_signature,
-    parse_lark_event,
-    LarkVerificationError,
     URL_CHALLENGE_MARKER,
+    LarkVerificationError,
+    parse_lark_event,
+    verify_lark_signature,
 )
 from app.core.crypto import encrypt_secret
 from app.models.channel import ChannelConfig, ChannelProvider
@@ -32,7 +31,7 @@ def _make_config(encrypt_key: str | None = None) -> ChannelConfig:
 
 
 def _sign(timestamp: str, body: str) -> str:
-    msg = f"{timestamp}{body}".encode("utf-8")
+    msg = f"{timestamp}{body}".encode()
     sig = hmac.new(_APP_SECRET.encode("utf-8"), msg, hashlib.sha256).hexdigest()
     return f"sha256={sig}"
 
@@ -79,7 +78,7 @@ class TestVerifyLarkSignature:
 
 class TestParseLarkEvent:
     def test_url_verification_returns_challenge_marker(self):
-        body = '{"challenge":"abc123","token":"%s"}' % _VERIFY_TOKEN
+        body = f'{{"challenge":"abc123","token":"{_VERIFY_TOKEN}"}}'
         result = parse_lark_event(body, _make_config())
         assert result == {URL_CHALLENGE_MARKER: "abc123"}
 
@@ -90,11 +89,11 @@ class TestParseLarkEvent:
 
     def test_text_message_parsed(self):
         body = (
-            '{"schema":"2.0","header":{"event_type":"im.message.receive_v1",'
-            '"token":"%s"},"event":{"sender":{"sender_id":{"open_id":"ou_sender"}},'
-            '"message":{"message_id":"om_001","chat_id":"oc_chat1",'
-            '"message_type":"text","content":"{\\"text\\":\\"hello world\\"}"}}}'
-        ) % _VERIFY_TOKEN
+            f'{{"schema":"2.0","header":{{"event_type":"im.message.receive_v1",'
+            f'"token":"{_VERIFY_TOKEN}"}},"event":{{"sender":{{"sender_id":{{"open_id":"ou_sender"}}}},'
+            f'"message":{{"message_id":"om_001","chat_id":"oc_chat1",'
+            f'"message_type":"text","content":"{{\\"text\\":\\"hello world\\"}}"}}}}}}'
+        )
         msg = parse_lark_event(body, _make_config())
         assert msg is not None
         assert msg.message_id == "om_001"
@@ -104,9 +103,9 @@ class TestParseLarkEvent:
 
     def test_non_text_message_returns_none(self):
         body = (
-            '{"schema":"2.0","header":{"event_type":"im.message.receive_v1",'
-            '"token":"%s"},"event":{"sender":{"sender_id":{"open_id":"ou_x"}},'
-            '"message":{"message_id":"om_2","chat_id":"oc_c","message_type":"image",'
-            '"content":"{}"}}}'
-        ) % _VERIFY_TOKEN
+            f'{{"schema":"2.0","header":{{"event_type":"im.message.receive_v1",'
+            f'"token":"{_VERIFY_TOKEN}"}},"event":{{"sender":{{"sender_id":{{"open_id":"ou_x"}}}},'
+            f'"message":{{"message_id":"om_2","chat_id":"oc_c","message_type":"image",'
+            f'"content":"{{}}"}}}}}}'
+        )
         assert parse_lark_event(body, _make_config()) is None

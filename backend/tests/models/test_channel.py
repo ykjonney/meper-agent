@@ -54,7 +54,9 @@ class TestChannelConfig:
         assert dumped["provider"] == "mock"
 
     def test_name_required(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
             ChannelConfig(
                 provider=ChannelProvider.MOCK,
                 agent_id="a", owner_user_id="u", webhook_secret="b" * 32,

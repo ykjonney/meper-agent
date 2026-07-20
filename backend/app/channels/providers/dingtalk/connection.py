@@ -50,7 +50,7 @@ class DingtalkConnectionClient(ConnectionClient):
     def __init__(self, config: ChannelConfig) -> None:
         super().__init__(config)
         self._sdk_client = None
-        self._handler: "_DingtalkMessageHandler | None" = None
+        self._handler: _DingtalkMessageHandler | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = False
 

@@ -9,13 +9,10 @@ the SDK's typed event object to verify:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from app.channels.connections.dispatch import dispatch_inbound
 from app.channels.connections.manager import get_connection_manager
 from app.channels.errors import InvalidCredentialsError, SendFailedError
 from app.core.crypto import encrypt_secret
@@ -210,11 +207,10 @@ class TestSendViaSDK:
         with patch(
             "app.channels.providers.lark.client._get_lark_client",
             return_value=fake_sdk_client,
-        ):
-            with pytest.raises(InvalidCredentialsError):
-                await send_text_message(
-                    config=config, receive_id="oc_chat1", text="hello",
-                )
+        ), pytest.raises(InvalidCredentialsError):
+            await send_text_message(
+                config=config, receive_id="oc_chat1", text="hello",
+            )
 
     async def test_send_generic_error_raises_send_failed(self):
         from app.channels.providers.lark.client import send_text_message
@@ -229,11 +225,10 @@ class TestSendViaSDK:
         with patch(
             "app.channels.providers.lark.client._get_lark_client",
             return_value=fake_sdk_client,
-        ):
-            with pytest.raises(SendFailedError):
-                await send_text_message(
-                    config=config, receive_id="oc_chat1", text="hello",
-                )
+        ), pytest.raises(SendFailedError):
+            await send_text_message(
+                config=config, receive_id="oc_chat1", text="hello",
+            )
 
     async def test_send_missing_app_id_raises_invalid_credentials(self):
         from app.channels.providers.lark.client import send_text_message
