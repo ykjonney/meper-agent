@@ -23,7 +23,9 @@ import {
   channelKeys,
   type Channel,
   type ChannelProvider,
+  type ConnectionStatus,
   type ProviderSchema,
+  type ReceiveMode,
 } from '../services/channel-api'
 import { agentApi, agentKeys } from '../services/agent-api'
 
@@ -153,6 +155,7 @@ export default function ChannelsPage() {
       name: ch.name,
       provider: ch.provider,
       agent_id: ch.agent_id,
+      receive_mode: ch.receive_mode,
     })
     setModalOpen(true)
   }
@@ -179,6 +182,7 @@ export default function ChannelsPage() {
           name: values.name,
           agent_id: values.agent_id,
           credentials: Object.keys(credInput).length ? credInput : undefined,
+          receive_mode: values.receive_mode,
         },
       })
     } else {
@@ -187,6 +191,7 @@ export default function ChannelsPage() {
         provider: values.provider,
         agent_id: values.agent_id,
         credentials: credInput,
+        receive_mode: values.receive_mode ?? 'webhook',
       })
     }
   }
@@ -235,10 +240,30 @@ export default function ChannelsPage() {
                     <Tag color="red" className="!m-0">已降级</Tag>
                   )}
                 </div>
-                <div className="text-xs text-[#64748B] mt-1 truncate">
+                <div className="text-xs text-[#64748B] mt-1 truncate flex items-center gap-2 flex-wrap">
                   <span>Agent: {ch.agent_id}</span>
-                  <span className="mx-2 text-gray-300">·</span>
-                  <code className="font-mono">入站: {ch.inbound_url}</code>
+                  <span className="text-gray-300">·</span>
+                  {ch.receive_mode === 'long_connection' ? (
+                    <span className="flex items-center gap-1">
+                      <span
+                        className={`inline-block w-1.5 h-1.5 rounded-full ${
+                          ch.connection_status === 'long_connection_connected'
+                            ? 'bg-green-500'
+                            : 'bg-gray-300'
+                        }`}
+                      />
+                      长连接:
+                      {ch.connection_status === 'long_connection_connected'
+                        ? '已连接'
+                        : ch.connection_status === 'long_connection_disconnected'
+                        ? '已断开'
+                        : '未启动'}
+                    </span>
+                  ) : (
+                    <code className="font-mono">
+                      入站: {ch.inbound_url.split('?')[0]}
+                    </code>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -324,6 +349,40 @@ export default function ChannelsPage() {
               disabled={!!editing}
               options={PROVIDER_OPTIONS}
             />
+          </Form.Item>
+          <Form.Item shouldUpdate={(prev, next) => prev.provider !== next.provider}>
+            {({ getFieldValue, setFieldValue }) => {
+              const provider = getFieldValue('provider') as ChannelProvider | undefined
+              const modes: ReceiveMode[] = provider
+                ? schemaData?.providers[provider]?.receive_modes ?? ['webhook']
+                : ['webhook']
+              // If the current mode isn't supported by this provider, reset to webhook
+              const current = getFieldValue('receive_mode') as ReceiveMode | undefined
+              if (current && !modes.includes(current)) {
+                setFieldValue('receive_mode', 'webhook')
+              }
+              return (
+                <Form.Item
+                  name="receive_mode"
+                  label="接收模式"
+                  rules={[{ required: true, message: '请选择接收模式' }]}
+                  initialValue="webhook"
+                  extra={
+                    getFieldValue('receive_mode') === 'long_connection'
+                      ? '长连接模式：服务主动连出，无需公网 IP/域名，适合内网部署'
+                      : 'Webhook 模式：需要公网可达的回调 URL（可用 ngrok 做本地开发）'
+                  }
+                >
+                  <Select
+                    placeholder="选择接收模式"
+                    options={modes.map((m) => ({
+                      value: m,
+                      label: m === 'long_connection' ? '长连接（免公网）' : 'Webhook',
+                    }))}
+                  />
+                </Form.Item>
+              )
+            }}
           </Form.Item>
           <Form.Item
             name="agent_id"
