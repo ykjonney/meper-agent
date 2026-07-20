@@ -55,25 +55,43 @@ class TestReconstructEnvelope:
         """SDK event object → v2 envelope JSON that parse_lark_event can consume."""
         from app.channels.providers.lark.connection import LarkConnectionClient
 
-        # Build a fake SDK event matching P2ImMessageReceiveV1 shape
-        header = MagicMock()
-        header.model_dump = MagicMock(return_value={
-            "event_type": "im.message.receive_v1",
-            "token": "verify_token_value",
-        })
-        event = MagicMock()
-        event.model_dump = MagicMock(return_value={
-            "sender": {"sender_id": {"open_id": "ou_sender"}},
-            "message": {
-                "message_id": "om_001",
-                "chat_id": "oc_chat1",
-                "message_type": "text",
-                "content": json.dumps({"text": "hello world"}),
-            },
-        })
-        sdk_event = MagicMock()
-        sdk_event.header = header
-        sdk_event.event = event
+        # Build a fake SDK event matching P2ImMessageReceiveV1 shape.
+        # Use simple namespace objects (not MagicMock) because the SDK's
+        # real objects are plain Python objects with __dict__, and MagicMock's
+        # __dict__ contains internal mock attributes that cause recursion.
+        class FakeHeader:
+            def __init__(self):
+                self.event_type = "im.message.receive_v1"
+                self.token = "verify_token_value"
+                self.app_id = "cli_test"
+                self.event_id = "evt_1"
+                self.create_time = "123"
+                self.tenant_key = "tk"
+
+        class FakeMessage:
+            def __init__(self):
+                self.message_id = "om_001"
+                self.chat_id = "oc_chat1"
+                self.message_type = "text"
+                self.content = json.dumps({"text": "hello world"})
+
+        class FakeEvent:
+            def __init__(self):
+                class FakeSender:
+                    def __init__(self):
+                        class FakeSenderId:
+                            def __init__(self):
+                                self.open_id = "ou_sender"
+                        self.sender_id = FakeSenderId()
+                self.sender = FakeSender()
+                self.message = FakeMessage()
+
+        class FakeSdkEvent:
+            def __init__(self):
+                self.header = FakeHeader()
+                self.event = FakeEvent()
+
+        sdk_event = FakeSdkEvent()
 
         body = LarkConnectionClient._reconstruct_envelope(sdk_event)
         envelope = json.loads(body)
@@ -118,19 +136,23 @@ class TestOnMessageReceive:
         fake_loop.is_closed.return_value = False
         client._loop = fake_loop
 
-        # Build a fake SDK event
-        header = MagicMock()
-        header.model_dump = MagicMock(return_value={"event_type": "im.message.receive_v1"})
-        event = MagicMock()
-        event.model_dump = MagicMock(return_value={
-            "sender": {"sender_id": {"open_id": "ou_x"}},
-            "message": {"message_id": "om_1", "chat_id": "oc_c",
-                        "message_type": "text",
-                        "content": json.dumps({"text": "hi"})},
-        })
-        sdk_event = MagicMock()
-        sdk_event.header = header
-        sdk_event.event = event
+        # Build a fake SDK event using simple objects (not MagicMock, which
+        # has __dict__ attributes that cause recursion in _obj_to_dict)
+        class FakeObj:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        sdk_event = FakeObj(
+            header=FakeObj(event_type="im.message.receive_v1", token="t",
+                          app_id="a", event_id="e", create_time="1", tenant_key="tk"),
+            event=FakeObj(
+                sender=FakeObj(sender_id=FakeObj(open_id="ou_x")),
+                message=FakeObj(message_id="om_1", chat_id="oc_c",
+                               message_type="text",
+                               content=json.dumps({"text": "hi"})),
+            ),
+        )
 
         with patch(
             "app.channels.providers.lark.connection.dispatch_inbound",

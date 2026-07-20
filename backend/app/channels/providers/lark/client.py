@@ -32,9 +32,10 @@ _client_cache: dict[str, lark.Client] = {}
 
 def _get_lark_client(config: ChannelConfig) -> lark.Client:
     """Build (and cache) a lark-oapi Client from the channel credentials."""
-    app_id = config.credentials.get("app_id")
-    if not app_id:
+    app_id_enc = config.credentials.get("app_id")
+    if not app_id_enc:
         raise InvalidCredentialsError("missing credential: app_id")
+    app_id = decrypt_secret(app_id_enc)
     cached = _client_cache.get(app_id)
     if cached is not None:
         return cached

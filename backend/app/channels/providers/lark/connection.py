@@ -267,18 +267,37 @@ class LarkConnectionClient(ConnectionClient):
     @staticmethod
     def _reconstruct_envelope(data: P2ImMessageReceiveV1) -> str:
         """Turn the SDK's typed event into the v2 envelope JSON webhook mode
-        would have received. parse_lark_event consumes this shape."""
-        # data.header / data.event are pydantic-like objects with to_dict()
-        header: dict = {}
-        event: dict = {}
-        try:
-            header = data.header.model_dump(mode="json", by_alias=True) if data.header else {}
-        except Exception:
-            header = {}
-        try:
-            event = data.event.model_dump(mode="json", by_alias=True) if data.event else {}
-        except Exception:
-            event = {}
+        would have received. parse_lark_event consumes this shape.
+
+        The lark SDK's event objects are plain Python objects (NOT pydantic
+        models) — they don't have model_dump(). We use _obj_to_dict which
+        walks __dict__ recursively.
+        """
+        def _obj_to_dict(obj, depth=0):
+            """Recursively convert a lark SDK object to a dict via __dict__."""
+            if depth > 10:  # safety: prevent infinite recursion
+                return str(obj)
+            if obj is None:
+                return None
+            if isinstance(obj, str):
+                return obj
+            if isinstance(obj, (int, float, bool)):
+                return obj
+            if isinstance(obj, (list, tuple)):
+                return [_obj_to_dict(x, depth + 1) for x in obj]
+            if isinstance(obj, dict):
+                return {k: _obj_to_dict(v, depth + 1) for k, v in obj.items()}
+            # SDK object: recurse into __dict__
+            if hasattr(obj, '__dict__'):
+                result = {}
+                for k, v in obj.__dict__.items():
+                    if v is not None:  # skip None fields
+                        result[k] = _obj_to_dict(v, depth + 1)
+                return result
+            return str(obj)
+
+        header = _obj_to_dict(data.header) if data.header else {}
+        event = _obj_to_dict(data.event) if data.event else {}
         envelope = {"schema": "2.0", "header": header, "event": event}
         return json.dumps(envelope, ensure_ascii=False)
 
