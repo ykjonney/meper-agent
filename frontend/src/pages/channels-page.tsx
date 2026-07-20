@@ -408,7 +408,11 @@ export default function ChannelsPage() {
               return (
                 <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                   <div className="text-xs text-[#64748B] mb-2">平台凭据</div>
-                  {fields.map((f) => (
+                  {fields.map((f) => {
+                    // 编辑模式下,显示当前已保存的 mask 值作为提示
+                    const savedValue = editing?.credentials?.[f.key]
+                    const maskHint = savedValue ? `当前: ${savedValue}（留空不修改）` : `输入 ${f.label}`
+                    return (
                     <Form.Item
                       key={f.key}
                       name={`cred_${f.key}`}
@@ -416,12 +420,13 @@ export default function ChannelsPage() {
                       rules={f.required && !editing ? [{ required: true, message: `请输入${f.label}` }] : []}
                     >
                       <Input.Password
-                        placeholder={editing ? '已保存，留空则不修改' : `输入 ${f.label}`}
+                        placeholder={editing ? maskHint : `输入 ${f.label}`}
                         autoComplete="new-password"
                         visibilityToggle
                       />
                     </Form.Item>
-                  ))}
+                    )
+                  })}
                 </div>
               )
             }}

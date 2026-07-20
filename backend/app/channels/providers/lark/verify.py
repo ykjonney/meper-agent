@@ -36,9 +36,22 @@ def _get_credential(config: ChannelConfig, key: str) -> str:
 
 
 def verify_lark_signature(
-    *, body: str, timestamp: str, signature: str, config: ChannelConfig
+    *, body: str, timestamp: str, signature: str, config: ChannelConfig,
+    nonce: str = "",
 ) -> None:
-    """Verify X-Lark-Signature. Raises LarkVerificationError on failure."""
+    """Verify X-Lark-Signature. Raises LarkVerificationError on failure.
+
+    If the request has no signature headers (timestamp/signature empty),
+    we skip signature verification — this happens when the app has no
+    Encrypt Key configured. The webhook_secret URL parameter (checked by
+    the inbound route) already provides basic anti-forgery protection in
+    that case.
+    """
+    # No signature headers → app has no Encrypt Key → skip signature check.
+    # The inbound route's webhook_secret gate is the sole protection here.
+    if not timestamp or not signature:
+        return
+
     try:
         ts_int = int(timestamp)
     except (TypeError, ValueError):
@@ -46,11 +59,25 @@ def verify_lark_signature(
     if abs(int(time.time()) - ts_int) > _TIMESTAMP_TOLERANCE_SECONDS:
         raise LarkVerificationError("timestamp out of tolerance (replay?)")
 
-    app_secret = _get_credential(config, "app_secret")
-    msg = f"{timestamp}{body}".encode()
-    expected = "sha256=" + hmac.new(
-        app_secret.encode("utf-8"), msg, hashlib.sha256
-    ).hexdigest()
+    # Signature algorithm (when Encrypt Key is configured):
+    #   sha256(timestamp + nonce + encrypt_key + body)
+    # See https://open.feishu.cn/document/server-docs/event-subscription-guide/
+    encrypt_key = config.credentials.get("encrypt_key")
+    if encrypt_key:
+        key = decrypt_secret(encrypt_key)
+    else:
+        # Fallback: some legacy setups sign with app_secret via HMAC.
+        key = _get_credential(config, "app_secret")
+        msg = f"{timestamp}{body}".encode()
+        expected = "sha256=" + hmac.new(
+            key.encode("utf-8"), msg, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise LarkVerificationError("signature mismatch")
+        return
+
+    msg = f"{timestamp}{nonce}{key}{body}".encode()
+    expected = hashlib.sha256(msg).hexdigest()
     if not hmac.compare_digest(expected, signature):
         raise LarkVerificationError("signature mismatch")
 

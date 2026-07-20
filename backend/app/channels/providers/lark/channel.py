@@ -34,10 +34,12 @@ class LarkChannel(Channel):
         body = request._body.decode("utf-8") if request._body else ""
         timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
         signature = request.headers.get("X-Lark-Signature", "")
+        nonce = request.headers.get("X-Lark-Request-Nonce", "")
 
         try:
             verify_lark_signature(
-                body=body, timestamp=timestamp, signature=signature, config=config,
+                body=body, timestamp=timestamp, signature=signature,
+                nonce=nonce, config=config,
             )
             result = parse_lark_event(body, config)
         except LarkVerificationError as e:

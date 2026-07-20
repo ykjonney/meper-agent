@@ -336,9 +336,19 @@ class ChannelService:
         if receive_mode is not None:
             update["receive_mode"] = receive_mode
         if credentials:
-            update["credentials"] = {
-                k: encrypt_secret(str(v)) for k, v in credentials.items() if v
-            }
+            # Merge: only overwrite keys the caller explicitly provided.
+            # A partial update (e.g. only verification_token) must NOT wipe
+            # existing app_id/app_secret — that was a real bug where editing
+            # one credential field in the UI cleared the others.
+            existing_doc = await ChannelService._configs_coll().find_one(
+                {"_id": channel_id, "owner_user_id": owner_user_id},
+                projection={"credentials": 1},
+            )
+            merged: dict = dict(existing_doc.get("credentials", {})) if existing_doc else {}
+            for k, v in credentials.items():
+                if v:  # skip empty values (UI "leave unchanged")
+                    merged[k] = encrypt_secret(str(v))
+            update["credentials"] = merged
         await ChannelService._configs_coll().update_one(
             {"_id": channel_id, "owner_user_id": owner_user_id},
             {"$set": update},
