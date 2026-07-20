@@ -96,6 +96,8 @@ module = [
     "docker",
     "lark_oapi",
     "lark_oapi.api.im.v1",
+    "lark_oapi.ws",
+    "lark_oapi.ws.client",
     "motor",
     "motor.motor_asyncio",
     "redis",

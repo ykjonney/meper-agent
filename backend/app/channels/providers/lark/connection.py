@@ -17,6 +17,7 @@ by construction. URL-verification challenges are NOT sent over WebSocket.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import threading
@@ -60,10 +61,28 @@ class LarkConnectionClient(ConnectionClient):
     no external concurrency.
     """
 
+    # The lark-oapi ws.Client uses a module-level ``loop`` variable captured
+    # at import time (lark_oapi/ws/client.py:32) and calls
+    # ``loop.run_until_complete(self._connect())`` inside ``start()``. That
+    # loop is the main process loop — which FastAPI/uvicorn is already running.
+    # Running start() as-is raises "this event loop is already running".
+    #
+    # Workaround: run start() in a dedicated worker thread that owns its OWN
+    # asyncio loop, and temporarily swap the SDK's module-level ``loop`` to
+    # point at it. Because the swap mutates a shared module global, concurrent
+    # SDK starts across channels would race — so we serialize them with this
+    # class-level lock. Each start() runs under the lock; the swap is reverted
+    # before release so the next acquirer sees a clean state.
+    _sdk_loop_lock = threading.Lock()
+
     def __init__(self, config: ChannelConfig) -> None:
         super().__init__(config)
         self._ws_client = None
         self._loop: asyncio.AbstractEventLoop | None = None  # set in connect()
+        # The dedicated asyncio loop running the SDK inside _run_sdk's thread.
+        # Kept as an instance attribute so disconnect() can close it to force
+        # start() to return (the SDK has no public stop API).
+        self._sdk_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event = threading.Event()
         self._connected = threading.Event()
         # Set once ws.Client.start() has returned (clean exit or crash).
@@ -134,25 +153,80 @@ class LarkConnectionClient(ConnectionClient):
             self._exited.set()
 
     def _run_sdk(self) -> None:
-        """Run ws.Client.start() in a worker thread. Returns on SDK exit."""
+        """Run ws.Client.start() in a worker thread with its own event loop.
+
+        The lark SDK captures a module-level ``loop`` at import time and uses
+        it inside start() via ``loop.run_until_complete(...)``. That loop is
+        the main process loop, which FastAPI is already running — so calling
+        start() directly raises "this event loop is already running".
+
+        Fix: in this worker thread, create a fresh asyncio loop, make it the
+        thread-local current loop, AND temporarily point the SDK's module-level
+        ``loop`` at it. The module-level swap is serialized by a class-level
+        lock so concurrent channel starts don't race on the shared global.
+        """
+        import lark_oapi.ws.client as ws_module
+
         if self._ws_client is None:
             return
+
+        # Create a fresh loop owned by this thread. Stored on self so
+        # disconnect() can close it to force start() to return.
+        thread_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(thread_loop)
+        self._sdk_loop = thread_loop
+
+        saved_sdk_loop = ws_module.loop
+        acquired = False
         try:
+            # Serialize the module-level swap across all LarkConnectionClients.
+            self._sdk_loop_lock.acquire()
+            acquired = True
+            ws_module.loop = thread_loop
             self._ws_client.start()
         except Exception as exc:
-            logger.error("lark_ws_client_exited channel=%s err=%s", self.config.id, exc)
+            logger.error(
+                "lark_ws_client_exited channel=%s err=%s", self.config.id, exc
+            )
+        finally:
+            if acquired:
+                # Restore the SDK's module-level loop before releasing the
+                # lock, so the next acquirer finds a clean state. The fresh
+                # thread_loop is closed below and not referenced anywhere else.
+                with contextlib.suppress(Exception):
+                    ws_module.loop = saved_sdk_loop
+                self._sdk_loop_lock.release()
+            with contextlib.suppress(Exception):
+                thread_loop.close()
 
     async def disconnect(self) -> None:
-        """Stop the SDK client and join the worker thread."""
-        self._stop_sdk()
+        """Stop the SDK client and join the worker thread.
 
-    def _stop_sdk(self) -> None:
+        The lark SDK exposes no stop API; start() blocks on its loop's
+        ``run_until_complete(_select())``. The only way to unblock it is to
+        stop the loop it's running on. We schedule loop.stop() from this
+        coroutine (the FastAPI loop) — it wakes the worker loop, start()
+        returns, _run_sdk's finally block restores the SDK global and closes
+        the worker loop.
+        """
         self._stop_event.set()
         self._connected.clear()
-        # The lark SDK doesn't expose a clean shutdown API. The thread is a
-        # daemon by virtue of running via asyncio.to_thread; process exit /
-        # task cancellation will terminate it. We mark exited so
-        # is_connected returns False immediately.
+        sdk_loop = self._sdk_loop
+        if sdk_loop is not None and not sdk_loop.is_closed():
+            # Schedule stop from this thread. loop.stop() is thread-safe.
+            with contextlib.suppress(RuntimeError):
+                sdk_loop.call_soon_threadsafe(sdk_loop.stop)
+        self._exited.set()
+
+    def _stop_sdk(self) -> None:
+        """Legacy sync stop — only used as a fallback during cancellation.
+        Prefer disconnect() which properly wakes the worker loop."""
+        self._stop_event.set()
+        self._connected.clear()
+        sdk_loop = self._sdk_loop
+        if sdk_loop is not None and not sdk_loop.is_closed():
+            with contextlib.suppress(RuntimeError):
+                sdk_loop.call_soon_threadsafe(sdk_loop.stop)
         self._exited.set()
 
     # ── SDK event callback (runs in the SDK's thread) ──
