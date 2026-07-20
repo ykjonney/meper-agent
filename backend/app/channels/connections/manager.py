@@ -42,6 +42,9 @@ class ChannelConnectionManager:
         self._clients: dict[str, "ConnectionClient"] = {}
         # channel_id -> asyncio task running the client's connect loop
         self._tasks: dict[str, asyncio.Task] = {}
+        # channel_id -> asyncio.Semaphore capping concurrent inline executions
+        # (long-connection mode runs ChannelService.execute in-process).
+        self._execution_sems: dict[str, asyncio.Semaphore] = {}
         self._lock = asyncio.Lock()
         self._stopped: bool = False
 
@@ -141,6 +144,27 @@ class ChannelConnectionManager:
             else "long_connection_disconnected"
         )
 
+    def execution_semaphore(self, channel_id: str) -> asyncio.Semaphore | None:
+        """Return the per-channel concurrency-limiting semaphore, or None if
+        the channel isn't an active long-connection channel.
+
+        dispatch_inbound uses this to cap how many ChannelService.execute
+        calls run at once for one channel, preventing a single busy chat
+        from exhausting the LLM quota.
+        """
+        # Lazy-create on first request — channels that never receive events
+        # don't allocate a semaphore.
+        if channel_id not in self._clients:
+            return None
+        sem = self._execution_sems.get(channel_id)
+        if sem is None:
+            from app.core.config import settings
+            sem = asyncio.Semaphore(
+                settings.CHANNEL_MAX_CONCURRENT_EXECUTIONS_PER_CHANNEL
+            )
+            self._execution_sems[channel_id] = sem
+        return sem
+
     # ── Internals ──
 
     async def _load_long_connection_channels(self) -> list[ChannelConfig]:
@@ -222,6 +246,9 @@ class ChannelConnectionManager:
         async with self._lock:
             client = self._clients.pop(channel_id, None)
             task = self._tasks.pop(channel_id, None)
+            # Drop the execution semaphore — a fresh one is created if the
+            # channel reconnects. In-flight executions hold their own ref.
+            self._execution_sems.pop(channel_id, None)
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

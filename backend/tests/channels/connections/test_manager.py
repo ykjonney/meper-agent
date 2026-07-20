@@ -8,7 +8,7 @@ tests.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -375,9 +375,13 @@ class TestReconnect:
 # ── dispatch_inbound helper ──
 
 class TestDispatchInbound:
-    async def test_dispatch_parses_and_enqueues(self):
-        """dispatch_inbound calls parser → ChannelService.create_or_dedup_event
-        → process_inbound.delay. Verify the wiring without a real DB."""
+    async def test_dispatch_parses_and_executes_inline(self):
+        """dispatch_inbound calls parser → create_or_dedup_event →
+        ChannelService.execute (NO Celery). Verify the new inline wiring.
+
+        dispatch fires execute in a background task (asyncio.create_task) so
+        the SDK callback can return immediately; we await the event loop to
+        let the spawned task run, then assert execute was called."""
         from app.channels.base import InboundMessage
         from datetime import datetime, UTC
 
@@ -392,18 +396,55 @@ class TestDispatchInbound:
             assert "hi" in body
             return inbound
 
+        # Manager.execution_semaphore returns None for channels not in the
+        # _clients dict (our test cfg isn't), so no semaphore is acquired.
         with patch(
             "app.services.channel_service.ChannelService.create_or_dedup_event",
             new=AsyncMock(return_value="inb_001"),
         ), patch(
-            "app.workers.tasks.channel_inbound.process_inbound.delay"
-        ) as mock_delay:
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(),
+        ) as mock_exec:
             log_id = await dispatch_inbound(
                 config=cfg, body='{"text":"hi"}', parser=fake_parser,
             )
+            # Let the spawned background task run
+            import asyncio as _asyncio
+            await _asyncio.sleep(0.05)
 
         assert log_id == "inb_001"
-        mock_delay.assert_called_once_with("inb_001")
+        mock_exec.assert_awaited_once()
+        # Called with the InboundMessage + event_log_id threaded through
+        passed_inbound = mock_exec.call_args.args[0]
+        assert passed_inbound.message_id == "m1"
+        assert mock_exec.call_args.kwargs.get("event_log_id") == "inb_001"
+
+    async def test_dispatch_does_not_call_celery(self):
+        """Regression: long-connection mode must not enqueue via Celery."""
+        from app.channels.base import InboundMessage
+        from datetime import datetime, UTC
+
+        cfg = _make_config()
+        inbound = InboundMessage(
+            channel_id=cfg.id, platform_chat_id="c", platform_user_id="u",
+            message_id="m_no_celery", text="hi", raw={}, timestamp=datetime.now(UTC),
+        )
+        with patch(
+            "app.services.channel_service.ChannelService.create_or_dedup_event",
+            new=AsyncMock(return_value="inb_no_celery"),
+        ), patch(
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(),
+        ), patch(
+            "app.workers.tasks.channel_inbound.process_inbound.delay"
+        ) as mock_delay:
+            await dispatch_inbound(
+                config=cfg, body='{"text":"hi"}',
+                parser=lambda b, c: inbound,
+            )
+            import asyncio as _asyncio
+            await _asyncio.sleep(0.05)
+        mock_delay.assert_not_called()
 
     async def test_dispatch_returns_none_when_parser_returns_none(self):
         cfg = _make_config()
@@ -432,6 +473,7 @@ class TestDispatchInbound:
         mock_dedup.assert_not_called()
 
     async def test_dispatch_handles_dedup(self):
+        """Duplicate event (dedup returns None) → no execute call."""
         cfg = _make_config()
         from app.channels.base import InboundMessage
         from datetime import datetime, UTC
@@ -445,11 +487,145 @@ class TestDispatchInbound:
             "app.services.channel_service.ChannelService.create_or_dedup_event",
             new=AsyncMock(return_value=None),  # duplicate
         ), patch(
-            "app.workers.tasks.channel_inbound.process_inbound.delay"
-        ) as mock_delay:
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(),
+        ) as mock_exec:
             log_id = await dispatch_inbound(
                 config=cfg, body='{"text":"hi"}',
                 parser=lambda b, c: inbound,
             )
+            import asyncio as _asyncio
+            await _asyncio.sleep(0.05)
         assert log_id is None
-        mock_delay.assert_not_called()
+        mock_exec.assert_not_awaited()
+
+
+# ── Inline execution: retry + semaphore + failure marking ──
+
+class TestExecuteWithRetry:
+    """_execute_with_retry: TransientChannelError retried with backoff,
+    PermanentChannelError handled by execute, unexpected error marks log FAILED."""
+
+    async def test_retries_on_transient_then_succeeds(self):
+        from app.channels.connections.dispatch import _execute_with_retry
+        from app.channels.errors import TransientChannelError
+        from app.channels.base import InboundMessage
+        from datetime import datetime, UTC
+
+        inbound = InboundMessage(
+            channel_id="ch", platform_chat_id="c", platform_user_id="u",
+            message_id="m", text="hi", raw={}, timestamp=datetime.now(UTC),
+        )
+
+        # First two calls raise transient, third succeeds
+        side_effects = [
+            TransientChannelError("rate limit 1"),
+            TransientChannelError("rate limit 2"),
+            None,
+        ]
+        with patch(
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(side_effect=side_effects),
+        ), patch("asyncio.sleep", new=AsyncMock()):  # skip real backoff
+            await _execute_with_retry(inbound, "inb_1", None)
+
+    async def test_marks_log_failed_when_retries_exhausted(self):
+        from app.channels.connections.dispatch import _execute_with_retry
+        from app.channels.errors import LLMRateLimitError
+        from app.channels.base import InboundMessage
+        from datetime import datetime, UTC
+
+        inbound = InboundMessage(
+            channel_id="ch", platform_chat_id="c", platform_user_id="u",
+            message_id="m", text="hi", raw={}, timestamp=datetime.now(UTC),
+        )
+
+        mock_coll = MagicMock()
+        mock_coll.update_one = AsyncMock()
+
+        with patch(
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(side_effect=LLMRateLimitError("always")),
+        ), patch("asyncio.sleep", new=AsyncMock()), patch(
+            "app.services.channel_service.ChannelService._event_logs_coll",
+            return_value=mock_coll,
+        ):
+            await _execute_with_retry(inbound, "inb_2", None)
+
+        # After retries exhausted, the log is marked FAILED
+        mock_coll.update_one.assert_awaited_once()
+        update_filter = mock_coll.update_one.call_args.args[0]
+        update_set = mock_coll.update_one.call_args.args[1]["$set"]
+        assert update_filter == {"_id": "inb_2"}
+        assert update_set["status"] == "failed"
+
+    async def test_unexpected_error_marks_log_failed(self):
+        from app.channels.connections.dispatch import _execute_with_retry
+        from app.channels.base import InboundMessage
+        from datetime import datetime, UTC
+
+        inbound = InboundMessage(
+            channel_id="ch", platform_chat_id="c", platform_user_id="u",
+            message_id="m", text="hi", raw={}, timestamp=datetime.now(UTC),
+        )
+
+        mock_coll = MagicMock()
+        mock_coll.update_one = AsyncMock()
+
+        with patch(
+            "app.services.channel_service.ChannelService.execute",
+            new=AsyncMock(side_effect=RuntimeError("unexpected bug")),
+        ), patch(
+            "app.services.channel_service.ChannelService._event_logs_coll",
+            return_value=mock_coll,
+        ):
+            await _execute_with_retry(inbound, "inb_3", None)
+
+        mock_coll.update_one.assert_awaited_once()
+        update_set = mock_coll.update_one.call_args.args[1]["$set"]
+        assert update_set["status"] == "failed"
+        assert "unexpected bug" in update_set["error"]
+
+
+class TestExecutionSemaphore:
+    """Manager.execution_semaphore: per-channel cap, lazy create, cleanup on stop."""
+
+    async def test_returns_none_for_unknown_channel(self):
+        mgr = ChannelConnectionManager()
+        assert mgr.execution_semaphore("ch_nope") is None
+
+    async def test_lazy_creates_for_active_channel(self):
+        """Once a channel has a live client, the semaphore is created on demand."""
+        mgr = ChannelConnectionManager()
+        mgr.register_factory("mock", lambda cfg: FakeConnectionClient(cfg))
+        cfg = _make_config(channel_id="ch_sem")
+        try:
+            with patch.object(mgr, "_load_channel", new=AsyncMock(return_value=cfg)):
+                await mgr.reload_channel("ch_sem")
+                await asyncio.sleep(0.05)
+                sem1 = mgr.execution_semaphore("ch_sem")
+                assert sem1 is not None
+                # Same instance on second call (lazy + cached)
+                sem2 = mgr.execution_semaphore("ch_sem")
+                assert sem1 is sem2
+        finally:
+            await mgr.stop()
+
+    async def test_cleaned_up_on_stop(self):
+        """Stopping a channel drops its semaphore so reconnect gets a fresh one."""
+        mgr = ChannelConnectionManager()
+        mgr.register_factory("mock", lambda cfg: FakeConnectionClient(cfg))
+        cfg = _make_config(channel_id="ch_cleanup")
+        try:
+            with patch.object(mgr, "_load_channel", new=AsyncMock(return_value=cfg)):
+                await mgr.reload_channel("ch_cleanup")
+                await asyncio.sleep(0.05)
+                # Touch the semaphore so it's created lazily
+                assert mgr.execution_semaphore("ch_cleanup") is not None
+                assert "ch_cleanup" in mgr._execution_sems
+
+            # Stop the channel
+            await mgr._stop_channel("ch_cleanup")
+            assert "ch_cleanup" not in mgr._execution_sems
+        finally:
+            await mgr.stop()
