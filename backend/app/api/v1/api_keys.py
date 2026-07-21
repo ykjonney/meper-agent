@@ -36,6 +36,7 @@ def _doc_to_response(doc: dict) -> ApiKeyResponse:
         status=doc["status"],
         expires_at=doc.get("expires_at"),
         last_used_at=doc.get("last_used_at"),
+        user_info_url=doc.get("user_info_url", ""),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
@@ -59,6 +60,7 @@ async def create_api_key(
         bindings=body.bindings.model_dump(),
         rate_limit=body.rate_limit,
         expires_at=body.expires_at,
+        user_info_url=body.user_info_url or "",
     )
     return ApiKeyCreateResponse(
         id=doc["_id"],
@@ -71,6 +73,7 @@ async def create_api_key(
         rate_limit=doc["rate_limit"],
         status=doc["status"],
         expires_at=doc.get("expires_at"),
+        user_info_url=doc.get("user_info_url", ""),
         created_at=doc["created_at"],
     )
 
@@ -131,6 +134,7 @@ async def update_api_key(
         bindings=body.bindings.model_dump() if body.bindings else None,
         rate_limit=body.rate_limit,
         expires_at=body.expires_at,
+        user_info_url=body.user_info_url,
     )
     if doc is None:
         raise NotFoundError(code="APIKEY_NOT_FOUND", message="API Key not found")

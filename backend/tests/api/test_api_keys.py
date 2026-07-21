@@ -47,6 +47,7 @@ def _make_key_doc(key_id="apikey_01", name="Test Key", status="active"):
         "status": status,
         "expires_at": None,
         "last_used_at": None,
+        "user_info_url": "",
         "created_at": "2026-01-01T00:00:00",
         "updated_at": "2026-01-01T00:00:00",
     }
@@ -110,6 +111,57 @@ class TestCreateApiKey:
             # Verify bindings were passed to service
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["bindings"] == {"agents": ["agent_01"], "workflows": []}
+        finally:
+            cleanup()
+
+    def test_create_with_user_info_url(self, client, admin_user) -> None:
+        """AC2: user_info_url is forwarded to the service on create."""
+        cleanup = _override_auth(admin_user)
+        try:
+            doc = _make_key_doc()
+            doc["user_info_url"] = "https://partner.example.com/introspect"
+            with patch(
+                "app.services.api_key_service.ApiKeyService.create_api_key",
+                new=AsyncMock(return_value=(doc, "af_live_test")),
+            ) as mock_create:
+                resp = client.post(
+                    "/api/v1/api-keys",
+                    json={
+                        "name": "Callback Key",
+                        "scopes": ["agents:read"],
+                        "user_info_url": "https://partner.example.com/introspect",
+                    },
+                )
+            assert resp.status_code == 201
+            data = resp.json()
+            assert (
+                data["user_info_url"]
+                == "https://partner.example.com/introspect"
+            )
+            call_kwargs = mock_create.call_args.kwargs
+            assert (
+                call_kwargs["user_info_url"]
+                == "https://partner.example.com/introspect"
+            )
+        finally:
+            cleanup()
+
+    def test_create_without_user_info_url_defaults_empty(
+        self, client, admin_user
+    ) -> None:
+        """AC2: omitted user_info_url forwards empty string (legacy mode)."""
+        cleanup = _override_auth(admin_user)
+        try:
+            with patch(
+                "app.services.api_key_service.ApiKeyService.create_api_key",
+                new=AsyncMock(return_value=(_make_key_doc(), "af_live_test")),
+            ) as mock_create:
+                client.post(
+                    "/api/v1/api-keys",
+                    json={"name": "Legacy", "scopes": ["agents:read"]},
+                )
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["user_info_url"] == ""
         finally:
             cleanup()
 
@@ -220,6 +272,36 @@ class TestUpdateApiKey:
                     json={"name": "New Name"},
                 )
             assert resp.status_code == 404
+        finally:
+            cleanup()
+
+    def test_update_user_info_url(self, client, admin_user) -> None:
+        """AC2: user_info_url can be set/cleared via update."""
+        cleanup = _override_auth(admin_user)
+        try:
+            doc = _make_key_doc()
+            doc["user_info_url"] = "https://partner.example.com/introspect"
+            with patch(
+                "app.services.api_key_service.ApiKeyService.update_api_key",
+                new=AsyncMock(return_value=doc),
+            ) as mock_update:
+                resp = client.put(
+                    "/api/v1/api-keys/apikey_01",
+                    json={
+                        "user_info_url": "https://partner.example.com/introspect"
+                    },
+                )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert (
+                data["user_info_url"]
+                == "https://partner.example.com/introspect"
+            )
+            call_kwargs = mock_update.call_args.kwargs
+            assert (
+                call_kwargs["user_info_url"]
+                == "https://partner.example.com/introspect"
+            )
         finally:
             cleanup()
 

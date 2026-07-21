@@ -4,7 +4,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.api.v1.ext import auth_and_rate_limit
+from app.api.v1.ext import auth_and_rate_limit, resolve_user_id
 from app.core.auth_apikey import ApiKeyPrincipal
 from app.core.errors import NotFoundError
 from app.models.agent import AgentStatus
@@ -147,7 +147,7 @@ async def invoke_agent(
     result = await AgentExecutionService.invoke(
         agent_id=agent_id,
         body=exec_request,
-        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
+        user_id=resolve_user_id(principal, body.visitor_id),
     )
 
     # Extract task_ids from execution result (if any workflow was triggered)
@@ -183,7 +183,7 @@ async def stream_agent(
     event_queue, request_id, session_id = await AgentExecutionService.stream(
         agent_id=agent_id,
         body=exec_request,
-        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
+        user_id=resolve_user_id(principal, body.visitor_id),
     )
 
     async def _event_stream():
@@ -230,7 +230,7 @@ async def resume_agent(
     event_queue, request_id, session_id = await AgentExecutionService.resume(
         agent_id=agent_id,
         body=resume_request,
-        user_id=f"{principal.owner_user_id}:{body.visitor_id}" if body.visitor_id else principal.owner_user_id,
+        user_id=resolve_user_id(principal, body.visitor_id),
     )
 
     async def _event_stream():
@@ -268,20 +268,21 @@ async def resume_agent(
 )
 async def list_visitor_sessions(
     agent_id: str,
-    visitor_id: str = Query(..., description="访客 ID"),
+    visitor_id: str | None = Query(None, description="访客 ID（兼容模式必填，回调验证模式忽略）"),
     page: int = 1,
     page_size: int = 20,
     principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
 ) -> ExtSessionListResponse:
-    """List sessions for a specific visitor.
+    """List sessions for the current end-user.
 
-    Sessions are keyed by ``user_id = {owner_user_id}:{visitor_id}`` to scope
-    them per visitor per API Key owner.
+    Sessions are keyed by ``user_id``:
+    - Legacy mode: ``{owner_user_id}:{visitor_id}``
+    - Callback-verification mode: ``{owner_user_id}:{sub}`` (visitor_id ignored)
     """
     principal.require_scope("agents:invoke")
     principal.require_agent_access(agent_id)
 
-    user_id = f"{principal.owner_user_id}:{visitor_id}"
+    user_id = resolve_user_id(principal, visitor_id)
 
     items, total = await SessionService.list_sessions(
         user_id=user_id,
@@ -311,16 +312,16 @@ async def list_visitor_sessions(
 )
 async def get_session_detail(
     session_id: str,
-    visitor_id: str = Query(..., description="访客 ID"),
+    visitor_id: str | None = Query(None, description="访客 ID（兼容模式必填，回调验证模式忽略）"),
     principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
 ) -> "ExtSessionDetailResponse":
     """Get session detail including all messages.
 
-    Verifies that the session belongs to the requesting visitor.
+    Verifies that the session belongs to the current end-user.
     """
     principal.require_scope("agents:invoke")
 
-    user_id = f"{principal.owner_user_id}:{visitor_id}"
+    user_id = resolve_user_id(principal, visitor_id)
 
     # Get session and verify ownership
     session_doc = await SessionService.get_session(session_id)
@@ -356,16 +357,16 @@ async def get_session_detail(
 )
 async def delete_session(
     session_id: str,
-    visitor_id: str = Query(..., description="访客 ID"),
+    visitor_id: str | None = Query(None, description="访客 ID（兼容模式必填，回调验证模式忽略）"),
     principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
 ) -> JSONResponse:
     """Delete a session and all its messages.
 
-    Verifies that the session belongs to the requesting visitor.
+    Verifies that the session belongs to the current end-user.
     """
     principal.require_scope("agents:invoke")
 
-    user_id = f"{principal.owner_user_id}:{visitor_id}"
+    user_id = resolve_user_id(principal, visitor_id)
 
     # Verify ownership before deleting
     session_doc = await SessionService.get_session(session_id)

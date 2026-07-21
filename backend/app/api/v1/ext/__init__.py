@@ -5,12 +5,32 @@ from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
 from app.core.auth_apikey import ApiKeyPrincipal, get_api_key_principal
 from app.core.rate_limiter import check_rate_limit
+from app.core.user_auth_state import is_introspect_stale
 from app.services.api_key_stats_service import record_request
 
 router = APIRouter(
     prefix="/ext",
     tags=["external-api"],
 )
+
+
+def resolve_user_id(
+    principal: ApiKeyPrincipal,
+    visitor_id: str | None,
+) -> str:
+    """Resolve the stable user_id for session/audit attribution.
+
+    - Callback-verification mode (api_key.user_info_url non-empty):
+      principal.user_id is already set to ``f"{owner}:{sub}"`` by the
+      auth dependency. visitor_id is ignored.
+    - Legacy mode (user_info_url empty): compose from visitor_id;
+      falls back to owner_user_id when visitor_id is absent.
+    """
+    if principal.user_id:
+        return principal.user_id
+    if visitor_id:
+        return f"{principal.owner_user_id}:{visitor_id}"
+    return principal.owner_user_id
 
 
 async def auth_and_rate_limit(
@@ -81,6 +101,12 @@ class ExtApiStatsMiddleware(BaseHTTPMiddleware):
             response.headers["X-RateLimit-Reset"] = str(
                 getattr(request.state, "rate_reset", 0)
             )
+
+        # Surface stale introspection fallback (AC7): when the partner
+        # introspection endpoint was unreachable and we degraded to a
+        # stale cached result, flag it so clients can retry later.
+        if is_introspect_stale():
+            response.headers["X-User-Auth-Stale"] = "true"
 
         return response
 
