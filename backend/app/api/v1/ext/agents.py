@@ -148,6 +148,7 @@ async def invoke_agent(
         agent_id=agent_id,
         body=exec_request,
         user_id=resolve_user_id(principal, body.visitor_id),
+        user_token=principal.user_token,
     )
 
     # Extract task_ids from execution result (if any workflow was triggered)
@@ -184,6 +185,7 @@ async def stream_agent(
         agent_id=agent_id,
         body=exec_request,
         user_id=resolve_user_id(principal, body.visitor_id),
+        user_token=principal.user_token,
     )
 
     async def _event_stream():
@@ -231,6 +233,7 @@ async def resume_agent(
         agent_id=agent_id,
         body=resume_request,
         user_id=resolve_user_id(principal, body.visitor_id),
+        user_token=principal.user_token,
     )
 
     async def _event_stream():

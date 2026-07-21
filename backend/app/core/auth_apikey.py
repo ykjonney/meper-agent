@@ -40,6 +40,9 @@ class ApiKeyPrincipal:
     rate_limit: int = 60
     user_info_url: str = ""
     user_id: str | None = None
+    # Original X-User-Token (Bearer-stripped). Used to forward to MCP
+    # servers in callback-verification mode. None in legacy mode.
+    user_token: str | None = None
 
     def has_scope(self, scope: str) -> bool:
         return scope in self.scopes
@@ -160,6 +163,8 @@ async def get_api_key_principal(
                 message="Introspection response missing required 'sub' field.",
             )
         principal.user_id = f"{principal.owner_user_id}:{result.sub}"
+        # Retain the original token so downstream MCP calls can forward it.
+        principal.user_token = user_token
 
     return principal
 

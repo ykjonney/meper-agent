@@ -66,6 +66,7 @@ async def resolve_harness_context(
     *,
     enable_thinking: bool = False,
     workspace: Any | None = None,
+    user_token: str | None = None,
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
@@ -77,9 +78,13 @@ async def resolve_harness_context(
 
     Args:
         workspace: 可选,workflow agent 节点传入已创建的 task workspace。
+        user_token: 可选,外部终端用户 token(回调验证模式)。设置后 MCP
+            工具调用会把该 token 放进 Authorization header 透传给 MCP
+            server;为 None 时(兼容模式/平台用户)用 MCP connection 静态凭证。
 
     Returns:
         dict 含 keys: agent_doc, llm, tools, sb_token, ws_token,
+              user_token, middlewares, context_window
               middlewares, context_window
     """
     agent_id = agent.get("_id", "agent")
@@ -272,6 +277,13 @@ async def resolve_harness_context(
     # 8. 注入 sandbox context
     sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
 
+    # 8.5 注入 user_token context(供 MCP 工具透传给 MCP server)。
+    # asyncio.create_task 会复制 contextvars,所以即便 stream/resume 的
+    # 真正执行在后台任务里,MCP loader 的 interceptor 也能读到。
+    from agent_flow_harness import set_user_token_context
+
+    ut_token = set_user_token_context(user_token)
+
     logger.debug(
         "harness_context_resolved",
         agent_id=agent_id,
@@ -290,6 +302,7 @@ async def resolve_harness_context(
         "tools": all_tools,
         "sb_token": sb_token,
         "ws_token": ws_token,
+        "ut_token": ut_token,
         "middlewares": [UsageMiddleware()],
         "context_window": context_window,
     }
@@ -297,6 +310,7 @@ async def resolve_harness_context(
 
 def release_harness_context(hctx: dict) -> None:
     """释放 resolve_harness_context 持有的 contextvar token(在 finally 调用)。"""
+    from agent_flow_harness import reset_user_token_context
     from agent_flow_harness.sandbox import reset_sandbox_context
 
     from app.engine.agent.builtin_tools import reset_workspace_context
@@ -304,6 +318,7 @@ def release_harness_context(hctx: dict) -> None:
     reset_sandbox_context(hctx["sb_token"])
     if hctx.get("ws_token") is not None:
         reset_workspace_context(hctx["ws_token"])
+    reset_user_token_context(hctx["ut_token"])
 
 
 async def _maybe_migrate_legacy(graph, config, legacy_records: list[dict] | None) -> None:

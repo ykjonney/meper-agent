@@ -45,6 +45,7 @@ class AgentExecutionService:
         user_id: str,
         *,
         external_call_chain: list[str] | None = None,
+        user_token: str | None = None,
     ) -> ExecutionResponse:
         """Execute an agent synchronously and persist the result.
 
@@ -77,6 +78,7 @@ class AgentExecutionService:
             exec_doc, initial_state,
             enable_thinking=body.enable_thinking,
             legacy_records=legacy_records,
+            user_token=user_token,
         )
 
         # Extract output + persist agent message
@@ -108,6 +110,7 @@ class AgentExecutionService:
         user_id: str,
         *,
         external_call_chain: list[str] | None = None,
+        user_token: str | None = None,
     ) -> tuple[asyncio.Queue, str, str]:
         """Start a streaming agent execution in the background.
 
@@ -149,6 +152,7 @@ class AgentExecutionService:
                     on_event=_on_event,
                     enable_thinking=body.enable_thinking,
                     legacy_records=legacy_records,
+                    user_token=user_token,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -182,6 +186,8 @@ class AgentExecutionService:
         agent_id: str,
         body: ResumeRequest,
         user_id: str,
+        *,
+        user_token: str | None = None,
     ) -> tuple[asyncio.Queue, str, str]:
         """Resume an interrupted agent and stream the continued execution."""
         from app.engine.harness_integration import resume as harness_resume
@@ -215,6 +221,7 @@ class AgentExecutionService:
                 result = await harness_resume(
                     exec_doc, state, _on_event, body.answer,
                     enable_thinking=body.enable_thinking,
+                    user_token=user_token,
                 )
             except Exception as exc:
                 logger.error("agent_resume_error", agent_id=agent_id, error=str(exc))

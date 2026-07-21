@@ -331,6 +331,7 @@ class TestCallbackVerificationMode:
             rate_limit=60,
             user_info_url="https://partner.example.com/introspect",
             user_id="user_owner:user-123",  # already resolved by auth layer
+            user_token="user-token-abc",  # retained for MCP forwarding (P2)
         )
 
     def test_callback_mode_invoke_uses_sub(self, client) -> None:
@@ -363,6 +364,8 @@ class TestCallbackVerificationMode:
             # NOT from visitor_id.
             call_kwargs = mock_invoke.call_args.kwargs
             assert call_kwargs["user_id"] == "user_owner:user-123"
+            # P2: user_token is also forwarded so MCP loader can透传
+            assert call_kwargs["user_token"] == "user-token-abc"
         finally:
             cleanup()
 
