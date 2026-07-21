@@ -18,6 +18,7 @@ import { SessionFilesPanel, type SessionFilesPanelHandle } from './SessionFilesP
 import { Markdown } from './Markdown';
 import { detectPreviewKind } from './FilePreview';
 import { FilePreviewModal } from './FilePreviewModal';
+import { WorkflowTaskCard, parseTaskCreated } from './WorkflowTaskCard';
 
 interface ChatHomepageProps {
   /** Studio agents already adapted to the view model; if absent we fetch. */
@@ -1446,6 +1447,12 @@ function ToolCallCard({ msg, onAnswer }: { msg: Message; onAnswer?: (answer: str
   // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
   if (msg.toolName === 'ask_clarification') {
     return <ClarificationCard msg={msg} onAnswer={onAnswer} />;
+  }
+  // dispatch_workflow：解析 task_created → 内嵌可展开 task 卡片（自带详情/轮询/操作）。
+  // 解析失败则落到下方通用工具卡。
+  if (msg.toolName === 'dispatch_workflow') {
+    const created = parseTaskCreated(msg.toolResult);
+    if (created) return <WorkflowTaskCard created={created} />;
   }
   const status = msg.toolStatus ?? 'running';
   const cfg = TOOL_STATUS_CFG[status];
