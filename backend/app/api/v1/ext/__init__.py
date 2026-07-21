@@ -1,4 +1,6 @@
 """External API route group — API Key authenticated + rate-limited endpoints."""
+import time
+
 from fastapi import APIRouter, Depends, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_429_TOO_MANY_REQUESTS
@@ -7,6 +9,12 @@ from app.core.auth_apikey import ApiKeyPrincipal, get_api_key_principal
 from app.core.rate_limiter import check_rate_limit
 from app.core.user_auth_state import is_introspect_stale
 from app.services.api_key_stats_service import record_request
+from app.services.ext_api_call_log_service import (
+    ExtApiCallLogService,
+    ExtCallContext,
+    get_ext_call_context,
+    set_ext_call_context,
+)
 
 router = APIRouter(
     prefix="/ext",
@@ -33,6 +41,22 @@ def resolve_user_id(
     return principal.owner_user_id
 
 
+def _split_user_sub(principal: ApiKeyPrincipal) -> str:
+    """Extract the sub portion from principal.user_id (callback mode only).
+
+    principal.user_id is ``f"{owner}:{sub}"`` in callback mode; we strip
+    the owner prefix to leave just the partner-side sub. Returns "" in
+    legacy mode.
+    """
+    if not principal.user_id:
+        return ""
+    # owner_user_id is the prefix; everything after the first ":" is sub.
+    prefix = f"{principal.owner_user_id}:"
+    if principal.user_id.startswith(prefix):
+        return principal.user_id[len(prefix):]
+    return principal.user_id
+
+
 async def auth_and_rate_limit(
     request: Request,
     principal: ApiKeyPrincipal = Depends(get_api_key_principal),
@@ -43,6 +67,7 @@ async def auth_and_rate_limit(
     1. Validates API Key (via get_api_key_principal — FastAPI-injected)
     2. Checks rate limit against Redis sliding window
     3. Stores metadata on request.state for downstream middleware
+    4. Stashes an ExtCallContext on the ContextVar for phase-2 logging
     """
     # Rate limit check
     allowed, remaining, reset_ts = await check_rate_limit(
@@ -65,6 +90,21 @@ async def auth_and_rate_limit(
             status_code=HTTP_429_TOO_MANY_REQUESTS,
         )
 
+    # Stash call context for phase-2 token backfill (agent path) and
+    # middleware fallback (error path). asyncio.create_task copies the
+    # context, so background _run() tasks also see this.
+    auth_mode = "callback" if principal.user_info_url else "legacy"
+    user_sub = _split_user_sub(principal) if auth_mode == "callback" else ""
+    set_ext_call_context(ExtCallContext(
+        api_key_id=principal.key_id,
+        owner_user_id=principal.owner_user_id,
+        user_sub=user_sub,
+        auth_mode=auth_mode,
+        endpoint=_extract_endpoint(request),
+        request_id=getattr(request.state, "request_id", "") or "",
+        start_time_ms=int(time.time() * 1000),
+    ))
+
     return principal
 
 
@@ -77,7 +117,13 @@ router.include_router(tasks.router, prefix="")  # type: ignore[has-type]
 
 
 class ExtApiStatsMiddleware(BaseHTTPMiddleware):
-    """Post-response middleware: record API Key stats + inject rate limit headers."""
+    """Post-response middleware: record API Key stats + inject rate limit headers.
+
+    Also serves as the fallback writer for ext_api_call_logs: if phase 2
+    (agent execution) did not consume the stashed ExtCallContext, we
+    write a token-less record here so failed/error calls are still
+    audited.
+    """
 
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
@@ -91,6 +137,20 @@ class ExtApiStatsMiddleware(BaseHTTPMiddleware):
                 endpoint=endpoint,
                 status_code=response.status_code,
             )
+
+            # Fallback: if phase 2 didn't write the call log, write one
+            # here with token=0 so the call is still audited.
+            ctx = get_ext_call_context()
+            if ctx is not None and not ctx.consumed:
+                latency_ms = int(time.time() * 1000) - ctx.start_time_ms
+                status = "success" if 200 <= response.status_code < 400 else "error"
+                await ExtApiCallLogService.write_log(
+                    ctx,
+                    status=status,
+                    status_code=response.status_code,
+                    latency_ms=latency_ms,
+                )
+                ctx.consumed = True
 
         # Add rate limit headers when available
         if hasattr(request.state, "rate_limit"):

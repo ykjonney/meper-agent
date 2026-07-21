@@ -66,6 +66,10 @@ async def lifespan(app: FastAPI):
     from app.services.api_key_service import ApiKeyService
     await ApiKeyService.ensure_indexes()
 
+    # Initialize ext API call log indexes (incl. 90-day TTL).
+    from app.services.ext_api_call_log_service import ExtApiCallLogService
+    await ExtApiCallLogService.ensure_indexes()
+
     # Recover waiting_human tasks from previous server instance
     from app.services.task_recovery import (
         recover_orphan_running_tasks,
