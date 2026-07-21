@@ -428,7 +428,7 @@ def _resolve_builtin_tools(agent: dict) -> list:
 
     builtin_config = set(agent.get("builtin_config") or [])
     if "bash" in builtin_config:
-        builtin_config |= {"read", "write", "write_to_output"}
+        builtin_config |= {"read", "write"}
 
     tools: list = list(_TASK_TOOLS)  # app-level tools always on
     for name in _INJECTED_BUILTIN_TOOL_NAMES:

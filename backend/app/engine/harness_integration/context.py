@@ -35,6 +35,13 @@ _CONFIGURABLE_BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     {"bash", "read", "write", "glob", "grep"}
 )
 
+# 新建 Agent 时默认启用的内建工具(白名单语义:列表中的工具才会注入)。
+# 保持与 _CONFIGURABLE_BUILTIN_TOOL_NAMES 一致(按 _INJECTED_BUILTIN_TOOL_NAMES
+# 的顺序),创建端点与前端默认值共同引用,作为单一事实源避免名单漂移。
+DEFAULT_BUILTIN_CONFIG: tuple[str, ...] = tuple(
+    n for n in _INJECTED_BUILTIN_TOOL_NAMES if n in _CONFIGURABLE_BUILTIN_TOOL_NAMES
+)
+
 
 def _decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
     """解密 user_args 里标记为 sensitive 的字段。

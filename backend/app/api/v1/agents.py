@@ -115,7 +115,17 @@ async def create_agent(
     body: AgentCreate,
     _: UserResponse = Depends(require_any_role("admin", "developer")),
 ) -> AgentResponse:
-    doc = await AgentService.create_agent(name=body.name, description=body.description)
+    # 新建 Agent 默认启用全部文件类内建工具(bash/read/write/glob/grep)。
+    # 白名单语义不变:这里只是给创建入口一个"默认全选"的初值。
+    # 注意默认值收敛在端点层而非 model/schema,避免 duplicate_agent 复制
+    # 老 Agent 时把空 builtin_config 意外填满(违背"不迁移老数据"的意图)。
+    from app.engine.harness_integration.context import DEFAULT_BUILTIN_CONFIG
+
+    doc = await AgentService.create_agent(
+        name=body.name,
+        description=body.description,
+        builtin_config=list(DEFAULT_BUILTIN_CONFIG),
+    )
     return _doc_to_response(doc)
 
 
