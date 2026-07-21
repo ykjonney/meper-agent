@@ -5,9 +5,17 @@ baseline_commit: NO_VCS
 # Story 8.2: 外部终端用户身份认证（P1 核心链路）
 
 **Epic:** Epic 8 — 外部 API 集成
-**Status:** ready-for-dev
+**Status:** done (P1/P2/P3 + 前端 UI 已实施, P4 接入方 SDK 待做)
 **Story ID:** 8-2
 **Story Key:** 8-2-external-end-user-auth
+
+> **实施记录**（2026-07-21）:
+> - P1 核心链路 → commit `4adab13`
+> - P2 MCP token 透传 → commit `4cbb1af`
+> - 前端 API Key 管理 UI → commit `54061d7`
+> - P3 调用日志与 Token 统计 → commit `76459d7`
+> - 全量测试 1131 通过, ruff/mypy 干净
+> - 设计文档同步到 v0.6 (`docs/planning-artifacts/external-user-auth-design.md`)
 
 ## Story
 
