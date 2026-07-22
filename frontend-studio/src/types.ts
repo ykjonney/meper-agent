@@ -3,6 +3,10 @@ export interface Agent {
   name: string;
   avatar: string;
   description: string;
+  /** 终端用户首屏欢迎词（Markdown）— 后端 welcome_message */
+  welcomeMessage?: string;
+  /** 终端用户首屏推荐问题/操作 — 后端 recommended_items */
+  recommendedItems?: { label: string; prompt: string }[];
   model: string;
   temperature: number;
   systemPrompt: string;

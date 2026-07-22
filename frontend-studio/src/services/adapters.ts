@@ -64,6 +64,11 @@ export function toStudioAgent(a: BackendAgent): Agent {
     name: a.name,
     avatar: DEFAULT_AGENT_AVATAR,
     description: a.description ?? '',
+    welcomeMessage: a.welcome_message ?? '',
+    recommendedItems: (a.recommended_items ?? []).map((it) => ({
+      label: it.label ?? '',
+      prompt: it.prompt ?? '',
+    })),
     model: a.default_model || 'gemini-3.5-flash',
     temperature: DEFAULT_AGENT_TEMPERATURE,
     // role/task map to backend prompt_slots.role/.task (both required by slot_renderer).
@@ -87,6 +92,8 @@ export function toStudioAgent(a: BackendAgent): Agent {
 export function fromStudioAgent(a: Agent): {
   name: string
   description?: string
+  welcome_message?: string
+  recommended_items?: { label: string; prompt: string }[]
   prompt_slots?: Record<string, string>
   default_model?: string
   skill_ids?: string[]
@@ -110,6 +117,11 @@ export function fromStudioAgent(a: Agent): {
   return {
     name: a.name,
     description: a.description,
+    welcome_message: a.welcomeMessage ?? '',
+    recommended_items: (a.recommendedItems ?? []).map((it) => ({
+      label: it.label,
+      prompt: it.prompt ?? '',
+    })),
     // Backend slot_renderer requires role + task; system is kept for legacy compat.
     prompt_slots: {
       role: a.rolePrompt ?? '',

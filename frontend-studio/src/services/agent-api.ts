@@ -18,6 +18,8 @@ export interface Agent {
   id: string
   name: string
   description: string
+  welcome_message: string
+  recommended_items: { label: string; prompt: string }[]
   prompt_slots: Record<string, string>
   /** Skill tool IDs (source=markdown) */
   skill_ids: string[]
@@ -46,6 +48,10 @@ export interface AgentCreateInput {
 export interface AgentUpdateInput {
   name: string
   description?: string
+  /** 终端用户首屏欢迎词（Markdown） */
+  welcome_message?: string
+  /** 终端用户首屏推荐问题/操作 */
+  recommended_items?: { label: string; prompt: string }[]
   /** 提示词卡槽内容 */
   prompt_slots?: Record<string, string>
   /** Skill tool IDs (source=markdown) */

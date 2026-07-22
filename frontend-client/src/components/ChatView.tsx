@@ -19,6 +19,8 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { useChat } from '../hooks/use-chat'
 import type { AgentSummary } from '../types'
@@ -167,10 +169,34 @@ export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) 
             ) : messages.length === 0 ? (
               <div className="welcome-state">
                 <div className="welcome-mark">{agent.name.slice(0, 1)}</div>
-                <Typography.Title level={2}>和 {agent.name} 开始对话</Typography.Title>
-                <Typography.Paragraph type="secondary">
-                  可以直接提问，也可以上传图片、文档或数据文件。
-                </Typography.Paragraph>
+                {agent.welcomeMessage ? (
+                  <div className="welcome-message">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {agent.welcomeMessage}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <>
+                    <Typography.Title level={2}>和 {agent.name} 开始对话</Typography.Title>
+                    <Typography.Paragraph type="secondary">
+                      可以直接提问，也可以上传图片、文档或数据文件。
+                    </Typography.Paragraph>
+                  </>
+                )}
+                {agent.recommendedItems && agent.recommendedItems.length > 0 ? (
+                  <div className="welcome-suggestions">
+                    {agent.recommendedItems.map((item, index) => (
+                      <Button
+                        key={`${index}:${item.label}`}
+                        className="welcome-suggestion"
+                        disabled={running}
+                        onClick={() => submit(item.prompt || item.label)}
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <Bubble.List
