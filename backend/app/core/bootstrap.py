@@ -133,13 +133,14 @@ async def background_boot() -> tuple[TaskSchedulerService, TriggerSchedulerServi
     # Phase 1: indexes (parallel, must complete before schedulers that read them)
     trigger_repo = await ensure_all_indexes()
 
-    # Phase 2: independent startup tasks (parallel)
-    schedulers, _ = await asyncio.gather(
+    # Phase 2: independent startup tasks (parallel).
+    # gather returns a list of results in order; start_schedulers is first.
+    results = await asyncio.gather(
         start_schedulers(trigger_repo),
         recover_tasks(),
         start_channel_connections(),
     )
-    # asyncio.gather preserves order, so schedulers is the first result.
+    schedulers = results[0]  # (scheduler, trigger_scheduler)
     return schedulers
 
 
