@@ -34,6 +34,7 @@ from agent_flow_harness.llm import (
     apply_thinking_mode,
     build_client_from_doc,
     build_client_from_env,
+    build_thinking_kwargs,
     supports_thinking,
 )
 from agent_flow_harness.middleware import (
@@ -94,8 +95,10 @@ from agent_flow_harness.tools import (
     resolve_variable,
 )
 from agent_flow_harness.slots import (
+    SLOT_NAMES,
     SLOT_SCHEMA,
     SlotDef,
+    TOOL_DECLARATION_SLOT,
     render_system_prompt_full,
     render_system_prompt_simple,
 )
@@ -135,8 +138,10 @@ __all__ = [
     "McpToolLoader",
     "PromptInjectionMiddleware",
     "LocalSandbox",
+    "SLOT_NAMES",
     "SLOT_SCHEMA",
     "SlotDef",
+    "TOOL_DECLARATION_SLOT",
     "SubAgentContext",
     "SubAgentRegistry",
     "SubAgentSpec",
@@ -161,6 +166,7 @@ __all__ = [
     "build_agent_graph",
     "build_client_from_doc",
     "build_client_from_env",
+    "build_thinking_kwargs",
     "build_config",
     "build_mongo_saver",
     "configure_checkpointer",

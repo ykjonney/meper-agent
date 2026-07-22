@@ -418,7 +418,7 @@ def _resolve_builtin_tools(agent: dict) -> list:
     (configurable=false, e.g. ask_clarification) are always included.
     Task/workflow tools (_TASK_TOOLS) are always-on app-level tools.
     """
-    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
+    from agent_flow_harness import BUILTIN_TOOLS
 
     from app.engine.agent.workflow_executor import _TASK_TOOLS
     from app.engine.harness_integration.context import (

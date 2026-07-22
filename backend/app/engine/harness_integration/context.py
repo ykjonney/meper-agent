@@ -108,16 +108,14 @@ async def resolve_harness_context(
     from pathlib import Path
 
     from agent_flow_harness import (
-        SkillManager,
-        UsageMiddleware,
-    )
-    from agent_flow_harness.sandbox import (
+        BUILTIN_TOOLS,
         DockerSandbox,
         DockerSandboxConfig,
         SandboxContext,
+        SkillManager,
+        UsageMiddleware,
         set_sandbox_context,
     )
-    from agent_flow_harness.tools.builtin import BUILTIN_TOOLS
 
     from app.core.config import settings
     from app.engine.agent.builtin_tools import set_workspace_context
@@ -317,8 +315,7 @@ async def resolve_harness_context(
 
 def release_harness_context(hctx: dict) -> None:
     """释放 resolve_harness_context 持有的 contextvar token(在 finally 调用)。"""
-    from agent_flow_harness import reset_user_token_context
-    from agent_flow_harness.sandbox import reset_sandbox_context
+    from agent_flow_harness import reset_sandbox_context, reset_user_token_context
 
     from app.engine.agent.builtin_tools import reset_workspace_context
 
