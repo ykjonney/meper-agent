@@ -41,13 +41,16 @@ async def stream(
     *,
     enable_thinking: bool = False,
     legacy_records: list[dict] | None = None,
+    user_token: str | None = None,
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。"""
     from agent_flow_harness import build_agent_graph, build_config
 
     from app.engine.harness_integration.adapters import stream_events_to_app_events
 
-    hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    hctx = await resolve_harness_context(
+        agent, state, enable_thinking=enable_thinking, user_token=user_token,
+    )
     usage_summary: dict = {}
     try:
         session_id = state.get("session_id", "")
@@ -89,17 +92,20 @@ async def invoke(
     workspace: Any | None = None,
     legacy_records: list[dict] | None = None,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
+    user_token: str | None = None,
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
     Args:
         cancel_checker: 可选的异步取消检查器。传入后 compress_node 每轮
             REACT 迭代会检查它，返回 True 时 interrupt() 优雅挂起 agent。
+        user_token: 外部终端用户 token(回调验证模式),透传给 MCP server。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, workspace=workspace,
+        user_token=user_token,
     )
     try:
         session_id = state.get("session_id", "")
@@ -175,6 +181,7 @@ async def resume(
     answer: str,
     *,
     enable_thinking: bool = False,
+    user_token: str | None = None,
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。"""
     from agent_flow_harness import build_agent_graph, build_config
@@ -182,7 +189,9 @@ async def resume(
 
     from app.engine.harness_integration.adapters import stream_events_to_app_events
 
-    hctx = await resolve_harness_context(agent, state, enable_thinking=enable_thinking)
+    hctx = await resolve_harness_context(
+        agent, state, enable_thinking=enable_thinking, user_token=user_token,
+    )
     usage_summary: dict = {}
     try:
         session_id = state.get("session_id", "")

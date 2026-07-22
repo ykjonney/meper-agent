@@ -382,18 +382,28 @@ async def dispatch_workflow(
         from app.engine.agent.builtin_tools import _get_workspace
 
         actor_id = "agent"
+        source_session_id = ""
         try:
             ws = _get_workspace()
             if ws is not None and getattr(ws, "user_id", ""):
                 actor_id = ws.user_id
+                # Capture originating session so token stats can attribute
+                # task consumption back to the conversation that triggered it.
+                source_session_id = getattr(ws, "session_id", "") or ""
         except Exception:
             pass
+
+        # source_session_id is written via ext_metadata so the Task model
+        # stays untouched. It joins tasks back to ext_api_call_logs.session_id
+        # for full-conversation token accounting.
+        ext_meta = {"source_session_id": source_session_id} if source_session_id else None
 
         doc = await TaskService.create_task(
             workflow_id=entry.get("workflow_id") or entry.get("_id", ""),
             input_data=input_data,
             created_by=actor_id,
             created_by_type="agent",
+            ext_metadata=ext_meta,
         )
 
         result: dict[str, Any] = {

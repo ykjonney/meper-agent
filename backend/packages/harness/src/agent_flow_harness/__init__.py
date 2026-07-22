@@ -46,7 +46,13 @@ from agent_flow_harness.middleware import (
     UsageMiddleware,
     resolve_middleware,
 )
-from agent_flow_harness.mcp import McpConnectionConfig, McpToolLoader
+from agent_flow_harness.mcp import (
+    McpConnectionConfig,
+    McpToolLoader,
+    get_user_token_context,
+    reset_user_token_context,
+    set_user_token_context,
+)
 from agent_flow_harness.state import AgentState
 from agent_flow_harness.subagents import (
     SubAgentContext,
@@ -164,6 +170,7 @@ __all__ = [
     "get_sandbox_provider",
     "get_subagent_context",
     "get_thread_messages",
+    "get_user_token_context",
     "glob",
     "grep",
     "read",
@@ -171,6 +178,7 @@ __all__ = [
     "reset_sandbox_context",
     "reset_sandbox_provider",
     "reset_subagent_context",
+    "reset_user_token_context",
     "resolve_guards",
     "resolve_middleware",
     "render_system_prompt_full",
@@ -181,6 +189,7 @@ __all__ = [
     "set_sandbox_context",
     "set_sandbox_provider",
     "set_subagent_context",
+    "set_user_token_context",
     "supports_thinking",
     "tool_search",
     "write",

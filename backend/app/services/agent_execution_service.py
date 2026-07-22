@@ -45,6 +45,7 @@ class AgentExecutionService:
         user_id: str,
         *,
         external_call_chain: list[str] | None = None,
+        user_token: str | None = None,
     ) -> ExecutionResponse:
         """Execute an agent synchronously and persist the result.
 
@@ -77,6 +78,7 @@ class AgentExecutionService:
             exec_doc, initial_state,
             enable_thinking=body.enable_thinking,
             legacy_records=legacy_records,
+            user_token=user_token,
         )
 
         # Extract output + persist agent message
@@ -87,6 +89,9 @@ class AgentExecutionService:
         await MessageService.add_message(
             session_id=session_id, role="agent", timeline_entries=timeline,
         )
+
+        # Phase-2 token backfill for ext calls (no-op if not ext).
+        await _record_ext_call_log(agent_id, session_id, result.get("usage"))
 
         return ExecutionResponse(
             output=output_text,
@@ -108,6 +113,7 @@ class AgentExecutionService:
         user_id: str,
         *,
         external_call_chain: list[str] | None = None,
+        user_token: str | None = None,
     ) -> tuple[asyncio.Queue, str, str]:
         """Start a streaming agent execution in the background.
 
@@ -143,12 +149,14 @@ class AgentExecutionService:
                 agent_id, session_id, user_id, request_id, call_chain,
                 external_call_chain, initial_messages, execution_path="react",
             )
+            run_error: BaseException | None = None
             try:
                 result = await harness_stream(
                     exec_doc, initial_state,
                     on_event=_on_event,
                     enable_thinking=body.enable_thinking,
                     legacy_records=legacy_records,
+                    user_token=user_token,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -156,6 +164,7 @@ class AgentExecutionService:
                     step_count=result.get("step_count", 0),
                 )
             except Exception as exc:
+                run_error = exc
                 logger.error("agent_stream_error", agent_id=agent_id, request_id=request_id, error=str(exc))
                 logger.exception("agent_stream_error_traceback")
                 await event_queue.put(f"data: {safe_json({'type': 'error', 'content': str(exc)})}\n\n")
@@ -164,6 +173,11 @@ class AgentExecutionService:
                 await _persist_agent_message(
                     session_id, collected_timeline,
                     token_usage=result.get("usage"),
+                )
+                # Phase-2 token backfill for ext calls (no-op if not ext).
+                await _record_ext_call_log(
+                    agent_id, session_id, result.get("usage"),
+                    error=run_error,
                 )
                 await event_queue.put(
                     f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
@@ -182,6 +196,8 @@ class AgentExecutionService:
         agent_id: str,
         body: ResumeRequest,
         user_id: str,
+        *,
+        user_token: str | None = None,
     ) -> tuple[asyncio.Queue, str, str]:
         """Resume an interrupted agent and stream the continued execution."""
         from app.engine.harness_integration import resume as harness_resume
@@ -211,12 +227,15 @@ class AgentExecutionService:
                 "messages": [], "agent_id": agent_id,
                 "session_id": session_id, "user_id": user_id,
             }
+            run_error: BaseException | None = None
             try:
                 result = await harness_resume(
                     exec_doc, state, _on_event, body.answer,
                     enable_thinking=body.enable_thinking,
+                    user_token=user_token,
                 )
             except Exception as exc:
+                run_error = exc
                 logger.error("agent_resume_error", agent_id=agent_id, error=str(exc))
                 logger.exception("agent_resume_error_traceback")
                 await event_queue.put(f"data: {safe_json({'type': 'error', 'content': str(exc)})}\n\n")
@@ -227,6 +246,11 @@ class AgentExecutionService:
                     extra_filter_types=("interrupt",),
                     token_usage=result.get("usage"),
                     append_to_last_agent=True,
+                )
+                # Phase-2 token backfill for ext calls (no-op if not ext).
+                await _record_ext_call_log(
+                    agent_id, session_id, result.get("usage"),
+                    error=run_error,
                 )
                 await event_queue.put(
                     f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
@@ -371,6 +395,59 @@ async def _persist_agent_message(
                 await SessionService.add_tokens(session_id, token_usage["total_tokens"])
         except Exception as exc:
             logger.error("agent_stream_persist_error", error=str(exc))
+
+
+async def _record_ext_call_log(
+    agent_id: str,
+    session_id: str,
+    token_usage: dict | None,
+    error: BaseException | None = None,
+) -> None:
+    """Phase-2 token backfill for ext_api_call_logs (Story 8.2 P3).
+
+    Reads the stashed ExtCallContext from the ContextVar (set by
+    ``auth_and_rate_limit``), patches in agent_id / session_id, and
+    writes one log document with the actual token usage from the
+    harness middleware summary. Marks the context as consumed so the
+    ExtApiStatsMiddleware fallback does not write a duplicate.
+
+    No-op when there is no stashed context (internal/non-ext call).
+    """
+    import time as _time
+
+    from app.services.ext_api_call_log_service import (
+        ExtApiCallLogService,
+        get_ext_call_context,
+        update_ext_call_context,
+    )
+
+    ctx = get_ext_call_context()
+    if ctx is None:
+        return  # not an ext call (e.g. internal invoke from workflow)
+
+    # Patch in fields known only after route handler ran.
+    update_ext_call_context(agent_id=agent_id, session_id=session_id)
+
+    # Re-fetch the patched context (update_ext_call_context mutates in place)
+    ctx = get_ext_call_context()
+    if ctx is None:
+        return
+
+    usage = token_usage or {}
+    latency_ms = int(_time.time() * 1000) - ctx.start_time_ms
+    status = "error" if error is not None else "success"
+
+    await ExtApiCallLogService.write_log(
+        ctx,
+        status=status,
+        status_code=500 if error is not None else 200,
+        latency_ms=latency_ms,
+        total_tokens=int(usage.get("total_tokens") or 0),
+        input_tokens=int(usage.get("input_tokens") or 0),
+        output_tokens=int(usage.get("output_tokens") or 0),
+        llm_calls=int(usage.get("llm_calls") or 0),
+    )
+    ctx.consumed = True
 
 
 __all__ = ["AgentExecutionService"]
