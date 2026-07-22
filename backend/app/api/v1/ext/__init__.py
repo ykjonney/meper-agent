@@ -140,8 +140,19 @@ class ExtApiStatsMiddleware(BaseHTTPMiddleware):
 
             # Fallback: if phase 2 didn't write the call log, write one
             # here with token=0 so the call is still audited.
+            #
+            # IMPORTANT: Streaming endpoints (invoke/stream, invoke/resume)
+            # return a StreamingResponse whose body hasn't been consumed
+            # when this middleware fires — the background _run() task is
+            # likely still executing and will write the real log in phase 2.
+            # If we wrote here too, we'd produce a duplicate (token=0 +
+            # token=real). So we SKIP the fallback for streaming endpoints:
+            # they are solely responsible for their own log via phase 2.
+            # Trade-off: if _run() crashes before phase 2, the streaming
+            # call has no log. That's preferable to duplicate logs.
+            is_streaming = endpoint in ("agents:invoke:stream", "agents:invoke:resume")
             ctx = get_ext_call_context()
-            if ctx is not None and not ctx.consumed:
+            if ctx is not None and not ctx.consumed and not is_streaming:
                 latency_ms = int(time.time() * 1000) - ctx.start_time_ms
                 status = "success" if 200 <= response.status_code < 400 else "error"
                 await ExtApiCallLogService.write_log(

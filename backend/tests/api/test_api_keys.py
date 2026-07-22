@@ -337,3 +337,98 @@ class TestRevokeApiKey:
             assert resp.status_code == 404
         finally:
             cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Logs & Users endpoints (Story 8.2 P3)
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyLogsEndpoint:
+    """GET /api/v1/api-keys/{id}/logs"""
+
+    def test_logs_returns_paginated_results(self, client, admin_user) -> None:
+        cleanup = _override_auth(admin_user)
+        try:
+            with (
+                patch(
+                    "app.api.v1.api_keys.ApiKeyService.get_api_key",
+                    new=AsyncMock(return_value=_make_key_doc()),
+                ),
+                patch(
+                    "app.services.ext_api_call_log_service.ExtApiCallLogService.list_logs",
+                    new=AsyncMock(return_value=([
+                        {
+                            "api_key_id": "apikey_01",
+                            "owner_user_id": "user_admin",
+                            "user_sub": "user-A",
+                            "endpoint": "agents:invoke",
+                            "total_tokens": 100,
+                            "timestamp": "2026-07-21T00:00:00",
+                        },
+                    ], 1)),
+                ),
+            ):
+                resp = client.get("/api/v1/api-keys/apikey_01/logs?page=1&page_size=10")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] == 1
+            assert len(data["items"]) == 1
+            assert data["items"][0]["user_sub"] == "user-A"
+            assert data["items"][0]["total_tokens"] == 100
+        finally:
+            cleanup()
+
+    def test_logs_key_not_found(self, client, admin_user) -> None:
+        cleanup = _override_auth(admin_user)
+        try:
+            with patch(
+                "app.api.v1.api_keys.ApiKeyService.get_api_key",
+                new=AsyncMock(return_value=None),
+            ):
+                resp = client.get("/api/v1/api-keys/nonexistent/logs")
+            assert resp.status_code == 404
+        finally:
+            cleanup()
+
+
+class TestApiKeyUsersEndpoint:
+    """GET /api/v1/api-keys/{id}/users"""
+
+    def test_users_returns_ranked_list(self, client, admin_user) -> None:
+        cleanup = _override_auth(admin_user)
+        try:
+            with (
+                patch(
+                    "app.api.v1.api_keys.ApiKeyService.get_api_key",
+                    new=AsyncMock(return_value=_make_key_doc()),
+                ),
+                patch(
+                    "app.services.ext_api_call_log_service.ExtApiCallLogService.get_users_summary",
+                    new=AsyncMock(return_value=[
+                        {"user_sub": "user-A", "calls": 10, "total_tokens": 500, "last_seen_at": "2026-07-21T00:00:00"},
+                        {"user_sub": "user-B", "calls": 2, "total_tokens": 100, "last_seen_at": "2026-07-20T00:00:00"},
+                    ]),
+                ),
+            ):
+                resp = client.get("/api/v1/api-keys/apikey_01/users?period_days=7")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["period_days"] == 7
+            assert len(data["items"]) == 2
+            assert data["items"][0]["user_sub"] == "user-A"
+            assert data["items"][0]["total_tokens"] == 500
+        finally:
+            cleanup()
+
+    def test_users_key_not_found(self, client, admin_user) -> None:
+        cleanup = _override_auth(admin_user)
+        try:
+            with patch(
+                "app.api.v1.api_keys.ApiKeyService.get_api_key",
+                new=AsyncMock(return_value=None),
+            ):
+                resp = client.get("/api/v1/api-keys/nonexistent/users")
+            assert resp.status_code == 404
+        finally:
+            cleanup()
