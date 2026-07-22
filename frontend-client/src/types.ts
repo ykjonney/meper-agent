@@ -14,6 +14,11 @@ export interface TokenResponse {
   user: AuthUser | null
 }
 
+export interface RecommendedItem {
+  label: string
+  prompt?: string | null
+}
+
 export interface AgentSummary {
   id: string
   name: string
@@ -21,6 +26,10 @@ export interface AgentSummary {
   avatar?: string | null
   status: string
   accessSource: 'company_owned' | 'platform_assigned'
+  /** 终端用户首屏欢迎词（Markdown） */
+  welcomeMessage?: string
+  /** 终端用户首屏推荐问题/操作快捷项 */
+  recommendedItems?: RecommendedItem[]
 }
 
 export interface EffectiveResource {
@@ -38,6 +47,8 @@ export interface AgentRecord {
   description: string | null
   avatar?: string | null
   status: string
+  welcome_message?: string | null
+  recommended_items?: RecommendedItem[]
 }
 
 export interface ChatSession {

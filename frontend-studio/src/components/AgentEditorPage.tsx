@@ -11,7 +11,7 @@
 import { useState, useEffect, useMemo, type FC, type ReactNode } from 'react';
 import {
   ArrowLeft, Bot, Save, Loader2, Rocket, Archive, RefreshCw, Cpu, Wrench,
-  ChevronDown, ChevronRight, AlertTriangle,
+  ChevronDown, ChevronRight, AlertTriangle, Sparkles, Plus, Trash2,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { agentApi, agentKeys, type AgentUpdateInput } from '../services/agent-api';
@@ -225,6 +225,42 @@ export function AgentEditorPage({
             <textarea rows={3} className={`${inputCls} font-mono text-xs`} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
           </Field>
         </div>
+      </Section>
+
+      {/* ── Section: 欢迎与引导（终端用户首屏） ── */}
+      <Section title="欢迎与引导" icon={<Sparkles className="w-3.5 h-3.5" />} defaultOpen={false}>
+        <Field label="欢迎词（Markdown，展示在终端用户首屏）">
+          <textarea rows={3} className={`${inputCls} text-xs`} placeholder="如：你好！我是销售助理，可以问我业绩、客户、订单等相关问题。" value={form.welcomeMessage ?? ''} onChange={(e) => set({ welcomeMessage: e.target.value })} />
+          <div className="text-[11px] text-slate-500 mt-1">留空则使用默认欢迎语。支持 Markdown 语法（加粗、列表等）。</div>
+        </Field>
+        <Field label="推荐问题 / 操作（终端用户可一键点击发送）">
+          <div className="space-y-2">
+            {(form.recommendedItems ?? []).map((item, idx) => (
+              <div key={idx} className="rounded-lg border border-[#27272a] bg-[#121214] p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#71717a] font-mono">推荐项 #{idx + 1}</span>
+                  <button type="button" onClick={() => set({ recommendedItems: (form.recommendedItems ?? []).filter((_, i) => i !== idx) })} className="flex items-center gap-1 text-[#ef4444] text-[10px] hover:underline cursor-pointer">
+                    <Trash2 className="w-3 h-3" /> 删除
+                  </button>
+                </div>
+                <input className={inputCls} placeholder="显示文案（必填），如：导出本月报表" value={item.label} onChange={(e) => set({ recommendedItems: (form.recommendedItems ?? []).map((it, i) => i === idx ? { ...it, label: e.target.value } : it) })} />
+                <input className={inputCls} placeholder="实际发送内容（留空则同显示文案）" value={item.prompt} onChange={(e) => set({ recommendedItems: (form.recommendedItems ?? []).map((it, i) => i === idx ? { ...it, prompt: e.target.value } : it) })} />
+              </div>
+            ))}
+            {(form.recommendedItems ?? []).length === 0 && (
+              <div className="text-xs text-[#71717a] text-center py-3">暂无推荐项，点击下方按钮添加</div>
+            )}
+            <button
+              type="button"
+              onClick={() => set({ recommendedItems: [...(form.recommendedItems ?? []), { label: '', prompt: '' }] })}
+              disabled={(form.recommendedItems ?? []).length >= 10}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-[#27272a] hover:bg-[#27272a] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-3.5 h-3.5" /> 添加推荐项
+            </button>
+            <div className="text-[11px] text-slate-500">最多 10 条。「实际发送内容」留空时，点击按钮直接发送「显示文案」。</div>
+          </div>
+        </Field>
       </Section>
 
       {/* ── Section: 执行参数 ── */}
