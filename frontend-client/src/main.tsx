@@ -4,9 +4,10 @@ import { XProvider } from '@ant-design/x'
 import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { bootstrapAuth } from './api/client'
+import { AUTH_MODE, bootstrapAuth } from './api/client'
 import { ClientApp } from './ClientApp'
 import { LoginPage } from './components/LoginPage'
+import { useParentToken } from './hooks/use-parent-token'
 import { useAuthStore } from './store/auth'
 import './styles.css'
 
@@ -14,6 +15,8 @@ function Root() {
   const initialized = useAuthStore((state) => state.initialized)
   const accessToken = useAuthStore((state) => state.accessToken)
   const theme = useAuthStore((state) => state.theme)
+  // iframe 嵌入时向宿主页请求终端用户 token（callback 模式）；apikey 模式才生效。
+  useParentToken()
 
   useEffect(() => {
     void bootstrapAuth()
@@ -46,7 +49,7 @@ function Root() {
             <div className="boot-screen">
               <Spin size="large" />
             </div>
-          ) : accessToken ? (
+          ) : AUTH_MODE === 'apikey' || accessToken ? (
             <ClientApp />
           ) : (
             <LoginPage />

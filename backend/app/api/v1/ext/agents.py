@@ -142,6 +142,9 @@ async def invoke_agent(
     exec_request = ExecutionRequest(
         input=body.message,
         session_id=body.session_id,
+        enable_thinking=body.enable_thinking,
+        file_paths=body.file_paths,
+        file_ids=body.file_ids,
     )
 
     result = await AgentExecutionService.invoke(
@@ -179,6 +182,9 @@ async def stream_agent(
     exec_request = ExecutionRequest(
         input=body.message,
         session_id=body.session_id,
+        enable_thinking=body.enable_thinking,
+        file_paths=body.file_paths,
+        file_ids=body.file_ids,
     )
 
     event_queue, request_id, session_id = await AgentExecutionService.stream(
@@ -227,6 +233,7 @@ async def resume_agent(
     resume_request = ResumeRequest(
         session_id=body.session_id,
         answer=body.answer,
+        enable_thinking=body.enable_thinking,
     )
 
     event_queue, request_id, session_id = await AgentExecutionService.resume(
@@ -262,6 +269,43 @@ async def resume_agent(
 # ---------------------------------------------------------------------------
 # Session management
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/agents/{agent_id}/sessions",
+    status_code=201,
+    response_model=ExtSessionResponse,
+    summary="Create a session (external)",
+)
+async def create_session(
+    agent_id: str,
+    visitor_id: str | None = Query(
+        None, description="访客 ID（兼容模式必填，回调验证模式忽略）"
+    ),
+    principal: ApiKeyPrincipal = Depends(auth_and_rate_limit),
+) -> ExtSessionResponse:
+    """Create a new session for the current end-user.
+
+    The session is attributed via ``resolve_user_id`` (legacy:
+    ``{owner}:{visitor_id}``; callback: ``{owner}:{sub}``), matching how
+    ``invoke`` attributes sessions so subsequent calls find it.
+    """
+    principal.require_scope("agents:invoke")
+    principal.require_agent_access(agent_id)
+
+    user_id = resolve_user_id(principal, visitor_id)
+    doc = await SessionService.create_session(
+        user_id=user_id,
+        agent_id=agent_id,
+        title="",
+    )
+    return ExtSessionResponse(
+        id=doc["_id"],
+        title=doc.get("title", ""),
+        created_at=doc.get("created_at", ""),
+        updated_at=doc.get("updated_at", ""),
+        message_count=doc.get("message_count", 0),
+    )
 
 
 @router.get(
