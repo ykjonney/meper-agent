@@ -2,16 +2,29 @@ import { useState, FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Key, ShieldAlert, Plus, Sliders, CheckCircle, Check, Copy,
-  AlertTriangle, RefreshCw, ChevronDown, ChevronRight,
+  AlertTriangle, RefreshCw, ChevronDown, ChevronUp, ChevronRight,
 } from 'lucide-react';
 import { agentApi } from '../services/agent-api';
 import { workflowsApi } from '../services/workflows-api';
 import {
   apiKeysApi, apiKeyKeys, ALL_API_KEY_SCOPES, SCOPE_LABELS,
-  type ApiKeyItem, type ApiKeyScope, type ApiKeyCreatePayload,
+  type ApiKeyItem, type ApiKeyScope, type ApiKeyCreatePayload, type ApiKeyCreateResponse,
 } from '../services/api-keys-api';
 
 type AccessMode = 'legacy' | 'callback';
+
+/** Fields rendered in the detail panel — satisfied by both list items and the create response. */
+type KeyDetailLike = {
+  scopes: ApiKeyScope[];
+  bindings: { agents: string[]; workflows: string[] };
+  rate_limit: number;
+  expires_at: string | null;
+  user_info_url: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at?: string | null;
+  updated_at?: string;
+};
 
 /** Pull a human message out of an axios-shaped error. */
 function errMsg(e: unknown, fallback: string): string {
@@ -58,25 +71,37 @@ export function SystemSettings() {
   const [boundWorkflows, setBoundWorkflows] = useState<Set<string>>(new Set());
   const [showBindings, setShowBindings] = useState(false);
   const [error, setError] = useState('');
-  const [createdKey, setCreatedKey] = useState<{ key: string; name: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [createdKey, setCreatedKey] = useState<ApiKeyCreateResponse | null>(null);
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // bindings option lists (lazy; only used when the bindings section is open)
+  // Agent/workflow option lists — always loaded (used by bindings picker AND detail name resolution).
   const { data: agentsData } = useQuery({
     queryKey: ['api-keys', 'agent-options'],
     queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'all' }),
-    enabled: showBindings,
   });
   const { data: workflowsData } = useQuery({
     queryKey: ['api-keys', 'workflow-options'],
     queryFn: () => workflowsApi.list({ page: 1, page_size: 100 }),
-    enabled: showBindings,
   });
+
+  const agentName = (id: string) => agentsData?.items.find((a) => a.id === id)?.name ?? id;
+  const workflowName = (id: string) => workflowsData?.items.find((w) => w.id === id)?.name ?? id;
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedValue(text);
+      setTimeout(() => setCopiedValue(null), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (payload: ApiKeyCreatePayload) => apiKeysApi.create(payload),
     onSuccess: (res) => {
-      setCreatedKey({ key: res.key, name: res.name });
+      setCreatedKey(res);
       qc.invalidateQueries({ queryKey: apiKeyKeys.lists() });
       setName('');
       setScopes(new Set<ApiKeyScope>(['agents:read', 'agents:invoke']));
@@ -116,15 +141,73 @@ export function SystemSettings() {
     revokeMutation.mutate(key.id);
   };
 
-  const copyKey = async () => {
-    if (!createdKey) return;
-    try {
-      await navigator.clipboard.writeText(createdKey.key);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard unavailable — user can still select the text */
-    }
+  // ── Detail row + panel renderers (plain functions, not components) ──
+  const renderRow = (label: string, value: string, mono = false) => (
+    <div className="flex gap-2" key={label}>
+      <span className="text-[#71717a] w-20 shrink-0">{label}</span>
+      <span className={`text-slate-300 ${mono ? 'font-mono break-all' : ''}`}>{value}</span>
+    </div>
+  );
+
+  const renderKeyDetail = (info: KeyDetailLike) => {
+    const aNames = info.bindings.agents.map(agentName);
+    const wNames = info.bindings.workflows.map(workflowName);
+    return (
+      <div className="space-y-2.5 pt-3 mt-3 border-t border-[#27272a] text-[10px] font-sans">
+        {renderRow(
+          '访问模式',
+          info.user_info_url ? '回调验证（X-User-Token）' : '访客模式（visitor_id 匿名）',
+        )}
+        {info.user_info_url && renderRow('Introspection', info.user_info_url, true)}
+        <div className="flex gap-2">
+          <span className="text-[#71717a] w-20 shrink-0">权限</span>
+          <div className="flex flex-wrap gap-1">
+            {info.scopes.map((s) => (
+              <span key={s} className="px-1.5 py-0.5 rounded bg-[#27272a] text-slate-400 text-[9px] font-mono">
+                {SCOPE_LABELS[s] ?? s}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <span className="text-[#71717a] w-20 shrink-0">资源绑定</span>
+          <div className="space-y-0.5">
+            {aNames.length === 0 && wNames.length === 0 ? (
+              <span className="text-slate-500">不限制（可访问全部资源）</span>
+            ) : (
+              <>
+                {aNames.length > 0 && <div className="text-slate-300">智能体：{aNames.join('、')}</div>}
+                {wNames.length > 0 && <div className="text-slate-300">工作流：{wNames.join('、')}</div>}
+              </>
+            )}
+          </div>
+        </div>
+        {renderRow('限流', `${info.rate_limit} 次/分`)}
+        {renderRow('过期时间', info.expires_at ? fmtDate(info.expires_at) : '永不过期')}
+        {renderRow('创建时间', fmtDate(info.created_at))}
+        {info.updated_at && renderRow('更新时间', fmtDate(info.updated_at))}
+        {info.last_used_at !== undefined &&
+          renderRow('上次使用', fmtDate(info.last_used_at, '从未使用'))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[#71717a] w-20 shrink-0">密钥前缀</span>
+          <code className="text-slate-400 font-mono">{info.key_prefix || '—'}</code>
+          {info.key_prefix && (
+            <button
+              onClick={() => copy(info.key_prefix)}
+              className="text-[#a1a1aa] hover:text-white flex items-center gap-0.5 cursor-pointer transition"
+            >
+              {copiedValue === info.key_prefix ? (
+                <Check className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+              <span className="text-[9px]">{copiedValue === info.key_prefix ? '已复制' : '复制'}</span>
+            </button>
+          )}
+          <span className="text-[9px] text-slate-600">明文仅创建时可见，无法再次获取</span>
+        </div>
+      </div>
+    );
   };
 
   // ── Right-column global config (unchanged mock) ───────────
@@ -135,7 +218,7 @@ export function SystemSettings() {
 
   return (
     <div className="space-y-6">
-      {/* One-time raw key reveal modal */}
+      {/* One-time raw key reveal + full detail */}
       {createdKey && (
         <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-3">
           <div className="flex items-start justify-between gap-3">
@@ -144,7 +227,7 @@ export function SystemSettings() {
               Key「{createdKey.name}」已创建
             </div>
             <button
-              onClick={() => { setCreatedKey(null); setCopied(false); }}
+              onClick={() => setCreatedKey(null)}
               className="text-slate-400 hover:text-white transition cursor-pointer"
               aria-label="关闭"
             >
@@ -162,13 +245,19 @@ export function SystemSettings() {
               {createdKey.key}
             </code>
             <button
-              onClick={copyKey}
+              onClick={() => copy(createdKey.key)}
               className="shrink-0 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer transition font-sans"
             >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copied ? '已复制' : '复制'}
+              {copiedValue === createdKey.key ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              {copiedValue === createdKey.key ? '已复制' : '复制 Key'}
             </button>
           </div>
+
+          {renderKeyDetail(createdKey)}
         </div>
       )}
 
@@ -199,7 +288,7 @@ export function SystemSettings() {
               </button>
             </div>
             <p className="text-xs text-slate-500 font-sans">
-              第三方经此 Key 调用 /ext 接口。每个 Key 的「访问模式」决定终端用户身份解析方式。
+              第三方经此 Key 调用 /ext 接口。每个 Key 的「访问模式」决定终端用户身份解析方式。点击列表项查看详情。
             </p>
           </div>
 
@@ -379,50 +468,57 @@ export function SystemSettings() {
             {!isLoading && apiKeys.length === 0 && (
               <p className="text-xs text-slate-500 font-sans text-center py-4">暂无对外 Key，创建第一个吧。</p>
             )}
-            {apiKeys.map((key) => (
-              <div
-                key={key.id}
-                className="p-4 bg-[#121214]/60 rounded-lg border border-[#27272a] space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-slate-200 font-sans text-xs">{key.name}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold ${
-                      key.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-red-400'
-                    }`}>
-                      {key.status === 'active' ? 'ACTIVE' : 'REVOKED'}
-                    </span>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold ${
-                      key.user_info_url ? 'bg-sky-500/10 text-sky-400' : 'bg-slate-500/10 text-slate-400'
-                    }`}>
-                      {key.user_info_url ? '回调验证' : '访客模式'}
-                    </span>
+            {apiKeys.map((key) => {
+              const open = expandedId === key.id;
+              return (
+                <div
+                  key={key.id}
+                  className="p-4 bg-[#121214]/60 rounded-lg border border-[#27272a] space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-200 font-sans text-xs">{key.name}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold ${
+                        key.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-red-400'
+                      }`}>
+                        {key.status === 'active' ? 'ACTIVE' : 'REVOKED'}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold ${
+                        key.user_info_url ? 'bg-sky-500/10 text-sky-400' : 'bg-slate-500/10 text-slate-400'
+                      }`}>
+                        {key.user_info_url ? '回调验证' : '访客模式'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setExpandedId((prev) => (prev === key.id ? null : key.id))}
+                        className="p-1 px-2 border border-[#27272a] text-[#a1a1aa] hover:text-white hover:border-slate-600 rounded-lg transition text-[10px] cursor-pointer flex items-center gap-1 font-sans"
+                      >
+                        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        详情
+                      </button>
+                      {key.status === 'active' && (
+                        <button
+                          onClick={() => handleRevoke(key)}
+                          disabled={revokeMutation.isPending}
+                          className="p-1 px-2 border border-rose-950/20 text-rose-400 hover:text-white hover:bg-rose-950 rounded-lg transition text-[10px] cursor-pointer font-semibold disabled:opacity-40 font-sans"
+                        >
+                          撤销
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {key.status === 'active' && (
-                    <button
-                      onClick={() => handleRevoke(key)}
-                      disabled={revokeMutation.isPending}
-                      className="p-1 px-2 border border-rose-950/20 text-rose-400 hover:text-white hover:bg-rose-950 rounded-lg transition text-[10px] cursor-pointer font-semibold disabled:opacity-40 font-sans"
-                    >
-                      撤销
-                    </button>
-                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {key.scopes.map((s) => (
+                      <span key={s} className="px-1.5 py-0.5 rounded bg-[#27272a] text-slate-400 text-[9px] font-mono">
+                        {SCOPE_LABELS[s] ?? s}
+                      </span>
+                    ))}
+                  </div>
+                  {open && renderKeyDetail(key)}
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {key.scopes.map((s) => (
-                    <span key={s} className="px-1.5 py-0.5 rounded bg-[#27272a] text-slate-400 text-[9px] font-mono">
-                      {SCOPE_LABELS[s] ?? s}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[#71717a] font-mono text-[10px]">
-                  <span>密钥前缀: {key.key_prefix || '—'}</span>
-                  <span>限流: {key.rate_limit}/分</span>
-                  <span>创建: {fmtDate(key.created_at)}</span>
-                  <span>上次使用: {fmtDate(key.last_used_at, '从未使用')}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
