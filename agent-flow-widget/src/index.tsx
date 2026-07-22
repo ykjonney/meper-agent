@@ -31,6 +31,7 @@ function init(config: WidgetConfig): void {
 
     const apiKey = el.getAttribute('data-api-key') || '';
     const apiBaseUrl = el.getAttribute('data-api-base-url') || '';
+    const userToken = el.getAttribute('data-user-token') || undefined;
     const title = el.getAttribute('data-title') || undefined;
     const position = (el.getAttribute('data-position') || undefined) as WidgetConfig['position'];
 
@@ -39,7 +40,7 @@ function init(config: WidgetConfig): void {
       ? suggestedQuestionsAttr.split(',').map(s => s.trim()).filter(Boolean)
       : undefined;
 
-    init({ apiKey, agentId, apiBaseUrl, title, position, suggestedQuestions });
+    init({ apiKey, agentId, apiBaseUrl, userToken, title, position, suggestedQuestions });
     break; // 只初始化第一个匹配的 script
   }
 })();

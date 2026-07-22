@@ -8,6 +8,10 @@ export interface WidgetConfig {
   agentId: string;
   /** 必填：后端 API 地址 */
   apiBaseUrl: string;
+  /** 可选：终端用户 token（回调验证模式，对应后端 X-User-Token）。
+   *  当 API Key 配置了 user_info_url 时必填，否则请求会被 401。
+   *  由接入方（第三方）自己颁发，agent-flow 仅做 introspection 校验。 */
+  userToken?: string;
   /** 可选：聊天窗口标题 */
   title?: string;
   /** 可选：浮窗位置 */

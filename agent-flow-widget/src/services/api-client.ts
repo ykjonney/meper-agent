@@ -22,10 +22,19 @@ export function getConfig(): WidgetConfig {
  * 构建请求头
  */
 export function buildHeaders(): HeadersInit {
-  return {
+  const headers: HeadersInit = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${config.apiKey}`,
   };
+
+  // 回调验证模式：API Key 配置了 user_info_url 时，
+  // 终端用户 token 通过 X-User-Token 透传给后端做 introspection 校验。
+  // 后端 _extract_bearer_token 接受 "Bearer xxx" 或裸 token，这里统一带 Bearer 前缀。
+  if (config.userToken) {
+    headers['X-User-Token'] = `Bearer ${config.userToken}`;
+  }
+
+  return headers;
 }
 
 /**
