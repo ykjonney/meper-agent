@@ -17,6 +17,19 @@ import type {
   ToolRun,
 } from '../types'
 
+/** 生成 UUID。crypto.randomUUID 在非安全上下文（如非 localhost 的 HTTP）
+ * 下不可用，这里退化为随机 UUID v4，保证发送流程在任何环境都能跑。 */
+function genId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 const OUTPUT_PATH_RE = /\boutput\/([^\s"'<>)\\]+\.[A-Za-z0-9]+)/g
 const FILE_BLOCK_RE =
   /<file_hint\b[^>]*>[\s\S]*?<\/file_hint>|<file\b[^>]*\/>|<file\b[^>]*>[\s\S]*?<\/file>/g
@@ -431,13 +444,13 @@ export function useChat(
       const trimmed = text.trim()
       if (!trimmed && files.length === 0) return
       setRunning(true)
-      const userId = crypto.randomUUID()
-      const assistantId = crypto.randomUUID()
+      const userId = genId()
+      const assistantId = genId()
       const attachments: AttachmentView[] = files.map((file) => {
         const url = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
         if (url) urlsRef.current.add(url)
         return {
-          id: `local:${crypto.randomUUID()}`,
+          id: `local:${genId()}`,
           name: file.name,
           contentType: file.type || 'application/octet-stream',
           kind: file.type.startsWith('image/') ? 'image' : 'file',
@@ -542,7 +555,7 @@ export function useChat(
       if (!agentId || !sessionId || !hitl || running) return
       const clarificationToolId = hitl.taskId
       const acc = accRef.current ?? {
-        id: crypto.randomUUID(),
+        id: genId(),
         text: '',
         reasoning: '',
         tools: new Map<string, ToolRun>(),
