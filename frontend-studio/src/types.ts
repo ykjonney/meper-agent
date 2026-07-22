@@ -112,15 +112,6 @@ export interface ExecutionLog {
   }[];
 }
 
-export interface ApiKey {
-  id: string;
-  name: string;
-  keyPreview: string;
-  created: string;
-  lastUsed: string;
-  status: 'active' | 'revoked';
-}
-
 /** Token usage for an agent message (mirrors backend token_usage / SSE done usage). */
 export interface TokenUsage {
   total_tokens?: number;
