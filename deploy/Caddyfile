@@ -1,8 +1,8 @@
 # Caddy configuration for Agent Flow
-# Serves frontend static files, widget JS, and reverse proxies API
+# Serves frontend-studio (management) + frontend-client (end-user) + reverse proxies API
 
 :80 {
-	# Frontend static files root
+	# Frontend static files root (frontend-studio at /)
 	root * /srv
 
 	# Backend API proxy (must be before try_files)
@@ -17,9 +17,12 @@
 		reverse_proxy backend:8000
 	}
 
-	# Widget JS — serve directly, no SPA fallback
-	@widget path /static/*
-	handle @widget {
+	# frontend-client (end-user app) — SPA with index.html fallback
+	@client path /client/*
+	handle @client {
+		root * /srv
+		uri strip_prefix /client
+		try_files {path} /client/index.html
 		file_server
 	}
 

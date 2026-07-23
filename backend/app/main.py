@@ -1,11 +1,9 @@
 """FastAPI application entry point."""
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.api.middleware.exception_mw import ExceptionMiddleware
 from app.api.middleware.logging_mw import LoggingMiddleware
@@ -88,11 +86,6 @@ app.add_middleware(ExtApiStatsMiddleware)
 
 # API routes
 app.include_router(api_v1_router, prefix="/api/v1")
-
-# Static files — serve widget JS for third-party embedding
-_static_dir = Path(__file__).resolve().parent.parent / "static"
-if _static_dir.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.get("/", tags=["root"])
