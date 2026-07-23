@@ -19,6 +19,14 @@ import { generateRequestId } from '../lib/request-id'
 import { REFRESH_TOKEN_KEY, useAuthStore } from '../stores/auth-store'
 import { authApi } from './auth-api'
 
+// Allow custom markers on request config (e.g. _skipAuthRefresh to bypass the
+// 401 auto-refresh interceptor for the refresh request itself).
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    _skipAuthRefresh?: boolean
+  }
+}
+
 const apiClient: AxiosInstance = axios.create({
   baseURL: ENV.API_BASE_URL,
   timeout: 30_000,
