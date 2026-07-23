@@ -26,6 +26,8 @@ function toLocalAgent(item: AgentRecord): AgentSummary {
     avatar: item.avatar,
     status: item.status,
     accessSource: 'company_owned',
+    welcomeMessage: item.welcome_message ?? '',
+    recommendedItems: item.recommended_items,
   }
 }
 

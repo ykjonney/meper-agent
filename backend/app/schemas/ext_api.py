@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.models.agent import RecommendedItem
+
 
 class ExtAgentCapabilities(BaseModel):
     """Agent capabilities visible to external systems."""
@@ -20,6 +22,10 @@ class ExtAgentResponse(BaseModel):
     capabilities: ExtAgentCapabilities
     default_model: str = ""
     status: str
+    welcome_message: str = Field(default="", description="终端用户首屏欢迎词（Markdown）")
+    recommended_items: list[RecommendedItem] = Field(
+        default_factory=list, description="终端用户首屏推荐问题/操作快捷项"
+    )
 
 
 class ExtAgentListResponse(BaseModel):

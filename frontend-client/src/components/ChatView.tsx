@@ -3,6 +3,7 @@ import {
   MenuOutlined,
   PaperClipOutlined,
   QuestionCircleOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 import { Attachments, Bubble, Sender } from '@ant-design/x'
 import {
@@ -31,9 +32,10 @@ interface ChatViewProps {
   agent: AgentSummary | null
   sessionId: string | null
   onOpenNavigation: () => void
+  onCreateSession: () => void
 }
 
-export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) {
+export function ChatView({ agent, sessionId, onOpenNavigation, onCreateSession }: ChatViewProps) {
   const { message } = App.useApp()
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -153,8 +155,12 @@ export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) 
         <div className="chat-empty">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="新建或选择一个对话开始"
-          />
+            description="还没有对话，开始创建一个吧"
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateSession}>
+              快速创建对话
+            </Button>
+          </Empty>
         </div>
       ) : (
         <>
