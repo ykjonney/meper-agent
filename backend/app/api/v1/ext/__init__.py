@@ -98,7 +98,6 @@ async def auth_and_rate_limit(
         api_key_id=principal.key_id,
         owner_user_id=principal.owner_user_id,
         user_sub=user_sub,
-        auth_mode=auth_mode,
         endpoint=_extract_endpoint(request),
         request_id=getattr(request.state, "request_id", "") or "",
         start_time_ms=int(time.time() * 1000),
