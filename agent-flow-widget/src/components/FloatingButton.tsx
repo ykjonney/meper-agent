@@ -1,6 +1,7 @@
 // agent-flow-widget/src/components/FloatingButton.tsx
 
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
+import logoUrl from '../assets/AFLogo.png';
 
 const POSITION_KEY = 'agent-chat-button-position';
 
@@ -106,7 +107,7 @@ export function FloatingButton({ onClick, position: side }: FloatingButtonProps)
     justifyContent: 'center',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
     zIndex: 999998,
-    transition: isDragging ? 'none' : 'box-shadow 0.2s',
+    transition: isDragging ? 'none' : 'box-shadow 0.2s, transform 0.2s',
   };
 
   return (
@@ -115,16 +116,31 @@ export function FloatingButton({ onClick, position: side }: FloatingButtonProps)
       onClick={handleClick}
       onMouseDown={handleMouseDown as any}
       onMouseEnter={(e) => {
-        if (!isDragging) e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.2)';
+        if (!isDragging) {
+          e.currentTarget.style.boxShadow = '0 6px 18px rgba(0, 0, 0, 0.25)';
+          e.currentTarget.style.transform = 'scale(1.08)';
+        }
       }}
       onMouseLeave={(e) => {
-        if (!isDragging) e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+        if (!isDragging) {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+          e.currentTarget.style.transform = 'scale(1)';
+        }
       }}
       aria-label="打开聊天"
     >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
+      <img
+        src={logoUrl}
+        alt=""
+        style={{
+          width: '36px',
+          height: '36px',
+          objectFit: 'contain',
+          animation: 'afBreathe 3s ease-in-out infinite',
+          pointerEvents: 'none',
+          userSelect: 'none',
+        }}
+      />
     </button>
   );
 }

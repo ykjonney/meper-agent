@@ -42,6 +42,10 @@ export function mountWidget(config: WidgetConfig, container: HTMLElement): void 
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+    @keyframes afBreathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
     * {
       box-sizing: border-box;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;

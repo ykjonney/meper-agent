@@ -4,6 +4,9 @@ import preact from '@preact/preset-vite';
 export default defineConfig({
   plugins: [preact()],
   build: {
+    // Widget 构建为 IIFE 单文件，所有静态资源（含 logo png）必须内联为 base64，
+    // 否则第三方嵌入时引用外部资源会 404。
+    assetsInlineLimit: 100000,
     lib: {
       entry: 'src/index.tsx',
       name: 'AgentChat',
