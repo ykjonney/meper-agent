@@ -65,7 +65,7 @@ async function refreshAccessToken(): Promise<string> {
 
   isRefreshing = true
   refreshPromise = authApi
-    .refresh(refreshToken)
+    .refresh(refreshToken, { _skipAuthRefresh: true })
     .then((res) => {
       const { access_token, refresh_token, user } = res.data
       localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
@@ -98,17 +98,20 @@ function redirectToLogin(): void {
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError<ErrorEnvelope>) => {
-    const originalRequest = error.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined
+    const originalRequest = error.config as (AxiosRequestConfig & { _retried?: boolean; _skipAuthRefresh?: boolean }) | undefined
 
     const status = error.response?.status
     const errorCode = error.response?.data?.error?.code
 
     // Only attempt refresh once per request, and only on 401 TOKEN_EXPIRED.
+    // Skip refresh for the refresh request itself (avoids infinite recursion
+    // when the refresh token is also expired — redeploys invalidate old tokens).
     if (
       status === 401 &&
       errorCode === 'TOKEN_EXPIRED' &&
       originalRequest &&
-      !originalRequest._retried
+      !originalRequest._retried &&
+      !originalRequest._skipAuthRefresh
     ) {
       originalRequest._retried = true
       try {
