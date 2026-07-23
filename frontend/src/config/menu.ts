@@ -32,6 +32,6 @@ export const MENU_ITEMS: MenuItem[] = [
   { key: 'users', label: '用户管理', path: '/users', icon: 'TeamOutlined' },
   // System group
   { key: 'api-keys', label: 'API 密钥', path: '/api-keys', icon: 'KeyOutlined', group: 'system' },
-  { key: 'execution-logs', label: '执行日志', path: '/execution-logs', icon: 'FileTextOutlined', group: 'system' },
+  { key: 'execution-stats', label: '执行统计', path: '/execution-stats', icon: 'BarChartOutlined', group: 'system' },
   { key: 'settings', label: '设置', path: '/settings', icon: 'SettingOutlined', group: 'system' },
 ]
