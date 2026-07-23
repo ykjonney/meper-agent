@@ -2,7 +2,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.services.execution_log_service import (
     CHANNEL_API_KEY,
     CHANNEL_IM,
@@ -10,7 +9,6 @@ from app.services.execution_log_service import (
     ExecutionLogService,
     classify_channel,
 )
-
 
 # ---------------------------------------------------------------------------
 # classify_channel — pure function

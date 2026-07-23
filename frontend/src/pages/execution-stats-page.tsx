@@ -6,10 +6,10 @@
  * `execution_logs` collection (independent of session lifecycle), so
  * deleting a session does not affect these stats.
  */
-import { useMemo, useState, useEffect, Component, type ReactNode } from 'react'
+import { useMemo, useState, Component, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Card, DatePicker, Segmented, Spin, Empty, Table, Statistic, Tag, Button, message,
+  Card, DatePicker, Segmented, Spin, Empty, Table, Statistic, Tag, Button,
 } from 'antd'
 import { Column, Pie } from '@ant-design/charts'
 import dayjs, { type Dayjs } from 'dayjs'
@@ -272,8 +272,11 @@ function DetailTable({ params }: { params: { start?: string; end?: string; date?
     },
   })
 
-  // 重置分页当筛选变化。
-  useEffect(() => { setPage(1) }, [sourceFilter, params])
+  // 切换通道筛选时重置到第一页（避免 useEffect 级联渲染）。
+  const handleSourceChange = (v: string | number) => {
+    setSourceFilter(v === 'all' ? undefined : String(v))
+    setPage(1)
+  }
 
   const columns = [
     {
@@ -306,7 +309,7 @@ function DetailTable({ params }: { params: { start?: string; end?: string; date?
       extra={
         <Segmented
           value={sourceFilter || 'all'}
-          onChange={(v) => setSourceFilter(v === 'all' ? undefined : v as string)}
+          onChange={handleSourceChange}
           options={[
             { label: '全部', value: 'all' },
             { label: '内部', value: 'internal' },
