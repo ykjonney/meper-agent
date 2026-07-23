@@ -109,9 +109,10 @@ async def auth_and_rate_limit(
 
 
 # Register sub-routers with combined auth + rate limit
-from app.api.v1.ext import agents, tasks, workflows  # noqa: E402, F401
+from app.api.v1.ext import agents, files, tasks, workflows  # noqa: E402, F401
 
 router.include_router(agents.router, prefix="")  # type: ignore[has-type]
+router.include_router(files.router, prefix="")  # type: ignore[has-type]
 router.include_router(workflows.router, prefix="")  # type: ignore[has-type]
 router.include_router(tasks.router, prefix="")  # type: ignore[has-type]
 
@@ -205,4 +206,6 @@ def _extract_endpoint(request: Request) -> str:
         return "workflows:read"
     if "/tasks/" in path:
         return "tasks:read"
+    if "/sessions/" in path and "/files" in path:
+        return "sessions:files"
     return f"{request.method.lower()}:unknown"

@@ -155,6 +155,7 @@ export function ClientApp() {
         agent={selectedAgent}
         sessionId={activeSessionId}
         onOpenNavigation={() => setNavigationOpen(true)}
+        onCreateSession={() => void createNewSession()}
       />
     </div>
   )

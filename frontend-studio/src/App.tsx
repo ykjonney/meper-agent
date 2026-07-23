@@ -12,7 +12,6 @@ import { toStudioAgent } from './services/adapters';
 import { authApi } from './services/auth-api';
 import { tasksApi, taskKeys, type WorkflowRegistryEntry, type TaskStatusValue } from './services/tasks-api';
 import { workflowsApi, workflowKeys } from './services/workflows-api';
-import type { ApiKey } from './types';
 import Login from './components/Login';
 import { AuthInitializer } from './components/AuthInitializer';
 import { Toaster } from './components/ui/toast';
@@ -120,10 +119,6 @@ export default function App() {
   // 任务追踪抽屉 view state（通知中心 / Dashboard 触发）：存 task id，
   // 由 TaskDetailDrawer 内部 useQuery 拉取 GET /tasks/{id} + 5s 轮询。
   const [activeTraceTaskId, setActiveTraceTaskId] = useState<string | null>(null);
-
-  // Mock API keys for SystemSettings. Backend has no /api-keys endpoint (gap),
-  // so these live in client state only — generated/revoke in-session, not persisted.
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
 
   // Live agent list for the ChatHomepage agent picker + count badge.
   const { data: agentsData } = useQuery({
@@ -545,17 +540,7 @@ export default function App() {
 
           {activeTab === 'users' && <UserManagement />}
 
-          {activeTab === 'settings' && (
-            <SystemSettings
-              apiKeys={apiKeys}
-              onAddKey={(key) => setApiKeys((prev) => [key, ...prev])}
-              onRevokeKey={(id) =>
-                setApiKeys((prev) =>
-                  prev.map((k) => (k.id === id ? { ...k, status: 'revoked' } : k)),
-                )
-              }
-            />
-          )}
+          {activeTab === 'settings' && <SystemSettings />}
 
           {activeTab === 'profile' && (
             <ProfilePage theme={theme} />
