@@ -216,11 +216,11 @@ class TestStatsEndpoint:
                 patch("app.api.v1.api_keys.ApiKeyService.get_api_key", new_callable=AsyncMock) as mock_get,
                 patch("app.api.v1.api_keys.get_stats", new_callable=AsyncMock) as mock_stats,
                 patch(
-                    "app.services.ext_api_call_log_service.ExtApiCallLogService.get_token_summary",
+                    "app.services.execution_log_service.ExecutionLogService.get_token_summary_by_api_key",
                     new_callable=AsyncMock,
                 ) as mock_tokens,
                 patch(
-                    "app.services.ext_api_call_log_service.ExtApiCallLogService.get_users_summary",
+                    "app.services.execution_log_service.ExecutionLogService.get_users_summary_by_api_key",
                     new_callable=AsyncMock,
                 ) as mock_users,
             ):

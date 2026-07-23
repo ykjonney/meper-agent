@@ -356,7 +356,7 @@ class TestApiKeyLogsEndpoint:
                     new=AsyncMock(return_value=_make_key_doc()),
                 ),
                 patch(
-                    "app.services.ext_api_call_log_service.ExtApiCallLogService.list_logs",
+                    "app.services.execution_log_service.ExecutionLogService.list_logs_by_api_key",
                     new=AsyncMock(return_value=([
                         {
                             "api_key_id": "apikey_01",
@@ -404,7 +404,7 @@ class TestApiKeyUsersEndpoint:
                     new=AsyncMock(return_value=_make_key_doc()),
                 ),
                 patch(
-                    "app.services.ext_api_call_log_service.ExtApiCallLogService.get_users_summary",
+                    "app.services.execution_log_service.ExecutionLogService.get_users_summary_by_api_key",
                     new=AsyncMock(return_value=[
                         {"user_sub": "user-A", "calls": 10, "total_tokens": 500, "last_seen_at": "2026-07-21T00:00:00"},
                         {"user_sub": "user-B", "calls": 2, "total_tokens": 100, "last_seen_at": "2026-07-20T00:00:00"},

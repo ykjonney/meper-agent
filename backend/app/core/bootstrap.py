@@ -65,7 +65,7 @@ async def ensure_all_indexes() -> TriggerRepository:
     from app.services.api_key_service import (
         ApiKeyService,  # noqa: F401 (avoid eager import cycle)
     )
-    from app.services.ext_api_call_log_service import ExtApiCallLogService
+    from app.services.execution_log_service import ExecutionLogService
     from app.services.role_service import RoleService  # noqa: F401
     from app.services.trigger_repo import TriggerRepository
 
@@ -75,7 +75,7 @@ async def ensure_all_indexes() -> TriggerRepository:
         trigger_repo.ensure_indexes(),
         RoleService.ensure_indexes(),
         ApiKeyService.ensure_indexes(),
-        ExtApiCallLogService.ensure_indexes(),
+        ExecutionLogService.ensure_indexes(),
         return_exceptions=True,
     )
 

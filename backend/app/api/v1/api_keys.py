@@ -180,13 +180,13 @@ async def get_api_key_stats(
     # Existing Redis-backed call counter (total_requests / successful / failed / by_endpoint).
     stats = await get_stats(api_key_id)
 
-    # Token consumption + unique-user count from ext_api_call_logs.
-    from app.services.ext_api_call_log_service import ExtApiCallLogService
+    # Token consumption + unique-user count from execution_logs (api_key channel).
+    from app.services.execution_log_service import ExecutionLogService
 
-    token_summary = await ExtApiCallLogService.get_token_summary(
+    token_summary = await ExecutionLogService.get_token_summary_by_api_key(
         api_key_id, start=start, end=end,
     )
-    users = await ExtApiCallLogService.get_users_summary(api_key_id, period_days=30)
+    users = await ExecutionLogService.get_users_summary_by_api_key(api_key_id, period_days=30)
 
     return ApiKeyStatsResponse(
         **stats,
@@ -220,9 +220,9 @@ async def list_api_key_logs(
     if doc is None:
         raise NotFoundError(code="APIKEY_NOT_FOUND", message="API Key not found")
 
-    from app.services.ext_api_call_log_service import ExtApiCallLogService
+    from app.services.execution_log_service import ExecutionLogService
 
-    items, total = await ExtApiCallLogService.list_logs(
+    items, total = await ExecutionLogService.list_logs_by_api_key(
         api_key_id,
         user_sub=user_sub,
         visitor_id=visitor_id,
@@ -257,9 +257,9 @@ async def list_api_key_users(
     if doc is None:
         raise NotFoundError(code="APIKEY_NOT_FOUND", message="API Key not found")
 
-    from app.services.ext_api_call_log_service import ExtApiCallLogService
+    from app.services.execution_log_service import ExecutionLogService
 
-    rows = await ExtApiCallLogService.get_users_summary(
+    rows = await ExecutionLogService.get_users_summary_by_api_key(
         api_key_id, period_days=period_days,
     )
     return ApiKeyUsersResponse(

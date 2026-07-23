@@ -10,7 +10,6 @@ from app.core.rate_limiter import check_rate_limit
 from app.core.user_auth_state import is_introspect_stale
 from app.services.api_key_stats_service import record_request
 from app.services.ext_api_call_log_service import (
-    ExtApiCallLogService,
     ExtCallContext,
     get_ext_call_context,
     set_ext_call_context,
@@ -119,7 +118,7 @@ router.include_router(tasks.router, prefix="")  # type: ignore[has-type]
 class ExtApiStatsMiddleware(BaseHTTPMiddleware):
     """Post-response middleware: record API Key stats + inject rate limit headers.
 
-    Also serves as the fallback writer for ext_api_call_logs: if phase 2
+    Also serves as the fallback writer for execution_logs: if phase 2
     (agent execution) did not consume the stashed ExtCallContext, we
     write a token-less record here so failed/error calls are still
     audited.
@@ -138,25 +137,34 @@ class ExtApiStatsMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
             )
 
-            # Fallback: if phase 2 didn't write the call log, write one
-            # here with token=0 so the call is still audited.
+            # Fallback: if phase 2 didn't write the unified execution log
+            # (e.g. the request failed before reaching agent execution —
+            # 401/403/429/422), write a token-less record here so failed
+            # calls are still audited.
             #
             # IMPORTANT: Streaming endpoints (invoke/stream, invoke/resume)
             # return a StreamingResponse whose body hasn't been consumed
             # when this middleware fires — the background _run() task is
-            # likely still executing and will write the real log in phase 2.
+            # likely still executing and will write the real log.
             # If we wrote here too, we'd produce a duplicate (token=0 +
             # token=real). So we SKIP the fallback for streaming endpoints:
-            # they are solely responsible for their own log via phase 2.
-            # Trade-off: if _run() crashes before phase 2, the streaming
+            # they are solely responsible for their own log.
+            # Trade-off: if _run() crashes before writing, the streaming
             # call has no log. That's preferable to duplicate logs.
             is_streaming = endpoint in ("agents:invoke:stream", "agents:invoke:resume")
             ctx = get_ext_call_context()
             if ctx is not None and not ctx.consumed and not is_streaming:
                 latency_ms = int(time.time() * 1000) - ctx.start_time_ms
                 status = "success" if 200 <= response.status_code < 400 else "error"
-                await ExtApiCallLogService.write_log(
-                    ctx,
+                from app.services.execution_log_service import ExecutionLogService
+
+                await ExecutionLogService.write_log(
+                    user_id=f"{ctx.owner_user_id}:{ctx.user_sub}" if ctx.user_sub else ctx.owner_user_id,
+                    api_key_id=ctx.api_key_id,
+                    user_sub=ctx.user_sub,
+                    visitor_id=ctx.visitor_id,
+                    endpoint=ctx.endpoint,
+                    request_id=ctx.request_id,
                     status=status,
                     status_code=response.status_code,
                     latency_ms=latency_ms,

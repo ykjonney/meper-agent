@@ -121,7 +121,7 @@ class ApiKeyStatsResponse(BaseModel):
     failed: int
     by_endpoint: dict[str, int]
     last_used_at: str | None
-    # Token consumption (from ext_api_call_logs aggregate).
+    # Token consumption (from execution_logs aggregate, api_key channel).
     total_tokens: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -130,22 +130,19 @@ class ApiKeyStatsResponse(BaseModel):
 
 
 class ApiKeyLogItem(BaseModel):
-    """Single call log entry (ext_api_call_logs row, no _id)."""
+    """Single call log entry (execution_logs row, no _id)."""
 
-    api_key_id: str
-    owner_user_id: str
+    source: str = ""
+    user_id: str = ""
+    api_key_id: str = ""
     user_sub: str = ""
     visitor_id: str = ""
-    auth_mode: str = ""
     endpoint: str = ""
     agent_id: str = ""
-    workflow_id: str = ""
     session_id: str = ""
-    task_id: str = ""
     request_id: str = ""
     status: str = ""
     status_code: int = 0
-    error_code: str = ""
     latency_ms: int = 0
     total_tokens: int = 0
     input_tokens: int = 0

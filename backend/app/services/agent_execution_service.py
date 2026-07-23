@@ -7,6 +7,7 @@ The API layer (agents.py) delegates here for all execution-related flows.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -29,6 +30,11 @@ from app.services.message_converters import (
     safe_json,
 )
 from app.services.session_service import MessageService, SessionService
+
+
+def _now_ms() -> int:
+    """Current epoch time in milliseconds (for execution-latency timing)."""
+    return int(time.time() * 1000)
 
 
 class AgentExecutionService:
@@ -60,6 +66,7 @@ class AgentExecutionService:
         session_id = await _resolve_session(agent_id, body, user_id)
         request_id = str(uuid.uuid4())
         call_chain = [*(external_call_chain or []), agent_id]
+        start_time_ms = _now_ms()
 
         # Build messages (system prompt + user input with file attachments)
         system_text = await _build_system_prompt_checked(exec_doc)
@@ -74,12 +81,25 @@ class AgentExecutionService:
             external_call_chain, initial_messages,
         )
 
-        result = await harness_invoke(
-            exec_doc, initial_state,
-            enable_thinking=body.enable_thinking,
-            legacy_records=legacy_records,
-            user_token=user_token,
-        )
+        run_error: BaseException | None = None
+        try:
+            result = await harness_invoke(
+                exec_doc, initial_state,
+                enable_thinking=body.enable_thinking,
+                legacy_records=legacy_records,
+                user_token=user_token,
+            )
+        except Exception as exc:
+            run_error = exc
+            result = {}
+            raise
+        finally:
+            # Unified execution log (all channels) + ext audit log (ext only).
+            await _record_execution_log(
+                user_id=user_id, agent_id=agent_id, session_id=session_id,
+                request_id=request_id, start_time_ms=start_time_ms,
+                token_usage=result.get("usage"), error=run_error,
+            )
 
         # Extract output + persist agent message
         output_text = extract_final_answer(result.get("messages", []))
@@ -89,9 +109,6 @@ class AgentExecutionService:
         await MessageService.add_message(
             session_id=session_id, role="agent", timeline_entries=timeline,
         )
-
-        # Phase-2 token backfill for ext calls (no-op if not ext).
-        await _record_ext_call_log(agent_id, session_id, result.get("usage"))
 
         return ExecutionResponse(
             output=output_text,
@@ -141,6 +158,7 @@ class AgentExecutionService:
             await event_queue.put(f"data: {safe_json(event)}\n\n")
 
         async def _run():
+            start_time_ms = _now_ms()
             user_content = await _build_user_content(body, user_id, session_id)
             initial_messages = _assemble_messages(system_text, user_content)
             legacy_records = await _load_legacy_records(session_id, body.input)
@@ -174,10 +192,11 @@ class AgentExecutionService:
                     session_id, collected_timeline,
                     token_usage=result.get("usage"),
                 )
-                # Phase-2 token backfill for ext calls (no-op if not ext).
-                await _record_ext_call_log(
-                    agent_id, session_id, result.get("usage"),
-                    error=run_error,
+                # Unified execution log (all channels) + ext audit log (ext only).
+                await _record_execution_log(
+                    user_id=user_id, agent_id=agent_id, session_id=session_id,
+                    request_id=request_id, start_time_ms=start_time_ms,
+                    token_usage=result.get("usage"), error=run_error,
                 )
                 await event_queue.put(
                     f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
@@ -223,6 +242,7 @@ class AgentExecutionService:
             await event_queue.put(f"data: {safe_json(event)}\n\n")
 
         async def _run():
+            start_time_ms = _now_ms()
             state = {
                 "messages": [], "agent_id": agent_id,
                 "session_id": session_id, "user_id": user_id,
@@ -247,10 +267,11 @@ class AgentExecutionService:
                     token_usage=result.get("usage"),
                     append_to_last_agent=True,
                 )
-                # Phase-2 token backfill for ext calls (no-op if not ext).
-                await _record_ext_call_log(
-                    agent_id, session_id, result.get("usage"),
-                    error=run_error,
+                # Unified execution log (all channels) + ext audit log (ext only).
+                await _record_execution_log(
+                    user_id=user_id, agent_id=agent_id, session_id=session_id,
+                    request_id=request_id, start_time_ms=start_time_ms,
+                    token_usage=result.get("usage"), error=run_error,
                 )
                 await event_queue.put(
                     f"data: {safe_json({'done': True, 'request_id': request_id, 'session_id': session_id, 'usage': result.get('usage', {})})}\n\n"
@@ -397,48 +418,59 @@ async def _persist_agent_message(
             logger.error("agent_stream_persist_error", error=str(exc))
 
 
-async def _record_ext_call_log(
+async def _record_execution_log(
+    *,
+    user_id: str,
     agent_id: str,
     session_id: str,
+    request_id: str,
+    start_time_ms: int,
     token_usage: dict | None,
     error: BaseException | None = None,
 ) -> None:
-    """Phase-2 token backfill for ext_api_call_logs (Story 8.2 P3).
+    """Write one unified execution_logs record for ANY agent call.
 
-    Reads the stashed ExtCallContext from the ContextVar (set by
-    ``auth_and_rate_limit``), patches in agent_id / session_id, and
-    writes one log document with the actual token usage from the
-    harness middleware summary. Marks the context as consumed so the
-    ExtApiStatsMiddleware fallback does not write a duplicate.
+    Writes unconditionally for internal / api_key / im calls alike. Channel
+    (source) is derived from ``user_id`` by the service. External-only
+    fields (api_key_id / user_sub / endpoint / visitor_id) are pulled from
+    the stashed ExtCallContext when present, and the context is marked
+    consumed so the stats middleware fallback skips the duplicate write.
 
-    No-op when there is no stashed context (internal/non-ext call).
+    Failure is logged but never raised — execution logging must not
+    break the user-facing request flow.
     """
     import time as _time
 
-    from app.services.ext_api_call_log_service import (
-        ExtApiCallLogService,
-        get_ext_call_context,
-        update_ext_call_context,
-    )
-
-    ctx = get_ext_call_context()
-    if ctx is None:
-        return  # not an ext call (e.g. internal invoke from workflow)
-
-    # Patch in fields known only after route handler ran.
-    update_ext_call_context(agent_id=agent_id, session_id=session_id)
-
-    # Re-fetch the patched context (update_ext_call_context mutates in place)
-    ctx = get_ext_call_context()
-    if ctx is None:
-        return
+    from app.services.execution_log_service import ExecutionLogService
+    from app.services.ext_api_call_log_service import get_ext_call_context
 
     usage = token_usage or {}
-    latency_ms = int(_time.time() * 1000) - ctx.start_time_ms
+    latency_ms = int(_time.time() * 1000) - start_time_ms
     status = "error" if error is not None else "success"
 
-    await ExtApiCallLogService.write_log(
-        ctx,
+    # External calls carry api_key_id / user_sub / endpoint / visitor_id
+    # in the stashed context.
+    api_key_id = ""
+    user_sub = ""
+    visitor_id = ""
+    endpoint = ""
+    ctx = get_ext_call_context()
+    if ctx is not None:
+        api_key_id = ctx.api_key_id
+        user_sub = ctx.user_sub
+        visitor_id = ctx.visitor_id
+        endpoint = ctx.endpoint
+        ctx.consumed = True  # suppress middleware fallback duplicate
+
+    await ExecutionLogService.write_log(
+        user_id=user_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        request_id=request_id,
+        api_key_id=api_key_id,
+        user_sub=user_sub,
+        visitor_id=visitor_id,
+        endpoint=endpoint,
         status=status,
         status_code=500 if error is not None else 200,
         latency_ms=latency_ms,
@@ -447,7 +479,6 @@ async def _record_ext_call_log(
         output_tokens=int(usage.get("output_tokens") or 0),
         llm_calls=int(usage.get("llm_calls") or 0),
     )
-    ctx.consumed = True
 
 
 __all__ = ["AgentExecutionService"]
