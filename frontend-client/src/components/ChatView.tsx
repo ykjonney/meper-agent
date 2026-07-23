@@ -3,6 +3,7 @@ import {
   MenuOutlined,
   PaperClipOutlined,
   QuestionCircleOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 import { Attachments, Bubble, Sender } from '@ant-design/x'
 import {
@@ -19,6 +20,8 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { useChat } from '../hooks/use-chat'
 import type { AgentSummary } from '../types'
@@ -29,9 +32,10 @@ interface ChatViewProps {
   agent: AgentSummary | null
   sessionId: string | null
   onOpenNavigation: () => void
+  onCreateSession: () => void
 }
 
-export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) {
+export function ChatView({ agent, sessionId, onOpenNavigation, onCreateSession }: ChatViewProps) {
   const { message } = App.useApp()
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -151,8 +155,12 @@ export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) 
         <div className="chat-empty">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="新建或选择一个对话开始"
-          />
+            description="还没有对话，开始创建一个吧"
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateSession}>
+              快速创建对话
+            </Button>
+          </Empty>
         </div>
       ) : (
         <>
@@ -167,10 +175,34 @@ export function ChatView({ agent, sessionId, onOpenNavigation }: ChatViewProps) 
             ) : messages.length === 0 ? (
               <div className="welcome-state">
                 <div className="welcome-mark">{agent.name.slice(0, 1)}</div>
-                <Typography.Title level={2}>和 {agent.name} 开始对话</Typography.Title>
-                <Typography.Paragraph type="secondary">
-                  可以直接提问，也可以上传图片、文档或数据文件。
-                </Typography.Paragraph>
+                {agent.welcomeMessage ? (
+                  <div className="welcome-message">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {agent.welcomeMessage}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <>
+                    <Typography.Title level={2}>和 {agent.name} 开始对话</Typography.Title>
+                    <Typography.Paragraph type="secondary">
+                      可以直接提问，也可以上传图片、文档或数据文件。
+                    </Typography.Paragraph>
+                  </>
+                )}
+                {agent.recommendedItems && agent.recommendedItems.length > 0 ? (
+                  <div className="welcome-suggestions">
+                    {agent.recommendedItems.map((item, index) => (
+                      <Button
+                        key={`${index}:${item.label}`}
+                        className="welcome-suggestion"
+                        disabled={running}
+                        onClick={() => submit(item.prompt || item.label)}
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <Bubble.List

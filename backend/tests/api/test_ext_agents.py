@@ -435,3 +435,75 @@ class TestCallbackVerificationMode:
             assert data["error"]["code"] == "EXT_USER_TOKEN_MISSING"
         finally:
             app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Create session (external)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSession:
+    """POST /api/v1/ext/agents/{agent_id}/sessions"""
+
+    def _doc(self, user_id: str, agent_id: str = "agent_01") -> dict:
+        return {
+            "_id": "sess_new",
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "title": "",
+            "message_count": 0,
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+        }
+
+    def test_create_legacy_uses_visitor_id(self, client, full_principal) -> None:
+        cleanup = _override_auth(full_principal)
+        try:
+            with patch(
+                "app.services.session_service.SessionService.create_session",
+                new=AsyncMock(return_value=self._doc("user_owner:v-abc")),
+            ) as mock_create:
+                resp = client.post(
+                    "/api/v1/ext/agents/agent_01/sessions?visitor_id=v-abc"
+                )
+            assert resp.status_code == 201
+            assert resp.json()["id"] == "sess_new"
+            assert mock_create.call_args.kwargs["user_id"] == "user_owner:v-abc"
+        finally:
+            cleanup()
+
+    def test_create_callback_uses_sub(self, client) -> None:
+        principal = ApiKeyPrincipal(
+            key_id="apikey_cb",
+            owner_user_id="user_owner",
+            scopes=["agents:read", "agents:invoke"],
+            bindings={"agents": [], "workflows": []},
+            user_info_url="https://partner.example.com/introspect",
+            user_id="user_owner:user-123",  # resolved by auth layer
+        )
+        cleanup = _override_auth(principal)
+        try:
+            with patch(
+                "app.services.session_service.SessionService.create_session",
+                new=AsyncMock(return_value=self._doc("user_owner:user-123")),
+            ) as mock_create:
+                # visitor_id omitted — callback mode ignores it
+                resp = client.post("/api/v1/ext/agents/agent_01/sessions")
+            assert resp.status_code == 201
+            assert mock_create.call_args.kwargs["user_id"] == "user_owner:user-123"
+        finally:
+            cleanup()
+
+    def test_create_scope_denied(self, client) -> None:
+        principal = ApiKeyPrincipal(
+            key_id="k",
+            owner_user_id="u",
+            scopes=["agents:read"],  # no agents:invoke
+            bindings={},
+        )
+        cleanup = _override_auth(principal)
+        try:
+            resp = client.post("/api/v1/ext/agents/agent_01/sessions")
+            assert resp.status_code == 403
+        finally:
+            cleanup()

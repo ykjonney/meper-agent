@@ -43,6 +43,8 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         id=doc["_id"],
         name=doc["name"],
         description=doc.get("description", ""),
+        welcome_message=doc.get("welcome_message", ""),
+        recommended_items=doc.get("recommended_items", []),
         prompt_slots=doc.get("prompt_slots", {}),
         skill_ids=resolve_skill_ids(doc),
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
@@ -160,6 +162,8 @@ async def update_agent(
         default_model=body.default_model,
         max_retry=body.max_retry,
         max_tokens=body.max_tokens,
+        welcome_message=body.welcome_message,
+        recommended_items=[item.model_dump() for item in body.recommended_items],
     )
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")

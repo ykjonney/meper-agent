@@ -325,6 +325,40 @@ textarea {
   font-weight: 700;
 }
 
+.welcome-message {
+  width: min(100%, 560px);
+  margin: 0 auto 8px;
+  color: var(--client-text);
+  font-size: 14px;
+  line-height: 1.7;
+  text-align: center;
+}
+.welcome-message p {
+  margin: 0 0 8px;
+}
+.welcome-message p:last-child {
+  margin-bottom: 0;
+}
+
+.welcome-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: min(100%, 560px);
+  margin-top: 20px;
+}
+.welcome-suggestion {
+  border-color: color-mix(in srgb, var(--client-accent) 30%, var(--client-border));
+  background: var(--client-surface);
+  color: var(--client-accent);
+  border-radius: 12px;
+}
+.welcome-suggestion:hover:not(:disabled) {
+  border-color: var(--client-accent);
+  background: var(--client-accent-soft);
+}
+
 .message-viewport {
   min-height: 0;
   flex: 1;

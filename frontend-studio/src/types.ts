@@ -3,6 +3,10 @@ export interface Agent {
   name: string;
   avatar: string;
   description: string;
+  /** 终端用户首屏欢迎词（Markdown）— 后端 welcome_message */
+  welcomeMessage?: string;
+  /** 终端用户首屏推荐问题/操作 — 后端 recommended_items */
+  recommendedItems?: { label: string; prompt: string }[];
   model: string;
   temperature: number;
   systemPrompt: string;
@@ -106,15 +110,6 @@ export interface ExecutionLog {
     timestamp: string;
     output: string;
   }[];
-}
-
-export interface ApiKey {
-  id: string;
-  name: string;
-  keyPreview: string;
-  created: string;
-  lastUsed: string;
-  status: 'active' | 'revoked';
 }
 
 /** Token usage for an agent message (mirrors backend token_usage / SSE done usage). */
