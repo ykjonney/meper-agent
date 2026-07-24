@@ -3,11 +3,20 @@
  * 纯原生 JS（不进 React 构建、不引框架），放 public/ 由静态服务原样托管。
  *
  * 形态：右下角浮动启动器（AFLogo.png）→ 点击从右侧滑出 drawer（iframe 加载 frontend-client）。
- * frontend-client 内置 API Key（VITE_PUBLIC_API_KEY），打开即免登录，无需在此传 key。
+ *
+ * 鉴权（运行时注入，client 自身不内置 key）：握手时 client 发 agentflow:request_config，
+ * 本脚本回 agentflow:config{apiKey, userToken?} 把以下凭据注入 iframe。
+ *   data-api-key      必填，API Key（af_live_xxx）。
+ *   data-token-cookie 可选，终端用户 token 的 cookie 名，默认 "mep-access-token"。
+ *                     从宿主页 document.cookie 读取（须宿主页域、非 HttpOnly 才可读），
+ *                     作为 X-User-Token 注入 client（callback 验证模式 / Key 配了 user_info_url）。
+ *   data-user-token   可选，显式 token；优先级高于 cookie，调试或无 cookie 场景用。
  *
  * 用法一（自动初始化，推荐）：
  *   <script src="https://your-client-host/chat-widget.js"
  *           data-chat-url="https://your-client-host"
+ *           data-api-key="af_live_xxx"
+ *           data-token-cookie="mep-access-token"
  *           data-title="AI 助手"
  *           data-width="680px"></script>
  *
@@ -98,7 +107,8 @@
       zIndex: intBetween(zIndex, 2147483000, 1, 2147483646),
       openOnLoad: bool(input.openOnLoad !== undefined ? input.openOnLoad : data.openOnLoad, false),
       apiKey: String(input.apiKey || data.apiKey || ''),
-      userToken: String(input.userToken || data.userToken || '')
+      userToken: String(input.userToken || data.userToken || ''),
+      tokenCookie: String(input.tokenCookie || data.tokenCookie || 'mep-access-token')
     };
   }
 
@@ -205,19 +215,43 @@
   }
 
   // client（iframe 内）启动时会发 agentflow:request_config 请求嵌入配置；
-  // 这里回 agentflow:config：apiKey 来自 data-api-key，userToken 可选（callback 模式）。
+  // 这里回 agentflow:config：apiKey 来自 data-api-key，userToken 来自 data-user-token 或 cookie（callback 模式）。
   function onMessage(e) {
     if (!state.iframe || e.source !== state.iframe.contentWindow) return;
     var data = e.data || {};
     if (data.type === 'agentflow:request_config') sendConfig();
   }
 
+  // 从宿主页 document.cookie 读取指定 name（宿主页域、非 HttpOnly 才可读）。
+  function readCookie(name) {
+    if (!name || !document.cookie) return '';
+    var prefix = name + '=';
+    var parts = document.cookie.split(';');
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i].trim();
+      if (part.indexOf(prefix) === 0) {
+        var value = part.substring(prefix.length);
+        try { value = decodeURIComponent(value); } catch (e) { /* 保留原值 */ }
+        return value;
+      }
+    }
+    return '';
+  }
+
+  // 终端用户 token（X-User-Token）：显式 data-user-token 优先，否则读 data-token-cookie（默认 mep-access-token）。
+  // 每次握手动态读取，保证 cookie 内 token 轮转后取到最新值。
+  function resolveUserToken() {
+    if (state.config.userToken) return state.config.userToken;
+    return readCookie(state.config.tokenCookie);
+  }
+
   function sendConfig() {
     if (!state.iframe || !state.config.apiKey) return;
+    var userToken = resolveUserToken();
     var targetOrigin;
     try { targetOrigin = new URL(state.config.chatUrl).origin; } catch (err) { targetOrigin = '*'; }
     state.iframe.contentWindow.postMessage(
-      { type: 'agentflow:config', apiKey: state.config.apiKey, userToken: state.config.userToken || undefined },
+      { type: 'agentflow:config', apiKey: state.config.apiKey, userToken: userToken || undefined },
       targetOrigin
     );
   }
@@ -238,6 +272,8 @@
     state.previousFocus = document.activeElement;
     state.open = true;
     loadIframe();
+    // iframe 已加载时（非首次打开）重推配置，让 cookie 内 token 保持新鲜
+    if (state.iframeLoaded) sendConfig();
     state.shell.classList.add('afc-open');
     state.launcher.setAttribute('aria-expanded', 'true');
     window.setTimeout(function () {
