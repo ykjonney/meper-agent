@@ -24,15 +24,18 @@ function isInIframe(): boolean {
 
 /**
  * iframe 嵌入时接收宿主页（chat-widget.js）注入的配置：
- *   agentflow:config  { apiKey, userToken? } → applyEmbedConfig（data-api-key 模式）
- *   agentflow:user_token { token }           → setUserToken（旧 callback 协议兼容）
+ *   agentflow:config     { apiKey, userToken? } → applyEmbedConfig（data-api-key + cookie token 模式）
+ *   agentflow:user_token { token }              → setUserToken（带白名单的强隔离通道，可选）
  * 仅 iframe 内生效。bootstrapAuth 会主动发 agentflow:request_config 请求配置。
  *
  * 安全：
  * - 两类消息都只接受来自直接父页（event.source === window.parent），防其他 iframe 注入。
- * - apiKey 属公开凭据（本就写在第三方 HTML），source 校验足够。
- * - user_token 是终端用户身份凭据（敏感），额外校验 VITE_ALLOWED_PARENT_ORIGINS 白名单，
- *   白名单未配置时拒绝（fail-safe），防恶意父页注入伪造 token 冒充任意 sub。
+ * - config 通道（apiKey + userToken）由客户部署的 chat-widget.js 发出：apiKey 公开写在客户 HTML；
+ *   userToken 由该脚本从宿主页 cookie（默认 mep-access-token）读取，属同一信任链，source 校验即可。
+ *   多客户通用 client 模式下客户域名不定，无法穷举白名单；真正的身份校验在后端 RFC 7662
+ *   introspection（无效 token 必拒，伪造 token 无法冒充）。
+ * - user_token 通道是终端用户身份凭据（敏感），额外校验 VITE_ALLOWED_PARENT_ORIGINS 白名单，
+ *   白名单未配置时拒绝（fail-safe）；留给需要更强隔离的单客户定制场景。
  */
 export function useParentToken(): void {
   useEffect(() => {
