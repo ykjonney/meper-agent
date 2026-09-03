@@ -57,6 +57,14 @@ _SUMMARY_SYSTEM_PROMPT = (
     "不超过两百字，只保留关键信息与结论。直接输出纯文本，"
     "不要使用任何 markdown 格式、列表符号或网址。"
 )
+# Only the voice WS path uses this instruction; text chat remains unchanged.
+_VOICE_MODE_PROMPT = (
+    "【当前为语音对话模式】你的回复会被直接转成语音播报给用户，请遵守："
+    "1. 只输出适合朗读的纯文本，不要使用 emoji 表情、特殊符号；"
+    "2. 不要使用 markdown 格式（如星号加粗、井号标题、列表符号）；"
+    "3. 不要输出网址、代码块、表格，如需表达请改用口语描述；"
+    "4. 回复简洁口语化，适合听而不是读。"
+)
 _MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _MD_AUTOLINK = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
@@ -569,6 +577,8 @@ class VoiceSession:
         self.session_id = await _resolve_session(agent_id, body, self.user_id)
 
         system_text = await _build_system_prompt_checked(exec_doc)
+        if self.cfg.tts_enabled:
+            system_text = f"{system_text}\n\n{_VOICE_MODE_PROMPT}"
         messages = _assemble_messages(system_text, turn.transcript)
         request_id = uuid.uuid4().hex
         state = _build_initial_state(

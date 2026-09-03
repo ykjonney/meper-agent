@@ -28,6 +28,7 @@ interface TurnMsg {
 export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark' | 'light' }) {
   const [voiceState, setVoiceState] = useState<string>('idle')
   const [connected, setConnected] = useState(false)
+  const [turnActive, setTurnActive] = useState(false)
   const [partial, setPartial] = useState('')
   const [turns, setTurns] = useState<TurnMsg[]>([])
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -40,6 +41,10 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
   )
   const agentBufRef = useRef('')
   const turnSeq = useRef(0)
+  const sessionIdRef = useRef<string | null>(null)
+  const acceptTurnEventsRef = useRef(false)
+  const cleanupAudioRef = useRef({ clear, stop: recorder.stop })
+  cleanupAudioRef.current = { clear, stop: recorder.stop }
   const [, force] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -50,6 +55,14 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
       setAgentId(agents.find((agent) => agent.voiceEnabled)?.id ?? '')
     }
   }, [agents, agentId])
+
+  useEffect(() => {
+    sessionIdRef.current = null
+    acceptTurnEventsRef.current = false
+    agentBufRef.current = ''
+    setPartial('')
+    setTurns([])
+  }, [agentId])
 
   // Auto-scroll the transcript to the latest entry.
   useEffect(() => {
@@ -62,39 +75,75 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
     voiceWs.resume()
     voiceWs.connect()
 
-    const offState = voiceWs.on('voice.state', (m: { state: string }) => setVoiceState(m.state))
-    const offPartial = voiceWs.on('transcript.delta', (m: { content?: string }) => setPartial(m.content || ''))
+    const offState = voiceWs.on('voice.state', (m: { state: string }) => {
+      setVoiceState(m.state)
+      if (m.state === 'idle') setTurnActive(false)
+    })
+    const offPartial = voiceWs.on('transcript.delta', (m: { content?: string }) => {
+      if (acceptTurnEventsRef.current) setPartial(m.content || '')
+    })
     const offFinal = voiceWs.on('transcript.final', (m: { content?: string }) => {
+      if (!acceptTurnEventsRef.current) return
       const t = (m.content || '').trim()
       if (t) setTurns((prev) => [...prev, { key: `u${turnSeq.current++}`, role: 'user', text: t }])
       setPartial('')
     })
-    const offTurnStart = voiceWs.on('turn.started', () => {
+    const offTurnStart = voiceWs.on('turn.started', (m: { session_id?: string }) => {
+      if (!acceptTurnEventsRef.current) return
+      if (m.session_id) sessionIdRef.current = m.session_id
       agentBufRef.current = ''
       force((n) => n + 1)
     })
     const offAgentDelta = voiceWs.on('agent_text_delta', (m: { content?: string }) => {
+      if (!acceptTurnEventsRef.current) return
       agentBufRef.current += m.content || ''
       force((n) => n + 1)
     })
     const offTurnEnd = voiceWs.on('turn.end', () => {
+      if (!acceptTurnEventsRef.current) return
       const t = agentBufRef.current.trim()
       if (t) setTurns((prev) => [...prev, { key: `a${turnSeq.current++}`, role: 'agent', text: t }])
       agentBufRef.current = ''
     })
     const offErr = voiceWs.on('error', (m: { content?: string }) => setErrorMsg(m.content || '出错了'))
+    const resetConnectionState = () => {
+      acceptTurnEventsRef.current = false
+      setVoiceState('idle')
+      setTurnActive(false)
+      setPartial('')
+      cleanupAudioRef.current.stop()
+      cleanupAudioRef.current.clear()
+    }
+    let lastToken = token
     const unsub = useAuthStore.subscribe((s) => {
-      if (s.accessToken) voiceWs.reconnectWithFreshToken(s.accessToken)
+      if (s.accessToken && s.accessToken !== lastToken) {
+        lastToken = s.accessToken
+        resetConnectionState()
+        setConnected(false)
+        voiceWs.reconnectWithFreshToken(s.accessToken)
+      }
     })
-    const tick = setInterval(() => setConnected(voiceWs.connected), 500)
+    let wasOnline = voiceWs.connected
+    const tick = setInterval(() => {
+      const online = voiceWs.connected
+      setConnected(online)
+      if (!online && (wasOnline || acceptTurnEventsRef.current)) resetConnectionState()
+      wasOnline = online
+    }, 500)
     return () => {
+      acceptTurnEventsRef.current = false
+      voiceWs.sendJson({ type: 'voice.stop' })
+      cleanupAudioRef.current.stop()
+      cleanupAudioRef.current.clear()
       offState(); offPartial(); offFinal(); offTurnStart(); offAgentDelta(); offTurnEnd(); offErr()
       clearInterval(tick)
       unsub()
     }
   }, [])
 
-  useEffect(() => { voiceWs.onBinary((buf) => enqueue(buf)) }, [enqueue])
+  useEffect(() => voiceWs.onBinary((buf) => {
+    if (acceptTurnEventsRef.current) enqueue(buf)
+  }), [enqueue])
   useEffect(() => {
     const off = voiceWs.on('playback.clear', () => clear())
     return () => off()
@@ -103,6 +152,10 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
   const press = useCallback(async () => {
     if (recorder.recording) return  // already in a press (button + space race)
     setErrorMsg(null)
+    if (!voiceWs.connected) {
+      setErrorMsg('语音连接尚未就绪，请稍后重试')
+      return
+    }
     if (!agentId) {
       setErrorMsg('请先选择一个智能体')
       return
@@ -112,14 +165,28 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
       return
     }
     clear()  // barge-in: drop any queued TTS playback
-    voiceWs.sendJson({ type: 'voice.start', mode: 'ptt', agent_id: agentId })
+    acceptTurnEventsRef.current = true
+    setTurnActive(true)
+    voiceWs.sendJson({
+      type: 'voice.start', mode: 'ptt', agent_id: agentId,
+      session_id: sessionIdRef.current || undefined,
+    })
     const started = await recorder.start(audioDevices.inputDeviceId, audioDevices.fallbackInput)
+    if (!acceptTurnEventsRef.current || !voiceWs.connected) {
+      recorder.stop()
+      setTurnActive(false)
+      return
+    }
     if (started) await audioDevices.refreshAfterPermission()
-    else voiceWs.sendJson({ type: 'voice.stop' })
+    else {
+      setTurnActive(false)
+      voiceWs.sendJson({ type: 'voice.stop' })
+    }
   }, [recorder.recording, agentId, agents, clear, audioDevices.inputDeviceId, audioDevices.fallbackInput, audioDevices.refreshAfterPermission])
 
   const release = useCallback(() => {
     if (!recorder.recording) return
+    setTurnActive(true) // Keep agent selection locked while batch ASR finishes.
     voiceWs.sendJson({ type: 'voice.release' })
     recorder.stop()
   }, [recorder.recording])
@@ -152,7 +219,7 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
         <select
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
-          disabled={recorder.recording}
+          disabled={recorder.recording || turnActive || canInterrupt}
           className={`text-sm px-2 py-1 rounded border outline-none cursor-pointer disabled:opacity-50 ${
             dark ? 'bg-[#09090b] border-[#27272a] text-[#fafafa]' : 'bg-slate-50 border-slate-200'
           }`}

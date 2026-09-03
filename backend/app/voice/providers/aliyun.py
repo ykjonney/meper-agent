@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.voice.config import ASRRuntime, TTSRuntime
+from app.voice.tts_text import prepare_tts_segments
 
 
 class AliyunASRClient:
@@ -112,9 +113,14 @@ class AliyunTTSClient:
         if not self._tts.api_key:
             raise RuntimeError("阿里百炼 TTS 未配置 API Key")
         self._stopped = False
-        pcm = await asyncio.to_thread(self._synthesize, text)
-        if not self._stopped and pcm:
-            yield pcm
+        for segment in prepare_tts_segments(text, "aliyun"):
+            if self._stopped:
+                break
+            pcm = await asyncio.to_thread(self._synthesize, segment)
+            if self._stopped:
+                break
+            if pcm:
+                yield pcm
 
     async def stop(self) -> None:
         self._stopped = True
@@ -123,6 +129,8 @@ class AliyunTTSClient:
         self._stopped = True
 
     def _synthesize(self, text: str) -> bytes:
+        if not text:
+            return b""
         body = json.dumps(
             {
                 "model": self._tts.resource_id,
@@ -144,7 +152,13 @@ class AliyunTTSClient:
             method="POST",
         )
         data = json.loads(_read_response(request, timeout=90).decode("utf-8"))
-        _raise_api_error(data)
+        try:
+            _raise_api_error(data)
+        except RuntimeError as exc:
+            # Do not include the user's reply text in logs or WS error messages.
+            raise RuntimeError(
+                f"{exc}（aliyun TTS，文本长度: {len(text)}）"
+            ) from exc
         audio = (data.get("output") or {}).get("audio") or {}
         if audio.get("data"):
             audio_bytes = base64.b64decode(audio["data"])

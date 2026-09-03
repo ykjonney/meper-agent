@@ -12,6 +12,7 @@ import wave
 from collections.abc import Awaitable, Callable
 
 from app.voice.config import ASRRuntime, TTSRuntime
+from app.voice.tts_text import prepare_tts_segments
 
 
 class ZhipuASRClient:
@@ -102,9 +103,14 @@ class ZhipuTTSClient:
         if not self._tts.api_key:
             raise RuntimeError("智谱 TTS 未配置 API Key")
         self._stopped = False
-        pcm = await asyncio.to_thread(self._synthesize, text)
-        if not self._stopped and pcm:
-            yield pcm
+        for segment in prepare_tts_segments(text, "zhipu"):
+            if self._stopped:
+                break
+            pcm = await asyncio.to_thread(self._synthesize, segment)
+            if self._stopped:
+                break
+            if pcm:
+                yield pcm
 
     async def stop(self) -> None:
         self._stopped = True
