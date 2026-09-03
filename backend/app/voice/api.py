@@ -84,6 +84,9 @@ async def voice_realtime(websocket: WebSocket, token: str = "", ticket: str = ""
     try:
         while True:
             msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                logger.info("voice_client_disconnected", user_id=user_id)
+                break
             if msg.get("bytes") is not None:
                 await session.on_audio(msg["bytes"])
             elif msg.get("text") is not None:

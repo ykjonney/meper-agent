@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,7 +10,7 @@ from app.voice.providers.volcano import (
     VolcanoASRClient,
     VolcanoTTSClient,
 )
-from app.voice.providers.volcano_protocol import EventType, TTSMessage
+from app.voice.providers.volcano_protocol import EventType, MsgType, TTSMessage
 
 
 @pytest.mark.asyncio
@@ -95,3 +96,33 @@ async def test_tts_stop_discards_interrupted_connection() -> None:
     ws.close.assert_awaited_once()
     assert client._ws is None
     assert client._session_id == ""
+
+
+async def test_tts_chunks_use_independent_protocol_sessions(monkeypatch):
+    client = VolcanoTTSClient(
+        TTSRuntime(api_key="key", resource_id="tts", url="wss://tts", voice_type="v")
+    )
+    client._ws = AsyncMock()
+    monkeypatch.setattr(client, "_ensure_open", AsyncMock())
+    replies = []
+    for _ in range(2):
+        replies.extend([
+            SimpleNamespace(type=MsgType.FULL_SERVER_RESPONSE, event=EventType.SESSION_STARTED),
+            SimpleNamespace(type=MsgType.AUDIO_ONLY_SERVER, event=None, payload=b"pcm"),
+            SimpleNamespace(type=MsgType.FULL_SERVER_RESPONSE, event=EventType.SESSION_FINISHED),
+        ])
+    monkeypatch.setattr(client, "_receive", AsyncMock(side_effect=replies))
+    assert [chunk async for chunk in client.synth_stream("文" * 331)] == [b"pcm", b"pcm"]
+    sent = [TTSMessage.from_bytes(call.args[0]) for call in client._ws.send.await_args_list]
+    requests = [msg for msg in sent if msg.event == EventType.TASK_REQUEST]
+    assert len(requests) == 2
+    assert requests[0].session_id != requests[1].session_id
+    assert client._session_id == ""
+
+
+async def test_tts_stop_while_opening_does_not_start_session(monkeypatch):
+    client = VolcanoTTSClient(
+        TTSRuntime(api_key="key", resource_id="tts", url="wss://tts", voice_type="v")
+    )
+    monkeypatch.setattr(client, "_ensure_open", client.stop)
+    assert [chunk async for chunk in client.synth_stream("你好")] == []

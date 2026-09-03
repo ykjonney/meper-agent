@@ -12,6 +12,7 @@ from app.voice.providers.aliyun import AliyunASRClient, AliyunTTSClient
 from app.voice.providers.factory import create_asr_client, create_tts_client
 from app.voice.providers.volcano import VolcanoASRClient, VolcanoTTSClient
 from app.voice.providers.zhipu import ZhipuASRClient, ZhipuTTSClient
+from app.voice.tts_text import TTS_TEXT_LIMITS
 
 
 def runtime(provider: str = "volcano") -> VoiceRuntimeConfig:
@@ -95,6 +96,54 @@ async def test_zhipu_tts_payload(monkeypatch) -> None:
         "speed": 1.2,
         "volume": 0.8,
     }
+
+
+@pytest.mark.parametrize("provider", ["aliyun", "zhipu", "volcano"])
+async def test_tts_sanitizes_chunks_and_stops_between_segments(monkeypatch, provider):
+    client = create_tts_client(runtime(provider))
+    received = []
+
+    def synthesize(text):
+        received.append(text)
+        return text.encode()
+
+    async def synth_session(text):
+        yield synthesize(text)
+
+    if provider == "volcano":
+        monkeypatch.setattr(client, "_synth_session", synth_session)
+    else:
+        monkeypatch.setattr(client, "_synthesize", synthesize)
+    limit = TTS_TEXT_LIMITS[provider]
+    stream = client.synth_stream("😀" + "文" * (limit + 1))
+    assert await anext(stream) == ("文" * limit).encode()
+    await client.stop()
+    assert [chunk async for chunk in stream] == []
+    assert received == ["文" * limit]
+
+    received.clear()
+    # A new invocation after stop must work, including every remaining segment.
+    chunks = [chunk async for chunk in client.synth_stream("文" * (limit + 1))]
+    assert b"".join(chunks) == ("文" * (limit + 1)).encode()
+    assert received == ["文" * limit, "文"]
+    received.clear()
+    assert [chunk async for chunk in client.synth_stream("😀")] == []
+    assert received == []
+
+
+@pytest.mark.parametrize("provider", ["aliyun", "zhipu"])
+async def test_stop_during_http_request_discards_audio(monkeypatch, provider):
+    client = create_tts_client(runtime(provider))
+
+    async def stopped_request(*args):
+        await client.stop()
+        return b"audio"
+
+    request = AsyncMock(side_effect=stopped_request)
+    monkeypatch.setattr("asyncio.to_thread", request)
+    text = "文" * (TTS_TEXT_LIMITS[provider] + 1)
+    assert [chunk async for chunk in client.synth_stream(text)] == []
+    request.assert_awaited_once()
 
 
 @pytest.mark.asyncio

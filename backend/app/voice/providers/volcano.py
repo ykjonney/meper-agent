@@ -21,6 +21,7 @@ from app.voice.providers.volcano_protocol import (
     parse_asr_response,
     tts_event,
 )
+from app.voice.tts_text import prepare_tts_segments
 
 ASR_CHUNK_BYTES = 16000 * 2 * 200 // 1000  # PCM16 mono, 200 ms
 
@@ -222,9 +223,20 @@ class VolcanoTTSClient:
             raise RuntimeError("TTS 连接成功，但没有返回音频数据")
 
     async def synth_stream(self, text: str) -> AsyncIterator[bytes]:
-        await self._ensure_open()
-        assert self._ws is not None
         self._stopped = False
+        for segment in prepare_tts_segments(text, "volcano"):
+            if self._stopped:
+                break
+            async for pcm in self._synth_session(segment):
+                if self._stopped:
+                    break
+                yield pcm
+
+    async def _synth_session(self, text: str) -> AsyncIterator[bytes]:
+        await self._ensure_open()
+        if self._stopped:
+            return
+        assert self._ws is not None
         session_id = str(uuid.uuid4())
         self._session_id = session_id
         request = {
