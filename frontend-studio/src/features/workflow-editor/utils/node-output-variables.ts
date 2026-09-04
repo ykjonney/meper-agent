@@ -22,9 +22,11 @@ export interface NodeOutputField {
 /**
  * 节点类型 → 输出字段列表
  *
- * agent 节点为 API 返回体模型：固定字段（status/response/agent_id/files/
- * usage/needed_info）由引擎恒定提供；response 的结构化字段由
- * config.response_schema 声明，见 getEffectiveOutputVariables 的合并逻辑。
+ * agent 节点为 API 返回体模型（v3 契约）：固定字段（response/agent_id/
+ * files/usage）由引擎恒定提供；abort 时未配信息不足分支则节点直接失败
+ * （原因见 error_message），配了则 response 承载 abort 原因并走该分支。
+ * response 的结构化字段由 config.response_schema 声明，
+ * 见 getEffectiveOutputVariables 的合并逻辑。
  */
 export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
   start: [
@@ -34,12 +36,10 @@ export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
     { name: 'output_mapping', label: '输出映射', type: 'object', description: '输出字段映射结果' },
   ],
   agent: [
-    { name: 'status', label: '状态', type: 'string', description: '"ok"（正常）| "insufficient"（信息不足信号，配合信息不足分支路由）' },
-    { name: 'response', label: 'Agent 响应', type: 'any', description: '核心内容：默认文本；声明返回结构后为原生对象/数组（{{node.response.字段}} 直接取值）' },
+    { name: 'response', label: 'Agent 响应', type: 'any', description: '核心内容：默认文本；声明返回结构后为原生对象/数组（{{node.response.字段}} 直接取值）；abort 走信息不足分支时为终止原因' },
     { name: 'agent_id', label: 'Agent ID', type: 'string', description: '执行的 Agent ID' },
     { name: 'files', label: '产出文件', type: 'object', description: '生成的文件列表（{{node.files.0.file_id}} 取第一个文件的 ID）' },
     { name: 'usage', label: 'Token 用量', type: 'object', description: '本次执行的 token 用量（{{node.usage.total_tokens}}）' },
-    { name: 'needed_info', label: '待补充信息', type: 'string', description: '信息不足时 Agent 说明需要补充的内容，其余时候为空字符串' },
   ],
   tool: [
     { name: 'tool_name', label: '工具名称', type: 'string', description: '调用的工具名称' },

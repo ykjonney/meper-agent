@@ -12,7 +12,7 @@
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
-import { useState, useMemo, useRef, useCallback, Fragment } from 'react'
+import { useState, useMemo, useRef, useCallback, Fragment, type ReactNode } from 'react'
 import { Button, Popover, Tag, Badge, Tooltip, Modal } from '../../components/ui'
 import { Code, Maximize2 } from 'lucide-react'
 import type { WorkflowNode } from '../../services/workflows-api'
@@ -50,6 +50,8 @@ export interface VariableSelectorProps {
   textarea?: boolean
   /** 标签文本 */
   label?: string
+  /** 标签旁附加内容（如帮助图标） */
+  labelExtra?: ReactNode
   /** 是否必填（显示红色星号） */
   required?: boolean
 }
@@ -160,6 +162,7 @@ export default function VariableSelector({
   rows = 3,
   textarea = true,
   label,
+  labelExtra,
   required = false,
 }: VariableSelectorProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
@@ -358,6 +361,7 @@ export default function VariableSelector({
           <label className="text-xs text-slate-400 shrink-0">
             {label}
             {required && <span className="text-red-500 ml-0.5">*</span>}
+            {labelExtra && <span className="ml-1 inline-flex">{labelExtra}</span>}
           </label>
         )}
         <div className="flex items-center gap-1.5 ml-auto">

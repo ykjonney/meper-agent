@@ -36,6 +36,7 @@ dev-local:
 	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd backend && uv run celery -A app.workers.celery_app beat --loglevel=info) & \
 	(cd frontend && npm run dev) & \
+	(cd frontend-studio && npm run dev)
 	(cd frontend-client && npm run dev) & \
 	wait
 

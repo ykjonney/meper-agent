@@ -13,6 +13,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import timedelta
 from typing import Any
@@ -268,14 +269,33 @@ class WorkflowEngine:
         self._pending_node_id = ""
 
         try:
-            # Find start node(s) — nodes with no incoming edges
+            # start 节点只能有一个（唯一入口语义；校验器 MULTIPLE_START_NODES
+            # 已升 ERROR 在保存期拦截，此处取第一个作运行时兜底）。
             start_nodes = self._find_start_nodes()
             if not start_nodes:
                 raise ValueError("工作流没有 start 节点")
+            if len(start_nodes) > 1:
+                logger.warning(
+                    "workflow_multiple_start_nodes",
+                    task_id=self._task_id,
+                    start_nodes=start_nodes,
+                    using=start_nodes[0],
+                )
+            await self._execute_node(start_nodes[0])
 
-            # Execute from each start node
-            for start_id in start_nodes:
-                await self._execute_node(start_id)
+            # 完成时未经过任何 end 节点 → 中途死端静默完成（如网关全不匹配
+            # 且无默认分支、漏连线）。不改成功/失败语义，仅记警告事件供排查。
+            if not any(n.get("type") == "end" for n in self._nodes if n.get("node_id") in self._completed_nodes):
+                logger.warning("workflow_completed_without_end", task_id=self._task_id)
+                with contextlib.suppress(Exception):
+                    await TaskService.append_timeline_event(
+                        task_id=self._task_id,
+                        event_type="workflow_completed_without_end",
+                        data={
+                            "completed_nodes": sorted(self._completed_nodes),
+                            "hint": "任务完成时未经过任何 end 节点（可能存在漏连线或网关无默认分支）",
+                        },
+                    )
 
             # Mark Task as completed
             final_output = self._pool.get_all()

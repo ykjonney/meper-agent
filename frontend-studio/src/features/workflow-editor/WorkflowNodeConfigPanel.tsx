@@ -11,6 +11,7 @@ import { Trash2 } from 'lucide-react'
 import { ListTree } from 'lucide-react'
 import type { WorkflowNode } from '../../services/workflows-api'
 import { NODE_TYPE_CONFIGS } from './utils/node-type-configs'
+import HelpHint from './HelpHint'
 import StartNodeConfig from './node-config-panels/StartNodeConfig'
 import EndNodeConfig from './node-config-panels/EndNodeConfig'
 import AgentNodeConfig from './node-config-panels/AgentNodeConfig'
@@ -99,23 +100,15 @@ export default function WorkflowNodeConfigPanel({
             <span className="text-sm font-medium text-[#fafafa]">
               {nt?.label ?? selectedNode.type} 配置
             </span>
+            {nt?.description && <HelpHint text={nt.description} />}
           </div>
           <Tag className="!m-0 !text-[10px]">{selectedNode.node_id}</Tag>
         </div>
-        <Input
-          value={selectedNode.label}
-          onChange={(e) => onNodeChange({ ...selectedNode, label: e.target.value })}
-          placeholder="节点名称"
-          className="mb-3"
-        />
         <NodeConfigPanel
           node={selectedNode}
           allNodes={allNodes}
           onNodeChange={onNodeChange}
         />
-        {nt && (
-          <p className="text-[10px] text-[#71717a] mt-3">{nt.description}</p>
-        )}
         {onNodeDelete && selectedNode.node_id && (
           <div className="mt-4 pt-3 border-t border-[#27272a]">
             <Popconfirm

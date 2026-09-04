@@ -473,6 +473,9 @@ class TestAgentNodeExecuteWorkflowContext:
         })
         assert result.success is True
         assert result.output["response"] == "分析完成"
+        # v3 契约：固定字段集 = response/agent_id/files/usage
+        # （status/needed_info/thinking 已随简化移除）
+        assert set(result.output.keys()) == {"response", "agent_id", "files", "usage"}
 
 
 # ---------------------------------------------------------------------------
@@ -494,16 +497,17 @@ class TestAgentNodeOutputExtraction:
 
     此前 node_executor 直接存 last_msg.content，GLM quirk 块被前端
     KeyValueGrid 逐行渲染成 signature/thinking/type/text 裸字段。
+    v3 契约：思考过程不进节点输出（完整执行明细经
+    /tasks/{id}/nodes/{id}/timeline 查看），只验正文提取。
     """
 
-    def test_glm_quirk_block_yields_plain_answer_and_keeps_thinking(self):
+    def test_glm_quirk_block_yields_plain_answer(self):
         result = _run_execute({
             "messages": [SimpleNamespace(content=[dict(_GLM_QUIRK_BLOCK)])],
         })
         assert result.success is True
         assert result.output["response"] == "好的！这是最终回答。"
-        # 网关违规返回的思考过程保留到节点输出
-        assert result.output["thinking"] == "Vague but can proceed."
+        assert "thinking" not in result.output
 
     def test_standard_anthropic_blocks(self):
         result = _run_execute({
@@ -514,7 +518,7 @@ class TestAgentNodeOutputExtraction:
         })
         assert result.success is True
         assert result.output["response"] == "正文回答"
-        assert result.output["thinking"] == "先推理"
+        assert "thinking" not in result.output
 
     def test_plain_string_content_no_thinking_key(self):
         result = _run_execute({
@@ -532,7 +536,7 @@ class TestAgentNodeOutputExtraction:
         })
         assert result.success is True
         assert result.output["response"] == ""
-        assert result.output["thinking"] == "只有思考"
+        assert "thinking" not in result.output
 
     def test_signature_never_reaches_output(self):
         result = _run_execute({
@@ -570,16 +574,13 @@ class TestAbortSignalBranch:
         )
         assert result.success is True
         assert result.selected_branch == "node_human_clarify"
-        assert result.output["status"] == "insufficient"
-        # 恒定结构：字段集与正常分支一致（API 返回体承诺，下游永不踩空）
-        assert set(result.output.keys()) == {
-            "status", "response", "agent_id", "files", "usage", "needed_info",
-        }
+        # v3 契约：恒定字段集 = response/agent_id/files/usage（与正常分支
+        # 一致，下游永不踩空）；abort 原因（含 needed_info）汇总进 response。
+        assert set(result.output.keys()) == {"response", "agent_id", "files", "usage"}
         assert result.output["files"] == []
         assert result.output["usage"] == {}
-        # reason/needed_info 进 response，澄清分支可引用展示
         assert "输入过于泛化" in result.output["response"]
-        assert result.output["needed_info"] == "请指明目标产品与时间范围"
+        assert "请指明目标产品与时间范围" in result.output["response"]
 
     def test_abort_without_branch_still_fails_hard(self):
         """未配置 insufficient_branch → 维持诚实硬失败（现状回归）。"""
@@ -879,9 +880,9 @@ class TestStructuredOutputEndToEnd:
             "status": "completed", "summary": "报告完成",
         }
         assert "parsed" not in result.output
-        # 固定字段恒定
-        assert result.output["status"] == "ok"
-        assert result.output["needed_info"] == ""
+        # v3 契约：固定字段集不含 status/needed_info
+        assert "status" not in result.output
+        assert "needed_info" not in result.output
         assert mock_invoke.call_count == 1
 
     def test_system_prompt_contains_output_contract(self):
@@ -939,19 +940,16 @@ class TestStructuredOutputEndToEnd:
         )
         assert result.success is True
         assert result.output["response"] == "分析完成，报告如上。"
-        assert result.output["status"] == "ok"
         assert mock_invoke.call_count == 1
 
     def test_normal_output_constant_field_set(self):
-        """正常分支固定字段集 = API 返回体承诺（thinking 非空才写）。"""
+        """正常分支固定字段集 = API 返回体承诺（v3：thinking 不再输出）。"""
         result, _ = _run_execute_rich(
             {"messages": [{"role": "assistant", "content": "done"}],
              "usage": {"total_tokens": 5}},
             node_config={"agent_id": "agent_x", "input_query": "x"},
         )
-        assert set(result.output.keys()) == {
-            "status", "response", "agent_id", "files", "usage", "needed_info",
-        }
+        assert set(result.output.keys()) == {"response", "agent_id", "files", "usage"}
 
 
 # ---------------------------------------------------------------------------

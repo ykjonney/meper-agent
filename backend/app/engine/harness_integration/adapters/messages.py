@@ -125,7 +125,9 @@ def _emit_tool_message(msg: BaseMessage, events: list[AppEvent]) -> None:
     ``tool_name`` falls back to an empty string when the ToolMessage carries
     no ``name`` (older LangChain versions); the result content is always
     stringified. ``tool_call_id`` is carried over so recall_tool_result can
-    retrieve the original content after compression.
+    retrieve the original content after compression. ``status`` 透传
+    ToolMessage 的成功/失败标记，与流式适配器 (stream_events.on_tool_end)
+    对齐，历史重建时前端才能结构化区分工具成败。
 
     多模态 list content（view_image 的图片块）：extract_answer_text 只收
     text 块（image 块无 text 字段自然丢弃），为空时给占位——绝不能 fallback
@@ -136,10 +138,12 @@ def _emit_tool_message(msg: BaseMessage, events: list[AppEvent]) -> None:
     content = extract_answer_text(raw)
     if not content:
         content = "[图片已载入]" if isinstance(raw, list) else str(raw or "")
+    status = "error" if getattr(msg, "status", None) == "error" else "success"
     events.append(
         ToolResultEvent(
             tool_name=tool_name,
             content=content,
+            status=status,
             tool_call_id=getattr(msg, "tool_call_id", "") or "",
         )
     )

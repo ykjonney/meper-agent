@@ -17,9 +17,8 @@
  */
 import { Select, Tag } from '../../../components/ui'
 import VariableSelector from '../VariableSelector'
-import ApprovalViewEditor from './ApprovalViewEditor'
+import HelpHint from '../HelpHint'
 import type { WorkflowNode } from '../../../services/workflows-api'
-import type { ViewSection } from '../../../components/approval-view/types'
 
 interface Props {
   config: Record<string, unknown>
@@ -52,63 +51,47 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
         />
       </div>
 
-      {/* ── 审批描述（支持变量引用，可插入上游节点输出） ── */}
+      {/* ── 审批内容（Markdown，支持变量引用，可插入上游节点输出） ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">审批描述</label>
         <VariableSelector
+          label="审批内容"
+          labelExtra={
+            <HelpHint text="给审批人看的正文，支持 Markdown 与上游节点变量（如 {{node_id.field}}），运行时先解析变量再渲染。" />
+          }
           value={typeof config?.description === 'string' ? config.description : ''}
           onChange={(val) => onChange({ ...(config ?? {}), description: val })}
           currentNodeId={currentNodeId}
           allNodes={allNodes}
-          rows={3}
-          placeholder="描述需要人工审批的内容，可插入上游节点变量，如：请审核 {{node_id.field}}"
-        />
-      </div>
-
-      {/* ── 审批视图（给审批人看什么内容、怎么展示） ── */}
-      <div>
-        <label className="block text-xs text-slate-400 mb-1">审批视图</label>
-        <div className="text-[10px] text-[#71717a] mb-1.5">
-          配置审批人看到的材料（字段卡片、文档预览、文件、表格）。不配置则仅展示标题和描述。
-        </div>
-        <ApprovalViewEditor
-          sections={
-            Array.isArray((config?.view as { sections?: ViewSection[] })?.sections)
-              ? (config!.view as { sections: ViewSection[] }).sections
-              : []
-          }
-          onChange={(sections) => onChange({ ...(config ?? {}), view: { sections } })}
-          currentNodeId={currentNodeId}
-          allNodes={allNodes}
+          rows={4}
+          placeholder="需要人工审批的内容（Markdown），可插入上游节点变量，如：\n## 质检报告\n请审核 {{node_id.report}}"
         />
       </div>
 
       {/* ── 审批行为（系统固定三个：approve / reject / comment） ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1.5">审批行为</label>
+        <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+          审批行为
+          <HelpHint text="审批完成后，审批结论、意见、审批人和审批时间会写入流程变量，供下游节点引用。" />
+        </label>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
             <Tag color="success">通过</Tag>
             <span className="text-xs text-slate-400 flex-1">
-              审批人点击后，任务继续执行，decision=<code className="font-mono text-[#a78bfa]">approve</code>
+              审批人点击后，任务继续执行
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
             <Tag color="error">驳回</Tag>
             <span className="text-xs text-slate-400 flex-1">
-              审批人点击后，任务标记为 FAILED，decision=<code className="font-mono text-[#a78bfa]">reject</code>
+              审批人点击后，任务标记为失败并终止
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
             <Tag color="purple">意见</Tag>
             <span className="text-xs text-slate-400 flex-1">
-              审批人在通过/驳回时填写，可空，comment 写入 variables
+              审批人在通过或驳回时填写，可留空
             </span>
           </div>
-        </div>
-        <div className="text-[10px] text-[#71717a] mt-1.5">
-          审批完成后，<code className="font-mono">variables.human_decision_&lt;node_id&gt;</code> 包含
-          decision / comment / approver / decided_at 四个字段
         </div>
       </div>
 

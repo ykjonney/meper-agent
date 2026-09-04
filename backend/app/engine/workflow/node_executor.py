@@ -5,6 +5,7 @@ The ``WorkflowEngine`` selects the appropriate executor based on node type.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import operator as _operator
@@ -366,14 +367,21 @@ class AgentNodeExecutor(BaseNodeExecutor):
     输出 = 类 API 返回体（固定字段恒定，分支间结构一致）::
 
         {
-            "status": "ok" | "insufficient",   # 固定信号
             "response": str | dict | list,     # 默认文本；契约模式下原生 dict/list
             "agent_id": "...",                 # 固定
-            "files": [...],                    # 固定（insufficient 时 []）
-            "usage": {...},                    # 固定（insufficient 时 {}）
-            "needed_info": "...",              # 固定（insufficient 时有值，否则 ""）
-            "thinking": "..."                  # 可选，非空才写
+            "files": [...],                    # 固定（abort 分支时 []）
+            "usage": {...}                     # 固定（abort 分支时 {}）
         }
+
+    abort（agent 调 abort_workflow）两出口，模型要不按 response 返回、要不
+    诚实终止（v3 契约：status/needed_info/thinking 已随简化移除——路由由
+    NodeResult.selected_branch/success 承担，abort 原因进 error_message 或
+    response）::
+
+        - 未配置 insufficient_branch（默认）：节点失败，abort 原因即
+          error_message（AGENT_INPUT_INSUFFICIENT），工作流诚实终止。
+        - 配置了 insufficient_branch：success + selected_branch 只走该澄清
+          分支，response = abort 原因汇总（下游 {{agent_x.response}} 引用）。
 
     Config::
 
@@ -387,8 +395,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
             "response_schema": {               # optional — response 结构契约
                 "type": "object",              #   text(默认)|object|array
                 "fields": [
-                    {"name": "status", "type": "enum", "required": true,
-                     "enum_values": ["completed", "insufficient_info"]},
                     {"name": "author", "type": "object",
                      "fields": [{"name": "name", "type": "string"}]}   # 最多两层
                 ]
@@ -705,10 +711,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     # needed_info)（非 interrupt 工具）。扫描 messages 中的
                     # tool_call 判定（确定性信号，不进重试）：
                     # - 未配置 insufficient_branch（默认）：工作流诚实失败终止，
-                    #   reason 展示给用户。
+                    #   abort 原因即 error_message 展示给用户。
                     # - 配置了 insufficient_branch：转为可路由信号——节点
-                    #   success + status="insufficient"，执行流只走该分支
-                    #   （如 human 澄清节点），由作者设计澄清后的续接路径。
+                    #   success + selected_branch 只走该澄清分支（如 human
+                    #   澄清节点），abort 原因汇总进 response 供下游引用。
                     abort_args = self._find_abort_request(
                         result.get("messages") if isinstance(result, dict) else None,
                     )
@@ -727,19 +733,17 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         )
                         if insufficient_branch:
                             # 信号模式：固定字段集与正常分支一致（API 返回体
-                            # 恒定结构）。response 为 reason 汇总文本——信息
+                            # 恒定结构）。response 为 abort 原因汇总——信息
                             # 不足时无结构可依，不解析 response 契约；下游
-                            # 澄清分支可用 {{agent_x.response}} /
-                            # {{agent_x.needed_info}} 展示原因并收集补充信息。
+                            # 澄清分支可用 {{agent_x.response}} 展示原因并
+                            # 收集补充信息。
                             return NodeResult(
                                 success=True,
                                 output={
-                                    "status": "insufficient",
                                     "response": abort_summary,
                                     "agent_id": agent_id,
                                     "files": [],
                                     "usage": {},
-                                    "needed_info": needed,
                                 },
                                 selected_branch=insufficient_branch,
                             )
@@ -754,9 +758,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     # （Anthropic thinking+text 各自成块）或 GLM quirk
                     # （无视 thinking disabled，正文藏在 thinking 块的
                     # 额外 text 字段里）。统一走 extract_answer_text 提取，
-                    # signature/thinking 等元数据不进 response。
+                    # signature/thinking 等元数据不进 response；思考过程
+                    # 不再进节点输出（v3 契约移除 thinking 字段——完整执行
+                    # 明细经 /tasks/{id}/nodes/{id}/timeline 查看）。
                     output_content = ""
-                    thinking_content = ""
                     if result.get("messages"):
                         last_msg = result["messages"][-1]
                         # 兼容 LangChain AIMessage（.content）和 dict（["content"]）
@@ -766,12 +771,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         )
                         from app.engine.harness_integration.adapters.content import (
                             extract_answer_text,
-                            extract_thinking_text,
                         )
 
                         output_content = extract_answer_text(raw_content)
-                        # 网关违规返回的思考过程保留到节点输出（response 只含正文）
-                        thinking_content = extract_thinking_text(last_msg)
 
                     # ── response 结构契约校验（opt-in）──
                     # JSON 解析/枚举校验是确定性信号（区别于启发式文本检测）：
@@ -841,31 +843,25 @@ class AgentNodeExecutor(BaseNodeExecutor):
                     )
 
                     # ── 组装节点输出（API 返回体恒定结构）──
-                    # 固定字段集在正常/insufficient 分支间恒定，下游引用永不
-                    # 踩空：status / response / agent_id / files / usage /
-                    # needed_info（thinking 非空才写，调试性可选字段）。
+                    # 固定字段集在正常/abort 分支间恒定，下游引用永不踩空：
+                    # response / agent_id / files / usage（v3 契约：status/
+                    # needed_info/thinking 已移除，路由与失败信号由
+                    # selected_branch/success/error_message 承担）。
                     # response 在契约模式下是解析后的原生 dict/list——下游
                     # {{node.response.field.sub}} 原生取值，无深解析依赖。
-                    output: dict[str, Any] = {
-                        "status": "ok",
-                        "response": parsed_output
-                        if parsed_output is not None
-                        else output_content,
-                        "agent_id": agent_id,
-                        "files": files_output,
-                        # Token usage from harness (execution.py puts mw.summary
-                        # into result["usage"]); surfaced for timeline + task total.
-                        "usage": result.get("usage") or {},
-                        "needed_info": "",
-                    }
-                    if thinking_content:
-                        # GLM 等网关无视 thinking disabled 时仍返回思考过程；
-                        # 保留到节点输出供调试/展示，仅在非空时写入。
-                        output["thinking"] = thinking_content
-
                     return NodeResult(
                         success=True,
-                        output=output,
+                        output={
+                            "response": parsed_output
+                            if parsed_output is not None
+                            else output_content,
+                            "agent_id": agent_id,
+                            "files": files_output,
+                            # Token usage from harness (execution.py puts
+                            # mw.summary into result["usage"]); surfaced for
+                            # timeline + task total.
+                            "usage": result.get("usage") or {},
+                        },
                     )
                 except TimeoutError:
                     last_error = f"Agent 执行超时 ({timeout_ms}ms)"
@@ -1398,7 +1394,14 @@ class GatewayNodeExecutor(BaseNodeExecutor):
     comparison for strings (e.g. ``"APPROVE"`` matches ``"approve"``), and keep
     the bool-coercion behavior for boolean expected values.
 
-    Conditions are evaluated in order; the first match wins.
+    String ``expected`` values (the workflow editor stores them as plain text)
+    are coerced to ``actual``'s type before comparison — ``"true"/"false"``
+    against a bool, ``"42"`` against a number, quoted ``"'ok'"`` against a
+    string — see :func:`_coerce_expected`.
+
+    Conditions are evaluated in order; the first match wins. When nothing
+    matches, a ``gateway_fallback`` warning is logged with each condition's
+    evaluated value/type for troubleshooting.
     """
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
@@ -1410,6 +1413,9 @@ class GatewayNodeExecutor(BaseNodeExecutor):
 
         engine = ExpressionEngine(variables)
 
+        # 记录每条条件的求值详情（值 + 类型），走 default 时随 warning 输出便于排障
+        evaluated: list[dict[str, Any]] = []
+
         for cond in conditions:
             expression = cond.get("expression", "")
             expected = cond.get("expected", True)
@@ -1418,7 +1424,17 @@ class GatewayNodeExecutor(BaseNodeExecutor):
 
             try:
                 actual = engine.resolve(expression)
-                if _gateway_compare(actual, expected, op):
+                matched = _gateway_compare(actual, expected, op)
+                evaluated.append(
+                    {
+                        "expression": expression,
+                        "op": op,
+                        "actual": _gateway_debug_value(actual),
+                        "expected": _gateway_debug_value(expected),
+                        "matched": matched,
+                    }
+                )
+                if matched:
                     logger.debug(
                         "gateway_match",
                         node_id=self.node_id,
@@ -1431,10 +1447,18 @@ class GatewayNodeExecutor(BaseNodeExecutor):
                     )
             except Exception as exc:
                 logger.warning("gateway_condition_error", node_id=self.node_id, expression=expression, error=str(exc))
+                evaluated.append(
+                    {"expression": expression, "op": op, "error": str(exc), "matched": False}
+                )
                 continue
 
         # No condition matched — use fallback
-        logger.debug("gateway_fallback", node_id=self.node_id, target=fallback)
+        logger.warning(
+            "gateway_fallback",
+            node_id=self.node_id,
+            target=fallback,
+            conditions=evaluated,
+        )
         return NodeResult(
             success=True,
             output={"selected_branch": fallback, "condition": "default"},
@@ -1452,28 +1476,111 @@ _GATEWAY_ORDER_OPS: dict[str, Any] = {
 }
 
 
+def _coerce_expected(actual: Any, expected: Any) -> Any:
+    """Coerce a string ``expected`` to align with ``actual``'s type.
+
+    工作流编辑器前端的「期望值」是纯文本 Input（恒存字符串），而后端 actual
+    会被 ExpressionEngine 还原为原始类型（bool/int/...），直接比较会把跨类型
+    一律判为不匹配（``True == "true"`` / ``42 == "42"`` 为 False，ordering
+    抛 TypeError）。此处按 actual 的类型归一化字符串 expected：
+
+    - actual 是 bool：``"true"/"false"``（不区分大小写）→ ``True/False``
+    - actual 是 int/float：``"42"`` → ``42``，``"3.14"`` → ``3.14``
+    - actual 是 str：``"'ok'"`` 带引号字面量去掉一层引号（对齐 placeholder 提示）
+    - actual 是 list/tuple/dict：尝试 ``ast.literal_eval`` 还原容器字面量
+
+    解析失败保持原字符串（str vs str 比较不受影响）；非字符串 expected
+    （如 API 直填的真 bool/int）原样返回。
+    """
+    if not isinstance(expected, str):
+        return expected
+    s = expected.strip()
+    if not s:
+        return expected
+    if isinstance(actual, bool):
+        lowered = s.lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+        return expected
+    if isinstance(actual, (int, float)):
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                return float(s)
+            except ValueError:
+                return expected
+    if isinstance(actual, str):
+        # 用户按 placeholder 提示填了 'ok'（带引号）→ 去掉一层引号；
+        # literal_eval("true")（小写）与 literal_eval("ok") 均失败，保持原串
+        try:
+            unquoted = ast.literal_eval(s)
+        except (ValueError, SyntaxError):
+            return expected
+        return unquoted if isinstance(unquoted, str) else expected
+    if isinstance(actual, (list, tuple, dict)):
+        try:
+            return ast.literal_eval(s)
+        except (ValueError, SyntaxError):
+            return expected
+    return expected
+
+
+def _bool_from(value: Any) -> bool:
+    """Coerce ``value`` to bool, parsing ``"true"/"false"`` string literals first.
+
+    ``bool("false")`` 是 ``True``（非空字符串为真），这里先识别布尔字面量再
+    回退 truthiness，修复 expected 为真 bool、actual 为字符串 ``"false"`` 时
+    被误判为匹配的反向问题。
+    """
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return bool(value)
+
+
+def _gateway_debug_value(value: Any) -> dict[str, str]:
+    """Format a value as ``{type, value}`` (repr truncated) for gateway logs."""
+    text = repr(value)
+    if len(text) > 100:
+        text = text[:100] + "..."
+    return {"type": type(value).__name__, "value": text}
+
+
 def _gateway_compare(actual: Any, expected: Any, op: str) -> bool:
     """Compare ``actual`` against ``expected`` using operator ``op``.
 
+    ``expected`` is first coerced via :func:`_coerce_expected` to align with
+    ``actual``'s type (frontend stores expected as a plain string), then:
+
     - ``==`` / ``!=``: case-insensitive for str vs str (e.g. ``"APPROVE"`` ==
-      ``"approve"``); bool expected coerces ``actual`` via ``bool()``; other
-      types use native equality. This preserves the pre-operator behavior while
-      adding case-insensitivity for the common "match approval decision" case.
+      ``"approve"``); bool expected coerces ``actual`` via :func:`_bool_from`
+      (``"false"`` literal parsed before truthiness); other types use native
+      equality. This preserves the pre-operator behavior while adding
+      case-insensitivity for the common "match approval decision" case.
     - ``contains`` / ``not_contains``: 子串包含（actual 是字符串、expected 是
       子串）或元素包含（actual 是列表/元组、expected 是元素）。字符串场景下
       同样不区分大小写，与 ``==`` 保持一致。类型不匹配（如 actual 不是
       str/list）视为不匹配。
     - ``>`` / ``<`` / ``>=`` / ``<=``: native ordering comparison; a
-      ``TypeError`` (incomparable types) is treated as no-match.
+      ``TypeError`` (incomparable types) retries once with both sides
+      numericized (``float()``), and remains a no-match if that also fails.
     - unknown operator: no-match (returns ``False``).
     """
+    expected = _coerce_expected(actual, expected)
+
     if op in ("==", "!="):
         a: Any
         e: Any
         if isinstance(actual, str) and isinstance(expected, str):
             a, e = actual.lower(), expected.lower()
         elif isinstance(expected, bool):
-            a, e = bool(actual), expected
+            a, e = _bool_from(actual), expected
         else:
             a, e = actual, expected
         return a == e if op == "==" else a != e
@@ -1496,7 +1603,11 @@ def _gateway_compare(actual: Any, expected: Any, op: str) -> bool:
     try:
         return bool(func(actual, expected))
     except TypeError:
-        return False
+        # 数值化重试（如 actual 为数字、expected 为数字型字符串），仍不可比视为不匹配
+        try:
+            return bool(func(float(actual), float(expected)))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return False
 
 
 # ── Parallel ──

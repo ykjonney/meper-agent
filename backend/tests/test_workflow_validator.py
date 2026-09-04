@@ -423,6 +423,71 @@ class TestEdgeCases:
         assert result.is_valid
 
 
+# ── 唯一入口 / 悬空 target / 网关默认分支 ──
+
+
+class TestSingleStartAndDanglingTargets:
+    """start 唯一、悬空下游、网关无默认分支。"""
+
+    def test_multiple_start_nodes_is_error(self):
+        """start 节点只能有一个——多 start 升为 ERROR。"""
+        workflow = _make_workflow([
+            {"node_id": "start1", "type": "start", "config": {"next_nodes": [{"target": "end"}]}},
+            {"node_id": "start2", "type": "start", "config": {}},
+            {"node_id": "end", "type": "end", "config": {}},
+        ])
+
+        result = validate_workflow(workflow)
+        assert not result.is_valid
+        assert any(
+            i.code == "MULTIPLE_START_NODES" and i.severity == ValidationSeverity.ERROR
+            for i in result.issues
+        )
+
+    def test_dangling_next_nodes_target(self):
+        """next_nodes 指向不存在的节点 → DANGLING_NEXT_TARGET ERROR。"""
+        workflow = _make_workflow([
+            {"node_id": "start", "type": "start", "config": {"next_nodes": [{"target": "ghost"}]}},
+            {"node_id": "end", "type": "end", "config": {}},
+        ])
+
+        result = validate_workflow(workflow)
+        assert not result.is_valid
+        assert any(i.code == "DANGLING_NEXT_TARGET" for i in result.errors)
+
+    def test_dangling_gateway_and_parallel_targets(self):
+        """gateway conditions/default 与 parallel branches 的悬空 target 同样拦截。"""
+        workflow = _make_workflow([
+            {"node_id": "start", "type": "start", "config": {"next_nodes": [{"target": "g"}]}},
+            {"node_id": "g", "type": "gateway", "config": {
+                "conditions": [{"target": "ghost_a", "expression": "{{ start.x }}"}],
+                "default_branch": "ghost_b",
+            }},
+            {"node_id": "p", "type": "parallel", "config": {
+                "branches": [{"start_node": "ghost_c"}],
+            }},
+            {"node_id": "end", "type": "end", "config": {}},
+        ])
+
+        result = validate_workflow(workflow)
+        codes = [i.code for i in result.errors if i.code == "DANGLING_NEXT_TARGET"]
+        assert len(codes) == 3
+
+    def test_gateway_without_default_branch_warns(self):
+        """网关未配默认分支（条件全不匹配会静默截断）→ WARNING。"""
+        workflow = _make_workflow([
+            {"node_id": "start", "type": "start", "config": {"next_nodes": [{"target": "g"}]}},
+            {"node_id": "g", "type": "gateway", "config": {
+                "conditions": [{"target": "end", "expression": "{{ start.x }}"}],
+            }},
+            {"node_id": "end", "type": "end", "config": {}},
+        ])
+
+        result = validate_workflow(workflow)
+        assert result.is_valid  # 仅 WARNING 不阻断
+        assert any(i.code == "GATEWAY_NO_DEFAULT" for i in result.warnings)
+
+
 # ── Integration Test ──
 
 

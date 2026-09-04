@@ -1,9 +1,11 @@
 /**
  * AgentNodeConfig — Agent 节点配置面板。
  *
- * 输出模型（API 返回体）：
- * - 固定字段（status/response/agent_id/files/usage/needed_info）由引擎恒定
- *   提供，无需用户配置；下游直接 {{node.status}}、{{node.files.0.file_id}}。
+ * 输出模型（API 返回体，v3 契约）：
+ * - 固定字段（response/agent_id/files/usage）由引擎恒定提供，无需用户配置；
+ *   下游直接 {{node.response}}、{{node.files.0.file_id}}。abort 时未配信息
+ *   不足分支则节点直接失败（原因见 error_message），配了则 response 承载
+ *   abort 原因并走该分支。
  * - response 是核心内容：默认文本（零配置）；通过「返回结构」声明为
  *   对象/数组（字段+说明，嵌套最多两层），运行时引擎按契约把 Agent 的
  *   JSON 回复解析为原生结构写入 response，下游 {{node.response.field.sub}}
@@ -12,7 +14,8 @@
  * - Agent ID 通过 Select 选择
  * - 查询（input_query）：必填，作为 user message，支持变量池
  * - 上下文（input_prompt）：可选，注入 Agent 的 context 卡槽，支持变量池
- * - 信息不足分支（insufficient_branch）：abort_workflow 触发时走该分支而非硬失败
+ * - 超时（timeout_ms）；temperature/max_retry 沿用节点默认配置（引擎侧
+ *   消费），信息不足分支（insufficient_branch）已从面板下线（后端能力保留）
  *
  * antd 组件 → 原生 Tailwind ui 封装；保留 @tanstack/react-query（指向 studio agent-api）。
  */
@@ -21,6 +24,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Select, Input, Spin, Switch, Button, Modal } from '../../../components/ui'
 import { agentApi, agentKeys } from '../../../services/agent-api'
 import VariableSelector from '../VariableSelector'
+import HelpHint from '../HelpHint'
 import type { WorkflowNode } from '../../../services/workflows-api'
 
 /** response 结构字段（与后端 _VALID_FIELD_TYPES 一致） */
@@ -163,6 +167,18 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     label: `${a.name} (${a.id.substring(0, 8)}...)`,
   }))
 
+  // 选择 Agent 时同步缓存 agent_name / agent_model——画布节点卡信息区
+  // 展示用，避免跨组件拉取名称映射（改名后需重选才会刷新缓存）。
+  const handleAgentChange = (val: string | null) => {
+    const agent = val ? agents.find((a) => a.id === val) : undefined
+    onChange({
+      ...config,
+      agent_id: val ?? '',
+      agent_name: agent?.name ?? '',
+      agent_model: agent?.default_model ?? '',
+    })
+  }
+
   // 查询内容变更（作为 user message）
   const handleInputQueryChange = (val: string) => {
     onChange({ ...config, input_query: val })
@@ -280,18 +296,6 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     )
   }
 
-  // ── 信息不足分支 ──
-  const handleInsufficientBranchChange = (val: string | null) => {
-    onChange({ ...config, insufficient_branch: val || null })
-  }
-
-  // 信息不足分支候选：画布上除自身外的所有节点（典型：人工审批澄清节点）
-  const branchOptions = allNodes
-    .filter((n) => n.node_id !== currentNodeId)
-    .map((n) => ({ value: n.node_id, label: `${n.type} · ${n.node_id}` }))
-
-  const insufficientBranch = (config.insufficient_branch as string) || null
-
   // ── 放大编辑（Modal 大空间填写，与面板内嵌编辑实时同步同一份 config） ──
   const [zoomOpen, setZoomOpen] = useState(false)
 
@@ -311,12 +315,17 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         <div className="text-[10px] text-[#a1a1aa] mt-1.5 pt-1.5 border-t border-[#27272a]">
           下游引用示例：<code className="font-mono text-[#60A5FA] break-all">{refExample}</code>
         </div>
-        <div className="text-[10px] text-[#71717a] mt-1">
-          另有引擎固定字段：status / files / usage / needed_info（无需配置）
-        </div>
       </div>
     )
   }
+
+  /** response 行摘要（面板内不展开字段详情，点击进弹窗查看/编辑）。 */
+  const responseSummary =
+    schemaType === 'text'
+      ? '纯文本'
+      : `${schemaType === 'object' ? '对象' : '数组'} · ${
+          fields.length === 0 ? '未定义字段' : `${fields.length} 个字段`
+        }`
 
   /** 返回结构编辑区：类型选择 + JSON 形态的字段树（操作即展示） */
   const renderSchemaEditor = () => (
@@ -327,12 +336,6 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         onChange={setSchemaType}
         options={RESPONSE_TYPE_OPTIONS}
       />
-      <div className="text-[10px] text-[#71717a]">
-        response 默认是文本（零配置）。改为对象/数组后，Agent 最终回复必须是符合下方
-        契约的 JSON（违规自动带反馈重试一次），预览即下游拿到的数据；支持多层嵌套
-        （建议 ≤3 层），「列表」开关可作用于任何类型（如对象列表），「必填」控制
-        契约校验是否强制该字段。
-      </div>
 
       {schemaType !== 'text' && (
         <div className="rounded bg-[#09090b] border border-[#27272a] px-2.5 py-2 space-y-2">
@@ -376,7 +379,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           <Select
             className="w-full"
             value={(config.agent_id as string) || null}
-            onChange={(val) => onChange({ ...config, agent_id: val ?? '' })}
+            onChange={handleAgentChange}
             options={agentOptions}
             placeholder="选择 Agent..."
             showSearch
@@ -406,6 +409,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
       <div>
         <VariableSelector
           label="上下文"
+          labelExtra={<HelpHint text="此内容会作为工作流上下文注入 Agent 的「上下文」提示卡槽，覆盖其默认值。角色、任务、约束等仍由 Agent 自身配置决定。" />}
           value={config.input_prompt as string ?? ''}
           onChange={handleContextChange}
           currentNodeId={currentNodeId}
@@ -413,77 +417,65 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           placeholder="注入到 Agent 的 context 卡槽，支持 {{变量}} ..."
           rows={3}
         />
-        <div className="text-[10px] text-[#71717a] mt-0.5">
-          此内容会覆盖 Agent 的 context 卡槽值，用于注入工作流上下文。角色、任务、约束等由 Agent 自身配置决定。
-        </div>
       </div>
 
-      {/* Temperature + 最大重试 + 超时 */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Temperature</label>
-          <Input
-            type="number"
-            value={(config.temperature as number) ?? 0.7}
-            onChange={(e) => onChange({ ...config, temperature: parseFloat(e.target.value) || 0.7 })}
-            step={0.1}
-            min={0}
-            max={2}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">最大重试</label>
-          <Input
-            type="number"
-            value={(config.max_retry as number) ?? 3}
-            onChange={(e) => onChange({ ...config, max_retry: parseInt(e.target.value) || 3 })}
-            min={0}
-            max={10}
-          />
-        </div>
-        <div className="col-span-2">
-          <label className="block text-xs text-slate-400 mb-1">超时 (ms)</label>
-          <Input
-            type="number"
-            value={(config.timeout_ms as number) ?? 300000}
-            onChange={(e) => onChange({ ...config, timeout_ms: parseInt(e.target.value) || 300000 })}
-            min={1000}
-            step={1000}
-          />
-          <div className="text-[10px] text-[#71717a] mt-0.5">
-            Agent 节点无人值守执行（不会暂停询问用户），超时后按失败处理并触发重试。
-          </div>
-        </div>
-      </div>
-
-      {/* 信息不足分支（opt-in）：abort_workflow 触发 → 走该分支而非硬失败 */}
+      {/* 超时（temperature/max_retry/信息不足分支已从面板移除——引擎按
+          默认值执行：温度与重试沿用节点默认配置，abort 诚实终止） */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">信息不足分支</label>
-        <Select
-          className="w-full"
-          value={insufficientBranch}
-          onChange={handleInsufficientBranchChange}
-          options={branchOptions}
-          placeholder="不设置（默认：Agent 判定输入不足时工作流失败终止）"
-          allowClear
+        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+          超时 (ms)
+          <HelpHint text="Agent 节点无人值守执行（不会暂停询问用户），超时后按失败处理并触发重试。" />
+        </label>
+        <Input
+          type="number"
+          value={(config.timeout_ms as number) ?? 300000}
+          onChange={(e) => onChange({ ...config, timeout_ms: parseInt(e.target.value) || 300000 })}
+          min={1000}
+          step={1000}
         />
-        <div className="text-[10px] text-[#71717a] mt-0.5">
-          设置后，Agent 调用 abort_workflow 时不再失败终止，而是输出
-          status=&quot;insufficient&quot; 并只执行该分支（典型：接一个人工审批节点收集补充信息，
-          审批意见可用 {'{{'}human.comment{'}'}{' '} 引回下游）。
-        </div>
       </div>
 
-      {/* 返回结构（response 的结构契约，opt-in） */}
-      <div className="border border-slate-700/60 rounded-md p-2.5 space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-xs text-slate-400">返回结构（response）</label>
-          <Button size="small" onClick={() => setZoomOpen(true)}>
-            ⤢ 放大编辑
-          </Button>
+      {/* 输出变量：全部引擎输出变量一览（用户知道下游可用什么）。
+          仅 response 可编辑（弹窗内查看/编辑结构），其余为固定只读。 */}
+      <div className="border border-slate-700/60 rounded-md p-2.5 space-y-1.5">
+        <div className="flex items-center gap-1">
+          <label className="text-xs text-slate-400">输出变量</label>
+          <HelpHint
+            text={
+              '下游节点可引用的输出变量。response 是 Agent 的核心返回内容——默认纯文本，' +
+              '点击它可改为对象/数组并定义字段结构（Agent 回复不符合结构时会自动重试一次）；' +
+              '其余变量由引擎固定提供，无需配置。'
+            }
+          />
         </div>
-        {renderSchemaEditor()}
-        {schemaType !== 'text' && renderSchemaPreview()}
+
+        {/* response：唯一可编辑项（面板内仅显示摘要，详情在弹窗） */}
+        <button
+          type="button"
+          onClick={() => setZoomOpen(true)}
+          className="w-full flex items-center gap-1.5 text-left rounded border border-[#27272a] bg-[#09090b] px-2 py-1.5 hover:border-[#1E5EFF]/50 transition-colors cursor-pointer"
+        >
+          <span className="text-[10px] font-medium text-[#60A5FA]">response</span>
+          <span className="text-[9px] text-[#71717a] truncate">{responseSummary}</span>
+          <span className="ml-auto shrink-0 text-[9px] text-[#60A5FA]">查看 / 编辑</span>
+        </button>
+
+        {/* 引擎固定输出（只读） */}
+        {[
+          { name: 'agent_id', desc: '执行的 Agent' },
+          { name: 'files', desc: '产出文件列表' },
+          { name: 'usage', desc: 'Token 用量' },
+        ].map((v) => (
+          <div
+            key={v.name}
+            className="flex items-center gap-1.5 rounded border border-[#27272a] px-2 py-1.5"
+          >
+            <span className="text-[10px] font-medium text-[#a1a1aa]">{v.name}</span>
+            <span className="text-[9px] text-[#71717a]">
+              {v.desc} · 固定
+            </span>
+          </div>
+        ))}
       </div>
 
       {/* 放大编辑：左编辑右预览，改字段即时看到最终数据结构 */}

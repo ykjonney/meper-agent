@@ -274,7 +274,7 @@ class WorkflowValidator:
         """Check DAG structure: cycles, start/end nodes, orphan nodes."""
         issues: list[ValidationIssue] = []
 
-        # Check for start node(s)
+        # Check for start node(s) — start 节点只能有一个（唯一入口语义）
         start_nodes = [n for n in self.nodes if n.get("type") == "start"]
         if not start_nodes:
             issues.append(ValidationIssue(
@@ -283,11 +283,46 @@ class WorkflowValidator:
                 message="Workflow has no start node",
             ))
         elif len(start_nodes) > 1:
+            extra = ", ".join(n.get("node_id", "?") for n in start_nodes)
             issues.append(ValidationIssue(
-                severity=ValidationSeverity.WARNING,
+                severity=ValidationSeverity.ERROR,
                 code="MULTIPLE_START_NODES",
-                message=f"Workflow has {len(start_nodes)} start nodes — only one will be used",
+                message=f"start 节点只能有一个，当前有 {len(start_nodes)} 个（{extra}）",
             ))
+
+        # 悬空 target：所有路由出口（next_nodes / gateway conditions+default /
+        # parallel branches）指向的节点必须存在——指向已删除节点会被运行时
+        # 静默跳过，必须在保存期拦下。agent 的 insufficient_branch 由
+        # INVALID_INSUFFICIENT_BRANCH 专项覆盖（含自指检查），此处不查防重复。
+        node_ids = {n.get("node_id", "") for n in self.nodes}
+
+        def _check_target(src: str, tgt: str) -> None:
+            if tgt and tgt not in node_ids:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR,
+                    code="DANGLING_NEXT_TARGET",
+                    message=f"节点 '{src}' 的下游 '{tgt}' 不存在（可能已被删除）",
+                    node_id=src,
+                    context={"target": tgt},
+                ))
+
+        for node in self.nodes:
+            src = node.get("node_id", "")
+            config = node.get("config", {})
+            node_type = node.get("type", "")
+            if node_type == "gateway":
+                for cond in config.get("conditions", []):
+                    if isinstance(cond, dict):
+                        _check_target(src, cond.get("target", ""))
+                _check_target(src, config.get("default_branch", ""))
+            elif node_type == "parallel":
+                for branch in config.get("branches", []):
+                    if isinstance(branch, dict):
+                        _check_target(src, branch.get("start_node", ""))
+            else:
+                for nxt in config.get("next_nodes", []):
+                    if isinstance(nxt, dict):
+                        _check_target(src, nxt.get("target", ""))
 
         # End node is NOT required — the engine does not depend on it.
         # No check needed here.
@@ -542,6 +577,15 @@ class WorkflowValidator:
                         severity=ValidationSeverity.WARNING,
                         code="EMPTY_GATEWAY_CONDITIONS",
                         message="Gateway node has no conditions — will always take default path",
+                        node_id=node_id,
+                    ))
+                # 未配默认分支：条件全不匹配时该路径会被静默截断（任务仍标记
+                # 完成）——提示作者补默认分支兜底。
+                if not str(config.get("default_branch") or "").strip():
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.WARNING,
+                        code="GATEWAY_NO_DEFAULT",
+                        message="Gateway 节点未配置默认分支——条件全不匹配时该路径将静默终止",
                         node_id=node_id,
                     ))
                 else:

@@ -391,12 +391,22 @@ async def get_node_timeline(
         )
 
     messages = tuple_.checkpoint.get("channel_values", {}).get("messages", [])
-    timeline = messages_to_timeline_entries(messages, include_user=True)
+    # 执行明细是调试视图：thinking 块必须渲染（不受 enable_thinking 开关
+    # 过滤——节点输出契约 v3 已移除 thinking 字段，这里是唯一查看处）。
+    timeline = messages_to_timeline_entries(
+        messages, enable_thinking=True, include_user=True,
+    )
+
+    # SystemMessage 永不渲染为 entry，计入 count 只会让「N 条消息」与实际
+    # 渲染条数对不上——按可渲染消息计数。
+    from langchain_core.messages import SystemMessage
+
+    renderable = sum(1 for m in messages if not isinstance(m, SystemMessage))
 
     return NodeTimelineResponse(
         task_id=task_id,
         node_id=node_id,
         thread_id=thread_id,
         timeline=[NodeTimelineEntry(**e) for e in timeline],
-        message_count=len(messages),
+        message_count=renderable,
     )

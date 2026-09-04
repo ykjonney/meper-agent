@@ -52,19 +52,24 @@ if not result.is_valid:
 
 agent 节点的输出模型与 opt-in 配置另有专项校验：
 
-**agent 输出 = 类 API 返回的 JSON 对象**（所有执行分支结构恒定，下游引用永不踩空）：
+**agent 输出 = 类 API 返回的 JSON 对象**（v3 契约，所有执行分支结构恒定，下游引用永不踩空）：
 
 | 字段 | 类型 | 说明 |
 |-----|---------|------|
-| `status` | string | `"ok"`（正常）/ `"insufficient"`（信息不足信号） |
-| `response` | string / object / array | 核心内容：默认文本；声明返回结构后为原生 dict/list |
+| `response` | string / object / array | 核心内容：默认文本；声明返回结构后为原生 dict/list；abort 走信息不足分支时为终止原因 |
 | `agent_id` | string | 固定 |
-| `files` | array | 产出文件（insufficient 时恒为 `[]`） |
-| `usage` | object | token 用量（insufficient 时恒为 `{}`） |
-| `needed_info` | string | 信息不足时 Agent 说明需补充的内容，否则 `""` |
+| `files` | array | 产出文件（abort 分支时恒为 `[]`） |
+| `usage` | object | token 用量（abort 分支时恒为 `{}`） |
+
+abort（agent 调 `abort_workflow`）两出口：未配置 `insufficient_branch` 时节点直接
+失败（abort 原因即 `error_message`，错误码 `AGENT_INPUT_INSUFFICIENT`）；配置了则
+success 并只执行该分支，abort 原因汇总写入 `response` 供澄清节点引用。路由/失败
+信号由节点执行层的 `selected_branch`/`success` 承担，不占输出字段（v3 移除了
+`status`/`needed_info`/`thinking`——`thinking` 类调试信息经
+`/tasks/{task_id}/nodes/{node_id}/timeline` 执行明细查看）。
 
 - **`insufficient_branch`（信息不足分支）**：abort_workflow 触发时不再硬失败，而是
-  输出 `status="insufficient"` 并只执行该分支（典型：human 澄清节点）。校验
+  走该澄清分支（典型：human 澄清节点）。校验
   目标节点存在且不指向自身（计入连边索引，参与 DAG/孤儿检测）。
 - **`response_schema`（response 返回结构）**：`{type: "text"|"object"|"array",
   fields: [...]}`；字段 `{name, type: string|number|boolean|enum|object,
@@ -169,9 +174,19 @@ await engine.run_and_persist(task_id)
 | `MISSING_TOOL_ID` | ERROR | Tool 节点缺少 tool_id |
 | `INVALID_INSUFFICIENT_BRANCH` | ERROR | agent 节点 insufficient_branch 指向不存在/自身的节点 |
 | `INVALID_RESPONSE_SCHEMA` | ERROR | agent 节点 response_schema 结构定义不合法（类型/字段名/枚举/嵌套超两层） |
-| `MULTIPLE_START_NODES` | WARNING | 多个 start 节点 |
+| `DANGLING_NEXT_TARGET` | ERROR | 路由出口（next_nodes / gateway conditions+default / parallel branches）指向不存在的节点（已被删除） |
+| `MULTIPLE_START_NODES` | ERROR | start 节点只能有一个（唯一入口） |
 | `ORPHAN_NODE` | WARNING | 孤立节点（不可达） |
 | `EMPTY_GATEWAY_CONDITIONS` | WARNING | Gateway 无条件 |
+| `GATEWAY_NO_DEFAULT` | WARNING | Gateway 未配默认分支——条件全不匹配时该路径静默终止 |
+
+运行时配套行为：
+
+- **start 唯一**：引擎只执行第一个 start 节点（校验器已在保存期拦截多 start，
+  运行时取第一个作兜底并记 `workflow_multiple_start_nodes` 日志）。
+- **未达 end 完成**：任务完成时若未经过任何 end 节点（如网关全不匹配且无默认
+  分支、漏连线），追加 `workflow_completed_without_end` timeline 警告事件——
+  不改成功/失败语义，仅提升可观测性。
 
 ## 使用场景
 

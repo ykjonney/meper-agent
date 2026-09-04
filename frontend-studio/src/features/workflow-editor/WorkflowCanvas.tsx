@@ -38,6 +38,7 @@ import { DRAG_NODE_TYPE_KEY } from './WorkflowNodePalette'
 import { toXyflowNodes, type WorkflowNodeData, deriveXyflowEdgesFromNodes, syncEdgeChangesToNodes } from './utils/canvas-converters'
 import { generateNodeId, getDefaultNodeConfig } from './utils/node-defaults'
 import { NODE_TYPE_CONFIGS } from './utils/node-type-configs'
+import { toast } from '../../components/ui/toast'
 import type { WorkflowNode } from '../../services/workflows-api'
 
 /* ─── 内部组件：在 ReactFlow 内部监听节点选中事件 ── */
@@ -144,10 +145,10 @@ export default function WorkflowCanvas({
           ...e,
           selected: isSelected,
           style: isSelected
-            ? { stroke: '#3B82F6', strokeWidth: 2.5 }
+            ? { stroke: '#3B82F6', strokeWidth: 1.8 }
             : isCondition
-              ? { stroke: '#8B5CF6', strokeWidth: 2 }
-              : { stroke: '#94A3B8', strokeWidth: 1.5 },
+              ? { stroke: '#8B5CF6', strokeWidth: 1.2 }
+              : { stroke: '#94A3B8', strokeWidth: 0.8 },
         }
       }),
     [workflowNodes, selectedEdgeIds],
@@ -221,6 +222,13 @@ export default function WorkflowCanvas({
       e.preventDefault()
       const type = e.dataTransfer.getData(DRAG_NODE_TYPE_KEY)
       if (!type || !NODE_TYPE_CONFIGS[type]) return
+
+      // start 节点只能有一个（唯一入口）——已有 start 时拒绝再拖入，
+      // 与校验器 MULTIPLE_START_NODES(ERROR) 对齐。
+      if (type === 'start' && workflowNodes.some((n) => n.type === 'start')) {
+        toast.warning('start 节点只能有一个')
+        return
+      }
 
       const instance = rfInstance.current
       if (!instance) return

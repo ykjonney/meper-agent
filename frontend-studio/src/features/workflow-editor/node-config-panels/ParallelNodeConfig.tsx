@@ -2,6 +2,7 @@
  * ParallelNodeConfig — 并行节点配置面板。
  */
 import { Input, Select } from '../../../components/ui'
+import HelpHint from '../HelpHint'
 
 interface Props {
   config: Record<string, unknown>
@@ -36,14 +37,16 @@ export default function ParallelNodeConfig({ config, onChange }: Props) {
         </div>
       )}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">变量作用域</label>
+        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+          变量作用域
+          <HelpHint text="隔离作用域暂未实现，所有分支共享同一变量池。" />
+        </label>
         <Select
           className="w-full"
           value={(config.scope as string) ?? 'shared'}
           onChange={(val) => onChange({ ...config, scope: val ?? 'shared' })}
           options={[{ value: 'shared', label: '共享作用域（所有分支共享变量池）' }]}
         />
-        <div className="text-[10px] text-[#71717a] mt-1">隔离作用域暂未实现，所有分支共享同一变量池</div>
       </div>
       <div>
         <label className="block text-xs text-slate-400 mb-1">分支配置 (JSON)</label>

@@ -26,10 +26,21 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
     queryFn: () => toolsApi.list({ page: 1, page_size: 100 }),
   })
 
-  const toolOptions = (toolsData?.items ?? []).map((t) => ({
+  const tools = toolsData?.items ?? []
+  const toolOptions = tools.map((t) => ({
     value: t.id,
     label: `${t.name} (${t.source})`,
   }))
+
+  // 选择工具时同步缓存 tool_name——画布节点卡显示「类型 · 名称」用。
+  const handleToolChange = (val: string | null) => {
+    const toolName = val ? tools.find((t) => t.id === val)?.name : undefined
+    onChange({
+      ...config,
+      tool_id: val ?? '',
+      ...(toolName ? { tool_name: toolName } : { tool_name: '' }),
+    })
+  }
 
   return (
     <div className="space-y-3">
@@ -41,7 +52,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
           <Select
             className="w-full"
             value={(config.tool_id as string) || null}
-            onChange={(val) => onChange({ ...config, tool_id: val ?? '' })}
+            onChange={handleToolChange}
             options={toolOptions}
             placeholder="选择工具..."
             showSearch

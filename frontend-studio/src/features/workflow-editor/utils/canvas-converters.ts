@@ -61,8 +61,8 @@ export function toXyflowEdges(
     type: 'default',
     animated: !!we.condition,
     style: we.condition
-      ? { stroke: '#8B5CF6', strokeWidth: 2, borderRadius: 8 }
-      : { stroke: '#94A3B8', strokeWidth: 1.5 },
+      ? { stroke: '#8B5CF6', strokeWidth: 1.2, borderRadius: 8 }
+      : { stroke: '#94A3B8', strokeWidth: 0.8 },
     labelStyle: { fontSize: 10, color: '#64748B' },
     data: { workflowEdge: we },
   }))

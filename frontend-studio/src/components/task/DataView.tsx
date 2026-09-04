@@ -59,8 +59,8 @@ const MAX_TAGS = 12
 const FIELD_LABEL: Record<string, string> = {
   node_id: '节点 ID', node_type: '节点类型', node_label: '节点名称',
   output_summary: '输出摘要', output: '输出',
-  response: '回答', result: '执行结果', thinking: '思考过程',
-  files: '产出文件', file_id: '文件 ID', needed_info: '待补充信息',
+  response: '回答', result: '执行结果',
+  files: '产出文件', file_id: '文件 ID',
   usage: 'Token 用量', total_tokens: 'Token 消耗', input_tokens: '输入 Tokens', output_tokens: '输出 Tokens',
   llm_calls: 'LLM 调用', tool_calls: '工具调用',
   agent_id: 'Agent', tool_name: '工具名称', tool_id: '工具 ID',
@@ -197,7 +197,25 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
 
 /* ─── 子组件 ─── */
 
-/** 对象 → 键值对网格，逐项递归；深层缩进 + 超长折叠 */
+/** 主题字段：节点输出的核心内容（置顶、放大渲染，突出主题）。 */
+const PRIMARY_KEYS = new Set(['response', 'result', 'output'])
+
+/** 可内联的值：标量或短字符串（与主题字段并列时单行「标签: 值」紧凑展示）。 */
+function isInlineable(v: unknown): boolean {
+  if (typeof v === 'number' || typeof v === 'boolean') return true
+  if (typeof v === 'string' && v !== '') {
+    const kind = detectStringKind(v)
+    return kind !== 'multiline' && kind !== 'long' && kind !== 'json-like'
+  }
+  return false
+}
+
+/** 已知紧凑字段：usage 等元信息对象由 matchKnownField 渲染为单行摘要，可内联。 */
+function isCompactKnownField(k: string, v: unknown): boolean {
+  return k.toLowerCase() === 'usage' && isPlainObject(v)
+}
+
+/** 对象 → 键值对网格，逐项递归；主题字段置顶放大、元字段内联、深层缩进。 */
 function KeyValueGrid({
   entries,
   context,
@@ -212,32 +230,87 @@ function KeyValueGrid({
   ancestors: object[]
 }) {
   const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? entries : entries.slice(0, MAX_GRID_ENTRIES)
-  const rest = entries.length - visible.length
+  const isTop = depth === 0
+  // 顶层：主题字段（response/result/output）稳定置顶，其余保持原序。
+  const ordered = isTop
+    ? [...entries].sort(
+        ([a], [b]) => (PRIMARY_KEYS.has(a.toLowerCase()) ? 0 : 1) - (PRIMARY_KEYS.has(b.toLowerCase()) ? 0 : 1),
+      )
+    : entries
+  const visible = expanded ? ordered : ordered.slice(0, MAX_GRID_ENTRIES)
+  const rest = ordered.length - visible.length
 
   return (
-    <div className={`space-y-1.5 ${depth > 0 ? 'pl-2.5 border-l-2 border-[#27272a] bg-[#18181b]/40 rounded-r' : ''}`}>
-      {visible.map(([k, v]) => (
-        <div key={k} className="flex flex-col gap-0.5 min-w-0">
-          <span className="text-[10px] text-[#71717a] font-medium break-all">{FIELD_LABEL[k.toLowerCase()] ?? k}</span>
-          <div className="min-w-0">
-            <RenderNode
-              value={v}
-              fieldKey={k}
-              context={context}
-              nodeType={nodeType}
-              depth={depth + 1}
-              ancestors={ancestors}
-            />
+    <div className={`space-y-1 ${depth > 0 ? 'pl-2 border-l-2 border-[#27272a] rounded-r' : ''}`}>
+      {visible.map(([k, v]) => {
+        const label = FIELD_LABEL[k.toLowerCase()] ?? k
+        const isPrimary = isTop && PRIMARY_KEYS.has(k.toLowerCase())
+
+        /* 主题字段：置顶块——淡标签 + 放大正文，底部分隔线与元信息拉开层次 */
+        if (isPrimary) {
+          return (
+            <div key={k} className="min-w-0 pb-1.5 mb-0.5 border-b border-[#27272a]/70">
+              <div className="text-[10px] text-[#71717a] font-medium mb-1">{label}</div>
+              <div className="min-w-0">
+                {typeof v === 'string' ? (
+                  <MarkdownBlock content={v} variant="primary" />
+                ) : (
+                  <RenderNode
+                    value={v}
+                    fieldKey={k}
+                    context={context}
+                    nodeType={nodeType}
+                    depth={depth + 1}
+                    ancestors={ancestors}
+                  />
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        /* 内联元字段：标量/短文本/usage 摘要 → 单行「标签: 值」，高度减半 */
+        if (isTop && (isInlineable(v) || isCompactKnownField(k, v))) {
+          return (
+            <div key={k} className="flex items-baseline gap-2 min-w-0">
+              <span className="text-[10px] text-[#71717a] font-medium shrink-0 truncate max-w-[8em]">{label}</span>
+              <div className="min-w-0 flex-1">
+                <RenderNode
+                  value={v}
+                  fieldKey={k}
+                  context={context}
+                  nodeType={nodeType}
+                  depth={depth + 1}
+                  ancestors={ancestors}
+                />
+              </div>
+            </div>
+          )
+        }
+
+        /* 复杂值（对象/数组/长文本）：标签行 + 值块 */
+        return (
+          <div key={k} className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-[10px] text-[#71717a] font-medium break-all">{label}</span>
+            <div className="min-w-0">
+              <RenderNode
+                value={v}
+                fieldKey={k}
+                context={context}
+                nodeType={nodeType}
+                depth={depth + 1}
+                ancestors={ancestors}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
       {rest > 0 && (
         <button
           onClick={() => setExpanded(true)}
           className="text-[10px] text-[#1E5EFF] hover:underline cursor-pointer"
         >
-          显示全部 {entries.length} 项（还有 {rest} 项被折叠）
+          显示全部 {ordered.length} 项（还有 {rest} 项被折叠）
         </button>
       )}
     </div>
@@ -285,18 +358,28 @@ function StringValue({ value, depth }: { value: string; depth: number }) {
   return <span className="text-[11px] text-[#d4d4d8] break-all">{value}</span>
 }
 
-/** 长文本 / 多行文本 → 卡片 + 默认折叠前 N 字 */
-function LongText({ text, tone = 'default' }: { text: string; tone?: 'default' | 'danger' }) {
+/** 长文本 / 多行文本 → 卡片 + 默认折叠前 N 字。
+ *  variant='primary'：主题字段正文——字号放大、亮色，突出主题。 */
+function LongText({
+  text,
+  tone = 'default',
+  variant = 'default',
+}: {
+  text: string
+  tone?: 'default' | 'danger'
+  variant?: 'default' | 'primary'
+}) {
   const [open, setOpen] = useState(false)
   const isLong = text.length > LONG_TEXT_THRESHOLD
-  const bodyColor = tone === 'danger' ? 'text-rose-400' : 'text-[#d4d4d8]'
+  const bodyColor = tone === 'danger' ? 'text-rose-400' : variant === 'primary' ? 'text-[#fafafa]' : 'text-[#d4d4d8]'
+  const bodySize = variant === 'primary' ? 'text-[12px]' : 'text-[11px]'
   return (
     <div
       className={`rounded bg-[#09090b] border p-2 ${
         tone === 'danger' ? 'border-rose-500/30' : 'border-[#27272a]'
       }`}
     >
-      <div className={`${bodyColor} text-[11px] leading-relaxed whitespace-pre-wrap break-all`}>
+      <div className={`${bodyColor} ${bodySize} leading-relaxed whitespace-pre-wrap break-all`}>
         {open || !isLong ? text : `${text.slice(0, LONG_TEXT_THRESHOLD)}…`}
       </div>
       {isLong && (
@@ -396,9 +479,13 @@ function DeepFallback({ value }: { value: unknown }) {
 }
 
 /** Markdown 文本块（output_summary / response 等 LLM 文本）：复用聊天渲染栈，超长可滚动 */
-function MarkdownBlock({ content }: { content: string }) {
+function MarkdownBlock({ content, variant = 'default' }: { content: string; variant?: 'default' | 'primary' }) {
   return (
-    <div className="rounded bg-[#09090b] border border-[#27272a] p-2 max-h-64 overflow-y-auto scrollbar-custom prose-chat">
+    <div
+      className={`rounded bg-[#09090b] border border-[#27272a] p-2 max-h-64 overflow-y-auto scrollbar-custom prose-chat ${
+        variant === 'primary' ? 'text-[12px] text-[#fafafa]' : ''
+      }`}
+    >
       <Markdown content={content} />
     </div>
   )
@@ -493,6 +580,22 @@ function matchKnownField(
   }
 
   // timeout_ms → 时长格式化
+  // usage（token 用量）→ 单行紧凑摘要（悬停看明细），不占块状空间
+  if (k === 'usage' && isPlainObject(value)) {
+    const total = Number((value as Record<string, unknown>).total_tokens ?? 0)
+    const input = Number((value as Record<string, unknown>).input_tokens ?? 0)
+    const output = Number((value as Record<string, unknown>).output_tokens ?? 0)
+    const fmt = (n: number) => n.toLocaleString('en-US')
+    return (
+      <span
+        className="font-mono text-[10px] text-[#71717a]"
+        title={`total ${fmt(total)} · input ${fmt(input)} · output ${fmt(output)}`}
+      >
+        {fmt(total)} tokens（入 {fmt(input)} / 出 {fmt(output)}）
+      </span>
+    )
+  }
+
   if (k === 'timeout_ms' && typeof value === 'number') {
     return <span className="text-[11px] text-[#d4d4d8]" title={`${value} ms`}>{formatDuration(value)}</span>
   }

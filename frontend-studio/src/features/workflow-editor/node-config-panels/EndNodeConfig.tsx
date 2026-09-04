@@ -7,6 +7,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { Button, Input } from '../../../components/ui'
 import VariableSelector from '../VariableSelector'
+import HelpHint from '../HelpHint'
 import type { WorkflowNode } from '../../../services/workflows-api'
 
 interface Props {
@@ -47,7 +48,15 @@ export default function EndNodeConfig({ config, onChange, currentNodeId, allNode
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] text-slate-400 font-medium">输出映射</p>
+        <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+          输出映射
+          <HelpHint
+            text={
+              '每个字段的值可引用上游节点的输出（点输入框旁的「变量」按钮选择）。' +
+              '未配置时默认返回执行完成状态。'
+            }
+          />
+        </p>
         <Button size="small" type="dashed" icon={<Plus size={12} />} onClick={addEntry}>
           添加字段
         </Button>
@@ -87,10 +96,6 @@ export default function EndNodeConfig({ config, onChange, currentNodeId, allNode
           />
         </div>
       ))}
-
-      <p className="text-[10px] text-[#71717a] mt-1">
-        每个字段的值支持模板表达式，如 {"{{node_id.response}}"}，引用上游节点的输出。
-      </p>
     </div>
   )
 }

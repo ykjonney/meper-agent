@@ -35,8 +35,7 @@ import { TaskFlowGraph } from './TaskFlowGraph'
 import { RewindModal } from './RewindModal'
 import { APPROVAL_ACCENT } from './TaskBoardCard'
 import { DataView, DataViewEnhanceProvider } from './DataView'
-import { ApprovalView } from '../approval-view/ApprovalView'
-import type { ApprovalViewConfig } from '../approval-view/types'
+import { Markdown } from '../Markdown'
 
 export interface TaskDetailPageProps {
   taskId: string
@@ -319,49 +318,20 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                       审批信息
                     </SectionTitle>
                     <div className="space-y-2.5">
-                      {taskDetail.checkpoint.human_context?.view?.sections?.length ? (
-                        <ApprovalView
-                          view={taskDetail.checkpoint.human_context.view as ApprovalViewConfig}
-                          variables={taskDetail.variables ?? {}}
-                          taskId={taskDetail.id}
-                        />
-                      ) : (
-                        <>
-                          {taskDetail.checkpoint.human_context?.title && (
-                            <InfoRow label="审批标题" value={String(taskDetail.checkpoint.human_context.title)} />
-                          )}
-                          {taskDetail.checkpoint.human_context?.description && (
-                            <div>
-                              <div className="text-xs text-[#a1a1aa] mb-1">审批描述</div>
-                              <div className="text-xs text-[#d4d4d8] bg-[#09090b] rounded-lg p-3 border border-[#27272a] whitespace-pre-wrap">
-                                {String(taskDetail.checkpoint.human_context.description)}
-                              </div>
-                            </div>
-                          )}
-                        </>
+                      {taskDetail.checkpoint.human_context?.title && (
+                        <InfoRow label="审批标题" value={String(taskDetail.checkpoint.human_context.title)} />
+                      )}
+                      {taskDetail.checkpoint.human_context?.description && (
+                        <div>
+                          <div className="text-xs text-[#a1a1aa] mb-1">审批内容</div>
+                          <div className="text-xs text-[#d4d4d8] bg-[#09090b] rounded-lg p-3 border border-[#27272a]">
+                            <Markdown content={String(taskDetail.checkpoint.human_context.description)} />
+                          </div>
+                        </div>
                       )}
                       {taskDetail.checkpoint.timeout_deadline && (
                         <InfoRow label="超时截止" value={`${formatDateTime(taskDetail.checkpoint.timeout_deadline)} (${taskDetail.checkpoint.timeout_action})`} />
                       )}
-                      {(() => {
-                        const pausedNode = taskDetail.checkpoint.paused_at_node
-                        const upstreamVars = Object.entries(taskDetail.variables ?? {})
-                          .filter(([key]) => key !== 'input' && key !== pausedNode)
-                        if (upstreamVars.length === 0) return null
-                        return (
-                          <div>
-                            <div className="text-xs text-[#a1a1aa] mb-1">上游节点输出</div>
-                            <div className="max-h-48 overflow-y-auto space-y-2 scrollbar-custom">
-                              {upstreamVars.map(([key, value]) => (
-                                <div key={key}>
-                                  <div className="text-[11px] text-[#71717a] font-medium mb-0.5">{key}</div>
-                                  <DataView value={value} context="approval_upstream" showRaw={false} />
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })()}
                     </div>
                   </section>
                 )}

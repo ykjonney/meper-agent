@@ -12,7 +12,7 @@
  * 三栏编辑器由 features/workflow-editor 提供（@xyflow/react 画布）。
  * 无 props — 自管理状态，与 App 的 mock workflows 解耦。
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Play, Save, Upload, Loader2, X, Pencil, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import {
@@ -21,6 +21,14 @@ import {
   type WorkflowDetail,
   type WorkflowSummary,
 } from '../services/workflows-api'
+import { agentApi, agentKeys } from '../services/agent-api'
+import { toolsApi, toolKeys } from '../services/tools-api'
+import { modelApi, modelKeys } from '../services/model-api'
+import {
+  AgentInfoContext,
+  ToolNameContext,
+  type AgentInfo,
+} from '../features/workflow-editor/agent-info'
 import type { WorkflowNode } from '../services/types'
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution'
 import { usePermission } from '../hooks/use-permission'
@@ -239,6 +247,51 @@ export function WorkflowDesigner({
   const currentStatus = workflowDetail?.status
   const canExecute = currentStatus === 'published' && !exec.executing
 
+  /* ─── agents/tools 实时映射：注入画布节点卡解析名称/模型（与
+     AgentNodeConfig/ToolNodeConfig 共享 react-query 缓存，
+     存量节点无需重选）─── */
+  const { data: agentsData } = useQuery({
+    queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
+  })
+  const agentInfoMap = useMemo(() => {
+    const map: Record<string, AgentInfo> = {}
+    for (const a of agentsData?.items ?? []) {
+      map[a.id] = { name: a.name, model: a.default_model }
+    }
+    return map
+  }, [agentsData])
+  /* 模型注册表：default_model 可能存 model_xxx ULID——解析为可读显示名
+     （注册表 name > model_id，纯文本引用原样透传）。 */
+  const { data: modelsData } = useQuery({
+    queryKey: modelKeys.list({ page: 1, page_size: 100 }),
+    queryFn: () => modelApi.list({ page: 1, page_size: 100 }),
+  })
+  const modelDisplayName = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const m of modelsData?.items ?? []) {
+      byId.set(m.id, m.name || m.model_id)
+    }
+    return (ref: string) => byId.get(ref) ?? ref
+  }, [modelsData])
+  const resolvedAgentInfoMap = useMemo(
+    () => Object.fromEntries(
+      Object.entries(agentInfoMap).map(([id, info]) => [
+        id, { ...info, model: modelDisplayName(info.model) },
+      ]),
+    ),
+    [agentInfoMap, modelDisplayName],
+  )
+  const { data: toolsData } = useQuery({
+    queryKey: toolKeys.list({ page: 1, page_size: 100 }),
+    queryFn: () => toolsApi.list({ page: 1, page_size: 100 }),
+  })
+  const toolNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const t of toolsData?.items ?? []) map[t.id] = t.name
+    return map
+  }, [toolsData])
+
   /* ─── render ─── */
   return (
     <div className="flex flex-col h-full gap-4">
@@ -255,6 +308,8 @@ export function WorkflowDesigner({
       ) : (
         <>
           {/* 三栏编辑器（flex：Palette 可收缩、ConfigPanel 未选中时隐藏，画布占满中间）*/}
+          <AgentInfoContext.Provider value={resolvedAgentInfoMap}>
+          <ToolNameContext.Provider value={toolNameMap}>
           <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
             {/* 左：Palette（可收缩）*/}
             <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`}>
@@ -350,6 +405,8 @@ export function WorkflowDesigner({
               </div>
             )}
           </div>
+          </ToolNameContext.Provider>
+          </AgentInfoContext.Provider>
         </>
       )}
 
