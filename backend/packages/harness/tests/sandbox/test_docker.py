@@ -120,3 +120,42 @@ def test_path_traversal_blocked(tmp_path):
     sb = _make_sandbox(tmp_path)
     with pytest.raises((PermissionError, ValueError)):
         sb.read_file("../../../etc/passwd")
+
+
+# ── workspace 模式（work_dir 为 {root}/tmp 结构，app 场景）────────────
+
+
+def _make_workspace_sandbox(tmp_path) -> DockerSandbox:
+    root = tmp_path / "ws"
+    work_dir = root / "tmp"
+    work_dir.mkdir(parents=True)
+    (root / "input").mkdir()
+    (root / "output").mkdir()
+    return DockerSandbox(
+        sandbox_id="ws",
+        work_dir=work_dir,
+        mounts={
+            "tmp": work_dir,
+            "input": root / "input",
+            "output": root / "output",
+        },
+        config=DockerSandboxConfig(enabled=False, allow_local_fallback=True),
+        timeout=10,
+    )
+
+
+def test_ws_write_output_edit_bare_name(tmp_path):
+    """与 LocalSandbox 同构：write 产物经回退可被 edit 裸文件名编辑。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    sb.write_file("report.md", "# v1\n")
+    sb.edit_file("report.md", "# v1", "# v2")
+    assert (tmp_path / "ws" / "output" / "report.md").read_text(encoding="utf-8") == "# v2\n"
+
+
+def test_ws_edit_input_rejected(tmp_path):
+    """与 LocalSandbox 同构：input 只读，edit 被拒、read 可用。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    (tmp_path / "ws" / "input" / "spec.md").write_text("spec\n", encoding="utf-8")
+    assert sb.read_file("/workspace/input/spec.md") == "spec\n"
+    with pytest.raises(PermissionError, match="read-only input"):
+        sb.edit_file("input/spec.md", "spec", "modified")

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+from langchain_core.tools import ToolException
+
 from agent_flow_harness.sandbox.context import (
     SandboxContext,
     reset_sandbox_context,
@@ -55,19 +57,18 @@ async def test_grep_finds_written_content(sandbox_ctx):
 
 @pytest.mark.asyncio
 async def test_path_traversal_via_tool_blocked(sandbox_ctx):
-    """通过工具层触发路径越权 → 友好错误字符串（不 raise）。"""
-    result = await read.ainvoke({"path": "../../../etc/passwd"})
-    assert "Error" in result
+    """通过工具层触发路径越权 → ToolException（wrapper 转 status="error"）。"""
+    with pytest.raises(ToolException, match="Access denied"):
+        await read.ainvoke({"path": "../../../etc/passwd"})
 
 
 @pytest.mark.asyncio
 async def test_bash_timeout_isolated(tmp_path):
-    """超时 → 错误字符串，不中断主流程。用短 timeout 避免测试慢。"""
+    """超时 → ToolException，不中断主流程。用短 timeout 避免测试慢。"""
     sb = LocalSandbox(sandbox_id="to", work_dir=tmp_path, timeout=1)
     token = set_sandbox_context(SandboxContext(sandbox=sb))
     try:
-        result = await bash.ainvoke({"command": "sleep 30"})
-        assert "Error" in result
-        assert "timed out" in result.lower()
+        with pytest.raises(ToolException, match="timed out"):
+            await bash.ainvoke({"command": "sleep 30"})
     finally:
         reset_sandbox_context(token)

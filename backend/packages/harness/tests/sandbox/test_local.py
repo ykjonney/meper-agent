@@ -174,3 +174,74 @@ def test_grep_no_match(tmp_path):
 def test_id_property(tmp_path):
     sb = LocalSandbox(sandbox_id="my-id", work_dir=tmp_path)
     assert sb.id == "my-id"
+
+
+# ── workspace 模式（work_dir 为 {root}/tmp 结构，app 场景）────────────
+
+
+def _make_workspace_sandbox(tmp_path) -> LocalSandbox:
+    root = tmp_path / "ws"
+    work_dir = root / "tmp"
+    work_dir.mkdir(parents=True)
+    (root / "input").mkdir()
+    (root / "output").mkdir()
+    return LocalSandbox(sandbox_id="ws", work_dir=work_dir, timeout=10)
+
+
+def test_ws_write_output_edit_bare_name(tmp_path):
+    """write 产物在 output/，edit 裸文件名经回退找到并写回原位置。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    sb.write_file("report.md", "# v1\n")
+    msg = sb.edit_file("report.md", "# v1", "# v2")
+    assert "Successfully edited" in msg
+    assert (tmp_path / "ws" / "output" / "report.md").read_text(encoding="utf-8") == "# v2\n"
+
+
+def test_ws_write_output_read_bare_name(tmp_path):
+    """read 裸文件名同样回退查 output/。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    sb.write_file("report.md", "# data\n")
+    assert sb.read_file("report.md") == "# data\n"
+
+
+def test_ws_edit_output_prefix_paths(tmp_path):
+    """output/ 前缀与 /workspace/output/ 绝对路径均可编辑 write 产物。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    sb.write_file("a.md", "one\n")
+    sb.edit_file("output/a.md", "one", "two")
+    sb.write_file("b.md", "bee\n")
+    sb.edit_file("/workspace/output/b.md", "bee", "boo")
+    assert (tmp_path / "ws" / "output" / "a.md").read_text(encoding="utf-8") == "two\n"
+    assert (tmp_path / "ws" / "output" / "b.md").read_text(encoding="utf-8") == "boo\n"
+
+
+def test_ws_tmp_prefix_resolves_to_work_dir(tmp_path):
+    """tmp/ 前缀与裸相对路径等价，均解析到 work_dir（tmp）。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    (tmp_path / "ws" / "tmp" / "x.txt").write_text("hi\n", encoding="utf-8")
+    assert sb.read_file("tmp/x.txt") == "hi\n"
+    assert sb.read_file("x.txt") == "hi\n"
+
+
+def test_ws_input_readable(tmp_path):
+    """input/ 只读输入：read 可访问（相对路径与容器绝对路径）。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    (tmp_path / "ws" / "input" / "spec.md").write_text("spec\n", encoding="utf-8")
+    assert sb.read_file("input/spec.md") == "spec\n"
+    assert sb.read_file("/workspace/input/spec.md") == "spec\n"
+
+
+def test_ws_edit_input_rejected(tmp_path):
+    """input/ 只读：edit 被拒（提示复制到工作区修改）。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    (tmp_path / "ws" / "input" / "spec.md").write_text("spec\n", encoding="utf-8")
+    with pytest.raises(PermissionError, match="read-only input"):
+        sb.edit_file("input/spec.md", "spec", "modified")
+
+
+def test_ws_traversal_outside_root_blocked(tmp_path):
+    """workspace 模式白名单为 root 树，越出 root 仍被拒。"""
+    sb = _make_workspace_sandbox(tmp_path)
+    (tmp_path / "secret.txt").write_text("s", encoding="utf-8")
+    with pytest.raises((PermissionError, ValueError)):
+        sb.read_file("../../secret.txt")

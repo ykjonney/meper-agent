@@ -1,7 +1,12 @@
 """文件/shell 工具 — bash/read/write/edit/glob/grep（零 I/O，全部委托 Sandbox）。
 
 三层工具模型第二层。工具代码从不直接 subprocess/open，全部委托注入的
-Sandbox 方法。异常被 catch 转错误字符串返回（AC8 异常隔离）。
+Sandbox 方法。异常被 catch 转 ToolException 抛出（AC8 异常隔离）：由
+tool_wrapper 统一转为 status="error" 的 ToolMessage，REACT 循环不中断，
+LLM 仍可看到错误文案并重试，前端也能结构化区分工具成败。
+
+工作区布局（workspace 模式）：tmp/ 工作区（bash cwd、裸相对路径默认）、
+input/ 只读输入、output/ 产物目录（write 固定写入，read/edit 可访问）。
 
 通过 ContextVar（sandbox_context）获取 sandbox 实例，与 workspace_context /
 subagent_context 同模式。
@@ -10,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import StructuredTool, ToolException
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -18,7 +23,7 @@ if TYPE_CHECKING:
 
 
 def _get_sandbox_safe() -> Sandbox | None:
-    """获取 sandbox，失败返回 None（由工具转错误字符串）。"""
+    """获取 sandbox，失败返回 None（由工具转 ToolException）。"""
     from agent_flow_harness.sandbox.context import get_sandbox_context
 
     try:
@@ -35,7 +40,12 @@ class _BashArgs(BaseModel):
 
 
 class _ReadArgs(BaseModel):
-    path: str = Field(..., description="要读取的文件路径")
+    path: str = Field(
+        ...,
+        description="要读取的文件路径。裸相对路径基于工作区 tmp/；"
+        "input/、output/ 前缀（或 /workspace/input/、/workspace/output/ 绝对路径）"
+        "可访问对应目录",
+    )
 
 
 class _WriteArgs(BaseModel):
@@ -44,7 +54,11 @@ class _WriteArgs(BaseModel):
 
 
 class _EditArgs(BaseModel):
-    path: str = Field(..., description="要编辑的文件路径")
+    path: str = Field(
+        ...,
+        description="要编辑的文件路径。裸相对路径基于工作区 tmp/（不存在时回退查 "
+        "output/）；output/ 前缀可编辑 write 产出的文件；input/ 为只读不可编辑",
+    )
     old_string: str = Field(..., description="要替换的原文本（必须在文件中唯一，除非 replace_all=true）")
     new_string: str = Field(..., description="替换后的新文本")
     replace_all: bool = Field(
@@ -69,7 +83,7 @@ async def _bash(command: str) -> str:
     """执行 shell 命令并返回输出。委托 sandbox.execute_command。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized. Call set_sandbox_context() first."
+        raise ToolException("Error: sandbox not initialized. Call set_sandbox_context() first.")
     try:
         result = sandbox.execute_command(command)
         output = result.stdout
@@ -78,72 +92,75 @@ async def _bash(command: str) -> str:
         if result.exit_code != 0 and not result.timed_out:
             output += f"\nExit code: {result.exit_code}"
         if result.timed_out:
-            return "Error: command timed out and was killed."
+            raise ToolException("Error: command timed out and was killed.")
         return output if output else "(command produced no output)"
+    except ToolException:
+        raise
     except Exception as exc:
-        return f"Error executing command: {exc}"
+        raise ToolException(f"Error executing command: {exc}") from exc
 
 
 async def _read(path: str) -> str:
     """读文件内容。委托 sandbox.read_file。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized."
+        raise ToolException("Error: sandbox not initialized.")
     try:
         return sandbox.read_file(path)
     except Exception as exc:
-        return f"Error reading file: {exc}"
+        raise ToolException(f"Error reading file: {exc}") from exc
 
 
 async def _write(path: str, content: str) -> str:
     """写文件到 output 目录（用户可见/可下载）。委托 sandbox.write_file。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized."
+        raise ToolException("Error: sandbox not initialized.")
     try:
         sandbox.write_file(path, content)
-        return f"Successfully wrote {len(content)} chars to output/{path}"
+        rel = path.removeprefix("output/")
+        return f"Successfully wrote {len(content)} chars to output/{rel}"
     except Exception as exc:
-        return f"Error writing file: {exc}"
+        raise ToolException(f"Error writing file: {exc}") from exc
 
 
 async def _edit(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
     """就地编辑文件（字符串替换）。委托 sandbox.edit_file。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized."
+        raise ToolException("Error: sandbox not initialized.")
     try:
         return sandbox.edit_file(path, old_string, new_string, replace_all=replace_all)
     except Exception as exc:
-        return f"Error editing file: {exc}"
+        raise ToolException(f"Error editing file: {exc}") from exc
 
 
 async def _glob(path: str, pattern: str) -> str:
     """文件匹配。委托 sandbox.glob。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized."
+        raise ToolException("Error: sandbox not initialized.")
     try:
         matches = sandbox.glob(path, pattern)
         if not matches:
             return "(no matches)"
         return "\n".join(matches)
     except Exception as exc:
-        return f"Error in glob: {exc}"
+        raise ToolException(f"Error in glob: {exc}") from exc
 
 
 async def _grep(path: str, pattern: str) -> str:
     """内容搜索。委托 sandbox.grep。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
-        return "Error: sandbox not initialized."
+        raise ToolException("Error: sandbox not initialized.")
     try:
         matches = sandbox.grep(path, pattern)
         if not matches:
             return "(no matches)"
         return "\n".join(f"{m.path}:{m.line_number}: {m.line}" for m in matches)
     except Exception as exc:
-        return f"Error in grep: {exc}"
+        raise ToolException(f"Error in grep: {exc}") from exc
 
 
 bash = StructuredTool.from_function(
@@ -151,7 +168,7 @@ bash = StructuredTool.from_function(
     args_schema=_BashArgs, coroutine=_bash,
 )
 read = StructuredTool.from_function(
-    _read, name="read", description="读取文件内容。",
+    _read, name="read", description="读取文件内容（支持工作区 tmp/input/output 目录）。",
     args_schema=_ReadArgs, coroutine=_read,
 )
 write = StructuredTool.from_function(
@@ -161,7 +178,7 @@ write = StructuredTool.from_function(
 )
 edit = StructuredTool.from_function(
     _edit, name="edit",
-    description="就地编辑已有文件：将文件中 old_string 精确替换为 new_string。old_string 必须与文件内容完全一致（含空格缩进）且在文件中唯一；多处匹配时提供更长上下文或设 replace_all=true。生成新文件请用 write。",
+    description="就地编辑已有文件：将文件中 old_string 精确替换为 new_string。old_string 必须与文件内容完全一致（含空格缩进）且在文件中唯一；多处匹配时提供更长上下文或设 replace_all=true。生成新文件请用 write。write 产出的 output/ 文件同样可编辑（用裸文件名或 output/ 前缀）。",
     args_schema=_EditArgs, coroutine=_edit,
 )
 glob = StructuredTool.from_function(

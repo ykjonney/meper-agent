@@ -4,6 +4,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 
+from langchain_core.tools import ToolException
+
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
 from agent_flow_harness.sandbox.context import (
     SandboxContext,
@@ -66,12 +68,12 @@ async def test_bash_includes_stderr_and_exit_code():
 
 @pytest.mark.asyncio
 async def test_bash_exception_isolated():
-    """AC8: sandbox 抛异常 → 返回错误字符串，不中断。"""
+    """AC8: sandbox 抛异常 → ToolException（由 wrapper 转 status="error"，循环不中断）。"""
     sb = _mock_sandbox(exec_exc=RuntimeError("boom"))
     token = _set_ctx(sb)
     try:
-        result = await bash.ainvoke({"command": "x"})
-        assert "Error" in result
+        with pytest.raises(ToolException, match="Error executing command: boom"):
+            await bash.ainvoke({"command": "x"})
     finally:
         reset_sandbox_context(token)
 
@@ -123,15 +125,15 @@ async def test_edit_delegates():
 
 @pytest.mark.asyncio
 async def test_edit_exception_isolated():
-    """AC8: sandbox.edit_file 抛异常 → 返回错误字符串，不中断。"""
+    """AC8: sandbox.edit_file 抛异常 → ToolException（由 wrapper 转 status="error"）。"""
     sb = _mock_sandbox()
     sb.edit_file.side_effect = ValueError("old_string not found in 'app.py'.")
     token = _set_ctx(sb)
     try:
-        result = await edit.ainvoke({
-            "path": "app.py", "old_string": "a", "new_string": "b",
-        })
-        assert "Error" in result
+        with pytest.raises(ToolException, match="Error editing file"):
+            await edit.ainvoke({
+                "path": "app.py", "old_string": "a", "new_string": "b",
+            })
     finally:
         reset_sandbox_context(token)
 
@@ -161,7 +163,7 @@ async def test_grep_delegates():
 
 
 @pytest.mark.asyncio
-async def test_tool_without_context_returns_error():
-    """未注入 sandbox context → 返回错误字符串（不 raise RuntimeError 给 LLM）。"""
-    result = await bash.ainvoke({"command": "x"})
-    assert "Error" in result
+async def test_tool_without_context_raises_tool_exception():
+    """未注入 sandbox context → ToolException（wrapper 转 status="error"，不炸循环）。"""
+    with pytest.raises(ToolException, match="sandbox not initialized"):
+        await bash.ainvoke({"command": "x"})

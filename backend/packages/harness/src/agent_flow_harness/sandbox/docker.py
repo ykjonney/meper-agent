@@ -34,6 +34,15 @@ from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
 logger = structlog.get_logger(__name__)
 
 
+def _is_within(path: Path, base: Path) -> bool:
+    """path 是否位于 base 目录树内。"""
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
+
+
 class DockerSandboxConfig:
     """Docker 沙箱配置（从 backend settings 提取，去 app.* 依赖）。
 
@@ -78,7 +87,8 @@ class DockerSandbox(Sandbox):
     execute_command 优先用 Docker（enabled=True 且 daemon 可达）；沙箱不可
     用时默认拒绝执行，仅 allow_local_fallback=True 时降级 subprocess（与
     LocalSandbox 相同，但每次降级打 ERROR 日志）。
-    read_file/write_file/glob/grep 操作宿主机 work_dir（容器挂载的目录）。
+    read_file/write_file/glob/grep 操作宿主机工作区目录（容器挂载的
+    tmp/input/output），workspace 模式下三者均可达。
     """
 
     def __init__(
@@ -98,6 +108,24 @@ class DockerSandbox(Sandbox):
         self._mounts = mounts or {"tmp": self._work_dir / "tmp"}
         self._timeout = timeout
         self._max_output = max_output_chars
+        # input/output 宿主目录：优先取 mounts（app 场景恒传入），否则按
+        # {root}/input、{root}/output 布局推导（与 _safe_resolve_output 一致）。
+        self._output_dir = (
+            Path(self._mounts["output"]).resolve()
+            if "output" in self._mounts
+            else self._work_dir.parent / "output"
+        )
+        self._input_dir = (
+            Path(self._mounts["input"]).resolve()
+            if "input" in self._mounts
+            else self._work_dir.parent / "input"
+        )
+        # workspace 模式：work_dir 为 {root}/tmp 结构（app 场景恒成立）时，
+        # 文件工具可访问整个工作区——tmp 工作区 / input 只读输入 / output 产物，
+        # 各目录职能不同但 read/edit/glob/grep 均可操作；否则维持单 work_dir
+        # 行为（独立使用场景）。
+        self._workspace_mode = self._work_dir.name == "tmp"
+        self._root = self._work_dir.parent if self._workspace_mode else self._work_dir
 
     @property
     def id(self) -> str:
@@ -274,7 +302,9 @@ class DockerSandbox(Sandbox):
     # ── 文件操作（操作宿主机 work_dir，与 LocalSandbox 相同）────────
 
     def read_file(self, path: str) -> str:
-        resolved = self._safe_resolve(path, for_write=False)
+        resolved = self._with_output_fallback(
+            self._safe_resolve(path, for_write=False), path
+        )
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path}")
         content = resolved.read_text(encoding="utf-8", errors="replace")
@@ -294,8 +324,11 @@ class DockerSandbox(Sandbox):
         *,
         replace_all: bool = False,
     ) -> str:
-        """就地编辑 work_dir 内文件（宿主机挂载目录，容器内产物可直接编辑）。"""
-        resolved = self._safe_resolve(path, for_write=False)
+        """就地编辑工作区内文件（宿主机挂载目录，容器内产物可直接编辑）。"""
+        resolved = self._with_output_fallback(
+            self._safe_resolve(path, for_write=False), path
+        )
+        self._reject_input_write(resolved, path)
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path}")
         content = resolved.read_text(encoding="utf-8", errors="replace")
@@ -352,37 +385,76 @@ class DockerSandbox(Sandbox):
     # ── 内部 helpers（与 LocalSandbox 相同）──────────────────────────
 
     def _safe_resolve(self, user_path: str, *, for_write: bool) -> Path:
-        """解析路径并校验是否在 work_dir 内（防路径越权）。
+        """解析路径并校验在允许目录内（防路径越权）。
 
-        当模型传入绝对路径(如 /tmp/foo/bar.txt)时,提取相对部分映射到
-        work_dir 内,避免 PermissionError。
+        workspace 模式（work_dir 为 {root}/tmp）：绝对路径剥容器风格前缀
+        （workspace/，容器内挂载点）后按 tmp/ output/ input/ 前缀映射到
+        对应宿主目录，裸相对路径默认 work_dir；白名单为工作区各目录
+        （root/output/input）树内。非 workspace 模式保持旧行为：绝对路径
+        剥前缀映射进 work_dir，白名单 work_dir 树内。
         """
-        if os.path.isabs(user_path):
-            rel = user_path.lstrip('/')
-            for prefix in ('tmp/', 'workspace/tmp/', 'workspace/'):
-                if rel.startswith(prefix):
-                    rel = rel[len(prefix):]
-                    break
-            resolved = (self._work_dir / rel).resolve()
+        allowed: tuple[Path, ...]
+        if self._workspace_mode:
+            rel = user_path.lstrip("/") if os.path.isabs(user_path) else user_path
+            if rel.startswith("workspace/"):
+                rel = rel[len("workspace/"):]
+            resolved = self._map_workspace_rel(rel).resolve()
+            allowed = (self._root, self._output_dir, self._input_dir)
         else:
-            resolved = (self._work_dir / user_path).resolve()
-        try:
-            resolved.relative_to(self._work_dir)
-        except ValueError as exc:
+            if os.path.isabs(user_path):
+                rel = user_path.lstrip('/')
+                for prefix in ('tmp/', 'workspace/tmp/', 'workspace/'):
+                    if rel.startswith(prefix):
+                        rel = rel[len(prefix):]
+                        break
+                resolved = (self._work_dir / rel).resolve()
+            else:
+                resolved = (self._work_dir / user_path).resolve()
+            allowed = (self._work_dir,)
+        # 白名单校验：resolved 必须在允许目录树内
+        if not any(_is_within(resolved, base) for base in allowed):
             msg = f"Access denied — path '{user_path}' outside sandbox work_dir"
-            raise PermissionError(msg) from exc
+            raise PermissionError(msg)
         return resolved
+
+    def _map_workspace_rel(self, rel: str) -> Path:
+        """工作区相对路径 → 实际宿主目录；无目录前缀默认 work_dir（tmp）。"""
+        if rel.startswith('tmp/'):
+            return self._work_dir / rel[len('tmp/'):]
+        if rel.startswith('output/'):
+            return self._output_dir / rel[len('output/'):]
+        if rel.startswith('input/'):
+            return self._input_dir / rel[len('input/'):]
+        return self._work_dir / rel
+
+    def _with_output_fallback(self, resolved: Path, user_path: str) -> Path:
+        """裸相对路径在 tmp 下不存在时回退查 output/（write 产物在 output）。"""
+        if (
+            resolved.exists()
+            or not user_path
+            or os.path.isabs(user_path)
+            or not self._workspace_mode
+            or user_path.startswith(('tmp/', 'output/', 'input/'))
+        ):
+            return resolved
+        alt = (self._output_dir / user_path).resolve()
+        return alt if alt.exists() else resolved
+
+    def _reject_input_write(self, resolved: Path, user_path: str) -> None:
+        """input 为只读输入目录（容器内只读挂载），禁止写入/编辑。"""
+        if self._workspace_mode and _is_within(resolved, self._input_dir):
+            msg = (
+                f"Access denied — path '{user_path}' is read-only input; "
+                "copy it into the workspace to modify"
+            )
+            raise PermissionError(msg)
 
     def _safe_resolve_output(self, user_path: str) -> Path:
         """解析路径并校验是否在 output_dir 内（防路径越权）。
 
         当模型传入绝对路径时,提取相对部分映射到 output_dir 内。
         """
-        output_dir = self._mounts.get("output")
-        if output_dir is None:
-            output_dir = self._work_dir.parent / "output"
-        else:
-            output_dir = Path(output_dir)
+        output_dir = self._output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if os.path.isabs(user_path):
@@ -394,6 +466,7 @@ class DockerSandbox(Sandbox):
             resolved = (output_dir / rel).resolve()
         else:
             resolved = (output_dir / user_path).resolve()
+        # 白名单校验：resolved 必须在 output_dir 树内
         try:
             resolved.relative_to(output_dir)
         except ValueError as exc:
