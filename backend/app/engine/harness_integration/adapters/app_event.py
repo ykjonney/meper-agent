@@ -106,7 +106,10 @@ class InterruptEvent(_Base):
     a question/options card using ``question``/``options``/``fields``;
     ``workflow_confirmation`` (confirm_workflow) renders a workflow
     confirmation card using ``workflow_name``/``workflow_description``/
-    ``input_preview``.
+    ``input_preview``; ``app_authorization`` (request_app_authorization)
+    renders an authorization form card using ``app_id``/``app_name``/``reason``
+    — the host binds credentials via the authorization API (never via chat)
+    and then resumes.
 
     When ``kind == "clarification"`` and ``fields`` is non-empty, the host
     should render a structured form (one input per field) instead of a
@@ -116,7 +119,9 @@ class InterruptEvent(_Base):
     """
 
     type: Literal["interrupt"] = "interrupt"
-    kind: Literal["clarification", "workflow_confirmation"] = "clarification"
+    kind: Literal[
+        "clarification", "workflow_confirmation", "app_authorization"
+    ] = "clarification"
     # clarification fields (ask_clarification)
     question: str = ""
     clarification_type: str = "missing_info"
@@ -127,6 +132,10 @@ class InterruptEvent(_Base):
     workflow_name: str = ""
     workflow_description: str = ""
     input_preview: dict[str, Any] | None = None
+    # app_authorization fields (request_app_authorization)
+    app_id: str = ""
+    app_name: str = ""
+    reason: str = ""
     interrupt_id: str = ""
 
 

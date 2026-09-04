@@ -1,5 +1,6 @@
 import {
   AudioOutlined,
+  CloseOutlined,
   DeploymentUnitOutlined,
   FileOutlined,
   MenuOutlined,
@@ -8,6 +9,7 @@ import {
   PlusOutlined,
   LikeOutlined,
   LikeFilled,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { Attachments, Bubble, Sender } from '@ant-design/x'
 import {
@@ -31,6 +33,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { useChat } from '../hooks/use-chat'
+import { fetchAuthBootstrap, fetchMyAuthorizations } from '../api/authorizations'
 import { fetchVoiceStatus } from '../api/voice'
 import type { AgentSummary } from '../types'
 import { GeneratedFiles } from './GeneratedFiles'
@@ -40,6 +43,15 @@ import { QuickActionsBar } from './QuickActionsBar'
 import { sessionFeedback, voteMessage, type SessionFeedbackItem } from '../api/chat'
 import { ClarificationFormCard } from './clarification-form-card'
 import { VoiceComposer } from './voice/VoiceComposer'
+
+/** 嵌入模式（chat-widget.js iframe 内）检测：仅此模式显示 header 关闭按钮，
+ * 点击经 postMessage 通知 widget 收起面板（widget 侧悬浮关闭/全屏按钮已移除，
+ * 悬浮样式会遮挡 header 内容；桌面端仍可点面板外部或 ESC 关闭）。 */
+const IS_EMBEDDED = window.parent !== window
+
+function closeEmbeddedPanel() {
+  window.parent.postMessage({ type: 'agentflow:close' }, '*')
+}
 
 /** 已查看工作流任务 id 的 localStorage key（跨刷新持久，避免角标反复亮起）。 */
 const SEEN_TASKS_KEY = 'meper_client_seen_tasks'
@@ -87,6 +99,11 @@ export function ChatView({
     }
   })
   const [clarificationAnswer, setClarificationAnswer] = useState('')
+  // 运行时按需授权卡：账号/密码 + 提交错误信息（凭证只走授权 API，不进对话）
+  const [authUsername, setAuthUsername] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authSubmitting, setAuthSubmitting] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [pendingPreview, setPendingPreview] = useState<{
     name: string
     url: string
@@ -101,6 +118,8 @@ export function ChatView({
     send,
     cancel,
     answerClarification,
+    answerAppAuthorization,
+    declineAppAuthorization,
     dismissClarification,
     voiceAppendUserMessage,
     voiceBeginAssistantTurn,
@@ -113,6 +132,35 @@ export function ChatView({
     () => setFilesRefreshKey((value) => value + 1),
     onSessionChanged,
   )
+
+  // 授权卡出现时带出账号默认值（可改）：优先该应用已绑定的用户名
+  // （INVALID 重新授权只需重输密码）；无绑定（跨应用首次授权）退回
+  // 身份用户名（bootstrap.ext_username）作猜测起点，带不出则留空
+  useEffect(() => {
+    if (hitl?.kind !== 'app_authorization' || !hitl.appId) return
+    let cancelled = false
+    void fetchMyAuthorizations()
+      .then(async (result) => {
+        if (cancelled) return
+        const bound = result.bindings.find((b) => b.app_id === hitl.appId)
+        if (bound) {
+          setAuthUsername(bound.username)
+          return
+        }
+        try {
+          const boot = await fetchAuthBootstrap()
+          if (!cancelled && boot.ext_username) setAuthUsername(boot.ext_username)
+        } catch {
+          /* 带不出默认值就留空，不影响流程 */
+        }
+      })
+      .catch(() => {
+        /* 同上 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hitl?.kind, hitl?.appId])
 
   // 本会话的工作流任务（从消息流解析 task_created）——只在出现过任务后才显示
   // header「工作流」按钮；切会话随 messages 重置，天然清空
@@ -321,13 +369,21 @@ export function ChatView({
     return (
       <main className="chat-view">
         <header className="chat-header">
+        <Button
+          className="mobile-nav-button"
+          type="text"
+          icon={<MenuOutlined />}
+          onClick={onOpenNavigation}
+        />
+        {IS_EMBEDDED ? (
           <Button
-            className="mobile-nav-button"
             type="text"
-            icon={<MenuOutlined />}
-            onClick={onOpenNavigation}
+            icon={<CloseOutlined />}
+            aria-label="关闭面板"
+            onClick={closeEmbeddedPanel}
           />
-        </header>
+        ) : null}
+      </header>
         {agentLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
             <Spin size="large" />
@@ -381,6 +437,14 @@ export function ChatView({
               <span className="desktop-only-label">工作流</span>
             </Button>
           </Badge>
+        ) : null}
+        {IS_EMBEDDED ? (
+          <Button
+            type="text"
+            icon={<CloseOutlined />}
+            aria-label="关闭面板"
+            onClick={closeEmbeddedPanel}
+          />
         ) : null}
       </header>
 
@@ -512,7 +576,88 @@ export function ChatView({
 
           <footer className="composer-dock">
             {hitl ? (
-              hitl.kind === 'workflow_confirmation' ? (
+              hitl.kind === 'app_authorization' ? (
+                <Alert
+                  className="hitl-card"
+                  type="warning"
+                  showIcon
+                  icon={<SafetyCertificateOutlined />}
+                  message="需要应用授权"
+                  description={
+                    <div className="clarification-content">
+                      <Typography.Text>
+                        {hitl.errorKind === 'INVALID'
+                          ? `「${hitl.appName || hitl.appId}」的授权凭证已失效（可能修改过密码或用户名），请输入最新凭证后继续。`
+                          : `任务需要访问「${hitl.appName || hitl.appId}」，请完成授权后继续。`}
+                        {hitl.reason ? `（${hitl.reason}）` : ''}
+                      </Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        凭证仅用于本次授权，不会出现在对话中。
+                      </Typography.Text>
+                      {authError ? (
+                        <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                          {authError}
+                        </Typography.Text>
+                      ) : null}
+                      <div className="clarification-options">
+                        <Input
+                          value={authUsername}
+                          onChange={(event) => setAuthUsername(event.target.value)}
+                          placeholder={`「${hitl.appName || hitl.appId || '该应用'}」账号`}
+                          autoComplete="off"
+                          disabled={authSubmitting || running}
+                        />
+                        <Input.Password
+                          value={authPassword}
+                          onChange={(event) => setAuthPassword(event.target.value)}
+                          placeholder={`「${hitl.appName || hitl.appId || '该应用'}」密码`}
+                          autoComplete="new-password"
+                          disabled={authSubmitting || running}
+                          onPressEnter={() => {
+                            if (!authUsername.trim() || !authPassword) return
+                            setAuthSubmitting(true)
+                            void answerAppAuthorization(authUsername.trim(), authPassword)
+                              .then((error) => {
+                                setAuthError(error ?? '')
+                                if (!error) {
+                                  setAuthUsername('')
+                                  setAuthPassword('')
+                                }
+                              })
+                              .finally(() => setAuthSubmitting(false))
+                          }}
+                        />
+                        <Button
+                          type="primary"
+                          loading={authSubmitting}
+                          disabled={!authUsername.trim() || !authPassword || running}
+                          onClick={() => {
+                            setAuthSubmitting(true)
+                            void answerAppAuthorization(authUsername.trim(), authPassword)
+                              .then((error) => {
+                                setAuthError(error ?? '')
+                                if (!error) {
+                                  setAuthUsername('')
+                                  setAuthPassword('')
+                                }
+                              })
+                              .finally(() => setAuthSubmitting(false))
+                          }}
+                        >
+                          完成授权
+                        </Button>
+                        <Button
+                          type="text"
+                          disabled={authSubmitting || running}
+                          onClick={() => void declineAppAuthorization()}
+                        >
+                          暂不授权
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                />
+              ) : hitl.kind === 'workflow_confirmation' ? (
                 <Alert
                   className="hitl-card"
                   type="warning"

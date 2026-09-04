@@ -236,6 +236,124 @@ class TestGetApiKeyPrincipal:
         assert principal.token_record_id == "user_platform_01"
         assert principal.user_token == "meper_xxx"
 
+    async def test_identity_anchor_prefers_stable_sub(self, monkeypatch, api_key_doc):
+        """身份锚点 v4.2：introspection 有 sub → 以其为锚组 sub（改名不漂移）。"""
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(
+                active=True, sub="extuid_888", username="bob",
+            )),
+        )
+        find_mock = AsyncMock(return_value={"platform_user_id": "user_platform_01"})
+        monkeypatch.setattr(ExternalIdentityService, "find_by_sub", find_mock)
+
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+        principal = await get_api_key_principal(
+            request, authorization="Bearer af_live_test"
+        )
+
+        # sub 查询（而非 username）
+        assert find_mock.await_args.args[0] == "app_01:extuid_888"
+        assert principal.user_id == "user_platform_01"
+        assert principal.ext_user_id == "extuid_888"
+        assert principal.ext_username == "bob"
+
+    async def test_legacy_username_sub_upgrades_online(self, monkeypatch, api_key_doc):
+        """老维度兼容：新 sub（stable_id）miss → 查老 username sub → 命中后
+        在线升级（upsert 新 sub + 删老映射），老用户无感迁移。"""
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(
+                active=True, sub="extuid_888", username="bob",
+            )),
+        )
+        # 第一次（stable_id）miss，第二次（legacy username）命中
+        find_mock = AsyncMock(
+            side_effect=[None, {"platform_user_id": "user_platform_01"}]
+        )
+        upsert_mock = AsyncMock()
+        delete_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(ExternalIdentityService, "find_by_sub", find_mock)
+        monkeypatch.setattr(ExternalIdentityService, "upsert", upsert_mock)
+        monkeypatch.setattr(
+            ExternalIdentityService, "delete_by_sub_and_user", delete_mock
+        )
+
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+        principal = await get_api_key_principal(
+            request, authorization="Bearer af_live_test"
+        )
+
+        assert [c.args[0] for c in find_mock.await_args_list] == [
+            "app_01:extuid_888",
+            "app_01:bob",
+        ]
+        # 升级：新 sub 指向同一 platform_user_id，老 sub 删除
+        upsert_mock.assert_awaited_once_with("app_01:extuid_888", "user_platform_01")
+        delete_mock.assert_awaited_once_with("app_01:bob", "user_platform_01")
+        assert principal.user_id == "user_platform_01"
+
+    async def test_no_sub_falls_back_to_username(self, monkeypatch, api_key_doc):
+        """接入方无 sub 字段 → 退回 username 为锚（与 v4.1 行为一致）。"""
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        find_mock = AsyncMock(return_value={"platform_user_id": "user_platform_01"})
+        monkeypatch.setattr(ExternalIdentityService, "find_by_sub", find_mock)
+
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+        principal = await get_api_key_principal(
+            request, authorization="Bearer af_live_test"
+        )
+
+        # 只查了一次：username 维度（无 sub 时不做 legacy 双查）
+        assert find_mock.await_count == 1
+        assert find_mock.await_args.args[0] == "app_01:bob"
+        assert principal.ext_user_id == "bob"
+
     async def test_missing_user_token_raises(self, monkeypatch, api_key_doc):
         """X-User-Token 缺失 → EXT_USER_TOKEN_MISSING。"""
         from app.services.api_key_service import ApiKeyService

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import structlog
 
+from agent_flow_harness.mcp.errors import McpCredentialError
 from agent_flow_harness.mcp.user_token_context import (
     get_token_record_id_context,
 )
@@ -241,6 +242,11 @@ async def _user_token_interceptor(
       时返回 isError 的 CallToolResult（不抛异常），让 MCP adapter 走
       ToolException → tool_wrapper → ToolMessage(status=error) → on_tool_end，
       前端能按 tool_call_id 正确配对（不卡在"执行中"）。
+
+    未绑定 / 凭证失效（McpCredentialError 子类）：错误文本首行嵌机器可读
+    JSON 标记（前端兜底渲染授权卡片用），文案引导 LLM 调
+    request_app_authorization 而非向用户索要凭证。UNBOUND=未授权，
+    INVALID=已授权但凭证失效（密码/用户名被修改），两者都走授权卡更新。
     """
     platform_user_id = get_token_record_id_context()
 
@@ -252,6 +258,29 @@ async def _user_token_interceptor(
     server_name = getattr(request, "server_name", "") or ""
     try:
         cred = await _resolver.resolve(platform_user_id, server_name)
+    except McpCredentialError as exc:
+        # 结构化凭证错误 → 机器可读标记 + 引导 LLM 走授权工具（禁止索要凭证）
+        import json as _json
+
+        marker = _json.dumps({
+            "mcp_credential_error": exc.reason,
+            "app_id": exc.app_id,
+            "app_name": exc.app_name,
+        }, ensure_ascii=False)
+        if exc.reason == "INVALID":
+            hint = (
+                f"用户对应用「{exc.app_name}」的授权凭证已失效"
+                f"（可能修改过密码或用户名{f'：{exc.detail}' if exc.detail else ''}）。"
+                "请调用 request_app_authorization 工具（app_id/app_name 按上方"
+                "JSON 标记填写）请用户更新授权凭证；禁止向用户索要账号或密码。"
+            )
+        else:
+            hint = (
+                f"用户尚未授权应用「{exc.app_name}」，无法调用服务 {server_name}。"
+                "请调用 request_app_authorization 工具（app_id/app_name 按上方"
+                "JSON 标记填写）请求用户完成授权；禁止向用户索要该应用的账号或密码。"
+            )
+        return _make_error_result(f"{marker}\n{hint}")
     except Exception as exc:
         # resolver 异常（DB 不可用、登录失败等）→ 返回错误结果（不抛异常）
         return _make_error_result(f"MCP 凭证兑换失败({server_name}): {exc}")

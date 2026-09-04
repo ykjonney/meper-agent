@@ -2876,6 +2876,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -2931,6 +2941,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -2983,6 +3003,16 @@
             "schema": {
               "type": "string",
               "title": "Agent Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3051,6 +3081,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3114,6 +3154,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3174,6 +3224,16 @@
             "schema": {
               "type": "string",
               "title": "Agent Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3241,6 +3301,16 @@
             "schema": {
               "type": "string",
               "title": "Agent Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3317,6 +3387,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3369,6 +3449,16 @@
             "schema": {
               "type": "string",
               "title": "Session Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3425,6 +3515,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3475,6 +3575,16 @@
             "schema": {
               "type": "string",
               "title": "Session Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3546,6 +3656,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3599,6 +3719,16 @@
             "schema": {
               "type": "string",
               "title": "Session Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3662,6 +3792,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3721,6 +3861,16 @@
             "schema": {
               "type": "string",
               "title": "File Path"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3788,6 +3938,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3843,6 +4003,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3895,6 +4065,16 @@
             "schema": {
               "type": "string",
               "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -3963,6 +4143,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4015,6 +4205,16 @@
             "schema": {
               "type": "string",
               "title": "Task Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -4086,6 +4286,16 @@
             }
           },
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4138,6 +4348,16 @@
             "schema": {
               "type": "string",
               "title": "Task Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
             }
           },
           {
@@ -4197,6 +4417,16 @@
         "operationId": "get_user_info_api_v1_ext_userinfo_get",
         "parameters": [
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4242,6 +4472,16 @@
         "description": "Mint a one-time ticket for the voice realtime WS.",
         "operationId": "create_voice_ticket_api_v1_ext_voice_ticket_post",
         "parameters": [
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -4291,6 +4531,16 @@
         "operationId": "ext_voice_status_api_v1_ext_voice_status_get",
         "parameters": [
           {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4313,6 +4563,292 @@
                     "type": "boolean"
                   },
                   "title": "Response Ext Voice Status Api V1 Ext Voice Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ext/my-app-authorizations/bootstrap": {
+      "get": {
+        "tags": [
+          "external-api",
+          "external-authorizations"
+        ],
+        "summary": "首绑门页引导信息（未绑定可访问）",
+        "description": "返回 API Key 对应应用 + introspection 用户名 + 绑定状态。\n\n未绑定用户可访问（relaxed 鉴权），供首绑门页渲染表单：\nusername 锁定为 ext_username，只填密码。",
+        "operationId": "bootstrap_authorization_api_v1_ext_my_app_authorizations_bootstrap_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bearer af_live_xxx",
+              "title": "Authorization"
+            },
+            "description": "Bearer af_live_xxx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtAuthBootstrapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ext/my-app-authorizations/available-apps": {
+      "get": {
+        "tags": [
+          "external-api",
+          "external-authorizations"
+        ],
+        "summary": "可授权应用列表",
+        "description": "列出可授权应用（配置了 login_url 的），标记 key 对应应用。\n\n前端授权面板据此渲染应用选择；key 应用的 username 需锁定为\nintrospection 用户名（防冒名）。",
+        "operationId": "list_available_apps_api_v1_ext_my_app_authorizations_available_apps_get",
+        "parameters": [
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bearer af_live_xxx",
+              "title": "Authorization"
+            },
+            "description": "Bearer af_live_xxx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtAvailableAppsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ext/my-app-authorizations/{app_id}": {
+      "put": {
+        "tags": [
+          "external-api",
+          "external-authorizations"
+        ],
+        "summary": "授权应用（绑定账密，未绑定可访问）",
+        "description": "授权某应用：绑定/更新账密。\n\n安全规则：\n- key 对应应用：username 必须等于 introspection 用户名（防冒名，\n  比 studio 流程更严）；其他应用自由填写（对齐 studio）。\n- 认领（claim 字段）仅在首次绑定 key 应用时可用——已有平台身份后\n  认领会把凭证挂到别的账号、运行时查不到（禁止）。\n- 跨应用绑定要求已有平台身份（先完成 key 应用首绑）。",
+        "operationId": "authorize_app_api_v1_ext_my_app_authorizations__app_id__put",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bearer af_live_xxx",
+              "title": "Authorization"
+            },
+            "description": "Bearer af_live_xxx"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtAuthorizeAppRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAuthorizationsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "external-api",
+          "external-authorizations"
+        ],
+        "summary": "取消授权",
+        "description": "取消某应用的授权（解绑凭证 + 删身份映射）。\n\n注意：解绑 key 对应应用会删除身份映射，下次请求将回到首绑门页。",
+        "operationId": "revoke_app_api_v1_ext_my_app_authorizations__app_id__delete",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          },
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bearer af_live_xxx",
+              "title": "Authorization"
+            },
+            "description": "Bearer af_live_xxx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAuthorizationsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ext/my-app-authorizations": {
+      "get": {
+        "tags": [
+          "external-api",
+          "external-authorizations"
+        ],
+        "summary": "查看我的应用授权",
+        "description": "查看当前终端用户的授权列表（凭证脱敏）。",
+        "operationId": "read_my_authorizations_api_v1_ext_my_app_authorizations_get",
+        "parameters": [
+          {
+            "name": "allow_unbound",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Unbound"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bearer af_live_xxx",
+              "title": "Authorization"
+            },
+            "description": "Bearer af_live_xxx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAuthorizationsResponse"
                 }
               }
             }
@@ -8768,7 +9304,7 @@
           "triggers"
         ],
         "summary": "Create a new trigger",
-        "description": "Create a new trigger for a workflow.\n\nThe user_id is taken from the authenticated user. Multiple triggers\ncan exist for the same (user, workflow) pair.",
+        "description": "Create a trigger for the current user.\n\nMultiple triggers can exist for the same (user, workflow) pair.",
         "operationId": "create_trigger_api_v1_triggers_post",
         "parameters": [
           {
@@ -8823,7 +9359,7 @@
           "triggers"
         ],
         "summary": "List triggers",
-        "description": "List triggers with optional filtering.\n\nBy default, returns triggers for the authenticated user.\nUse workflow_id to filter by workflow.\nAdmin users can query other users' triggers with user_id.",
+        "description": "List triggers.\n\nDefault: only the authenticated user's triggers. ``trigger:manage``\nholders may pass ``all=true`` for the full collection (optionally\ncombined with ``user_id``), or ``user_id`` alone to inspect a specific\nuser. Non-holders querying someone else's user_id get a clear 403 —\nnever a silent fallback (silent filtering is what hid stray triggers\nfrom admins in the first place).",
         "operationId": "list_triggers_api_v1_triggers_get",
         "parameters": [
           {
@@ -8857,6 +9393,18 @@
               ],
               "title": "User Id"
             }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "全库列表（需 trigger:manage 权限）",
+              "default": false,
+              "title": "All"
+            },
+            "description": "全库列表（需 trigger:manage 权限）"
           },
           {
             "name": "authorization",
@@ -8902,7 +9450,7 @@
           "triggers"
         ],
         "summary": "Get trigger detail",
-        "description": "Get a single trigger by ID.",
+        "description": "Get a single trigger by ID.\n\nNon-manage users can only access their own; others 404.",
         "operationId": "get_trigger_api_v1_triggers__trigger_id__get",
         "parameters": [
           {
@@ -8956,7 +9504,7 @@
           "triggers"
         ],
         "summary": "Update trigger",
-        "description": "Update a trigger.\n\nIncrements schedule_version and refreshes next_trigger_at so the polling\nscheduler picks up the new schedule.",
+        "description": "Update a trigger.\n\nIncrements schedule_version and refreshes next_trigger_at so the polling\nscheduler picks up the new schedule. Switching type clears the other\ntype's field — previously stale cron_expression/execute_at lingered on\nthe document (e.g. a once-trigger carrying \"0 0 4 * *\").",
         "operationId": "update_trigger_api_v1_triggers__trigger_id__put",
         "parameters": [
           {
@@ -14058,9 +14606,9 @@
               "$ref": "#/components/schemas/RecommendedItem"
             },
             "type": "array",
-            "maxItems": 10,
+            "maxItems": 200,
             "title": "Recommended Items",
-            "description": "首屏推荐问题/操作快捷项（≤10 条）"
+            "description": "首屏推荐问题/操作快捷项（≤200 条）"
           },
           "prompt_slots": {
             "additionalProperties": {
@@ -14960,7 +15508,7 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Login Config",
-            "description": "账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/session_ttl(60-86400秒，默认3600)。"
+            "description": "账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/userid_jsonpath(默认userId，空串禁用——从登录响应提取稳定用户ID做身份锚点，用户改名不漂移)/session_ttl(60-86400秒，默认3600)。"
           }
         },
         "type": "object",
@@ -15066,7 +15614,7 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Login Config",
-            "description": "账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/session_ttl(60-86400秒，默认3600)。"
+            "description": "账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/userid_jsonpath(默认userId，空串禁用——从登录响应提取稳定用户ID做身份锚点，用户改名不漂移)/session_ttl(60-86400秒，默认3600)。"
           }
         },
         "type": "object",
@@ -16196,6 +16744,160 @@
         ],
         "title": "ExtAgentResponse",
         "description": "Agent summary for external list/detail endpoints."
+      },
+      "ExtAuthAppBrief": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "has_login_config": {
+            "type": "boolean",
+            "title": "Has Login Config",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "ExtAuthAppBrief",
+        "description": "首绑门页展示的应用信息。"
+      },
+      "ExtAuthBootstrapResponse": {
+        "properties": {
+          "app": {
+            "$ref": "#/components/schemas/ExtAuthAppBrief"
+          },
+          "ext_username": {
+            "type": "string",
+            "title": "Ext Username",
+            "default": ""
+          },
+          "bound": {
+            "type": "boolean",
+            "title": "Bound",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "app"
+        ],
+        "title": "ExtAuthBootstrapResponse",
+        "description": "首绑门页引导信息：当前 API Key 对应应用 + 外部用户名 + 绑定状态。"
+      },
+      "ExtAuthorizeAppRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password",
+            "description": "密码"
+          },
+          "claim_platform_username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Platform Username",
+            "description": "认领的平台账号用户名"
+          },
+          "claim_platform_password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Platform Password",
+            "description": "认领的平台账号密码"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "ExtAuthorizeAppRequest",
+        "description": "client 授权应用：绑定账密（ext 端点用）。\n\n认领字段二选一填写：提供 claim_platform_username/password 时走\n「认领已有平台账号」路径（验证平台账密所有权），否则走自动开通。"
+      },
+      "ExtAvailableAppResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "mcp_count": {
+            "type": "integer",
+            "title": "Mcp Count",
+            "default": 0
+          },
+          "is_key_app": {
+            "type": "boolean",
+            "title": "Is Key App",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ExtAvailableAppResponse",
+        "description": "可授权应用（ext 侧），标记是否为 API Key 对应应用。"
+      },
+      "ExtAvailableAppsResponse": {
+        "properties": {
+          "key_app_id": {
+            "type": "string",
+            "title": "Key App Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExtAvailableAppResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_app_id",
+          "items"
+        ],
+        "title": "ExtAvailableAppsResponse",
+        "description": "可授权应用列表（ext 侧）。"
       },
       "ExtDismissRequest": {
         "properties": {

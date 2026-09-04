@@ -8,6 +8,7 @@ import {
   FileTextOutlined,
   QuestionCircleOutlined,
   RobotOutlined,
+  SafetyCertificateOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
 import { Mermaid } from '@ant-design/x'
@@ -29,7 +30,12 @@ import { parseTaskCreated } from './WorkflowTaskCard'
 import { WorkflowTaskInlineCard } from './WorkflowTaskInlineCard'
 
 /** 特殊工具:不参与聚合,各自独立渲染(WorkflowTaskCard / chat 层 HITL)。 */
-const SPECIAL_TOOLS = new Set(['dispatch_workflow', 'ask_clarification', 'confirm_workflow'])
+const SPECIAL_TOOLS = new Set([
+  'dispatch_workflow',
+  'ask_clarification',
+  'confirm_workflow',
+  'request_app_authorization',
+])
 
 /** 一段连续的普通工具分组。特殊工具作为独立的 ToolRun 单独渲染,打断聚合。 */
 type ToolGroup =
@@ -167,7 +173,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
 
   return (
     <Collapse
-      className="reasoning-panel"
+      className={`reasoning-panel${streaming ? ' reasoning-panel-streaming' : ''}`}
       ghost
       size="small"
       activeKey={open ? ['reasoning'] : []}
@@ -350,6 +356,10 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
     <CheckCircleOutlined />
   )
 
+  // 卡片状态类:运行中 tool-run-running(琥珀底+琥珀标题,配合动效突出
+  // 当前执行);整组落定后回中性淡底(失败红底)。尺寸全状态一致,层级
+  // 靠色彩与展开/收起表达(见 styles.css 思考/工具卡段落)。timeline
+  // 节点始终按各自状态着色。
   const cls = isRunning ? 'running' : hasError ? 'error' : 'complete'
 
   // 摘要文案
@@ -558,6 +568,47 @@ function WorkflowConfirmAnsweredCard({ tool }: { tool: ToolRun }) {
   )
 }
 
+/** request_app_authorization 已答卡片：显示待授权应用 + 处理结果。
+ * 等待授权时(tool 无 result)显示"等待授权"提示（实际交互在 ChatView 的
+ * 授权表单卡）。独立成卡而非并入工具组——等待期间若作为普通工具渲染，
+ * 会让同组已完成/失败的工具跟着变 running 样式。
+ * 注意：tool.result 是给 LLM 的恢复指令（"请继续执行任务…"），不展示原文，
+ * 只以固定文案表达结果。配色:琥珀(授权/凭证语义)。 */
+function AppAuthorizationCard({ tool }: { tool: ToolRun }) {
+  const args = parseToolArgs(tool)
+  const appName = String(args.app_name ?? args.app_id ?? '应用')
+  const answered = !!tool.result
+  const declined = answered && /暂不授权|拒绝/.test(tool.result ?? '')
+
+  return (
+    <div className="interactive-card interactive-card-auth">
+      <div className="interactive-card-header">
+        <SafetyCertificateOutlined />
+        <span className="interactive-card-label">应用授权</span>
+        {answered ? (
+          <Tag color={declined ? 'default' : 'success'} style={{ margin: 0 }}>
+            {declined ? '✗ 已拒绝' : '✓ 已授权'}
+          </Tag>
+        ) : (
+          <Tag style={{ margin: 0 }}>等待授权</Tag>
+        )}
+      </div>
+      <div className="interactive-card-inner">
+        <div className="interactive-card-question">{appName}</div>
+        {answered ? (
+          <div className="interactive-card-answer">
+            <span>{declined ? '已按你的选择跳过授权' : '授权完成，任务继续执行'}</span>
+          </div>
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            请在下方完成授权（或选择暂不授权）
+          </Typography.Text>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ToolResult({
   tool,
   onOpenTaskBoard,
@@ -579,6 +630,10 @@ function ToolResult({
   // confirm_workflow：已答时显示"工作流确认→确认/拒绝"卡片。
   if (tool.name === 'confirm_workflow') {
     return <WorkflowConfirmAnsweredCard tool={tool} />
+  }
+  // request_app_authorization：等待授权/已授权/已拒绝 独立卡片。
+  if (tool.name === 'request_app_authorization') {
+    return <AppAuthorizationCard tool={tool} />
   }
   // parse_file：成功解析 → 专属文件解析卡片(文件名 + 元信息 + Markdown 内容)。
   if (

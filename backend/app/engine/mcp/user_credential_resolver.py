@@ -66,12 +66,32 @@ class UserCredentialResolver:
             platform_user_id, app["_id"]
         )
         if not binding:
-            return None  # 未授权该应用
+            # 未授权该应用 → 结构化错误（携带 app_id/app_name），拦截器
+            # 据此生成带标记的错误结果并引导 LLM 走 request_app_authorization
+            from agent_flow_harness.mcp.errors import McpCredentialUnbound
 
-        # 4. 查/换 session（Redis 缓存）
-        session = await self._get_or_exchange_session(
-            platform_user_id, app, binding
-        )
+            raise McpCredentialUnbound(
+                app_id=app["_id"],
+                app_name=app.get("name", app["_id"]),
+                server_name=server_name,
+            )
+
+        # 4. 查/换 session（Redis 缓存）。登录失败（账密被用户在外部系统
+        #    改掉等）→ 结构化 INVALID 错误：身份映射不受影响（sub 以稳定
+        #    用户 ID 为锚），拦截器据此引导用户在聊天内更新授权凭证。
+        from agent_flow_harness.mcp.errors import McpCredentialInvalid
+
+        try:
+            session = await self._get_or_exchange_session(
+                platform_user_id, app, binding
+            )
+        except PermissionError as exc:
+            raise McpCredentialInvalid(
+                app_id=app["_id"],
+                app_name=app.get("name", app["_id"]),
+                server_name=server_name,
+                detail=str(exc),
+            ) from exc
         if not session:
             return None
 

@@ -339,6 +339,77 @@ class UserService:
         return doc
 
     # ------------------------------------------------------------------
+    # Ext user auto-provisioning（client 自助授权自动开通）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def ensure_ext_platform_user(app_id: str, identity_key: str) -> str:
+        """Get-or-create the platform user for an external identity.
+
+        client 自助授权用：首次绑定时身份映射尚不存在，自动开通一个
+        ext_user 角色的平台账号承接该身份（无管理端权限、随机密码永不
+        外发）。幂等——身份已存在直接返回其 platform_user_id。
+
+        身份锚点 v4.2：``identity_key`` 是稳定用户 ID（key 应用传
+        introspection 的 sub），合成用户名基于它——用户改名不影响
+        身份归一。用户名规则：``ext.{identity_key}.{app_id前8位}``
+        （截断≤50，冲突加数字后缀）；email 同步合成（模型必填 + 唯一索引）。
+
+        并发兜底：并行的两次首绑会各建一个账号，随后
+        ``UserMcpCredentialService.bind_credential`` 内部的 identity
+        upsert 抢注保护会让后到者 409，由上层提示重试。
+
+        Returns:
+            platform_user_id（已存在或新建）。
+        """
+        from app.models.external_identity import compose_sub
+        from app.services.external_identity_service import ExternalIdentityService
+
+        sub = compose_sub(app_id, identity_key)
+        identity = await ExternalIdentityService.find_by_sub(sub)
+        if identity is not None:
+            return identity["platform_user_id"]
+
+        # 合成用户名（≤50）与邮箱（模型必填、唯一索引）
+        base = f"ext.{identity_key}.{app_id[:8]}"[:50]
+        final_username = base
+        suffix = 1
+        while await UserService.get_user_by_username(final_username) is not None:
+            tail = str(suffix)
+            final_username = f"{base[:50 - len(tail)]}{tail}"
+            suffix += 1
+
+        import secrets
+
+        user = User(
+            username=final_username,
+            email=f"{final_username}@ext.local",
+            # 随机强密码且永不外发——该账号不经密码登录，只经身份映射访问
+            password_hash=hash_password(secrets.token_urlsafe(24)),
+            role=UserRole.EXT_USER.value,
+            status=UserStatus.ACTIVE,
+        )
+        doc = {
+            "_id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "password_hash": user.password_hash,
+            "role": user.role,
+            "status": user.status.value,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "last_login_at": user.last_login_at,
+        }
+        await UserService._collection().insert_one(doc)
+        logger.info(
+            "ext_platform_user_provisioned",
+            user_id=user.id,
+            username=final_username,
+            app_id=app_id,
+        )
+        return user.id
+
+    # ------------------------------------------------------------------
     # Super-admin guards（防"管理员互锁/互删"事故）
     # ------------------------------------------------------------------
 

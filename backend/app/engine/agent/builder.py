@@ -548,6 +548,26 @@ def _build_builtin_tool_declaration(
         "which you can parse and use directly.",
     ])
 
+    # request_app_authorization is always available in chat (capability tool)
+    lines.extend([
+        "",
+        "### App Authorization",
+        "",
+        "When a tool call fails with an error whose first line is a JSON marker like",
+        "`{\"mcp_credential_error\": \"UNBOUND\", \"app_id\": \"...\", \"app_name\": \"...\"}`",
+        "(`UNBOUND` = the user has not authorized that application; `INVALID` = previously",
+        "authorized but the credentials no longer work, usually because the user changed",
+        "their password or username in that system), you MUST:",
+        "1. Call the **request_app_authorization** tool, copying `app_id` and `app_name`",
+        "   from the JSON marker. The user will authorize (or update credentials) in a form;",
+        "   after they finish, retry the failed tool.",
+        "2. NEVER ask the user for any application's username or password — not via",
+        "   ask_clarification, not in plain text. Credentials go only through the",
+        "   authorization form; anything typed in chat cannot be used for authorization.",
+        "3. If the user declines authorization, explain what cannot be done without it",
+        "   and offer alternatives.",
+    ])
+
     return "\n".join(lines)
 
 
@@ -579,6 +599,12 @@ def _build_autonomous_execution_section() -> list[str]:
         "  `needed_info` describing what should be provided. The workflow",
         "  will terminate and your reason will be shown to the user as the",
         "  failure explanation.",
+        "- This applies ESPECIALLY when your final response is free text with",
+        "  no JSON contract: there is no validator to catch a vague answer,",
+        "  so YOU are the only guard. Never answer a vague input with",
+        "  plausible-sounding speculative content — it silently corrupts",
+        "  every downstream node. An honest abort_workflow failure is always",
+        "  preferable to a fabricated answer.",
         "- Never fabricate results or pretend to have completed work you",
         "  could not actually do.",
         "",

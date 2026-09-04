@@ -32,18 +32,16 @@
 
   var state = {
     host: null, shadow: null, shell: null, panel: null,
-    launcher: null, iframe: null, loading: null, closeButton: null,
-    resizeHandle: null, maxButton: null,
+    launcher: null, iframe: null, loading: null,
+    resizeHandle: null,
     initialized: false, open: false, iframeLoaded: false,
-    fullscreen: false, resizing: false, width: null,
+    resizing: false, width: null,
     previousFocus: null, config: null, userName: '',
     loadedToken: '' // iframe 初始化时使用的 token，用于检测身份变化
   };
 
   var WIDTH_KEY = 'afc-panel-width'; // 拖拽宽度记忆（localStorage）
   var MIN_WIDTH = 360;
-  var ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
-  var ICON_RESTORE = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
 
   function bool(v, f) { return v === undefined || v === null || v === '' ? f : !/^(false|0|no|off)$/i.test(String(v)); }
   function cssLength(v, f) { if (typeof v === 'number' && isFinite(v)) return v + 'px'; var t = String(v || '').trim(); return /^\d+(\.\d+)?(px|rem|em|vw|vh|%)$/.test(t) ? t : f; }
@@ -84,20 +82,13 @@
       ':host{all:initial}','*,*::before,*::after{box-sizing:border-box}',
       '.afc-panel{position:fixed;z-index:2;top:0;right:0;width:min(var(--afc-width),100vw);height:100vh;height:100dvh;background:#fff;box-shadow:-18px 0 48px rgba(15,23,42,.18);transform:translate3d(102%,0,0);visibility:hidden;pointer-events:none;transition:transform .34s cubic-bezier(.22,1,.36,1),visibility .34s;overflow:hidden;border-left:1px solid rgba(148,163,184,.22)}',
       '.afc-open .afc-panel{transform:translate3d(0,0,0);visibility:visible;pointer-events:auto}',
-      '.afc-panel.afc-full{width:100vw;height:100vh;height:100dvh;border-left:0}',
-      '.afc-panel.afc-full .afc-resize{display:none}',
       '.afc-resize{position:absolute;left:0;top:0;bottom:0;width:8px;z-index:6;cursor:col-resize;background:transparent;touch-action:none}',
       '.afc-resize::after{content:"";position:absolute;left:2px;top:50%;width:3px;height:42px;border-radius:2px;transform:translateY(-50%);background:rgba(113,104,255,0);transition:background .16s ease}',
       '.afc-resize:hover::after,.afc-resize.afc-active::after{background:rgba(113,104,255,.72)}',
       '.afc-resizing{user-select:none;cursor:col-resize}',
       '.afc-resizing .afc-panel{transition:none}',
       '.afc-resizing .afc-frame{pointer-events:none}',
-      '.afc-actions{position:absolute;z-index:5;top:max(15px,env(safe-area-inset-top));right:max(15px,env(safe-area-inset-right));display:flex;gap:8px}',
-      '.afc-actions button{width:30px;height:30px;padding:0;border:1px solid rgba(148,163,184,.18);border-radius:8px;background:rgba(255,255,255,.52);color:rgba(63,73,91,.68);display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 12px rgba(15,23,42,.08);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .16s ease,color .16s ease,transform .16s ease}',
-      '.afc-actions button:hover{background:rgba(255,255,255,.82);color:#1f2937;transform:scale(1.06)}',
-      '.afc-actions button:active{transform:scale(.94)}',
-      '.afc-actions button:focus-visible,.afc-launcher:focus-visible{outline:3px solid rgba(94,129,255,.35);outline-offset:3px}',
-      '.afc-actions svg{width:15px;height:15px;stroke:currentColor}',
+      '.afc-launcher:focus-visible{outline:3px solid rgba(94,129,255,.35);outline-offset:3px}',
       '.afc-body{position:absolute;inset:0;background:#fff}',
       '.afc-frame{display:block;width:100%;height:100%;border:0;background:#fff;opacity:0;transition:opacity .2s ease}',
       '.afc-loaded .afc-frame{opacity:1}',
@@ -124,10 +115,6 @@
     shell.innerHTML = [
       '<aside class="afc-panel" role="dialog" aria-label="对话窗口">',
       '  <div class="afc-resize" aria-hidden="true"></div>',
-      '  <div class="afc-actions">',
-      '    <button class="afc-max" type="button" aria-label="全屏">' + ICON_MAXIMIZE + '</button>',
-      '    <button class="afc-close" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>',
-      '  </div>',
       '  <div class="afc-body">',
       '    <iframe class="afc-frame" title="AI 对话" allow="clipboard-read; clipboard-write; microphone" referrerpolicy="strict-origin-when-cross-origin"></iframe>',
       '    <div class="afc-loading"><div><div class="afc-spinner"></div></div></div>',
@@ -144,16 +131,12 @@
     state.launcher = shell.querySelector('.afc-launcher');
     state.iframe = shell.querySelector('.afc-frame');
     state.loading = shell.querySelector('.afc-body');
-    state.closeButton = shell.querySelector('.afc-close');
     state.resizeHandle = shell.querySelector('.afc-resize');
-    state.maxButton = shell.querySelector('.afc-max');
     state.iframe.title = state.config.title;
     shell.querySelector('.afc-logo').src = resolveLogoUrl();
     restoreWidth();
 
     state.launcher.addEventListener('click', open);
-    state.closeButton.addEventListener('click', close);
-    state.maxButton.addEventListener('click', toggleFullscreen);
     initResize();
     state.iframe.addEventListener('load', function () {
       state.iframeLoaded = true;
@@ -199,7 +182,6 @@
   function initResize() {
     var handle = state.resizeHandle;
     handle.addEventListener('pointerdown', function (e) {
-      if (state.fullscreen) return;
       e.preventDefault();
       state.resizing = true;
       try { handle.setPointerCapture(e.pointerId); } catch (err) {}
@@ -220,15 +202,6 @@
     }
     handle.addEventListener('pointerup', end);
     handle.addEventListener('pointercancel', end);
-  }
-
-  function toggleFullscreen() {
-    if (!state.initialized) return;
-    state.fullscreen = !state.fullscreen;
-    state.panel.classList.toggle('afc-full', state.fullscreen);
-    state.maxButton.innerHTML = state.fullscreen ? ICON_RESTORE : ICON_MAXIMIZE;
-    state.maxButton.setAttribute('aria-label', state.fullscreen ? '退出全屏' : '全屏');
-    emit(state.fullscreen ? 'fullscreen' : 'restore');
   }
 
   /* ═══ Cookie ═══ */
@@ -253,6 +226,8 @@
     if (!state.iframe || e.source !== state.iframe.contentWindow) return;
     var data = e.data || {};
     if (data.type === 'agentflow:request_config') sendConfig();
+    // client 内的关闭按钮（header 关闭，嵌入模式显示）请求收起面板
+    if (data.type === 'agentflow:close') close();
     // client 退出登录时通知 widget 清 cookie + 关闭
     if (data.type === 'agentflow:logout') onLogout();
     // client 验证 token 失败（无效/过期/未绑定）→ client 内部已显示错误页
@@ -323,7 +298,6 @@
     state.shell.classList.add('afc-open');
     if (state.overlay) state.overlay.style.pointerEvents = 'auto';
     state.launcher.setAttribute('aria-expanded', 'true');
-    setTimeout(function () { if (state.open && state.closeButton) state.closeButton.focus(); }, 30);
     emit('open');
     return api;
   }
@@ -349,7 +323,7 @@
     if (state.host && state.host.parentNode) state.host.parentNode.removeChild(state.host);
     state.host = state.shadow = state.shell = state.panel = state.launcher = state.iframe = null;
     state.initialized = state.open = state.iframeLoaded = false;
-    state.fullscreen = state.resizing = false;
+    state.resizing = false;
     state.width = null;
     state.userName = '';
     state.loadedToken = '';

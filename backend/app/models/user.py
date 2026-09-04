@@ -7,7 +7,7 @@ from app.models.base import generate_id, utc_now
 
 
 class UserRole(StrEnum):
-    """System role enum — the 4 built-in roles.
+    """System role enum — the built-in roles.
 
     The `role` field on User accepts any string to support custom roles,
     but these enum values are reserved for system roles.
@@ -17,6 +17,8 @@ class UserRole(StrEnum):
     DEVELOPER = "developer"
     OPERATOR = "operator"
     VIEWER = "viewer"
+    # 外部终端用户：client 自助授权时自动开通的账号专用（无任何管理端权限）
+    EXT_USER = "ext_user"
 
 
 class UserStatus(StrEnum):

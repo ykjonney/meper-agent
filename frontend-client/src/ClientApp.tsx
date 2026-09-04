@@ -10,6 +10,7 @@ import {
 import { logout } from './api/auth'
 import { AUTH_MODE, apikeyLogout, fetchUserInfo } from './api/client'
 import { useAuthStore } from './store/auth'
+import { AuthorizationsPanel } from './components/AuthorizationsPanel'
 import { ChatView } from './components/ChatView'
 import { ConversationSidebar } from './components/ConversationSidebar'
 import type { AgentSummary, ChatSession } from './types'
@@ -26,6 +27,7 @@ export function ClientApp() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [navigationOpen, setNavigationOpen] = useState(false)
+  const [authorizationsOpen, setAuthorizationsOpen] = useState(false)
   const setExtUserName = useAuthStore((state) => state.setExtUserName)
 
   // apikey 模式：获取终端用户名
@@ -167,6 +169,7 @@ export function ClientApp() {
         void logout()
       }
     },
+    onOpenAuthorizations: () => setAuthorizationsOpen(true),
   }
 
   return (
@@ -198,6 +201,10 @@ export function ClientApp() {
           setActiveSessionId(sessionId)
           void refreshSessions()
         }}
+      />
+      <AuthorizationsPanel
+        open={authorizationsOpen}
+        onClose={() => setAuthorizationsOpen(false)}
       />
     </div>
   )

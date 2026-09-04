@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client'
 
 import { AUTH_MODE, bootstrapAuth, getUserToken, setAuthErrorHandler } from './api/client'
 import { ClientApp } from './ClientApp'
+import { BindingGatePage } from './components/BindingGatePage'
 import { LoginPage } from './components/LoginPage'
 import { TokenLoginPage, type AuthErrorType } from './components/TokenLoginPage'
 import { useParentToken } from './hooks/use-parent-token'
@@ -82,7 +83,20 @@ function Root() {
           ) : canEnterApp ? (
             <ClientApp />
           ) : AUTH_MODE === 'apikey' ? (
-            <TokenLoginPage errorType={errorType} />
+            // 未绑定（EXT_USER_NOT_BOUND）→ 首绑门页自助授权，其余错误
+            // 维持身份错误提示页。授权成功后清错误、重跑 bootstrap 进会话。
+            errorType === 'not_bound' ? (
+              <BindingGatePage
+                onBound={() => {
+                  setAuthError(null)
+                  void bootstrapAuth().then(() => {
+                    window.location.reload()
+                  })
+                }}
+              />
+            ) : (
+              <TokenLoginPage errorType={errorType} />
+            )
           ) : (
             <LoginPage />
           )}

@@ -46,10 +46,19 @@ def _load_builtin_tools() -> dict[str, "BaseTool"]:
         tools[t.name] = t
 
     # 第一层：能力型工具
-    from agent_flow_harness.interaction import ask_clarification, tool_search
+    from agent_flow_harness.interaction import (
+        ask_clarification,
+        request_app_authorization,
+        tool_search,
+    )
     from agent_flow_harness.subagents.delegate import delegate_to_subagent
 
-    for t in (delegate_to_subagent, ask_clarification, tool_search):
+    for t in (
+        delegate_to_subagent,
+        ask_clarification,
+        request_app_authorization,
+        tool_search,
+    ):
         tools[t.name] = t
 
     # 编排层：run_code（代码即工具编排，工具表经 ToolBridgeContext 注入）

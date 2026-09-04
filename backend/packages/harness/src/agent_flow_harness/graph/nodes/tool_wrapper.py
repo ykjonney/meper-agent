@@ -39,6 +39,18 @@ logger = structlog.get_logger(__name__)
 _IMAGE_MARKER_RE = re.compile(r"\[IMAGE file_id=")
 
 
+def _authorization_guard_veto(tool_name: str, state: Any) -> str | None:
+    """Authorization guard veto 的懒加载转发（避免 import 环）。
+
+    实现在 interaction/app_authorization.py 的 authorization_guard_veto。
+    """
+    from agent_flow_harness.interaction.app_authorization import (
+        authorization_guard_veto,
+    )
+
+    return authorization_guard_veto(tool_name, state)
+
+
 def _split_multimodal_result(result: ToolMessage) -> "Command[Any] | None":
     """把含 image 块的 ToolMessage 拆成 (纯文本 ToolMessage + 带图 HumanMessage)。
 
@@ -130,6 +142,23 @@ def make_tool_wrapper(
         # before_tool — middleware may observe / modify the call args.
         tc = await chain.run_before_tool(state, tc)
 
+        # Authorization guard veto：本轮存在未消化的「用户尚未授权应用」
+        # 错误时，拦下 ask_clarification（LLM 本能的追问通道）并返回
+        # 纠正性结果——防止把用户引向"在对话里发凭证"的错路，引导改用
+        # request_app_authorization。详见 interaction/app_authorization.py。
+        veto = _authorization_guard_veto(tc.get("name", ""), state)
+        if veto is not None:
+            logger.info(
+                "tool_vetoed_by_authorization_guard",
+                tool_name=tc.get("name", ""),
+            )
+            return ToolMessage(
+                content=veto,
+                name=tc.get("name", ""),
+                tool_call_id=tc.get("id", ""),
+                status="error",
+            )
+
         # Re-inject any middleware modifications into the request.
         modified = request.override(tool_call=tc)  # type: ignore[arg-type]
 
@@ -178,8 +207,12 @@ def make_tool_wrapper(
                     error=str(exc),
                     exc_info=exc,
                 )
+            # ToolException 的 message 即工具为 LLM 准备的完整错误文案
+            # （与 langchain handle_tool_error 语义一致），不再叠加前缀；
+            # 其他异常保持统一前缀。
+            content = str(exc) if isinstance(exc, ToolException) else f"Error executing tool: {exc}"
             result = ToolMessage(
-                content=f"Error executing tool: {exc}",
+                content=content,
                 name=tc.get("name", ""),
                 tool_call_id=tc.get("id", ""),
                 status="error",

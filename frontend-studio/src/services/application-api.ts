@@ -15,6 +15,8 @@ export interface AppLoginConfig {
   username_field?: string
   password_field?: string
   token_jsonpath?: string
+  /** 从登录响应提取稳定用户 ID 做身份锚点（默认 userId；空串 = 禁用） */
+  userid_jsonpath?: string
   session_ttl?: number
 }
 

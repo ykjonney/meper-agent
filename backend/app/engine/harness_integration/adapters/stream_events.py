@@ -101,6 +101,7 @@ def _extract_interrupt(error: Any) -> dict[str, Any] | None:
     Recognised payloads (identified by their ``type`` field):
     - ``ask_clarification`` (no explicit type, carries ``question``)
     - ``workflow_confirmation`` (``confirm_workflow`` tool)
+    - ``app_authorization`` (``request_app_authorization`` tool)
     """
     # GraphInterrupt stores interrupts tuple in args[0]
     raw = None
@@ -117,8 +118,13 @@ def _extract_interrupt(error: Any) -> dict[str, Any] | None:
         if not isinstance(value, dict):
             continue
         # ask_clarification carries "question"; confirm_workflow carries
-        # type="workflow_confirmation". Accept either.
-        if "question" in value or value.get("type") == "workflow_confirmation":
+        # type="workflow_confirmation"; request_app_authorization carries
+        # type="app_authorization". Accept all three.
+        if (
+            "question" in value
+            or value.get("type") == "workflow_confirmation"
+            or value.get("type") == "app_authorization"
+        ):
             return value
     return None
 
@@ -127,9 +133,10 @@ def _build_interrupt_event(payload: dict[str, Any], *, interrupt_id: str = "") -
     """Build an :class:`InterruptEvent` from a raw interrupt ``payload``.
 
     Dispatches on ``payload["type"]``: ``workflow_confirmation`` (from
-    ``confirm_workflow``) fills the workflow fields; anything else is
-    treated as an ``ask_clarification`` payload and fills the question/
-    options/fields fields.
+    ``confirm_workflow``) fills the workflow fields; ``app_authorization``
+    (from ``request_app_authorization``) fills the app fields; anything
+    else is treated as an ``ask_clarification`` payload and fills the
+    question/options/fields fields.
     """
     if payload.get("type") == "workflow_confirmation":
         return InterruptEvent(
@@ -137,6 +144,14 @@ def _build_interrupt_event(payload: dict[str, Any], *, interrupt_id: str = "") -
             workflow_name=payload.get("workflow_name", ""),
             workflow_description=payload.get("workflow_description", ""),
             input_preview=payload.get("input_preview"),
+            interrupt_id=interrupt_id,
+        )
+    if payload.get("type") == "app_authorization":
+        return InterruptEvent(
+            kind="app_authorization",
+            app_id=payload.get("app_id", ""),
+            app_name=payload.get("app_name", ""),
+            reason=payload.get("reason", ""),
             interrupt_id=interrupt_id,
         )
     return InterruptEvent(

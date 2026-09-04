@@ -10,6 +10,7 @@ import {
   streamMessage,
   uploadSessionFile,
 } from '../api/chat'
+import { authorizeApp, parseUnboundMarker } from '../api/authorizations'
 import {
   DISMISSED_CLARIFICATION_TEXT,
   type AttachmentView,
@@ -144,9 +145,9 @@ function fromHistory(record: MessageRecord): ChatMessage {
       const matched = (resultId && pendingById.get(resultId)) || pendingByName.get(entry.tool_name || 'tool')
       if (matched) {
         matched.result = entry.content
-        // 按 entry.is_error 区分:工具执行失败(ToolMessage.status="error")标 error,
-        // 旧数据无该字段按正常完成处理。与流式路径(tool_result 事件 status)对齐。
-        const isError = entry.is_error === true
+        // 按 entry.is_error / entry.status 区分:工具执行失败(ToolMessage.status="error")
+        // 标 error,旧数据无该字段按正常完成处理。与流式路径(tool_result 事件 status)对齐。
+        const isError = entry.is_error === true || entry.status === 'error'
         matched.isError = isError
         matched.status = isError ? 'error' : 'complete'
         if (resultId) pendingById.delete(resultId)
@@ -220,6 +221,11 @@ export function useChat(
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [hitl, setHitl] = useState<HitlState | null>(null)
+  // 兜底授权卡关闭后待重发的最后一条用户消息（等 hitl 清空后的重渲染再发）
+  const [pendingResend, setPendingResend] = useState<{
+    text: string
+    displayText?: string
+  } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const accRef = useRef<AssistantAccumulator | null>(null)
@@ -466,6 +472,16 @@ export function useChat(
       // 与后端持久化结构（final 合并全部块）一致。
       let reasoningBlock: { type: 'reasoning'; text: string } | null = null
       let textBlock: { type: 'text'; text: string } | null = null
+      // 运行时按需授权兜底：tool_result 错误里带凭证错误标记但 LLM 未调
+      // request_app_authorization（interrupt 未发生）时，流结束后弹静态
+      // 授权卡（提交绑定后重发最后一条用户消息，而非 resume）。
+      let authInterruptShown = false
+      let unboundFallback: {
+        appId: string
+        appName: string
+        toolId: string
+        errorKind: 'UNBOUND' | 'INVALID'
+      } | null = null
       try {
         for await (const event of events) {
           if ((event.type === 'text_delta' || event.type === 'text') && event.content) {
@@ -530,6 +546,19 @@ export function useChat(
               toolBlock.tool.isError = isError
               toolBlock.tool.status = isError ? 'error' : 'complete'
             }
+            // MCP 凭证错误兜底识别：记录待授权应用（若 LLM 已走
+            // request_app_authorization interrupt，此记录在 done 时不生效）
+            if (isError) {
+              const marker = parseUnboundMarker(event.content)
+              if (marker) {
+                unboundFallback = {
+                  appId: marker.appId,
+                  appName: marker.appName,
+                  toolId: toolBlock?.tool.id ?? '',
+                  errorKind: marker.errorKind,
+                }
+              }
+            }
             for (const attachment of outputAttachments(event.content ?? '')) {
               acc.attachments.set(attachment.id, attachment)
               if (isImageName(attachment.name)) {
@@ -556,16 +585,18 @@ export function useChat(
             }
             onFilesChanged()
           } else if (event.type === 'interrupt') {
-            // The interrupt may come from ask_clarification (kind=clarification)
-            // or confirm_workflow (kind=workflow_confirmation). Find the
-            // pending tool block that triggered it (either name) to grab its id.
+            // The interrupt may come from ask_clarification (kind=clarification),
+            // confirm_workflow (kind=workflow_confirmation) or
+            // request_app_authorization (kind=app_authorization). Find the
+            // pending tool block that triggered it to grab its id.
             const interruptTool = [...acc.blocks]
               .reverse()
               .find(
                 (b) =>
                   b.type === 'tool' &&
                   (b.tool.name === 'ask_clarification' ||
-                    b.tool.name === 'confirm_workflow') &&
+                    b.tool.name === 'confirm_workflow' ||
+                    b.tool.name === 'request_app_authorization') &&
                   !b.tool.result,
               )
             const taskId =
@@ -580,6 +611,20 @@ export function useChat(
                 workflowName: event.workflow_name ?? '',
                 workflowDescription: event.workflow_description ?? '',
                 inputPreview: event.input_preview ?? undefined,
+              })
+            } else if (event.kind === 'app_authorization') {
+              // 运行时按需授权卡：用户在表单里完成绑定（凭证只走授权 API），
+              // 成功后 resume 恢复原轮执行，agent 重试刚才失败的工具。
+              authInterruptShown = true
+              setHitl({
+                taskId,
+                kind: 'app_authorization',
+                question: '',
+                clarificationType: 'missing_info',
+                options: [],
+                appId: event.app_id ?? '',
+                appName: event.app_name ?? '',
+                reason: event.reason ?? '',
               })
             } else {
               setHitl({
@@ -607,6 +652,22 @@ export function useChat(
                   block.tool.result = '工具执行异常,未收到结果'
                 }
               }
+            }
+            // 授权兜底卡：LLM 未调 request_app_authorization 就结束了本轮，
+            // 但确有凭证错误 —— 弹静态授权卡（提交绑定后重发消息）。
+            if (unboundFallback && !authInterruptShown) {
+              setHitl({
+                taskId: unboundFallback.toolId,
+                kind: 'app_authorization',
+                question: '',
+                clarificationType: 'missing_info',
+                options: [],
+                appId: unboundFallback.appId,
+                appName: unboundFallback.appName,
+                reason: '',
+                fallback: true,
+                errorKind: unboundFallback.errorKind,
+              })
             }
             flush(acc, 'success')
             onFilesChanged()
@@ -931,6 +992,69 @@ export function useChat(
     setRunning(false)
   }, [])
 
+  // ── 运行时按需授权卡提交：绑定凭证（只走授权 API，不进对话）──────
+  // 成功后：
+  // - interrupt 卡（fallback !== true）：resume 恢复原轮，agent 重试工具；
+  // - 兜底卡（fallback === true）：LLM 未挂起，重发最后一条用户消息开新轮。
+  // 返回错误消息字符串供卡片展示；成功返回 null。
+  const answerAppAuthorization = useCallback(
+    async (username: string, password: string): Promise<string | null> => {
+      if (!hitl || hitl.kind !== 'app_authorization' || !hitl.appId || running) {
+        return '当前状态无法授权'
+      }
+      const { appId, appName, fallback } = hitl
+      try {
+        await authorizeApp(appId, { username, password })
+      } catch (error) {
+        return error instanceof Error ? error.message : '授权失败，请检查账号密码'
+      }
+      if (fallback) {
+        // 兜底卡：关闭卡片后重发最后一条用户消息（凭证已就位，新轮生效）。
+        // 注意不能直接调 send——其闭包里的 hitl 仍是当前卡（setHitl(null)
+        // 尚未重渲染），guard 会拦截。经 pendingResend 等待重渲染后发送。
+        const lastUser = [...messages].reverse().find((message) => message.role === 'user')
+        const lastUserText = lastUser?.content
+          .map((block) => (block.type === 'text' ? block.text : ''))
+          .join(' ')
+          .trim()
+        setHitl(null)
+        if (lastUserText) {
+          setPendingResend({ text: lastUserText, displayText: lastUser?.displayText })
+        }
+        return null
+      }
+      await answerClarification(
+        `用户已完成应用「${appName}」的授权，请继续执行任务（重试刚才失败的工具）。`,
+      )
+      return null
+    },
+    [answerClarification, hitl, messages, running, send],
+  )
+
+  // ── 授权卡「暂不授权」：拒绝而非静默忽略 ────────────────────────────
+  // 澄清卡的「忽略」语义是结束本轮等新输入，但授权被拒后模型应当优雅
+  // 降级（说明做不了什么、给替代方案）——所以这里 resume 一条拒绝答复
+  // 让原轮继续，而不是 dismiss 静默收场（对话会显得"卡死"）。
+  // 兜底卡（fallback）没有挂起的 interrupt，本地关闭即可。
+  const declineAppAuthorization = useCallback(async () => {
+    if (!hitl || hitl.kind !== 'app_authorization' || running) return
+    if (hitl.fallback) {
+      setHitl(null)
+      return
+    }
+    await answerClarification(
+      `用户选择暂不授权应用「${hitl.appName ?? ''}」。请不要再调用该应用的相关工具，` +
+        '向用户简要说明无法完成该任务的原因，并在可行时提供替代方案。',
+    )
+  }, [answerClarification, hitl, running])
+
+  // 兜底卡关闭后的延迟重发：等 hitl 实际清空（重渲染完成）再发送。
+  useEffect(() => {
+    if (!pendingResend || hitl || running) return
+    setPendingResend(null)
+    void send(pendingResend.text, [], pendingResend.displayText)
+  }, [pendingResend, hitl, running, send])
+
   return {
     messages,
     loading,
@@ -940,6 +1064,8 @@ export function useChat(
     send,
     cancel,
     answerClarification,
+    answerAppAuthorization,
+    declineAppAuthorization,
     dismissClarification,
     voiceAppendUserMessage,
     voiceBeginAssistantTurn,

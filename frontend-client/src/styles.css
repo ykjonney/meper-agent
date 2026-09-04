@@ -467,6 +467,27 @@ textarea {
   max-width: min(780px, 92%);
 }
 
+/* AI 气泡（placement=start → ant-bubble-start 类，borderless）固定占满
+ * 可用宽度：宽度不随流式内容变化——否则消息内所有工具卡/思考面板会
+ * 跟着流式文本一起变宽/缩窄（内容驱动的容器宽度抖动）。
+ * 注意两层都要管：.ant-bubble-body 是 flex item，必须显式 flex 增长，
+ * 否则按内容收缩，内层 100% 白设。用户气泡（ant-bubble-end）保持
+ * 内容自适应（聊天气泡惯例）。 */
+.message-viewport .ant-bubble.ant-bubble-start {
+  width: 100%;
+}
+
+.message-viewport .ant-bubble.ant-bubble-start .ant-bubble-body {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.message-viewport .ant-bubble.ant-bubble-start .ant-bubble-content {
+  width: 100%;
+  max-width: none;
+}
+
 .message-content {
   min-width: 0;
   color: var(--client-text);
@@ -625,13 +646,25 @@ textarea {
   background: var(--client-surface-muted);
 }
 
+/* ── 思考/工具卡:主流 agent 风格——无边框淡底圆角行,全状态尺寸一致,
+ * 进行/结束靠色彩与动效区分(进行=琥珀底+琥珀描边+琥珀标题+动点,
+ * 结束=中性淡底+灰字+状态图标);"体量"对比来自展开/收起,不来自缩放。
+ * border 用 transparent 占位保持几何稳定,状态切换不跳动。── */
 .reasoning-panel,
 .tool-run {
-  margin: 6px 0 10px;
-  border: 1px solid var(--client-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--client-surface-muted) 50%, transparent);
-  transition: border-color 0.2s;
+  margin: 4px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--client-surface-muted) 30%, transparent);
+  transition:
+    border-color 0.3s,
+    background-color 0.3s;
+}
+
+/* 头部统一为一行高(约 32px),各状态相同 */
+.message-viewport .reasoning-panel .ant-collapse-header,
+.message-viewport .tool-run .ant-collapse-header {
+  padding-block: 5px;
 }
 
 /* 思考面板：标题行（正在思考 + 三点动效，复用 streaming-dots） */
@@ -640,7 +673,8 @@ textarea {
   align-items: center;
   gap: 6px;
   color: var(--client-text-muted);
-  font-size: 12px;
+  font-size: 13px;
+  transition: color 0.3s;
 }
 
 .reasoning-count {
@@ -679,30 +713,41 @@ textarea {
   }
 }
 
-.reasoning-panel .ant-collapse-content,
-.tool-run .ant-collapse-content {
+/* 展开面板与头部之间的分隔线(antd v6 类名为 -panel-active;
+ * 旧 -content 类自 v6 起不存在,该规则此前一直未生效) */
+.reasoning-panel .ant-collapse-panel-active,
+.tool-run .ant-collapse-panel-active {
   border-top: 1px solid var(--client-border);
 }
 
-.tool-run-running {
-  border-color: rgba(200, 140, 40, 0.5);
-  background: rgba(200, 140, 40, 0.05);
+/* 进行中:琥珀淡底 + 琥珀细描边 + 琥珀标题(配合转圈/动点即"当前执行") */
+.tool-run-running,
+.reasoning-panel-streaming {
+  border-color: rgba(200, 140, 40, 0.4);
+  background: rgba(200, 140, 40, 0.07);
 }
 
+.tool-run-running .tool-title,
+.reasoning-panel-streaming .reasoning-label {
+  color: #b27d24;
+}
+
+/* 已结束:中性淡底(默认)保持安静;失败用红底提示,均不带描边 */
 .tool-run-error {
-  border-color: color-mix(in srgb, var(--client-danger) 55%, var(--client-border));
-  background: color-mix(in srgb, var(--client-danger) 5%, transparent);
+  background: color-mix(in srgb, var(--client-danger) 6%, transparent);
 }
 
-.tool-run-complete {
-  border-color: color-mix(in srgb, var(--client-border) 80%, #52c41a 20%);
-}
+/* ── 卡片宽度:全状态与容器最大宽度一致(全宽统一),层级仅靠
+ * 色彩与动效表达(进行=琥珀,结束=中性淡底),不做宽度区分 ── */
 
 .tool-title {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 7px;
+  color: var(--client-text-muted);
+  font-size: 13px;
+  transition: color 0.3s;
 }
 
 .tool-title > span {
@@ -941,6 +986,18 @@ textarea {
 }
 .interactive-card-workflow .interactive-card-inner {
   border-top-color: rgba(114, 46, 209, 0.15);
+}
+
+/* 应用授权 — 琥珀(授权/凭证语义，与 tool-run-running 同族色) */
+.interactive-card-auth {
+  border-color: rgba(200, 140, 40, 0.35);
+  background: rgba(200, 140, 40, 0.06);
+}
+.interactive-card-auth .interactive-card-header {
+  color: #c88c28;
+}
+.interactive-card-auth .interactive-card-inner {
+  border-top-color: rgba(200, 140, 40, 0.18);
 }
 
 /* ── 工作流任务:消息内单行状态卡 + 右上角任务看板 Drawer ── */
@@ -1590,7 +1647,9 @@ textarea {
     max-width: 100%;
   }
 
-  .message-viewport .ant-bubble[data-placement="end"] {
+  /* placement 渲染为类（ant-bubble-end），历史版本误写成
+   * [data-placement="end"] 属性选择器（从未匹配）——一并修正 */
+  .message-viewport .ant-bubble.ant-bubble-end {
     max-width: 92%;
   }
 

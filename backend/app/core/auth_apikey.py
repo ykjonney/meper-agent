@@ -43,6 +43,12 @@ class ApiKeyPrincipal:
     # 应用上下文（ticket 序列化 / 语音通道每 turn 凭证复查用）
     app_id: str = ""
     introspect_url: str = ""
+    # relaxed 鉴权（require_bound=False）下 introspection 得到的外部用户名。
+    # 未绑定时 user_id 为 None，客户端授权端点据此锁定绑定表单的 username。
+    ext_username: str | None = None
+    # 身份锚点 v4.2：introspection 的稳定用户 ID（sub 优先，退回 username）。
+    # 绑定时 external_identities 的 sub 以此为锚——用户改名不影响身份映射。
+    ext_user_id: str | None = None
 
     def has_scope(self, scope: str) -> bool:
         return scope in self.scopes
@@ -95,7 +101,12 @@ def _extract_bearer_token(header_value: str | None) -> str | None:
     return value or None
 
 
-async def authenticate_api_key(full_key: str, user_token: str) -> ApiKeyPrincipal:
+async def authenticate_api_key(
+    full_key: str,
+    user_token: str,
+    *,
+    require_bound: bool = True,
+) -> ApiKeyPrincipal:
     """Core API Key authentication, independent of FastAPI Request/headers.
 
     Shared by the HTTP dependency and non-HTTP surfaces (e.g. the voice
@@ -106,11 +117,17 @@ async def authenticate_api_key(full_key: str, user_token: str) -> ApiKeyPrincipa
     external_identities 反查 platform_user_id。该 platform_user_id 作为
     user_id = token_record_id，供 MCP 凭证兑换器查 app_bindings。
 
+    Args:
+        require_bound: False 时身份映射未建立不抛 401（客户端自助授权端点
+            用——鸡生蛋问题的解法：仍要求 API Key 有效 + introspection
+            active，仅跳过「已绑定」检查）。principal.ext_username 携带
+            introspection 得到的用户名。
+
     Raises:
         UnauthorizedError: Missing/invalid API Key, ApiKey not bound to
             an application, unknown application, missing/invalid
             X-User-Token, introspection failure, or user has not
-            authorized the application.
+            authorized the application (require_bound=True only).
     """
     from app.services.api_key_service import ApiKeyService
 
@@ -181,24 +198,44 @@ async def authenticate_api_key(full_key: str, user_token: str) -> ApiKeyPrincipa
             message="Introspection result has no username.",
         )
 
-    # ④ 组合 sub（{app_id}:{username}）+ ⑤ 查 external_identities
+    # ④ 组合 sub（{app_id}:{稳定用户ID}）+ ⑤ 查 external_identities
+    #
+    # 身份锚点 v4.2：优先用 introspection 的 ``sub``（RFC 7666 标准的
+    # 稳定用户 ID，接入方不改名不变），缺失时退回 ``username``（与旧版
+    # 行为一致）。登录名/密码属于"凭证"，可变——改名/改密后身份映射
+    # 不受影响，仅存的账密变旧（兑换 session 报 INVALID 引导更新）。
     from app.models.external_identity import compose_sub
     from app.services.external_identity_service import ExternalIdentityService
 
-    sub = compose_sub(app_id, result.username)
+    stable_id = (getattr(result, "sub", "") or "").strip() or result.username
+    sub = compose_sub(app_id, stable_id)
     identity = await ExternalIdentityService.find_by_sub(sub)
-    if identity is None:
+    if identity is None and stable_id != result.username:
+        # 老维度兼容：v4.1 及之前 sub 以 username 为锚。命中老 sub →
+        # 在线升级为稳定 ID 维度（同 platform_user_id），删老映射防漂移。
+        legacy_sub = compose_sub(app_id, result.username)
+        identity = await ExternalIdentityService.find_by_sub(legacy_sub)
+        if identity is not None:
+            await ExternalIdentityService.upsert(sub, identity["platform_user_id"])
+            await ExternalIdentityService.delete_by_sub_and_user(
+                legacy_sub, identity["platform_user_id"]
+            )
+    if identity is None and require_bound:
         raise UnauthorizedError(
             code="EXT_USER_NOT_BOUND",
             message="未授权该应用，请先在外部授权页完成授权",
         )
 
-    # ⑥ 设身份（platform_user_id 替代 mcptok_ id）
-    principal.user_id = identity["platform_user_id"]
-    principal.token_record_id = identity["platform_user_id"]
+    # ⑥ 设身份（platform_user_id 替代 mcptok_ id；relaxed 模式未绑定时
+    # user_id 留空，ext_username 供授权端点锁定绑定表单）
+    if identity is not None:
+        principal.user_id = identity["platform_user_id"]
+        principal.token_record_id = identity["platform_user_id"]
     principal.user_token = user_token
     principal.app_id = app_id
     principal.introspect_url = introspect_url
+    principal.ext_username = result.username
+    principal.ext_user_id = stable_id
 
     return principal
 
@@ -206,11 +243,17 @@ async def authenticate_api_key(full_key: str, user_token: str) -> ApiKeyPrincipa
 async def get_api_key_principal(
     request: Request,
     authorization: str = Header(None, description="Bearer af_live_xxx"),
+    *,
+    allow_unbound: bool = False,
 ) -> ApiKeyPrincipal:
     """FastAPI dependency: authenticate via API Key.
 
     Header extraction only; the full chain lives in ``authenticate_api_key``
     so non-HTTP surfaces (WebSocket ticket validation) can reuse it.
+
+    Args:
+        allow_unbound: 透传 ``require_bound=False``——客户端自助授权端点用，
+            允许身份映射未建立的用户通过（仍要求 Key + introspection 有效）。
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise UnauthorizedError(
@@ -221,5 +264,21 @@ async def get_api_key_principal(
     full_key = authorization.removeprefix("Bearer ").strip()
     user_token = _extract_bearer_token(request.headers.get("X-User-Token")) or ""
 
-    return await authenticate_api_key(full_key, user_token)
+    return await authenticate_api_key(
+        full_key, user_token, require_bound=not allow_unbound
+    )
+
+
+async def get_api_key_principal_allow_unbound(
+    request: Request,
+    authorization: str = Header(None, description="Bearer af_live_xxx"),
+) -> ApiKeyPrincipal:
+    """Relaxed variant of ``get_api_key_principal`` for self-service
+    authorization endpoints（client 首绑门页 / 运行时授权卡片提交）。
+
+    允许身份映射未建立的用户通过——否则未绑定用户永远到不了授权端点
+    （鸡生蛋）。仍要求 API Key 有效 + introspection active，匿名不可达。
+    独立函数（而非参数化 Depends）以绕开 FastAPI 的同依赖缓存。
+    """
+    return await get_api_key_principal(request, authorization, allow_unbound=True)
 

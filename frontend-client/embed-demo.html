@@ -64,8 +64,9 @@
   <script>
     // 测试用：每次加载都覆盖写入测试 token（换用户测试时改这里即可）
     // 生产环境这段代码不需要——接入方系统自己负责写 cookie
+    // ⚠️ cookie 名必须与下方 script 标签的 data-token-cookie 一致
     (function () {
-      var cookieName = 'mep-access-token';
+      var cookieName = 'x-mep-token';
       // ⚠️ 这里填入接入方发给用户的真实 token；换用户测试时改这里
       var testToken = '888b8fc5-a31c-405a-b7da-3cc48cbd8487';
       if (testToken && testToken !== 'PASTE_YOUR_TOKEN_HERE') {
@@ -80,9 +81,10 @@
   </script>
 
   <!-- 第三方接入的全部：一行 script + data-api-key，脚本自动初始化 -->
+  <!-- seed_e2e_auth.py 生成（重置后需更新，见 docs/client-authorization-e2e.md） -->
   <script src="chat-widget.js"
           data-chat-url="http://localhost:3002/client/"
-          data-api-key="af_live_mzHE4eQpKaAoVBoLIgOG0ZXz34SA9wG9"
+          data-api-key="af_live_wRYKvso0cjNMRtz2X3xt3bP6uzlOf7eZ"
           data-title="Agent Flow 助手"
           data-token-cookie="x-mep-token"
           data-width="680px"></script>

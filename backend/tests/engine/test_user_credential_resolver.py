@@ -65,8 +65,11 @@ class TestResolve:
             result = await resolver.resolve("user_platform_01", "oa_system")
         assert result is None
 
-    async def test_unbound_returns_none(self) -> None:
-        """用户未绑定该应用（get_binding 返回 None）→ None。"""
+    async def test_unbound_raises_structured_error(self) -> None:
+        """用户未绑定该应用 → 抛 McpCredentialUnbound（携带 app_id/app_name，
+        拦截器据此生成带标记的错误结果并引导 LLM 走 request_app_authorization）。"""
+        from agent_flow_harness.mcp.errors import McpCredentialUnbound
+
         resolver = UserCredentialResolver()
         with patch.object(
             UserCredentialResolver,
@@ -78,9 +81,10 @@ class TestResolve:
         ), patch(
             "app.services.user_mcp_credential_service.UserMcpCredentialService.get_binding",
             AsyncMock(return_value=None),
-        ):
-            result = await resolver.resolve("user_platform_01", "oa_system")
-        assert result is None
+        ), pytest.raises(McpCredentialUnbound) as exc_info:
+            await resolver.resolve("user_platform_01", "oa_system")
+        assert exc_info.value.app_id == "app_01"
+        assert exc_info.value.server_name == "oa_system"
 
     async def test_cached_session_returned_directly(self) -> None:
         """Redis 缓存命中 → 直接返回缓存的 session，不调 login。"""
@@ -166,6 +170,38 @@ class TestResolve:
         ):
             result = await resolver.resolve("user_platform_01", "oa_system")
         assert result is None
+
+    async def test_exchange_failure_raises_structured_invalid(self) -> None:
+        """兑换 session 失败（账密被用户在外部系统改掉等）→ 结构化
+        McpCredentialInvalid（拦截器据此弹卡引导更新凭证，而非不透明报错）。"""
+        from agent_flow_harness.mcp.errors import McpCredentialInvalid
+
+        app = {**_APP, "name": "OA 系统"}
+        resolver = UserCredentialResolver()
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=_CONN),
+        ), patch(
+            "app.services.application_service.ApplicationService.find_by_mcp_connection",
+            AsyncMock(return_value=app),
+        ), patch(
+            "app.services.user_mcp_credential_service.UserMcpCredentialService.get_binding",
+            AsyncMock(return_value=_BINDING),
+        ), patch(
+            "app.services.user_mcp_credential_service.get_cached_session",
+            AsyncMock(return_value=None),  # cache miss → 走 login
+        ), patch.object(
+            UserCredentialResolver,
+            "_do_login",
+            AsyncMock(side_effect=PermissionError("登录失败：密码错误")),
+        ), pytest.raises(McpCredentialInvalid) as exc_info:
+            await resolver.resolve("user_platform_01", "oa_system")
+
+        assert exc_info.value.reason == "INVALID"
+        assert exc_info.value.app_id == "app_01"
+        assert exc_info.value.app_name == "OA 系统"
+        assert "密码错误" in exc_info.value.detail
 
     async def test_injects_header_name_from_auth_config(self) -> None:
         """auth_config.header_name 决定注入头。"""

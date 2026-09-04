@@ -98,6 +98,9 @@ export interface MessageRecord {
     /** tool_result entry 是否为执行失败(来自 ToolMessage.status == "error")。
      *  旧数据没有该字段,按 falsy 处理为正常完成。 */
     is_error?: boolean
+    /** 流式持久化的 tool_result entry 写的是 status 字段(与 SSE 事件一致);
+     *  is_error 仅存在于 invoke/任务 trace 路径,两者都兼容。 */
+    status?: 'success' | 'error'
   }>
   files?: Array<{
     id?: string
@@ -165,8 +168,9 @@ export interface ClarificationField {
 
 export interface HitlState {
   taskId: string
-  /** Discriminator: clarification (ask_clarification) vs workflow_confirmation (confirm_workflow). */
-  kind: 'clarification' | 'workflow_confirmation'
+  /** Discriminator: clarification (ask_clarification) vs workflow_confirmation
+   * (confirm_workflow) vs app_authorization (request_app_authorization). */
+  kind: 'clarification' | 'workflow_confirmation' | 'app_authorization'
   question: string
   clarificationType: string
   context?: string
@@ -176,6 +180,16 @@ export interface HitlState {
   workflowName?: string
   workflowDescription?: string
   inputPreview?: Record<string, unknown>
+  // app_authorization fields (request_app_authorization) — only set when
+  // kind === 'app_authorization'. fallback=true 表示非 interrupt 兜底卡
+  // （LLM 未调工具时由 tool_result 错误标记解析而来，提交后重发消息而非 resume）。
+  // errorKind：UNBOUND=未授权；INVALID=凭证失效（密码/用户名被修改，
+  // 仅兜底路径可知——interrupt 载荷不带此字段）。
+  appId?: string
+  appName?: string
+  reason?: string
+  fallback?: boolean
+  errorKind?: 'UNBOUND' | 'INVALID'
 }
 
 /** 忽略标记文案——与后端 MessageService.DISMISSED_RESULT_TEXT 保持一致
@@ -233,11 +247,47 @@ export interface StreamEvent {
   options?: string[] | null
   fields?: ClarificationField[] | null
   // interrupt payload — workflow_confirmation (confirm_workflow) fields
-  kind?: 'clarification' | 'workflow_confirmation'
+  kind?: 'clarification' | 'workflow_confirmation' | 'app_authorization'
   workflow_name?: string
   workflow_description?: string
   input_preview?: Record<string, unknown> | null
+  // interrupt payload — app_authorization (request_app_authorization) fields
+  app_id?: string
+  app_name?: string
+  reason?: string
   interrupt_id?: string
   status?: 'success' | 'error'
   source?: 'llm' | 'tool' | 'graph'
+}
+
+/* ── 应用授权（client 自助授权）────────────────────────────────────── */
+
+export interface AppAuthorizationBinding {
+  app_id: string
+  app_name: string
+  username: string
+  password_masked: string
+  bound: boolean
+}
+
+export interface MyAuthorizations {
+  platform_user_id: string
+  bindings: AppAuthorizationBinding[]
+  updated_at: string
+}
+
+export interface AvailableApp {
+  id: string
+  name: string
+  description: string
+  mcp_count: number
+  /** ext 端点标记：是否为 API Key 对应应用（该应用 username 锁定身份用户名）。 */
+  is_key_app?: boolean
+}
+
+/** 首绑门页引导信息（仅 apikey 模式）。 */
+export interface AuthBootstrap {
+  app: { id: string; name: string; has_login_config: boolean }
+  ext_username: string
+  bound: boolean
 }

@@ -64,6 +64,10 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "tool:read", "mcp:read",  # 权限原则：平台资源只读浏览对全员开放
         "model:read",
     ],
+    # 外部终端用户（client 自助授权自动开通）：无任何管理端权限键。
+    # 这类账号只经 ext API（API Key + introspection）访问，不走 RBAC；
+    # 空权限列表同时确保它们即使拿到 JWT 也进不了任何管理页面。
+    "ext_user": [],
 }
 
 # Display metadata for system roles
@@ -72,6 +76,7 @@ SYSTEM_ROLE_META: dict[str, dict[str, str]] = {
     "developer": {"display_name": "开发者", "description": "可以创建和管理 Agent、工作流、工具"},
     "operator": {"display_name": "运营者", "description": "可以调用 Agent 并查看自己的执行日志"},
     "viewer": {"display_name": "查看者", "description": "只读权限，仅可查看 Agent 和模型"},
+    "ext_user": {"display_name": "外部用户", "description": "外部系统终端用户，经 client 自助授权自动开通，无管理端权限"},
 }
 
 # All available permission keys (for the /roles/permissions endpoint)

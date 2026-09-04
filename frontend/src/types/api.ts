@@ -1234,6 +1234,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ext/my-app-authorizations/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 首绑门页引导信息（未绑定可访问）
+         * @description 返回 API Key 对应应用 + introspection 用户名 + 绑定状态。
+         *
+         *     未绑定用户可访问（relaxed 鉴权），供首绑门页渲染表单：
+         *     username 锁定为 ext_username，只填密码。
+         */
+        get: operations["bootstrap_authorization_api_v1_ext_my_app_authorizations_bootstrap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ext/my-app-authorizations/available-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 可授权应用列表
+         * @description 列出可授权应用（配置了 login_url 的），标记 key 对应应用。
+         *
+         *     前端授权面板据此渲染应用选择；key 应用的 username 需锁定为
+         *     introspection 用户名（防冒名）。
+         */
+        get: operations["list_available_apps_api_v1_ext_my_app_authorizations_available_apps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ext/my-app-authorizations/{app_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 授权应用（绑定账密，未绑定可访问）
+         * @description 授权某应用：绑定/更新账密。
+         *
+         *     安全规则：
+         *     - key 对应应用：username 必须等于 introspection 用户名（防冒名，
+         *       比 studio 流程更严）；其他应用自由填写（对齐 studio）。
+         *     - 认领（claim 字段）仅在首次绑定 key 应用时可用——已有平台身份后
+         *       认领会把凭证挂到别的账号、运行时查不到（禁止）。
+         *     - 跨应用绑定要求已有平台身份（先完成 key 应用首绑）。
+         */
+        put: operations["authorize_app_api_v1_ext_my_app_authorizations__app_id__put"];
+        post?: never;
+        /**
+         * 取消授权
+         * @description 取消某应用的授权（解绑凭证 + 删身份映射）。
+         *
+         *     注意：解绑 key 对应应用会删除身份映射，下次请求将回到首绑门页。
+         */
+        delete: operations["revoke_app_api_v1_ext_my_app_authorizations__app_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ext/my-app-authorizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看我的应用授权
+         * @description 查看当前终端用户的授权列表（凭证脱敏）。
+         */
+        get: operations["read_my_authorizations_api_v1_ext_my_app_authorizations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files": {
         parameters: {
             query?: never;
@@ -2347,20 +2446,22 @@ export interface paths {
         };
         /**
          * List triggers
-         * @description List triggers with optional filtering.
+         * @description List triggers.
          *
-         *     By default, returns triggers for the authenticated user.
-         *     Use workflow_id to filter by workflow.
-         *     Admin users can query other users' triggers with user_id.
+         *     Default: only the authenticated user's triggers. ``trigger:manage``
+         *     holders may pass ``all=true`` for the full collection (optionally
+         *     combined with ``user_id``), or ``user_id`` alone to inspect a specific
+         *     user. Non-holders querying someone else's user_id get a clear 403 —
+         *     never a silent fallback (silent filtering is what hid stray triggers
+         *     from admins in the first place).
          */
         get: operations["list_triggers_api_v1_triggers_get"];
         put?: never;
         /**
          * Create a new trigger
-         * @description Create a new trigger for a workflow.
+         * @description Create a trigger for the current user.
          *
-         *     The user_id is taken from the authenticated user. Multiple triggers
-         *     can exist for the same (user, workflow) pair.
+         *     Multiple triggers can exist for the same (user, workflow) pair.
          */
         post: operations["create_trigger_api_v1_triggers_post"];
         delete?: never;
@@ -2379,6 +2480,8 @@ export interface paths {
         /**
          * Get trigger detail
          * @description Get a single trigger by ID.
+         *
+         *     Non-manage users can only access their own; others 404.
          */
         get: operations["get_trigger_api_v1_triggers__trigger_id__get"];
         /**
@@ -2386,7 +2489,9 @@ export interface paths {
          * @description Update a trigger.
          *
          *     Increments schedule_version and refreshes next_trigger_at so the polling
-         *     scheduler picks up the new schedule.
+         *     scheduler picks up the new schedule. Switching type clears the other
+         *     type's field — previously stale cron_expression/execute_at lingered on
+         *     the document (e.g. a once-trigger carrying "0 0 4 * *").
          */
         put: operations["update_trigger_api_v1_triggers__trigger_id__put"];
         post?: never;
@@ -3725,7 +3830,7 @@ export interface components {
             welcome_message: string;
             /**
              * Recommended Items
-             * @description 首屏推荐问题/操作快捷项（≤10 条）
+             * @description 首屏推荐问题/操作快捷项（≤200 条）
              */
             recommended_items?: components["schemas"]["RecommendedItem"][];
             /**
@@ -4222,7 +4327,7 @@ export interface components {
             mcp_connection_ids?: string[];
             /**
              * Login Config
-             * @description 账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/session_ttl(60-86400秒，默认3600)。
+             * @description 账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/userid_jsonpath(默认userId，空串禁用——从登录响应提取稳定用户ID做身份锚点，用户改名不漂移)/session_ttl(60-86400秒，默认3600)。
              */
             login_config?: {
                 [key: string]: unknown;
@@ -4283,7 +4388,7 @@ export interface components {
             mcp_connection_ids?: string[];
             /**
              * Login Config
-             * @description 账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/session_ttl(60-86400秒，默认3600)。
+             * @description 账密验证配置。空 dict = 未配置（用户不可授权）。非空时必须含合法的 login_url（http/https）。可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/password_field(默认password)/token_jsonpath(默认data.token)/userid_jsonpath(默认userId，空串禁用——从登录响应提取稳定用户ID做身份锚点，用户改名不漂移)/session_ttl(60-86400秒，默认3600)。
              */
             login_config?: {
                 [key: string]: unknown;
@@ -4919,6 +5024,105 @@ export interface components {
              * @default false
              */
             voice_enabled: boolean;
+        };
+        /**
+         * ExtAuthAppBrief
+         * @description 首绑门页展示的应用信息。
+         */
+        ExtAuthAppBrief: {
+            /** Id */
+            id: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Has Login Config
+             * @default false
+             */
+            has_login_config: boolean;
+        };
+        /**
+         * ExtAuthBootstrapResponse
+         * @description 首绑门页引导信息：当前 API Key 对应应用 + 外部用户名 + 绑定状态。
+         */
+        ExtAuthBootstrapResponse: {
+            app: components["schemas"]["ExtAuthAppBrief"];
+            /**
+             * Ext Username
+             * @default
+             */
+            ext_username: string;
+            /**
+             * Bound
+             * @default false
+             */
+            bound: boolean;
+        };
+        /**
+         * ExtAuthorizeAppRequest
+         * @description client 授权应用：绑定账密（ext 端点用）。
+         *
+         *     认领字段二选一填写：提供 claim_platform_username/password 时走
+         *     「认领已有平台账号」路径（验证平台账密所有权），否则走自动开通。
+         */
+        ExtAuthorizeAppRequest: {
+            /**
+             * Username
+             * @description 用户名
+             */
+            username: string;
+            /**
+             * Password
+             * @description 密码
+             */
+            password: string;
+            /**
+             * Claim Platform Username
+             * @description 认领的平台账号用户名
+             */
+            claim_platform_username?: string | null;
+            /**
+             * Claim Platform Password
+             * @description 认领的平台账号密码
+             */
+            claim_platform_password?: string | null;
+        };
+        /**
+         * ExtAvailableAppResponse
+         * @description 可授权应用（ext 侧），标记是否为 API Key 对应应用。
+         */
+        ExtAvailableAppResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Mcp Count
+             * @default 0
+             */
+            mcp_count: number;
+            /**
+             * Is Key App
+             * @default false
+             */
+            is_key_app: boolean;
+        };
+        /**
+         * ExtAvailableAppsResponse
+         * @description 可授权应用列表（ext 侧）。
+         */
+        ExtAvailableAppsResponse: {
+            /** Key App Id */
+            key_app_id: string;
+            /** Items */
+            items: components["schemas"]["ExtAvailableAppResponse"][];
         };
         /**
          * ExtDismissRequest
@@ -10324,6 +10528,7 @@ export interface operations {
             query?: {
                 page?: number;
                 page_size?: number;
+                allow_unbound?: boolean;
             };
             header?: {
                 /** @description Bearer af_live_xxx */
@@ -10356,7 +10561,9 @@ export interface operations {
     };
     get_agent_api_v1_ext_agents__agent_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10390,7 +10597,9 @@ export interface operations {
     };
     invoke_agent_api_v1_ext_agents__agent_id__invoke_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10428,7 +10637,9 @@ export interface operations {
     };
     stream_agent_api_v1_ext_agents__agent_id__invoke_stream_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10466,7 +10677,9 @@ export interface operations {
     };
     resume_agent_api_v1_ext_agents__agent_id__invoke_resume_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10504,7 +10717,9 @@ export interface operations {
     };
     dismiss_interrupt_api_v1_ext_agents__agent_id__invoke_dismiss_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10547,6 +10762,7 @@ export interface operations {
             query?: {
                 page?: number;
                 page_size?: number;
+                allow_unbound?: boolean;
             };
             header?: {
                 /** @description Bearer af_live_xxx */
@@ -10581,7 +10797,9 @@ export interface operations {
     };
     create_session_api_v1_ext_agents__agent_id__sessions_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10615,7 +10833,9 @@ export interface operations {
     };
     get_session_detail_api_v1_ext_sessions__session_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10649,7 +10869,9 @@ export interface operations {
     };
     delete_session_api_v1_ext_sessions__session_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10683,7 +10905,9 @@ export interface operations {
     };
     upload_chat_file_api_v1_ext_sessions__session_id__files_upload_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10728,7 +10952,9 @@ export interface operations {
     };
     download_file_api_v1_ext_files__file_id__download_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10769,7 +10995,9 @@ export interface operations {
     };
     list_session_files_api_v1_ext_sessions__session_id__files_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10805,7 +11033,9 @@ export interface operations {
     };
     download_session_files_zip_api_v1_ext_sessions__session_id__files_zip_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10839,7 +11069,9 @@ export interface operations {
     };
     download_session_file_api_v1_ext_sessions__session_id__files__file_path__get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10877,6 +11109,7 @@ export interface operations {
             query?: {
                 page?: number;
                 page_size?: number;
+                allow_unbound?: boolean;
             };
             header?: {
                 /** @description Bearer af_live_xxx */
@@ -10909,7 +11142,9 @@ export interface operations {
     };
     get_workflow_api_v1_ext_workflows__workflow_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10943,7 +11178,9 @@ export interface operations {
     };
     invoke_workflow_api_v1_ext_workflows__workflow_id__invoke_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -10981,7 +11218,9 @@ export interface operations {
     };
     get_task_api_v1_ext_tasks__task_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11015,7 +11254,9 @@ export interface operations {
     };
     list_task_outputs_api_v1_ext_tasks__task_id__outputs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11049,7 +11290,9 @@ export interface operations {
     };
     get_node_timeline_api_v1_ext_tasks__task_id__nodes__node_id__timeline_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11084,7 +11327,9 @@ export interface operations {
     };
     intervene_task_api_v1_ext_tasks__task_id__intervene_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11122,7 +11367,9 @@ export interface operations {
     };
     get_user_info_api_v1_ext_userinfo_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11154,7 +11401,9 @@ export interface operations {
     };
     create_voice_ticket_api_v1_ext_voice_ticket_post: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11188,7 +11437,9 @@ export interface operations {
     };
     ext_voice_status_api_v1_ext_voice_status_get: {
         parameters: {
-            query?: never;
+            query?: {
+                allow_unbound?: boolean;
+            };
             header?: {
                 /** @description Bearer af_live_xxx */
                 authorization?: string;
@@ -11207,6 +11458,180 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bootstrap_authorization_api_v1_ext_my_app_authorizations_bootstrap_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Bearer af_live_xxx */
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtAuthBootstrapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_available_apps_api_v1_ext_my_app_authorizations_available_apps_get: {
+        parameters: {
+            query?: {
+                allow_unbound?: boolean;
+            };
+            header?: {
+                /** @description Bearer af_live_xxx */
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtAvailableAppsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorize_app_api_v1_ext_my_app_authorizations__app_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Bearer af_live_xxx */
+                authorization?: string;
+            };
+            path: {
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtAuthorizeAppRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyAuthorizationsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_app_api_v1_ext_my_app_authorizations__app_id__delete: {
+        parameters: {
+            query?: {
+                allow_unbound?: boolean;
+            };
+            header?: {
+                /** @description Bearer af_live_xxx */
+                authorization?: string;
+            };
+            path: {
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyAuthorizationsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_my_authorizations_api_v1_ext_my_app_authorizations_get: {
+        parameters: {
+            query?: {
+                allow_unbound?: boolean;
+            };
+            header?: {
+                /** @description Bearer af_live_xxx */
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyAuthorizationsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -14157,6 +14582,8 @@ export interface operations {
             query?: {
                 workflow_id?: string | null;
                 user_id?: string | null;
+                /** @description 全库列表（需 trigger:manage 权限） */
+                all?: boolean;
             };
             header?: {
                 /** @description Bearer token */

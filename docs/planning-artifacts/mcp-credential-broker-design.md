@@ -681,3 +681,152 @@ admin 可代用户绑定凭证（批量上线场景）。
 - v1 的 `meper_xxx` token 机制废弃，外部鉴权全面切换到 introspection
 - **迁移前提**：接入方已提供 introspection 端点；否则外部路径会 401
 - McpConnection 的 `login_config` 需迁移到 McpGroup
+
+---
+
+## 13. Client 自助授权（v4.1 增补）
+
+> 解决"未绑定用户必须去 studio 管理后台完成授权"的体验断点。三种能力，
+> 一套绑定底座（`UserMcpCredentialService.bind_credential` 不变）：
+> 首绑门页（apikey 模式）、运行时按需授权（chat 模式）、jwt 模式授权面板。
+
+### 13.1 鸡生蛋问题与 relaxed 鉴权
+
+未绑定用户在 ext 鉴权链（`authenticate_api_key` ④⑤ 步）就被
+401 `EXT_USER_NOT_BOUND` 拒绝，到不了任何授权端点。解法：
+
+- `authenticate_api_key(..., require_bound=False)`：introspection 通过后
+  身份映射未建立不抛 401，principal 携带 `ext_username`（introspection
+  得到的用户名）。
+- `auth_and_rate_limit_allow_unbound`：relaxed 组合依赖（鉴权 + 限流 +
+  调用统计与严格版完全一致），仅供 ext 授权端点使用——匿名仍不可达。
+
+### 13.2 ext 授权端点（`/api/v1/ext/my-app-authorizations`）
+
+| 端点 | 鉴权 | 用途 |
+|---|---|---|
+| `GET /bootstrap` | relaxed | 首绑门页引导（应用信息 + ext_username + bound） |
+| `PUT /{app_id}` | relaxed | 绑定/更新账密（首绑门页 + 运行时授权卡片共用） |
+| `GET /available-apps` | 完整 | 可授权应用列表（标记 key 应用） |
+| `GET /` | 完整 | 脱敏绑定列表 |
+| `DELETE /{app_id}` | 完整 | 解绑 |
+
+**PUT 的目标平台账号三选一**：
+1. **认领**（`claim_platform_username/password`）：复用平台登录校验
+   （锁定检查 / 失败计数 / 停用拒绝，见 `AuthService.verify_platform_credentials`）
+   挂到已有平台账号——历史会话/文件延续。仅首次绑定 key 应用时可用
+   （已有身份后认领会把凭证挂到别的账号、运行时查不到，403 拒绝）。
+2. **已有身份**：`principal.user_id`（更新凭证 / 跨应用按需授权）。
+3. **自动开通**：`UserService.ensure_ext_platform_user` 创建 `ext_user`
+   角色（空权限）平台账号，username=`ext.{username}.{app_id前8}`，
+   随机密码永不外发。
+
+**防冒名规则**：
+- key 对应应用：`body.username` 必须等于 `ext_username`（403
+  `EXT_USERNAME_MISMATCH`）——introspection 已证明"你是谁"，比 studio
+  流程更严。
+- 跨应用：username 自由填写，安全性对齐 studio（login_url 验证账密 +
+  sub 抢注保护）；但要求已有平台身份（先完成 key 应用首绑）。
+
+### 13.3 运行时按需授权闭环（chat 模式）
+
+```
+MCP 工具调用 → resolver 发现未绑定 → 抛 McpCredentialUnbound(app_id, app_name)
+  → 拦截器返回 isError 结果：首行 JSON 标记
+    {"mcp_credential_error":"UNBOUND","app_id":...,"app_name":...}
+    + 文案「请调 request_app_authorization；禁止向用户索要凭证」
+  → LLM 调 request_app_authorization(app_id, app_name)
+  → interrupt({type:"app_authorization",...}) → SSE InterruptEvent
+    (kind=app_authorization) → 前端渲染授权表单卡
+  → 用户提交 → 前端先调 PUT 绑定（凭证不进对话）→ resume
+  → agent 原轮恢复，重试工具 → 成功
+```
+
+关键设计：
+- **interrupt 契约**：`request_app_authorization` 的 payload 完全由工具
+  参数驱动（LLM 从错误标记里读 app_id/app_name），不读 ContextVar——
+  LangGraph 要求节点 resume 时确定性重放。
+- **ask_clarification 防冲突**（三道防线之二）：本轮消息里存在未消化
+  的 UNBOUND 标记时，tool_wrapper 的 `authorization_guard_veto` 拦下
+  ask_clarification 并返回纠正性结果（"改用 request_app_authorization，
+  禁止索要凭证"）。标记在最近一次 request_app_authorization 结果之后
+  才算未消化（防误伤后续正常追问）。基于 state 消息扫描而非 ContextVar
+  （LangGraph 节点任务间上下文可能被复制，写入不保证传播）。
+- **前端兜底**（三道防线之三）：LLM 未调工具直接文字收尾时，前端解析
+  tool_result 错误文本中的 JSON 标记，弹静态授权卡（fallback），提交
+  绑定后自动重发最后一条用户消息（非 resume）。
+- workflow 模式不注入该工具（无人值守语义，未绑定保持 isError 现状）。
+
+### 13.4 安全要点汇总
+
+- relaxed 端点仍要求：有效 API Key（bcrypt）+ introspection active +
+  Redis 限流——匿名不可达
+- **密码只走结构化表单 → 绑定 API，永不进入对话/LLM 上下文**
+  （错误文本指令 + guard veto + 卡片引导三道防线）
+- 认领复用平台登录校验与 Redis 锁定，无法爆破他人平台账号
+- 自动开通账号无管理端权限（`ext_user` 空权限），密码不外发
+
+---
+
+## 14. 身份锚点 v4.2：稳定用户 ID + 凭证失效闭环
+
+> 解决"用户在外部系统改用户名/密码后身份漂移"的问题。核心原则：
+> **身份锚点用不可变的业务主键，可变的登录名/密码只是凭证。**
+
+### 14.1 锚点规则
+
+- `external_identities.sub = {app_id}:{identity_key}`，`identity_key` 三级优先链：
+  1. **key 应用**：introspection 的 `sub`（RFC 7666 标准的稳定用户 ID，
+     见 `IntrospectionResult.sub`），缺失时退回 `username`（与 v4.1 行为
+     一致，自动降级，无需配置）。
+  2. **跨应用/jwt 模式**：登录响应提取的稳定用户 ID——`login_config.userid_jsonpath`
+     （默认 `userId`，空串显式禁用；studio 应用编辑页可配）。绑定验证账密时
+     `_verify_credentials` 顺带按路径提取，数值型 ID 转字符串；提取不到
+     退回登录名（不报错）。
+  3. **兜底**：表单登录名（v4.1 行为）。
+- `user_mcp_credentials.app_bindings.{app_id}` 新增 `identity_key` 字段
+  （明文，非凭证），解绑时据此组 sub 删映射；旧数据无此字段退回 username。
+- **登录凭证与身份解耦**：binding 里的 username/password 只用于 login_url
+  验证与 session 兑换，改名/改密后变旧 → 兑换失败 → INVALID 闭环（下节）。
+
+### 14.2 存量兼容（在线升级，不全员重绑）
+
+`authenticate_api_key` 双查：
+1. `find_by_sub({app}:{stable_id})` —— 新维度
+2. miss 且 `stable_id != username` → `find_by_sub({app}:{username})` —— 老 sub
+3. 命中老 sub → upsert 新 sub 指向同一 `platform_user_id` + 删除老映射
+
+老用户首次请求即无感迁移；接入方无 sub 字段时 stable_id=username，行为
+与 v4.1 完全一致。
+
+### 14.3 凭证失效闭环（INVALID）
+
+```
+用户改了外部系统密码/用户名
+  → 身份映射不受影响（sub 以稳定 ID 为锚）
+  → 存的账密变旧：缓存过期后兑换 session 失败（PermissionError）
+  → resolver 包装为 McpCredentialInvalid(app_id, app_name, detail)
+  → 拦截器错误标记 mcp_credential_error="INVALID" + 文案
+    「凭证已失效…请调 request_app_authorization 请用户更新凭证」
+  → LLM 调工具 → interrupt → 前端弹卡（文案提示输入最新凭证）
+  → 用户输入新账密 → PUT 绑定（重新验证 + 清 session 缓存）
+  → resume → agent 重试工具 → 恢复 ✅
+```
+
+与 UNBOUND 共用同一闭环（工具/卡片/前端兜底解析均按
+`mcp_credential_error` key 识别，值区分 UNBOUND/INVALID）。
+
+### 14.4 已知局限与运维手册
+
+- **缓存期内旧 session 被外部系统吊销**：MCP server 返回的 401 对拦截器
+  不透明，暂不做结构化——靠 session TTL（默认 3600s，可调小
+  `login_config.session_ttl`）过期后走 INVALID 闭环。
+- **跨应用绑定后该应用独立接入**：跨应用 sub 锚取决于 `userid_jsonpath`
+  提取——默认 `userId` 命中登录响应时与 key 应用同级（稳定 ID 锚）；
+  未命中退回登录名，该应用后续独立接入且用户已改名时需重绑一次
+  （新 sub 指向同一 platform_user_id，凭证重新验证即可，无需运维）。
+- **用户名迁移（运维）**：跨应用锚点或接入方无 sub 的存量场景中，用户
+  改名导致新身份查不到旧绑定时，admin 可直接修改
+  `external_identities`：将老 sub 的 `platform_user_id` 复制到新 sub
+  （或改写 sub 字段），即完成迁移；`user_mcp_credentials` 按
+  platform_user_id 关联，无需变动。用户随后在授权卡片更新一次凭证即可。

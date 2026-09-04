@@ -34,7 +34,8 @@ class ApplicationBase(BaseModel):
             "非空时必须含合法的 login_url（http/https）。"
             "可选：method(POST/GET/PUT，默认POST)/username_field(默认username)/"
             "password_field(默认password)/token_jsonpath(默认data.token)/"
-            "session_ttl(60-86400秒，默认3600)。"
+            "userid_jsonpath(默认userId，空串禁用——从登录响应提取稳定用户ID"
+            "做身份锚点，用户改名不漂移)/session_ttl(60-86400秒，默认3600)。"
         ),
     )
 
@@ -88,6 +89,16 @@ class ApplicationBase(BaseModel):
         if not isinstance(jsonpath, str) or not _JSONPATH_PATTERN.match(jsonpath):
             raise ValueError(
                 "login_config.token_jsonpath 必须是点分路径（如 data.token）"
+            )
+
+        # userid_jsonpath：可选，默认 userId（从登录响应提取稳定用户 ID 做
+        # 身份锚点），空串 = 显式禁用提取（身份锚退回登录名）
+        userid_jsonpath = v.get("userid_jsonpath", "userId")
+        if not isinstance(userid_jsonpath, str):
+            raise ValueError("login_config.userid_jsonpath 必须是字符串")
+        if userid_jsonpath and not _JSONPATH_PATTERN.match(userid_jsonpath):
+            raise ValueError(
+                "login_config.userid_jsonpath 必须是点分路径（如 userId 或 data.userId）"
             )
 
         # session_ttl：可选，默认 3600，范围 60-86400

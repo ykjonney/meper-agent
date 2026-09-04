@@ -82,11 +82,17 @@ async def _verify_credentials(
     login_config: dict[str, Any],
     username: str,
     password: str,
-) -> None:
-    """调 login_url 验证账密。
+) -> str | None:
+    """调 login_url 验证账密，并提取稳定用户 ID。
 
-    仅验证（登录成功 = 账密正确），不提取任何身份信息——sub 由
-    app_id + 用户名组合，与登录响应内容无关。
+    验证成功 = 账密正确（按 token_jsonpath 取到 token 即成功）。
+    同时按 ``userid_jsonpath``（默认 ``userId``，空串禁用）从登录响应
+    提取外部系统的稳定用户 ID——跨应用绑定无 introspection，登录响应
+    是稳定 ID 的唯一来源，作为身份锚点（identity_key）使用。
+
+    Returns:
+        提取到的稳定用户 ID；未配置/提取不到返回 None（调用方退回
+        username 作锚，不视为失败）。
 
     Raises:
         PermissionError: 登录失败或响应缺少 token。
@@ -107,7 +113,7 @@ async def _verify_credentials(
     # 校验登录是否成功
     if isinstance(data, dict) and data.get("success") is False:
         msg = data.get("message") or data.get("msg") or data.get("error") or "未知错误"
-        raise PermissionError(f"登录失败：{msg}")
+        raise PermissionError(f"应用登录失败：{msg}")
 
     # 按 jsonpath 取 token 确认登录成功（取不到视为失败）
     current: Any = data
@@ -115,9 +121,25 @@ async def _verify_credentials(
         if isinstance(current, dict) and part in current:
             current = current[part]
         else:
-            raise PermissionError(f"登录响应未找到 token 路径 {token_jsonpath}")
+            raise PermissionError(f"应用登录响应未找到 token 路径 {token_jsonpath}")
     if not current:
-        raise PermissionError("登录响应 token 为空")
+        raise PermissionError("应用登录响应 token 为空")
+
+    # 提取稳定用户 ID（增强项，提取不到不报错）
+    userid_jsonpath = login_config.get("userid_jsonpath", "userId")
+    if not isinstance(userid_jsonpath, str) or not userid_jsonpath:
+        return None  # 显式禁用
+    node: Any = data
+    for part in userid_jsonpath.split("."):
+        if isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
+            return None  # 路径不存在 → 退回 username 锚
+    if isinstance(node, str) and node.strip():
+        return node.strip()
+    if isinstance(node, (int, float)) and not isinstance(node, bool):
+        return str(node)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -230,29 +252,45 @@ class UserMcpCredentialService:
         username: str,
         password: str,
         login_config: dict[str, Any],
+        identity_key: str = "",
     ) -> dict[str, Any]:
         """授权应用：绑定/更新账密。
 
         内部流程：
         1. 调 login_url 验证账密（仅验证，不提取身份）
-        2. sub = {app_id}:{username} → 写 external_identities（含抢注保护）
-        3. 加密账密写入 app_bindings
+        2. sub = {app_id}:{identity_key} → 写 external_identities（含抢注保护）
+        3. 加密账密写入 app_bindings（含 identity_key，解绑时组 sub 用）
         4. 清该应用 session 缓存
+
+        身份锚点 v4.2：``identity_key`` 与登录凭证解耦，优先级链——
+        ① 调用方显式传入（key 应用 = introspection 稳定 ID，最权威）；
+        ② 登录响应提取的稳定用户 ID（``userid_jsonpath``，跨应用无
+          introspection 时的稳定 ID 唯一来源）；
+        ③ 表单登录名（兜底，与 v4.1 行为一致）。
+        用户改名/改密后身份映射不漂移，仅存的账密变旧（兑换 session
+        报 INVALID 引导更新）。
 
         Raises:
             PermissionError: 账密验证失败。
             ConflictError: 该外部身份已被其他平台用户绑定。
         """
-        # 1. 验证账密
-        await _verify_credentials(login_config, username, password)
+        # 1. 验证账密（顺带提取登录响应里的稳定用户 ID）
+        verified_user_id = await _verify_credentials(login_config, username, password)
+
+        # 2. 解析身份锚点（优先级链见 docstring）
+        if not identity_key:
+            identity_key = verified_user_id or username
 
         # 2. 写 external_identities（sub → platform_user_id）
-        sub = compose_sub(app_id, username)
+        sub = compose_sub(app_id, identity_key)
         await ExternalIdentityService.upsert(sub, platform_user_id)
 
-        # 3. 加密账密 + 写 app_bindings
+        # 3. 加密账密 + 写 app_bindings（identity_key 明文存储——非敏感，
+        # 是身份锚点而非凭证；解绑时据此组合 sub 删映射）
         col = UserMcpCredentialService._collection()
-        encrypted = _encrypt_binding({"username": username, "password": password})
+        encrypted = _encrypt_binding(
+            {"username": username, "password": password, "identity_key": identity_key}
+        )
 
         now_iso = utc_now().isoformat()
         await col.update_one(
@@ -281,8 +319,9 @@ class UserMcpCredentialService:
     async def unbind_credential(platform_user_id: str, app_id: str) -> dict[str, Any] | None:
         """取消授权：解绑某应用。
 
-        同时删除绑定时建立的身份映射（sub 由 app_id + 已绑定的用户名组合，
-        可直接从解绑的凭证里取 username，无需再调 login_url）。
+        同时删除绑定时建立的身份映射（sub 由 app_id + 绑定时存的
+        identity_key 组合——v4.2 与登录名解耦；旧数据无 identity_key
+        则退回 username）。无需再调 login_url。
 
         Returns:
             更新后的脱敏绑定列表，或 None 如果用户记录不存在。
@@ -296,11 +335,11 @@ class UserMcpCredentialService:
         if app_id not in bindings:
             return UserMcpCredentialService.list_bindings(platform_user_id)
 
-        # 删除身份映射（用绑定时存的 username 组合 sub）
+        # 删除身份映射（优先 identity_key，旧数据退回 username）
         binding = _decrypt_binding(dict(bindings[app_id]))
-        username = binding.get("username", "")
-        if username:
-            sub = compose_sub(app_id, username)
+        identity_key = binding.get("identity_key") or binding.get("username", "")
+        if identity_key:
+            sub = compose_sub(app_id, identity_key)
             await ExternalIdentityService.delete_by_sub_and_user(sub, platform_user_id)
 
         # 删除 app_bindings 里的该应用

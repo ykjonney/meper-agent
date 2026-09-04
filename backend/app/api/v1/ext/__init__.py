@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
-from app.core.auth_apikey import ApiKeyPrincipal, get_api_key_principal
+from app.core.auth_apikey import (
+    ApiKeyPrincipal,
+    get_api_key_principal,
+    get_api_key_principal_allow_unbound,
+)
 from app.core.rate_limiter import check_rate_limit
 from app.services.api_key_stats_service import record_request
 from app.services.ext_api_call_log_service import (
@@ -29,17 +33,14 @@ def resolve_user_id(principal: ApiKeyPrincipal) -> str:
     return principal.user_id or principal.owner_user_id
 
 
-async def auth_and_rate_limit(
+async def _auth_postprocess(
     request: Request,
-    principal: ApiKeyPrincipal = Depends(get_api_key_principal),
+    principal: ApiKeyPrincipal,
 ) -> ApiKeyPrincipal:
-    """Combined dependency: authenticate API Key then enforce rate limit.
+    """Shared post-auth work: rate limit + request.state + call context.
 
-    Runs after the request hits /api/v1/ext/* routes.
-    1. Validates API Key (via get_api_key_principal — FastAPI-injected)
-    2. Checks rate limit against Redis sliding window
-    3. Stores metadata on request.state for downstream middleware
-    4. Stashes an ExtCallContext on the ContextVar for phase-2 logging
+    ``auth_and_rate_limit`` and its relaxed sibling both run this after
+    the API Key principal is resolved.
     """
     # Rate limit check
     allowed, remaining, reset_ts = await check_rate_limit(
@@ -76,10 +77,40 @@ async def auth_and_rate_limit(
     return principal
 
 
+async def auth_and_rate_limit(
+    request: Request,
+    principal: ApiKeyPrincipal = Depends(get_api_key_principal),
+) -> ApiKeyPrincipal:
+    """Combined dependency: authenticate API Key then enforce rate limit.
+
+    Runs after the request hits /api/v1/ext/* routes.
+    1. Validates API Key (via get_api_key_principal — FastAPI-injected)
+    2. Checks rate limit against Redis sliding window
+    3. Stores metadata on request.state for downstream middleware
+    4. Stashes an ExtCallContext on the ContextVar for phase-2 logging
+    """
+    return await _auth_postprocess(request, principal)
+
+
+async def auth_and_rate_limit_allow_unbound(
+    request: Request,
+    principal: ApiKeyPrincipal = Depends(get_api_key_principal_allow_unbound),
+) -> ApiKeyPrincipal:
+    """Relaxed sibling of ``auth_and_rate_limit`` for self-service
+    authorization endpoints（client 首绑门页 / 授权卡片提交）。
+
+    唯一差异：身份映射未建立（EXT_USER_NOT_BOUND）不拒绝——否则未绑定
+    用户永远到不了授权端点（鸡生蛋）。API Key / introspection / 限流
+    校验完全一致。
+    """
+    return await _auth_postprocess(request, principal)
+
+
 # Register sub-routers with combined auth + rate limit
 from app.api.v1.ext import (  # noqa: E402, F401
     agents,
     files,
+    my_app_authorizations,
     tasks,
     userinfo,  # noqa: E402, F401
     voice,
@@ -92,6 +123,7 @@ router.include_router(workflows.router, prefix="")  # type: ignore[has-type]
 router.include_router(tasks.router, prefix="")  # type: ignore[has-type]
 router.include_router(userinfo.router, prefix="")  # type: ignore[has-type]
 router.include_router(voice.router, prefix="")  # type: ignore[has-type]
+router.include_router(my_app_authorizations.router, prefix="")  # type: ignore[has-type]
 
 
 class ExtApiStatsMiddleware(BaseHTTPMiddleware):
@@ -190,4 +222,9 @@ def _extract_endpoint(request: Request) -> str:
         return "voice:ticket"
     if path.endswith("/voice/status"):
         return "voice:status"
+    if "/my-app-authorizations" in path:
+        # bootstrap/PUT 为首绑路径（relaxed 鉴权），单独归类便于审计
+        if request.method == "PUT":
+            return "authorizations:bind"
+        return "authorizations:read"
     return f"{request.method.lower()}:unknown"

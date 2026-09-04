@@ -176,6 +176,66 @@ class TestUserTokenInterceptor:
         handler.assert_not_awaited()
         assert getattr(result, "isError", False) is True
 
+    async def test_external_path_unbound_exception_returns_marked_error(self):
+        """未绑定（McpCredentialUnbound）→ isError + 机器可读 JSON 标记
+        + 引导 LLM 调 request_app_authorization 的指令文案。"""
+        import json
+
+        from agent_flow_harness.mcp.errors import McpCredentialUnbound
+
+        set_token_record_id_context("platform-user-1")
+        set_credential_resolver(
+            _FakeResolver(
+                error=McpCredentialUnbound("app_1", "合作系统", "partner")
+            )
+        )
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        # 首行 JSON 标记（前端兜底解析 + LLM 读 app_id/app_name）
+        marker = json.loads(text.split("\n")[0])
+        assert marker["mcp_credential_error"] == "UNBOUND"
+        assert marker["app_id"] == "app_1"
+        assert marker["app_name"] == "合作系统"
+        # 文案引导走授权工具、禁止索要凭证
+        assert "request_app_authorization" in text
+        assert "禁止向用户索要" in text
+
+    async def test_external_path_invalid_credentials_returns_marked_error(self):
+        """凭证失效（McpCredentialInvalid，密码/用户名被修改）→ INVALID
+        标记 + 更新凭证引导文案（身份映射不受影响）。"""
+        import json
+
+        from agent_flow_harness.mcp.errors import McpCredentialInvalid
+
+        set_token_record_id_context("platform-user-1")
+        set_credential_resolver(
+            _FakeResolver(
+                error=McpCredentialInvalid(
+                    "app_1", "合作系统", "partner", detail="登录失败：密码错误"
+                )
+            )
+        )
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        marker = json.loads(text.split("\n")[0])
+        assert marker["mcp_credential_error"] == "INVALID"
+        assert marker["app_id"] == "app_1"
+        # 文案：失效提示（含细节）+ 引导更新凭证
+        assert "凭证已失效" in text
+        assert "密码错误" in text
+        assert "request_app_authorization" in text
+        assert "禁止向用户索要" in text
+
     async def test_external_path_resolver_error_returns_error(self):
         """外部路径兑换异常 → 返回 isError 结果, 不调 handler。"""
         set_token_record_id_context("platform-user-1")

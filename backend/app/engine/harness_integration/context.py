@@ -29,7 +29,7 @@ def get_checkpointer() -> Any:
 # 保证「端点展示的 = 运行时注入的」。
 _INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "bash", "read", "write", "edit", "glob", "grep", "ask_clarification",
-    "run_code", "parse_file", "view_image",
+    "run_code", "parse_file", "view_image", "request_app_authorization",
 )
 
 # 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
@@ -43,13 +43,15 @@ _CONFIGURABLE_BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
 
 # run_code 代码内可桥接调用的工具排除名单(不进 tools_map)。
 # - run_code 自身:防递归编排;
-# - ask_clarification / confirm_workflow:HITL interrupt 在工作线程桥接下
-#   无法挂起 graph(会退化为异常),失去人机协同语义;
+# - ask_clarification / confirm_workflow / request_app_authorization:
+#   HITL interrupt 在工作线程桥接下无法挂起 graph(会退化为异常),
+#   失去人机协同语义;
 # - delegate_to_subagent / load_skill:子代理/技能加载改变执行上下文,
 #   不适合在代码内嵌套;
 # - bash/read/write/edit/glob/grep:文件 shell 敏感面,代码内用不到。
 _RUN_CODE_EXCLUDED_TOOLS: frozenset[str] = frozenset({
     "run_code", "ask_clarification", "confirm_workflow",
+    "request_app_authorization",
     "delegate_to_subagent", "load_skill",
     "bash", "read", "write", "edit", "glob", "grep",
 })
@@ -143,6 +145,8 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
             continue
         if name == "ask_clarification" and execution_context == "workflow":
             continue  # 工作流无人值守:反问会 interrupt 挂起导致工作流停摆
+        if name == "request_app_authorization" and execution_context == "workflow":
+            continue  # 工作流无人值守:按需授权弹卡无意义,未绑定保持 isError 现状
         if name not in _CONFIGURABLE_BUILTIN_TOOL_NAMES:
             tools.append(tool)  # 始终开启的能力型工具
         elif name in builtin_config:

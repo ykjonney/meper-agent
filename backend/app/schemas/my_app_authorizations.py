@@ -42,3 +42,52 @@ class AvailableAppsResponse(BaseModel):
     """可授权的应用列表。"""
 
     items: list[AvailableAppResponse]
+
+
+# ---------------------------------------------------------------------------
+# Ext（client 自助授权）专用 schemas
+# ---------------------------------------------------------------------------
+
+
+class ExtAuthorizeAppRequest(AuthorizeAppRequest):
+    """client 授权应用：绑定账密（ext 端点用）。
+
+    认领字段二选一填写：提供 claim_platform_username/password 时走
+    「认领已有平台账号」路径（验证平台账密所有权），否则走自动开通。
+    """
+
+    claim_platform_username: str | None = Field(
+        default=None, max_length=100, description="认领的平台账号用户名"
+    )
+    claim_platform_password: str | None = Field(
+        default=None, max_length=200, description="认领的平台账号密码"
+    )
+
+
+class ExtAuthAppBrief(BaseModel):
+    """首绑门页展示的应用信息。"""
+
+    id: str
+    name: str = ""
+    has_login_config: bool = False
+
+
+class ExtAuthBootstrapResponse(BaseModel):
+    """首绑门页引导信息：当前 API Key 对应应用 + 外部用户名 + 绑定状态。"""
+
+    app: ExtAuthAppBrief
+    ext_username: str = ""
+    bound: bool = False
+
+
+class ExtAvailableAppResponse(AvailableAppResponse):
+    """可授权应用（ext 侧），标记是否为 API Key 对应应用。"""
+
+    is_key_app: bool = False
+
+
+class ExtAvailableAppsResponse(BaseModel):
+    """可授权应用列表（ext 侧）。"""
+
+    key_app_id: str
+    items: list[ExtAvailableAppResponse]

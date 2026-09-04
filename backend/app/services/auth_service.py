@@ -82,6 +82,61 @@ class AuthService:
         redis = await get_redis_client()
         await redis.delete(AuthService._failed_key(username))
 
+    @staticmethod
+    async def verify_platform_credentials(username: str, password: str) -> str:
+        """Verify platform username/password WITHOUT issuing tokens.
+
+        client 自助授权的「认领已有平台账号」路径用：证明对该平台账号的
+        所有权后，把外部身份挂到该账号下。校验语义与 login 完全一致
+        （锁定前置检查 / 失败计数含 admin 豁免 / 停用账号拒绝），但
+        不发 token、不更新 last_login——这不是一次登录。
+
+        Returns:
+            验证通过的平台 user_id。
+
+        Raises:
+            UnauthorizedError: ACCOUNT_LOCKED / INVALID_CREDENTIALS / ACCOUNT_DISABLED
+        """
+        if await AuthService.is_account_locked(username):
+            remaining = await AuthService.get_remaining_lock_time(username)
+            logger.info("claim_blocked_locked", username=username, remaining=remaining)
+            raise UnauthorizedError(
+                code="ACCOUNT_LOCKED",
+                message="账户已锁定，请 15 分钟后重试",
+            )
+
+        user_doc = await UserService.get_user_by_username(username)
+        if user_doc is None:
+            logger.info("claim_failed_unknown_user", username=username)
+            raise UnauthorizedError(
+                code="INVALID_CREDENTIALS",
+                message="平台账号或密码错误",
+            )
+
+        if not verify_password(password, user_doc["password_hash"]):
+            is_admin = (
+                user_doc.get("role") == UserRole.ADMIN.value
+                or bool(user_doc.get("is_super_admin"))
+            )
+            if not is_admin:
+                await AuthService.record_failed_login(username)
+            logger.info("claim_failed_bad_password", username=username)
+            raise UnauthorizedError(
+                code="INVALID_CREDENTIALS",
+                message="平台账号或密码错误",
+            )
+
+        if user_doc.get("status") != UserStatus.ACTIVE.value:
+            logger.info("claim_blocked_disabled", username=username)
+            raise UnauthorizedError(
+                code="ACCOUNT_DISABLED",
+                message="账户已被停用，请联系管理员",
+            )
+
+        await AuthService.reset_failed_login(username)
+        logger.info("platform_credentials_verified", username=username)
+        return user_doc["_id"]
+
     # ------------------------------------------------------------------
     # Login / Refresh
     # ------------------------------------------------------------------

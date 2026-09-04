@@ -64,6 +64,7 @@ export function ExternalAuthPage() {
   const [formUsernameField, setFormUsernameField] = useState('username');
   const [formPasswordField, setFormPasswordField] = useState('password');
   const [formTokenJsonpath, setFormTokenJsonpath] = useState('data.token');
+  const [formUseridJsonpath, setFormUseridJsonpath] = useState('userId');
   const [formSessionTtl, setFormSessionTtl] = useState(3600);
 
   /* ─── Queries ─── */
@@ -206,6 +207,7 @@ export function ExternalAuthPage() {
     setFormLoginUrl(''); setFormLoginMethod('POST');
     setFormUsernameField('username'); setFormPasswordField('password');
     setFormTokenJsonpath('data.token'); setFormSessionTtl(3600);
+    setFormUseridJsonpath('userId');
     setAppModalOpen(true);
   };
 
@@ -219,6 +221,7 @@ export function ExternalAuthPage() {
     setFormUsernameField(lc.username_field as string ?? 'username');
     setFormPasswordField(lc.password_field as string ?? 'password');
     setFormTokenJsonpath(lc.token_jsonpath as string ?? 'data.token');
+    setFormUseridJsonpath(lc.userid_jsonpath as string ?? 'userId');
     setFormSessionTtl(lc.session_ttl as number ?? 3600);
     setAppModalOpen(true);
   };
@@ -244,6 +247,8 @@ export function ExternalAuthPage() {
         username_field: formUsernameField.trim() || 'username',
         password_field: formPasswordField.trim() || 'password',
         token_jsonpath: formTokenJsonpath.trim() || 'data.token',
+        // 空串 = 显式禁用：身份锚退回登录名（用户改名需重新授权）
+        userid_jsonpath: formUseridJsonpath.trim(),
         session_ttl: formSessionTtl || 3600,
       } : {},
     };
@@ -509,6 +514,9 @@ export function ExternalAuthPage() {
                     <Field label="用户名字段名"><input value={formUsernameField} onChange={(e) => setFormUsernameField(e.target.value)} placeholder="username" className={inputCls} /></Field>
                     <Field label="密码字段名"><input value={formPasswordField} onChange={(e) => setFormPasswordField(e.target.value)} placeholder="password" className={inputCls} /></Field>
                     <Field label="Token JSONPath"><input value={formTokenJsonpath} onChange={(e) => setFormTokenJsonpath(e.target.value)} placeholder="data.token" className={inputCls} /></Field>
+                    <Field label="用户ID JSONPath" hint="从登录响应提取该系统的稳定用户 ID 作身份锚点——用户改名后身份不漂移，仅需更新一次凭证。留空禁用（退回登录名锚）。">
+                      <input value={formUseridJsonpath} onChange={(e) => setFormUseridJsonpath(e.target.value)} placeholder="userId" className={inputCls} />
+                    </Field>
                   </div>
                   <Field label="Session 缓存秒数">
                     <input type="number" min="60" value={formSessionTtl} onChange={(e) => setFormSessionTtl(Number(e.target.value))} className={inputCls} />
