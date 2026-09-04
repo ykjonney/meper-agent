@@ -89,11 +89,15 @@ function buildCron(state: InternalState): string {
 export default function TriggerSchedulePicker({ value, onChange, disabled = false }: Props) {
   const [state, setState] = useState<InternalState>(() => parseCron(value))
 
-  // 外部 value 变化时同步（仅在自定义模式下，用户输入直接更新）
+  // 外部 value 变化时重新解析同步（全模式）。
+  // 旧实现仅 custom 模式同步：弹窗打开回填真实 cron 时预设模式不响应，
+  // 显示残留状态导致保存的 cron 与所见不符。
+  // 自洽性：用户操作 → onChange(buildCron(next)) → value 变化 →
+  // buildCron(state) === value → 不会误重置。
   /* eslint-disable react-hooks/set-state-in-effect -- sync external value */
   useEffect(() => {
-    if (state.frequency === 'custom' && value !== state.customCron) {
-      setState((prev) => ({ ...prev, customCron: value }))
+    if (value !== buildCron(state)) {
+      setState(parseCron(value))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])

@@ -30,22 +30,11 @@ class TriggerRepository:
         return trigger
 
     async def find_by_id(self, trigger_id: str) -> Trigger | None:
-        """Find a trigger by its ID."""
+        """Find a trigger by ID."""
         doc = await self._collection().find_one({"_id": trigger_id})
         if doc is None:
             return None
         doc["_id"] = doc.pop("_id")  # already correct key
-        return Trigger(**doc)
-
-    async def find_by_user_and_workflow(
-        self, user_id: str, workflow_id: str
-    ) -> Trigger | None:
-        """Find the unique trigger for a (user, workflow) pair."""
-        doc = await self._collection().find_one(
-            {"user_id": user_id, "workflow_id": workflow_id}
-        )
-        if doc is None:
-            return None
         return Trigger(**doc)
 
     async def update(self, trigger_id: str, **fields) -> Trigger | None:

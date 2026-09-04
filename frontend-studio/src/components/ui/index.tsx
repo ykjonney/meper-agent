@@ -546,19 +546,22 @@ export function Modal({
 interface SwitchProps {
   size?: 'small' | 'default'
   checked?: boolean
+  disabled?: boolean
   onChange?: (checked: boolean) => void
 }
 
-export function Switch({ size = 'default', checked = false, onChange }: SwitchProps) {
+export function Switch({ size = 'default', checked = false, disabled = false, onChange }: SwitchProps) {
   const w = size === 'small' ? 'w-7 h-4' : 'w-9 h-5'
   const knob = size === 'small' ? 'w-3 h-3' : 'w-4 h-4'
   const offset = size === 'small' ? (checked ? 'translate-x-3' : 'translate-x-0.5') : (checked ? 'translate-x-4' : 'translate-x-0.5')
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange?.(!checked)}
-      className={`${w} rounded-full transition-colors cursor-pointer flex items-center
-        ${checked ? 'bg-[#1E5EFF]' : 'bg-[#27272a]'}`}
+      className={`${w} rounded-full transition-colors flex items-center
+        ${checked ? 'bg-[#1E5EFF]' : 'bg-[#27272a]'}
+        ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       {/* Knob stays white for contrast on the colored track in both themes */}
       <span className={`${knob} bg-white rounded-full shadow-sm transition-transform ${offset}`} />

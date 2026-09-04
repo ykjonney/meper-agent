@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from croniter import croniter
 from loguru import logger
@@ -38,6 +39,18 @@ from loguru import logger
 from app.core.config import settings
 from app.models.trigger import Trigger
 from app.services.trigger_repo import TriggerRepository
+
+
+def trigger_now() -> datetime:
+    """Current time in the trigger timezone (aware).
+
+    Cron expressions are interpreted in ``settings.TRIGGER_TIMEZONE`` — NOT
+    the container's local timezone (deploy containers default to UTC, which
+    shifted "Thursday 16:00" to Beijing Friday 00:00). Both the poller's due
+    comparison and next-firing computation use this clock so cron semantics
+    stay stable across environments.
+    """
+    return datetime.now(ZoneInfo(settings.TRIGGER_TIMEZONE))
 
 
 class TriggerSchedulerService:
@@ -131,7 +144,7 @@ class TriggerSchedulerService:
         Returns:
             Number of triggers successfully fired this cycle.
         """
-        now = datetime.now().astimezone()
+        now = trigger_now()
 
         # Find due enabled triggers. type=cron keeps next_trigger_at;
         # type=once fires once and next_trigger_at becomes None.
@@ -258,7 +271,11 @@ class TriggerSchedulerService:
             cron = croniter(cron_expr, now)
             next_at = cron.get_next(datetime)
             if next_at.tzinfo is None:
-                next_at = next_at.astimezone()
+                # Defensive: croniter returned naive — anchor it in the
+                # trigger timezone (NOT the container's local timezone).
+                next_at = next_at.replace(
+                    tzinfo=ZoneInfo(settings.TRIGGER_TIMEZONE)
+                )
             return next_at
         elif trigger.type == "once":
             execute_at = trigger.execute_at
@@ -284,7 +301,7 @@ class TriggerSchedulerService:
         ones whose next_trigger_at was cleared. Disabled triggers are left
         alone.
         """
-        now = datetime.now().astimezone()
+        now = trigger_now()
         cursor = self.repo._collection().find({"enabled": True})
         async for doc in cursor:
             if doc.get("next_trigger_at") is not None:

@@ -76,7 +76,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'agents', label: '智能体', icon: Bot, permission: 'agent:read' },
   { id: 'models', label: '模型配置', icon: Server, permission: 'model:read' },
   { id: 'workflows', label: 'AI 工作路线', icon: Layers, permission: 'workflow:read' },
-  { id: 'triggers', label: '定时任务', icon: Clock, permission: 'workflow:read' },
+  { id: 'triggers', label: '定时任务', icon: Clock, permission: 'trigger:read' },
   { id: 'tools', label: '内置工具', icon: Wrench, permission: 'tool:read' },
   { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
   { id: 'skills', label: '技能', icon: Sparkles },

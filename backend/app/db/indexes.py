@@ -126,7 +126,15 @@ async def create_indexes() -> None:
         [("created_by", 1), ("created_at", -1)],
         name="idx_tasks_owner_created",
     )
-    logger.info("Created indexes: idx_tasks_owner_created")
+    # Trigger-derived tasks: inflight idempotency guard in scheduled_workflow
+    # ({trigger_id, source, status}) + the tasks?trigger_id= listing. Sparse —
+    # only trigger-sourced tasks carry the field.
+    await db.tasks.create_index(
+        [("trigger_id", 1), ("created_at", -1)],
+        name="idx_tasks_trigger_created",
+        sparse=True,
+    )
+    logger.info("Created indexes: idx_tasks_owner_created, idx_tasks_trigger_created")
 
     # ── User skills & memory (v6 用户级技能与记忆) ──
     await db.user_skills.create_index(

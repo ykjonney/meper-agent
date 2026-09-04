@@ -103,10 +103,15 @@ const timeInputCls =
 export default function TriggerSchedulePicker({ value, onChange, disabled = false }: Props) {
   const [state, setState] = useState<InternalState>(() => parseCron(value))
 
-  // 自定义模式下，外部 value 变化时同步
+  // 外部 value 变化时重新解析同步（全模式）。
+  // 旧实现仅 custom 模式同步：编辑弹窗打开回填 trigger 真实 cron 时，
+  // 预设模式（每小时/每天/每周/每月）不响应，显示的是上一次会话残留的
+  // 状态，用户在错位界面上保存会存进与所见不符的 cron。
+  // 自洽性：用户操作 → onChange(buildCron(next)) → value 变化 →
+  // buildCron(state) === value → 不会误重置。
   useEffect(() => {
-    if (state.frequency === 'custom' && value !== state.customCron) {
-      setState((prev) => ({ ...prev, customCron: value }))
+    if (value !== buildCron(state)) {
+      setState(parseCron(value))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])

@@ -18,6 +18,7 @@ import {
   type TriggerConfig,
 } from '../services/triggers-api'
 import { tasksApi } from '../services/tasks-api'
+import { usePermission } from '../hooks/use-permission'
 import { Table, Tag, Switch, type TableColumn } from './ui'
 import { confirmDialog } from './ui/confirm'
 import { toast } from './ui/toast'
@@ -41,6 +42,11 @@ function formatDateTime(iso?: string): string {
 export function TriggersPage({ onViewTask }: Props) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  // trigger:manage 持有者可切换「我的/全部」——全库视图用于发现他人/遗留的
+  // 隐形 trigger（调度器扫全库不分用户，管理面必须能看到同一范围）
+  const canWrite = usePermission('trigger:write')
+  const canManage = usePermission('trigger:manage')
+  const [scope, setScope] = useState<'own' | 'all'>('own')
   const [configModal, setConfigModal] = useState<{
     open: boolean
     mode: 'create' | 'edit'
@@ -48,10 +54,10 @@ export function TriggersPage({ onViewTask }: Props) {
   }>({ open: false, mode: 'create', trigger: null })
   const [recordsTrigger, setRecordsTrigger] = useState<TriggerConfig | null>(null)
 
-  // trigger 列表
+  // trigger 列表（scope=all 需 trigger:manage，后端强制校验）
   const triggersQuery = useQuery({
-    queryKey: triggerKeys.list(),
-    queryFn: () => triggersApi.list(),
+    queryKey: triggerKeys.list(scope),
+    queryFn: () => triggersApi.list(scope === 'all'),
   })
   // workflow 列表（建名 map + ConfigModal 选择用）
   const workflowsQuery = useQuery({
@@ -168,6 +174,7 @@ export function TriggersPage({ onViewTask }: Props) {
           <div className="flex items-center gap-2">
             <Switch
               checked={t.enabled}
+              disabled={!canWrite}
               onChange={(c) => toggleMutation.mutate({ trigger: t, enabled: c })}
               size="small"
             />
@@ -202,25 +209,50 @@ export function TriggersPage({ onViewTask }: Props) {
             >
               <History size={14} />
             </button>
-            <button
-              title="编辑"
-              onClick={() => setConfigModal({ open: true, mode: 'edit', trigger: t })}
-              className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-[#1E5EFF] cursor-pointer transition-colors"
-            >
-              <Pencil size={14} />
-            </button>
-            <button
-              title="删除"
-              onClick={() => handleDelete(t)}
-              className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-red-400 cursor-pointer transition-colors"
-            >
-              <Trash2 size={14} />
-            </button>
+            {canWrite && (
+              <>
+                <button
+                  title="编辑"
+                  onClick={() => setConfigModal({ open: true, mode: 'edit', trigger: t })}
+                  className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-[#1E5EFF] cursor-pointer transition-colors"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  title="删除"
+                  onClick={() => handleDelete(t)}
+                  className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-red-400 cursor-pointer transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </>
+            )}
           </div>
         )
       },
     },
   ]
+
+  // 全库视图插入归属列（manage 场景下用于识别他人/遗留 trigger）
+  const displayColumns: TableColumn<Record<string, unknown>>[] =
+    scope === 'all'
+      ? [
+          {
+            title: '归属用户',
+            key: 'owner',
+            width: 160,
+            render: (_, record) => {
+              const t = record as unknown as TriggerConfig
+              return (
+                <span className="font-mono text-[10px] text-slate-400">
+                  {t.user_id || '-'}
+                </span>
+              )
+            },
+          },
+          ...columns,
+        ]
+      : columns
 
   const loading = triggersQuery.isLoading
 
@@ -236,12 +268,35 @@ export function TriggersPage({ onViewTask }: Props) {
             管理工作流的定时触发配置，查看触发记录
           </p>
         </div>
-        <button
-          onClick={() => setConfigModal({ open: true, mode: 'create', trigger: null })}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-[#1E5EFF] hover:bg-[#1a4fd6] text-white text-xs font-medium cursor-pointer transition-colors"
-        >
-          <Plus size={14} /> 新建定时任务
-        </button>
+        <div className="flex items-center gap-2">
+          {/* manage 持有者：我的/全部 切换。调度器扫全库不分用户，
+              「全部」是发现他人/遗留隐形 trigger 的唯一入口 */}
+          {canManage && (
+            <div className="flex items-center gap-1 p-0.5 rounded-md border border-[#27272a] bg-[#121214]">
+              {(['own', 'all'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setScope(s)}
+                  className={`h-7 px-3 rounded text-[11px] font-medium transition-colors cursor-pointer
+                    ${scope === s
+                      ? 'bg-[#27272a] text-[#fafafa]'
+                      : 'text-slate-400 hover:text-[#fafafa]'}`}
+                >
+                  {s === 'own' ? '我的' : '全部'}
+                </button>
+              ))}
+            </div>
+          )}
+          {canWrite && (
+            <button
+              onClick={() => setConfigModal({ open: true, mode: 'create', trigger: null })}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-[#1E5EFF] hover:bg-[#1a4fd6] text-white text-xs font-medium cursor-pointer transition-colors"
+            >
+              <Plus size={14} /> 新建定时任务
+            </button>
+          )}
+        </div>
       </div>
 
       {/* stats */}
@@ -281,7 +336,7 @@ export function TriggersPage({ onViewTask }: Props) {
       ) : (
         <Table
           dataSource={filtered as unknown as Record<string, unknown>[]}
-          columns={columns}
+          columns={displayColumns}
           rowKey={(record) => getTriggerId(record as unknown as TriggerConfig)}
         />
       )}

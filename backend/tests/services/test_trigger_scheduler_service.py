@@ -207,3 +207,46 @@ class TestLifecycle:
             await svc.start()  # no-op
             assert svc._task is first_task
         await svc.stop()
+
+
+class TestTriggerTimezone:
+    """cron 按 TRIGGER_TIMEZONE 解释，不依赖容器系统时区。
+
+    回归背景：部署容器默认 UTC，旧实现用 datetime.now().astimezone() 导致
+    "周四16:00"（0 16 * * 4）被算成 UTC 周四 16:00 = 北京周五 00:00，
+    next_trigger_at 与用户预期相差 8 小时。
+    """
+
+    def test_trigger_now_uses_configured_timezone(self) -> None:
+        """trigger_now 的时区偏移与 TRIGGER_TIMEZONE 一致（无视容器 TZ）。"""
+        from zoneinfo import ZoneInfo
+
+        from app.core.config import settings
+        from app.services.trigger_scheduler_service import trigger_now
+
+        now = trigger_now()
+        expected_off = datetime.now(ZoneInfo(settings.TRIGGER_TIMEZONE)).utcoffset()
+        assert now.utcoffset() == expected_off
+        assert now.tzinfo is not None
+
+    def test_weekly_thursday_4pm_interpreted_in_trigger_tz(self) -> None:
+        """0 16 * * 4 在 TRIGGER_TIMEZONE 语义下：下次=该时区的周四 16:00。
+
+        本测试在任意容器时区（本地 Asia/Shanghai / CI UTC）下均成立——
+        这正是修复语义本身。
+        """
+        from zoneinfo import ZoneInfo
+
+        from app.core.config import settings
+        from app.services.trigger_scheduler_service import trigger_now
+
+        svc = TriggerSchedulerService()
+        now = trigger_now()
+        t = _make_trigger(cron="0 16 * * 4")
+        nxt = svc._compute_next(t, now)
+        assert nxt is not None
+        local = nxt.astimezone(ZoneInfo(settings.TRIGGER_TIMEZONE))
+        assert local.weekday() == 3  # Thursday
+        assert local.hour == 16
+        assert local.minute == 0
+        assert nxt > now

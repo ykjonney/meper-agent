@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     # long-eta (monthly) jobs.
     TRIGGER_SCHEDULER_POLL_INTERVAL: int = 10
 
+    # Trigger 时区 — cron 表达式按此时区解释（"周四16:00"即该时区的 16:00）。
+    # 与 celery timezone 保持一致；不依赖容器系统时区（部署容器默认 UTC，
+    # 曾导致 next_trigger_at 相差 8 小时、触发钟点漂移到次日凌晨）。
+    TRIGGER_TIMEZONE: str = "Asia/Shanghai"
+
     # Skill filesystem — root directory where Skill files are materialized.
     # Each official Skill lives under ``{SKILLS_CONTAINER_DIR}/{skill_name}/``.
     # 用户个人技能住 ``{HOMES_CONTAINER_DIR}/{uid}/skills/{name}/``（用户资产根，

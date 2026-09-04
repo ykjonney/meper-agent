@@ -30,6 +30,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "execution:read:all", "execution:read:own",
         "apikey:manage", "settings:manage",
         "model:read", "model:write",
+        "trigger:read", "trigger:write", "trigger:manage",
     ],
     "developer": [
         "agent:read", "agent:write", "agent:invoke",
@@ -42,6 +43,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "knowledge:read", "knowledge:write",
         "execution:read:own",
         "model:read",
+        "trigger:read", "trigger:write",
     ],
     "operator": [
         "agent:read", "agent:invoke",
@@ -86,6 +88,7 @@ ALL_PERMISSION_KEYS: list[str] = [
     "execution:read:all", "execution:read:own",
     "apikey:manage", "settings:manage",
     "model:read", "model:write",
+    "trigger:read", "trigger:write", "trigger:manage",
 ]
 
 # ---------------------------------------------------------------------------
@@ -126,6 +129,16 @@ _BACKFILL_V3_TARGETS: dict[str, list[str]] = {
     "developer": ["tool:write", "mcp:write"],
     "operator": ["tool:read", "mcp:read"],
     "viewer": ["tool:read", "mcp:read"],
+}
+
+# v4: 定时任务（triggers）模块首次接入 RBAC：
+# - admin 缺 trigger:read/write/manage（manage=查看+管理所有用户的定时任务，
+#   修复调度器扫全库但 admin 界面看不到他人 trigger 的盲区）
+# - developer 缺 trigger:read/write（定时任务是工作流编排的延伸能力）
+_BACKFILL_V4_MARKER = "backfill_trigger_perms_v4"
+_BACKFILL_V4_TARGETS: dict[str, list[str]] = {
+    "admin": ["trigger:read", "trigger:write", "trigger:manage"],
+    "developer": ["trigger:read", "trigger:write"],
 }
 
 
@@ -249,6 +262,7 @@ class RoleService:
         await RoleService.backfill_system_role_permissions()  # v1
         await RoleService._backfill_permissions(_BACKFILL_V2_MARKER, _BACKFILL_V2_TARGETS)
         await RoleService._backfill_permissions(_BACKFILL_V3_MARKER, _BACKFILL_V3_TARGETS)
+        await RoleService._backfill_permissions(_BACKFILL_V4_MARKER, _BACKFILL_V4_TARGETS)
 
     @staticmethod
     async def _backfill_permissions(

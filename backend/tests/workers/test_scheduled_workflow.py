@@ -51,6 +51,7 @@ class TestExecuteScheduledWorkflow:
         workflows_col.find_one = AsyncMock(return_value=workflow_doc)
 
         tasks_col = MagicMock()
+        tasks_col.find_one = AsyncMock(return_value=None)  # no in-flight task
         tasks_col.insert_one = AsyncMock()
 
         def getitem(name):
@@ -153,6 +154,7 @@ class TestExecuteScheduledWorkflow:
         workflows_col = MagicMock()
         workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
         tasks_col = MagicMock()
+        tasks_col.find_one = AsyncMock(return_value=None)  # no in-flight task
         tasks_col.insert_one = AsyncMock()
 
         def getitem(name):
@@ -172,3 +174,101 @@ class TestExecuteScheduledWorkflow:
         assert result["status"] == "error"
         assert result["task_id"]  # forked task exists
         assert "Engine boom" in result["message"]
+
+
+class TestInflightIdempotencyGuard:
+    """Re-delivery hardening: skip fork while a PENDING/RUNNING task from the
+    same trigger is in flight (broker visibility_timeout re-deliveries would
+    otherwise fork duplicate executions — the "hourly zombie" symptom)."""
+
+    @patch("app.workers.tasks.scheduled_workflow.WorkflowEngine")
+    @patch("app.workers.tasks.scheduled_workflow.render_default_input")
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
+    @patch("app.workers.tasks.scheduled_workflow.get_database")
+    async def test_skips_when_inflight_task_exists(
+        self,
+        mock_db_func: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_render: MagicMock,
+        mock_engine_class: MagicMock,
+    ) -> None:
+        """同 trigger 已有 RUNNING 任务在飞 → skip，不再 fork/执行。"""
+        trigger_doc = _make_trigger_doc()
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo_cls.return_value = mock_repo
+
+        mock_db = MagicMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
+        tasks_col = MagicMock()
+        tasks_col.find_one = AsyncMock(
+            return_value={"_id": "task_inflight", "status": "running"}
+        )
+        tasks_col.insert_one = AsyncMock()
+
+        def getitem(name):
+            return {"workflows": workflows_col, "tasks": tasks_col}[name]
+
+        mock_db.__getitem__ = MagicMock(side_effect=getitem)
+        mock_db_func.return_value = mock_db
+
+        from app.workers.tasks.scheduled_workflow import _execute_async
+
+        result = await _execute_async("trig_xxx")
+
+        assert result["status"] == "skipped"
+        assert result["task_id"] == "task_inflight"
+        tasks_col.insert_one.assert_not_awaited()
+        mock_engine_class.assert_not_called()
+
+    @patch("app.workers.tasks.scheduled_workflow.WorkflowEngine")
+    @patch("app.workers.tasks.scheduled_workflow.render_default_input")
+    @patch("app.workers.tasks.scheduled_workflow.TriggerRepository")
+    @patch("app.workers.tasks.scheduled_workflow.get_database")
+    async def test_inflight_guard_only_counts_pending_running(
+        self,
+        mock_db_func: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_render: MagicMock,
+        mock_engine_class: MagicMock,
+    ) -> None:
+        """守卫查询只把 PENDING/RUNNING 算作在飞——WAITING_HUMAN 是合法长驻
+        状态（其 Celery 消息早已 ack），不得阻塞新一轮触发。"""
+        from app.models.task import TaskStatus
+
+        trigger_doc = _make_trigger_doc()
+        mock_repo = MagicMock()
+        mock_repo.find_by_id = AsyncMock(return_value=Trigger(**trigger_doc))
+        mock_repo.update = AsyncMock()
+        mock_repo_cls.return_value = mock_repo
+
+        mock_db = MagicMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value={"_id": "wf_xxx"})
+        tasks_col = MagicMock()
+        tasks_col.find_one = AsyncMock(return_value=None)
+        tasks_col.insert_one = AsyncMock()
+
+        def getitem(name):
+            return {"workflows": workflows_col, "tasks": tasks_col}[name]
+
+        mock_db.__getitem__ = MagicMock(side_effect=getitem)
+        mock_db_func.return_value = mock_db
+        mock_render.return_value = {}
+
+        mock_engine = MagicMock()
+        mock_engine.run_and_persist = AsyncMock()
+        mock_engine_class.return_value = mock_engine
+
+        from app.workers.tasks.scheduled_workflow import _execute_async
+
+        result = await _execute_async("trig_xxx")
+
+        assert result["status"] == "success"
+        guard_filter = tasks_col.find_one.call_args.args[0]
+        assert guard_filter["trigger_id"] == "trig_xxx"
+        assert guard_filter["source"] == "trigger_scheduled"
+        assert guard_filter["status"] == {
+            "$in": [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
+        }

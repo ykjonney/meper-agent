@@ -46,12 +46,14 @@ export const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
 export const triggersApi = {
   /**
-   * List triggers for the current user.
-   * GET /api/v1/triggers
+   * List triggers for the current user; `all=true` returns the full
+   * collection (requires trigger:manage — the backend enforces it).
+   * GET /api/v1/triggers[?all=true]
    */
-  async list(): Promise<{ total: number; items: TriggerConfig[] }> {
+  async list(all = false): Promise<{ total: number; items: TriggerConfig[] }> {
     const res = await apiClient.get<{ total: number; items: TriggerConfig[] }>(
       '/api/v1/triggers',
+      { params: all ? { all: true } : undefined },
     )
     return res.data
   },
@@ -130,7 +132,8 @@ export const triggersApi = {
 export const triggerKeys = {
   all: ['triggers'] as const,
   lists: () => [...triggerKeys.all, 'list'] as const,
-  list: () => [...triggerKeys.lists()] as const,
+  /** scope 参与 key：own/all 两个视图各自缓存，invalidate(lists()) 一并失效 */
+  list: (scope: 'own' | 'all' = 'own') => [...triggerKeys.lists(), scope] as const,
   details: () => [...triggerKeys.all, 'detail'] as const,
   detail: (id: string) => [...triggerKeys.details(), id] as const,
 }
