@@ -103,7 +103,10 @@ class Model(BaseModel):
             "max_tokens": 4096,
             "context_window": 128000,
         },
-        description="Default inference parameters (temperature, max_tokens, context_window, ...)",
+        description=(
+            "Default inference parameters (temperature, max_tokens, context_window, "
+            "thinking_budget for Anthropic reasoning, ...)"
+        ),
     )
     status: ModelStatus = Field(default=ModelStatus.ACTIVE)
     # What this model is used for. chat = conversational LLM (default);

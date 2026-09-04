@@ -45,12 +45,35 @@ _QWEN_MARKERS: tuple[str, ...] = ("qwen",)
 # GLM 系(智谱 OpenAI 兼容端点):thinking 对象开关。
 _GLM_MARKERS: tuple[str, ...] = ("glm",)
 
-# Default token budget for Claude extended thinking.
-_ANTHROPIC_THINKING_BUDGET = 5000
+# Default token budget for Claude extended thinking — used when the model
+# doc's ``default_params.thinking_budget`` is absent (configurable override).
+_DEFAULT_ANTHROPIC_THINKING_BUDGET = 5000
 
-# Anthropic requires budget_tokens >= 1024; below this max_tokens there is no
-# room for a meaningful thinking budget + answer, so thinking is disabled.
+# Anthropic requires budget_tokens >= 1024 — API protocol floor, clamped
+# automatically when a configured budget falls below it.
+_MIN_ANTHROPIC_THINKING_BUDGET = 1024
+
+# Anthropic requires a roomy token window for budget + answer; below this
+# max_tokens there is no meaningful thinking budget, so thinking is disabled.
 _MIN_THINKING_MAX_TOKENS = 2048
+
+
+def _resolve_budget(thinking_budget: int | None) -> int:
+    """Resolve the Anthropic thinking budget: configured value or default,
+    clamped to the API floor (>= 1024)."""
+    budget = (
+        int(thinking_budget)
+        if thinking_budget
+        else _DEFAULT_ANTHROPIC_THINKING_BUDGET
+    )
+    if budget < _MIN_ANTHROPIC_THINKING_BUDGET:
+        logger.warning(
+            "llm_thinking_budget_below_floor",
+            budget=budget,
+            floor=_MIN_ANTHROPIC_THINKING_BUDGET,
+        )
+        budget = _MIN_ANTHROPIC_THINKING_BUDGET
+    return budget
 
 
 def _openai_thinking_kwargs(model_id: str, enable_thinking: bool) -> dict[str, Any]:
@@ -72,6 +95,7 @@ def build_thinking_kwargs(
     provider_or_compatibility: str,
     enable_thinking: bool,
     max_tokens: int | None = None,
+    thinking_budget: int | None = None,
 ) -> dict[str, Any]:
     """Build constructor kwargs enabling/disabling native LLM reasoning.
 
@@ -82,6 +106,9 @@ def build_thinking_kwargs(
         enable_thinking: Whether the caller requested thinking mode.
         max_tokens: Optional ``max_tokens`` (Anthropic needs ``max_tokens >
             budget``).
+        thinking_budget: Optional Anthropic thinking budget override (from the
+            model doc's ``default_params.thinking_budget``); clamped to the
+            API floor 1024, default 5000 when absent.
 
     Returns:
         Kwargs to spread into the chat-model constructor. Empty when thinking
@@ -101,7 +128,7 @@ def build_thinking_kwargs(
 
     # Anthropic path.
     if provider_or_compatibility == "anthropic":
-        budget = _ANTHROPIC_THINKING_BUDGET
+        budget = _resolve_budget(thinking_budget)
         if max_tokens is not None:
             if int(max_tokens) < _MIN_THINKING_MAX_TOKENS:
                 # Too small to fit a meaningful budget + answer — explicitly
@@ -150,6 +177,7 @@ def apply_thinking_mode(
     *,
     enable_thinking: bool,
     model_name: str,
+    thinking_budget: int | None = None,
 ) -> BaseChatModel:
     """Best-effort mutate an already-built chat model to enable reasoning.
 
@@ -162,6 +190,7 @@ def apply_thinking_mode(
         llm: A built chat model.
         enable_thinking: Whether to enable reasoning.
         model_name: Model id, used to pick the provider knob.
+        thinking_budget: Optional Anthropic budget override (default 5000).
 
     Returns:
         The same ``llm`` instance (mutated in place when supported).
@@ -176,7 +205,7 @@ def apply_thinking_mode(
         if hasattr(llm, "thinking"):
             llm.thinking = {
                 "type": "enabled",
-                "budget_tokens": _ANTHROPIC_THINKING_BUDGET,
+                "budget_tokens": _resolve_budget(thinking_budget),
             }
         else:
             logger.warning(

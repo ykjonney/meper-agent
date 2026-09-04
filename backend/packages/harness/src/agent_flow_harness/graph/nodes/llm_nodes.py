@@ -9,10 +9,11 @@ nodes wired by LangGraph edges:
 Tool execution is handled by the native ``langgraph.prebuilt.ToolNode``;
 this module only owns the LLM-side and compression-side nodes.
 """
+
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
-from langchain_core.messages import AIMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
@@ -30,6 +31,22 @@ logger = structlog.get_logger(__name__)
 # 持有后台压缩任务的强引用(防 GC 回收未完成的 task)。
 _background_tasks: set[Any] = set()
 
+# 输出截断的 finish_reason 取值：OpenAI 兼容端点为 "length"，Anthropic 为
+# "max_tokens"（落在 response_metadata.stop_reason）。
+_TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
+
+
+def _finish_reason(response: AIMessage) -> str | None:
+    """提取本次调用的结束原因（OpenAI finish_reason / Anthropic stop_reason）。"""
+    meta = getattr(response, "response_metadata", None) or {}
+    reason = meta.get("finish_reason") or meta.get("stop_reason")
+    return str(reason) if reason else None
+
+
+def _is_output_truncated(response: AIMessage) -> bool:
+    """输出是否因达到 max_tokens 上限被截断。"""
+    return _finish_reason(response) in _TRUNCATED_FINISH_REASONS
+
 
 def _configurable(config: RunnableConfig | None) -> dict[str, Any]:
     """Return ``config["configurable"]`` as a dict, raising a clear error."""
@@ -44,7 +61,8 @@ def _configurable(config: RunnableConfig | None) -> dict[str, Any]:
 
 
 async def compress_node(
-    state: "AgentState", config: RunnableConfig,
+    state: "AgentState",
+    config: RunnableConfig,
 ) -> dict[str, Any]:
     """Compress conversation history when approaching the context-window limit.
 
@@ -114,7 +132,8 @@ async def compress_node(
     if context_strategy is not None:
         before = len(current_messages)
         current_messages = await context_strategy.select(
-            current_messages, max_tokens=context_window or 128000,
+            current_messages,
+            max_tokens=context_window or 128000,
         )
         if len(current_messages) < before:
             logger.info(
@@ -135,8 +154,15 @@ async def compress_node(
 
     # ── 内置路径:工具压缩 + 后台LLM压缩 + 丢弃兜底 ──
     result, detail = _compress_by_turns(
-        current_messages, window, protected_turns, compression_threshold,
-        hard_limit_ratio, llm, session_id, config, state,
+        current_messages,
+        window,
+        protected_turns,
+        compression_threshold,
+        hard_limit_ratio,
+        llm,
+        session_id,
+        config,
+        state,
     )
 
     if detail["changed"] or annotate_changed:
@@ -165,7 +191,8 @@ async def compress_node(
 
 
 async def llm_node(
-    state: "AgentState", config: RunnableConfig,
+    state: "AgentState",
+    config: RunnableConfig,
 ) -> dict[str, Any]:
     """Single LLM invocation with tool-binding and middleware hooks.
 
@@ -205,8 +232,99 @@ async def llm_node(
 
     # Middleware: after_llm.
     await chain.run_after_llm(
-        cast("AgentState", {**call_state, "step_count": step_count}), response,
+        cast("AgentState", {**call_state, "step_count": step_count}),
+        response,
     )
+
+    # ── Output truncation: detect + bounded feedback retry ─────────────
+    # finish_reason=length 且无有效 tool_calls 时（思考/正文被截断，或工具
+    # 参数截断落进 invalid_tool_calls），tools_condition 视为"无工具调用"
+    # 直接路由 END——对话静默死亡且模型毫无反馈。工具参数截断在流式路径
+    # 会被 parse_partial_json 宽松救活（工具照常执行、ToolMessage 反馈兜
+    # 底），但严格解析路径的 invalid_tool_calls 还会随消息持久化，下一轮
+    # 被序列化回请求触发 400。这里统一补上反馈通道：
+    #   ① invalid 调用 → 合成错误 ToolMessage（给模型反馈 + 补齐配对防 400）；
+    #   ② 死路（无有效工具调用可走 ToolMessage 通道）→ 注入反馈后原地重调
+    #      一次（上限 1 次，防死循环），让模型带着"你被截断了"的信号重试；
+    #   ③ 截断但带有效 tool_calls → 放行执行（反馈通道已存在，模型下一轮
+    #      可自我补救），仅告警。
+    extra_messages: list[Any] = []
+    invalid_calls = list(getattr(response, "invalid_tool_calls", None) or [])
+    truncated = _is_output_truncated(response)
+    if truncated or invalid_calls:
+        for call in invalid_calls:
+            call_id = call.get("id") if isinstance(call, dict) else None
+            if call_id:
+                extra_messages.append(
+                    ToolMessage(
+                        content=(
+                            "Error: 该工具调用因输出达到最大长度限制被截断，"
+                            "参数不完整，未被执行。请重新发起该调用并精简参数。"
+                        ),
+                        tool_call_id=call_id,
+                    )
+                )
+        if not response.tool_calls:
+            logger.warning(
+                "llm_output_truncated",
+                agent_id=state.get("agent_id"),
+                request_id=state.get("request_id"),
+                finish_reason=_finish_reason(response),
+                invalid_tool_calls=len(invalid_calls),
+                action="retry_with_feedback",
+            )
+            feedback = HumanMessage(
+                content=(
+                    "你上一轮输出因达到最大输出长度（max_tokens）限制被截断，没有"
+                    "产生完整内容。请压缩思考过程、直接给出完整回复；若需调用工具，"
+                    "请大幅精简工具参数后再发起。"
+                )
+            )
+            # 截断响应本身只有在携带信息（正文 / invalid 调用）时才进重试上下
+            # 文：空 content 的 AIMessage 对模型无价值，且部分 provider（如
+            # Anthropic 空 content / 未签名 thinking 块）会直接 400。
+            retry_messages = list(call_state["messages"])
+            if invalid_calls or response.content:
+                retry_messages.append(response)
+            retry_messages.extend(extra_messages)
+            retry_messages.append(feedback)
+            try:
+                retry_response = await llm_with_tools.ainvoke(retry_messages)
+            except Exception as exc:
+                # 重试本身失败（如 provider 拒绝请求）→ 退化为原行为：保留已
+                # 合成的配对 ToolMessage 与反馈，本轮照旧结束，绝不让修复引入
+                # 新的硬失败。
+                logger.warning(
+                    "llm_output_truncation_retry_failed",
+                    agent_id=state.get("agent_id"),
+                    request_id=state.get("request_id"),
+                    error=str(exc),
+                )
+                return {
+                    "messages": [response, *extra_messages, feedback],
+                    "step_count": step_count,
+                }
+            await chain.run_after_llm(
+                cast("AgentState", {**call_state, "step_count": step_count}),
+                retry_response,
+            )
+            if _is_output_truncated(retry_response):
+                logger.warning(
+                    "llm_output_truncated_retry_exhausted",
+                    agent_id=state.get("agent_id"),
+                    request_id=state.get("request_id"),
+                    finish_reason=_finish_reason(retry_response),
+                )
+            extra_messages.extend([feedback, retry_response])
+        else:
+            logger.warning(
+                "llm_output_truncated",
+                agent_id=state.get("agent_id"),
+                request_id=state.get("request_id"),
+                finish_reason=_finish_reason(response),
+                invalid_tool_calls=len(invalid_calls),
+                action="pass_through_with_tool_calls",
+            )
 
     # Depth / cycle guard — checked after the call so the AIMessage is still
     # appended (the graph will route to END because there are no tool_calls
@@ -214,8 +332,7 @@ async def llm_node(
     depth_result = check_depth(state)
     if not depth_result.allowed:
         logger.warning(
-            "circular_call_detected" if depth_result.cycle is not None
-            else "depth_limit_exceeded",
+            "circular_call_detected" if depth_result.cycle is not None else "depth_limit_exceeded",
             agent_id=state.get("agent_id"),
             request_id=state.get("request_id"),
             current_depth=depth_result.current_depth,
@@ -225,12 +342,12 @@ async def llm_node(
             cycle=depth_result.cycle,
         )
         return {
-            "messages": [response],
+            "messages": [response, *extra_messages],
             "step_count": step_count,
             "error": depth_result.reason,
         }
 
-    return {"messages": [response], "step_count": step_count}
+    return {"messages": [response, *extra_messages], "step_count": step_count}
 
 
 def _system_messages_first(messages: list[Any]) -> list[Any]:
@@ -265,7 +382,8 @@ def _pack_replace(messages: list[Any]) -> dict[str, Any]:
 
 
 def _trim_tool_outputs(
-    messages: list[Any], config: RunnableConfig,
+    messages: list[Any],
+    config: RunnableConfig,
 ) -> list[Any]:
     """Shrink oversized ToolMessage contents, applying the app-supplied
     reference formatter (so truncated results hint how to recall the original).
@@ -280,7 +398,9 @@ def _trim_tool_outputs(
 
 
 def _check_oversized_tool_result(
-    messages: list[Any], window: int, state: "AgentState",
+    messages: list[Any],
+    window: int,
+    state: "AgentState",
 ) -> None:
     """「未消费的」单个工具结果放不下模型窗口时抛 ValueError(转 ErrorEvent 发前端)。
 
@@ -449,10 +569,12 @@ def _compress_by_turns(
     kept_system: list[Any] = []
     for m in system_msgs:
         if getattr(m, "id", "") in ("llm_summary", "summary"):
-            migrated.append(_HumanMessage(
-                content=str(m.content),
-                id=getattr(m, "id", "") or "llm_summary",
-            ))
+            migrated.append(
+                _HumanMessage(
+                    content=str(m.content),
+                    id=getattr(m, "id", "") or "llm_summary",
+                )
+            )
         else:
             kept_system.append(m)
     if migrated:
@@ -470,30 +592,34 @@ def _compress_by_turns(
     unconsumed_ids = find_unconsumed_tool_call_ids(history)
 
     # 第1级:5轮外已消费工具压。
-    outer = compress_tool_outputs(outer, reference_formatter=formatter, unconsumed_ids=unconsumed_ids)
+    outer = compress_tool_outputs(
+        outer, reference_formatter=formatter, unconsumed_ids=unconsumed_ids
+    )
     combined = [*system_msgs, *outer, *recent]
     if estimate_context_tokens(combined) <= threshold:
         return ensure_tool_pairing(combined), {"changed": True, "actions": "5轮外工具压缩"}
 
     # 第2级:5轮内已消费工具压(未消费保护内置)。
-    recent = compress_tool_outputs(recent, reference_formatter=formatter, unconsumed_ids=unconsumed_ids)
+    recent = compress_tool_outputs(
+        recent, reference_formatter=formatter, unconsumed_ids=unconsumed_ids
+    )
     combined = [*system_msgs, *outer, *recent]
     after_tools = estimate_context_tokens(combined)
     if after_tools <= threshold:
         return ensure_tool_pairing(combined), {"changed": True, "actions": "5轮内工具压缩"}
 
     # ④ 工具压完仍超阈值 → 触发后台LLM压缩(如果没在跑 + 有outer + 有LLM)。
-    if (
-        session_id
-        and llm is not None
-        and not summary_cache.is_running(session_id)
-        and outer
-    ):
+    if session_id and llm is not None and not summary_cache.is_running(session_id) and outer:
         summary_cache.mark_running(session_id)
-        task = asyncio.create_task(compress_history_with_llm(
-            llm, outer, session_id, summary_cache,
-            reference_formatter=formatter,
-        ))
+        task = asyncio.create_task(
+            compress_history_with_llm(
+                llm,
+                outer,
+                session_id,
+                summary_cache,
+                reference_formatter=formatter,
+            )
+        )
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
         logger.info(

@@ -18,6 +18,8 @@ export interface ModelDefaultParams {
   temperature?: number
   max_tokens?: number
   context_window?: number
+  /** Anthropic 思考预算（仅 claude 系思考模式生效，缺省 5000） */
+  thinking_budget?: number
 }
 
 export interface Model {

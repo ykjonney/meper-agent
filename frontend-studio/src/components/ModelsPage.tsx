@@ -538,6 +538,24 @@ export function ModelsPage() {
                       />
                     </Field>
                   </div>
+                  <Field label="思考预算 Thinking Budget（可选）">
+                    <input
+                      type="number" min="1024" step="128"
+                      value={form.default_params?.thinking_budget ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const rest = { ...form.default_params! };
+                        if (raw === '') delete rest.thinking_budget;
+                        else rest.thinking_budget = Number(raw);
+                        setForm({ ...form, default_params: rest });
+                      }}
+                      placeholder="留空默认 5000"
+                      className={inputCls}
+                    />
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      仅 Anthropic claude 系思考模式生效（思考 token 上限，自动压缩至 max_tokens/2 以内；下限 1024）。
+                    </div>
+                  </Field>
                 </div>
               </div>
 

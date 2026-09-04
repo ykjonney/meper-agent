@@ -101,6 +101,10 @@ def build_client_from_doc(
     overrides = agent_config or {}
     temperature = overrides.get("temperature", model_defaults.get("temperature", 0.7))
     max_tokens = model_defaults.get("max_tokens")
+    # Anthropic 思考预算可按模型配置（default_params.thinking_budget），
+    # 缺省/非法时由 thinking 模块兜底默认值。
+    raw_budget = model_defaults.get("thinking_budget")
+    thinking_budget = int(raw_budget) if raw_budget else None
 
     common_kwargs: dict[str, Any] = {
         "model": model_id,
@@ -111,7 +115,7 @@ def build_client_from_doc(
 
     auth_kwargs = build_auth_kwargs(auth_type, api_key, auth_header_format)
     thinking_kwargs = build_thinking_kwargs(
-        model_id, compatibility, enable_thinking, max_tokens
+        model_id, compatibility, enable_thinking, max_tokens, thinking_budget
     )
 
     if compatibility == "openai":

@@ -77,6 +77,20 @@ def test_build_client_from_doc_anthropic_with_thinking() -> None:
     assert getattr(llm, "thinking", None) == {"type": "enabled", "budget_tokens": 4096}
 
 
+def test_build_client_from_doc_anthropic_thinking_budget_from_default_params() -> None:
+    """default_params.thinking_budget overrides the hardcoded default 5000."""
+    llm = build_client_from_doc(
+        _doc(
+            model_id="claude-sonnet-4",
+            compatibility_type="anthropic",
+            default_params={"temperature": 0.7, "max_tokens": 65536, "thinking_budget": 16000},
+        ),
+        enable_thinking=True,
+    )
+    assert isinstance(llm, ChatAnthropic)
+    assert getattr(llm, "thinking", None) == {"type": "enabled", "budget_tokens": 16000}
+
+
 def test_build_client_from_doc_agent_overrides_temperature() -> None:
     llm = build_client_from_doc(_doc(), agent_config={"temperature": 0.1})
     assert llm.temperature == 0.1

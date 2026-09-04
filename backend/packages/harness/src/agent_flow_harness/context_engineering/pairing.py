@@ -3,6 +3,7 @@
 核心安全约束：压缩/滑动后不能出现 tool_call 没有对应 tool_result（会让 LLM
 报错或幻觉），也不能出现孤儿 tool_result（没有对应 tool_call）。
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -16,10 +17,13 @@ def ensure_tool_pairing(messages: "list[BaseMessage]") -> "list[BaseMessage]":
 
     - 丢弃没有 result 的 tool_call（纯 tool_call 且 content 空的 AIMessage 整条丢）
     - 丢弃没有 call 的孤儿 ToolMessage
+    - invalid_tool_calls（截断/畸形参数的调用）同样参与配对：未配对的剥离、
+      配对的保留——LangChain 序列化会把 invalid 调用原样写回请求的
+      tool_calls 字段，未配对时下一轮请求必被 provider 400 拒绝。
     """
     from langchain_core.messages import AIMessage, ToolMessage
 
-    # 收集所有 call_id
+    # 收集所有 call_id（含 invalid：截断的调用同样会在序列化时回显）
     call_ids: set[str] = set()
     result_ids: set[str] = set()
 
@@ -27,7 +31,10 @@ def ensure_tool_pairing(messages: "list[BaseMessage]") -> "list[BaseMessage]":
         if isinstance(m, ToolMessage):
             result_ids.add(m.tool_call_id)
         elif isinstance(m, AIMessage):
-            for tc in getattr(m, "tool_calls", []) or []:
+            for tc in [
+                *(getattr(m, "tool_calls", None) or []),
+                *(getattr(m, "invalid_tool_calls", None) or []),
+            ]:
                 if isinstance(tc, dict):
                     call_ids.add(tc.get("id", ""))
 
@@ -41,21 +48,31 @@ def ensure_tool_pairing(messages: "list[BaseMessage]") -> "list[BaseMessage]":
                 result.append(m)
         elif isinstance(m, AIMessage):
             tool_calls = getattr(m, "tool_calls", []) or []
-            if tool_calls:
+            invalid_calls = getattr(m, "invalid_tool_calls", []) or []
+            if tool_calls or invalid_calls:
                 valid_tcs = [
-                    tc for tc in tool_calls
+                    tc for tc in tool_calls if isinstance(tc, dict) and tc.get("id") in valid_pairs
+                ]
+                paired_invalid = [
+                    tc
+                    for tc in invalid_calls
                     if isinstance(tc, dict) and tc.get("id") in valid_pairs
                 ]
-                if valid_tcs and len(valid_tcs) == len(tool_calls):
-                    # 全部 tool_call 都有配对 → 原样保留。
+                if len(valid_tcs) == len(tool_calls) and len(paired_invalid) == len(invalid_calls):
+                    # 全部调用都有配对 → 原样保留。
                     result.append(m)
-                elif valid_tcs:
-                    # 部分配对 → 重建 AIMessage,只保留有效 tool_call(剥离孤儿)。
-                    result.append(AIMessage(content=m.content, tool_calls=valid_tcs))
-                elif m.content:
-                    # 无有效 tool_call 但有文本 → 保留文本,丢弃所有 tool_call。
-                    result.append(AIMessage(content=m.content))
-                # 无 valid_tcs 且无 content → 丢弃整条
+                elif valid_tcs or paired_invalid or m.content:
+                    # 部分配对 → 重建 AIMessage，只保留配对调用（剥离孤儿
+                    # tool_call 与未配对的 invalid 调用）；无配对但有文本 →
+                    # 保留文本。
+                    result.append(
+                        AIMessage(
+                            content=m.content,
+                            tool_calls=valid_tcs,
+                            invalid_tool_calls=paired_invalid,
+                        )
+                    )
+                # 无配对调用且无 content → 丢弃整条
             else:
                 result.append(m)
         else:

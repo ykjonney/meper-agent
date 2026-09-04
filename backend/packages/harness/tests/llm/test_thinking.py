@@ -54,6 +54,34 @@ def test_thinking_anthropic_budget_adapts_to_max_tokens() -> None:
     assert out["thinking"] == {"type": "enabled", "budget_tokens": 2048}
 
 
+def test_thinking_anthropic_budget_override_applies() -> None:
+    """Configured thinking_budget (model doc default_params) overrides 5000."""
+    out = build_thinking_kwargs(
+        "claude-sonnet-4", "anthropic", enable_thinking=True, thinking_budget=16000
+    )
+    assert out["thinking"] == {"type": "enabled", "budget_tokens": 16000}
+
+
+def test_thinking_anthropic_budget_clamped_to_api_floor() -> None:
+    """Anthropic requires budget_tokens >= 1024; smaller values are clamped."""
+    out = build_thinking_kwargs(
+        "claude-sonnet-4", "anthropic", enable_thinking=True, thinking_budget=100
+    )
+    assert out["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+
+def test_thinking_anthropic_budget_override_shrinks_to_half_window() -> None:
+    """Override still respects budget <= max_tokens // 2 (answer room)."""
+    out = build_thinking_kwargs(
+        "claude-sonnet-4",
+        "anthropic",
+        enable_thinking=True,
+        max_tokens=8192,
+        thinking_budget=16000,
+    )
+    assert out["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
 def test_thinking_openai_oseries_enables_reasoning_effort() -> None:
     for model in ("o1-mini", "o3-mini", "o4-something"):
         out = build_thinking_kwargs(model, "openai", enable_thinking=True)
