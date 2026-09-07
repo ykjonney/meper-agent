@@ -3,7 +3,7 @@
  */
 import type { WorkflowNode, NextNodeRef } from '../../../services/workflows-api'
 
-/** 新节点的默认间距 */
+/** 新节点的默认间距（节点卡片紧凑宽度下保持视觉间隙） */
 const SPACING_X = 220
 const SPACING_Y = 100
 

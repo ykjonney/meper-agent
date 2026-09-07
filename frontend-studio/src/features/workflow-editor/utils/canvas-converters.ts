@@ -193,6 +193,13 @@ function makeDerivedEdge(
 
 /**
  * 拖线/删线时同步更新 source 节点的 config。
+ *
+ * gateway/parallel 的有效出边只能来自 conditions/branches（派生边也只渲染
+ * 这两处）——拖线转新增条件/分支（默认值与配置面板一致），**不写
+ * next_nodes**：派生边不渲染它们的 next_nodes，写了就是看不见且删不掉的
+ * 幽灵引用，保存后在运行期被 DANGLING_NEXT_TARGET 校验拦下。
+ * remove 时清完 conditions/branches 后 fall through 继续清 next_nodes，
+ * 顺带回收历史版本可能写入的幽灵 next_nodes。
  */
 export function syncEdgeChangesToNodes(
   action: 'add' | 'remove',
@@ -206,25 +213,51 @@ export function syncEdgeChangesToNodes(
     if (n.node_id !== source) return n
     const config = { ...(n.config ?? {}) } as Record<string, unknown>
 
-    if (action === 'remove') {
-      // gateway: 从 conditions 中移除匹配 target 的条目
+    if (action === 'add') {
+      // gateway 拖线 → 新增条件（默认值与 GatewayNodeConfig.addCondition 一致）
       if (n.type === 'gateway') {
-        const conditions = [...((config.conditions as Array<{ target?: string; expression?: string; label?: string }>) ?? [])]
-        config.conditions = conditions.filter((c) => c.target !== target)
-        // 如果删除的是 default_branch 指向的节点，也清除
+        const conditions = [
+          ...((config.conditions as Array<{
+            target?: string
+            expression?: string
+            operator?: string
+            expected?: boolean
+          }>) ?? []),
+        ]
+        if (!conditions.some((c) => c.target === target)) {
+          conditions.push({ expression: '', operator: '==', expected: true, target })
+        }
+        config.conditions = conditions
+        return { ...n, config }
+      }
+      // parallel 拖线 → 新增分支
+      if (n.type === 'parallel') {
+        const branches = [
+          ...((config.branches as Array<{ start_node?: string; label?: string }>) ?? []),
+        ]
+        if (!branches.some((b) => b.start_node === target)) {
+          branches.push({ start_node: target, label: label ?? '' })
+        }
+        config.branches = branches
+        return { ...n, config }
+      }
+    } else {
+      // remove
+      if (n.type === 'gateway' && Array.isArray(config.conditions)) {
+        config.conditions = (config.conditions as Array<{ target?: string }>).filter(
+          (c) => c.target !== target,
+        )
         if (config.default_branch === target) {
           config.default_branch = ''
         }
-        return { ...n, config }
+        // 不 return——若历史版本拖线写入过幽灵 next_nodes，下方一并清掉
       }
-
-      // parallel: 从 branches 中移除匹配 start_node 的分支
-      if (n.type === 'parallel') {
-        const branches = [...((config.branches as Array<{ start_node?: string; label?: string }>) ?? [])]
-        config.branches = branches.filter((b) => b.start_node !== target)
-        return { ...n, config }
+      if (n.type === 'parallel' && Array.isArray(config.branches)) {
+        config.branches = (config.branches as Array<{ start_node?: string }>).filter(
+          (b) => b.start_node !== target,
+        )
+        // 不 return——同上，fall through 清幽灵 next_nodes
       }
-
       // agent: 删除信息不足分支边 → 清空 insufficient_branch（target 可能
       // 同时在 next_nodes 中，继续走下方 next_nodes 清理）
       if (n.type === 'agent' && config.insufficient_branch === target) {

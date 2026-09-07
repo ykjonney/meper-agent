@@ -145,7 +145,10 @@ export function WorkflowDesigner({
 
   const handleNodeDelete = useCallback((nodeId: string) => {
     setNodes((prev) => {
-      // 同步移除其他节点 next_nodes/conditions 中对该节点的引用
+      // 同步移除其他节点对被删节点的全部引用（漏一类都会变成悬空引用，
+      // 保存后在运行期被 DANGLING_NEXT_TARGET 校验拦下，且画布上看不见）：
+      // next_nodes / gateway conditions+default_branch / parallel branches /
+      // agent insufficient_branch
       return prev
         .filter((n) => n.node_id !== nodeId)
         .map((n) => {
@@ -160,6 +163,14 @@ export function WorkflowDesigner({
               (c) => c.target !== nodeId,
             )
             if (config.default_branch === nodeId) config.default_branch = ''
+          }
+          if (n.type === 'parallel' && Array.isArray(config.branches)) {
+            config.branches = (config.branches as Array<{ start_node?: string }>).filter(
+              (b) => b.start_node !== nodeId,
+            )
+          }
+          if (config.insufficient_branch === nodeId) {
+            config.insufficient_branch = null
           }
           return { ...n, config }
         })

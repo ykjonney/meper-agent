@@ -2,6 +2,8 @@
  * WorkflowNodeConfigPanel — 右侧配置面板。
  *
  * 根据选中节点类型，分发到对应的 Config 子组件。
+ * 顶层提供「节点名称」（WorkflowNode.label，节点级字段）编辑——同类节点
+ * （如同一 Agent 的多个节点）靠它区分用途，所有类型通用，不参与运行时。
  * 移除了独立的 EdgeConfigPanel（边配置现在通过节点的 next_nodes 管理）。
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
@@ -103,6 +105,19 @@ export default function WorkflowNodeConfigPanel({
             {nt?.description && <HelpHint text={nt.description} />}
           </div>
           <Tag className="!m-0 !text-[10px]">{selectedNode.node_id}</Tag>
+        </div>
+
+        {/* 节点名称（label）：节点级字段，所有类型通用，随保存透传后端 */}
+        <div className="mb-3">
+          <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+            节点名称
+            <HelpHint text="显示在画布节点卡片上，用于区分同类节点的不同用途（如同一 Agent 的多个节点）。仅作编辑标识，不参与运行时、不会发给 Agent。注意与 human 节点的「审批标题」不同——那是发给审批人的内容标题。" />
+          </label>
+          <Input
+            value={selectedNode.label}
+            onChange={(e) => onNodeChange({ ...selectedNode, label: e.target.value })}
+            placeholder="可选，如「日报汇总」"
+          />
         </div>
         <NodeConfigPanel
           node={selectedNode}

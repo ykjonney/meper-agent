@@ -125,6 +125,30 @@ class WorkflowService:
 
         updates["updated_at"] = utc_now()
 
+        # nodes 全量替换时同步清洗 edges：剔除两端节点已不存在的边。
+        # 前端保存只发 nodes 不发 edges，$set 不动的话 DB 里旧 edges 会残留
+        # 对已删节点的引用——回显参与前端校验报「不存在的引用」，引擎
+        # _migrate_edges_to_next_nodes 还会把陈旧边复活回填。
+        if isinstance(updates.get("nodes"), list):
+            node_ids = {
+                n.get("node_id")
+                for n in updates["nodes"]
+                if isinstance(n, dict) and n.get("node_id")
+            }
+            raw_edges = updates.get("edges")
+            if raw_edges is None:
+                existing = await WorkflowService._collection().find_one(
+                    {"_id": workflow_id}, {"edges": 1}
+                )
+                raw_edges = (existing or {}).get("edges") or []
+            updates["edges"] = [
+                e
+                for e in raw_edges
+                if isinstance(e, dict)
+                and e.get("source") in node_ids
+                and e.get("target") in node_ids
+            ]
+
         updated = await WorkflowService._collection().find_one_and_update(
             {"_id": workflow_id},
             {"$set": updates},
@@ -372,22 +396,66 @@ class WorkflowService:
                     "message": f"边 '{edge_label}' 引用了不存在的目标节点 '{target}'",
                 })
 
-        # 5. All next_nodes references must target existing nodes
+        # 5. All routing references must target existing nodes —— 覆盖
+        #    next_nodes / gateway conditions+default_branch / parallel
+        #    branches / agent insufficient_branch，与运行时
+        #    WorkflowValidator 的 DANGLING_NEXT_TARGET 对齐，避免
+        #    发布通过、执行时才被校验拦下
         for node in nodes:
             if not isinstance(node, dict):
                 continue
-            next_nodes = node.get("config", {}).get("next_nodes", [])
-            if not isinstance(next_nodes, list):
-                continue
-            for nxt in next_nodes:
-                if not isinstance(nxt, dict):
-                    continue
-                target = nxt.get("target", "")
-                if target and target not in node_ids:
-                    node_label = node.get("label", node.get("node_id", ""))
+            config = node.get("config", {})
+            node_label = node.get("label") or node.get("node_id", "")
+
+            next_nodes = config.get("next_nodes", [])
+            if isinstance(next_nodes, list):
+                for nxt in next_nodes:
+                    if not isinstance(nxt, dict):
+                        continue
+                    target = nxt.get("target", "")
+                    if target and target not in node_ids:
+                        errors.append({
+                            "code": "MISSING_NODE_IN_NEXT_NODES",
+                            "message": f"节点 '{node_label}' 的 next_nodes 引用了不存在的目标节点 '{target}'",
+                        })
+
+            node_type = node.get("type", "")
+            if node_type == "gateway":
+                conditions = config.get("conditions", [])
+                if isinstance(conditions, list):
+                    for cond in conditions:
+                        if not isinstance(cond, dict):
+                            continue
+                        target = cond.get("target", "")
+                        if target and target not in node_ids:
+                            errors.append({
+                                "code": "MISSING_NODE_IN_NEXT_NODES",
+                                "message": f"节点 '{node_label}' 的网关条件分支引用了不存在的目标节点 '{target}'",
+                            })
+                default_branch = config.get("default_branch", "")
+                if default_branch and default_branch not in node_ids:
                     errors.append({
                         "code": "MISSING_NODE_IN_NEXT_NODES",
-                        "message": f"节点 '{node_label}' 的 next_nodes 引用了不存在的目标节点 '{target}'",
+                        "message": f"节点 '{node_label}' 的默认分支引用了不存在的目标节点 '{default_branch}'",
+                    })
+            elif node_type == "parallel":
+                branches = config.get("branches", [])
+                if isinstance(branches, list):
+                    for branch in branches:
+                        if not isinstance(branch, dict):
+                            continue
+                        start_node = branch.get("start_node", "")
+                        if start_node and start_node not in node_ids:
+                            errors.append({
+                                "code": "MISSING_NODE_IN_NEXT_NODES",
+                                "message": f"节点 '{node_label}' 的并行分支引用了不存在的目标节点 '{start_node}'",
+                            })
+            elif node_type == "agent":
+                insufficient = config.get("insufficient_branch", "")
+                if insufficient and insufficient not in node_ids:
+                    errors.append({
+                        "code": "MISSING_NODE_IN_NEXT_NODES",
+                        "message": f"节点 '{node_label}' 的信息不足分支引用了不存在的目标节点 '{insufficient}'",
                     })
 
         # ── Node config validation ──
