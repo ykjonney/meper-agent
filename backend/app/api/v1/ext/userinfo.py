@@ -32,17 +32,22 @@ async def get_user_info(
 
     chat-widget.js 在宿主页面调用此接口验证用户输入的 token。
     principal.user_id = platform_user_id（v4：external_identities 反查所得）。
-    用户名取该平台用户任一外部身份 sub 的 username 部分；
-    绑定数取 user_mcp_credentials.app_bindings 的数量。
+    显示名优先取 principal.ext_username（introspection 的 username，
+    人类可读，鉴权链保证非空）；identity.sub 里的锚 v4.2 起是稳定
+    用户 ID（可能是 754113802395538714 这类数字 ID，不可读），仅作
+    无 ext_username 时的回退；绑定数取 app_bindings 数量。
     """
     identities = await ExternalIdentityService.list_by_platform_user(principal.user_id or "")
-    name = "用户"
-    for identity in identities:
-        # sub = {app_id}:{username}
-        username = (identity.get("sub") or "").split(":", 1)[-1]
-        if username:
-            name = username
-            break
+    name = principal.ext_username or ""
+    if not name:
+        for identity in identities:
+            # sub = {app_id}:{稳定用户ID}（老数据可能是登录名）
+            username = (identity.get("sub") or "").split(":", 1)[-1]
+            if username:
+                name = username
+                break
+    if not name:
+        name = "用户"
 
     binding_count = 0
     bindings = await UserMcpCredentialService.list_bindings(principal.user_id or "")

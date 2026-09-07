@@ -35,8 +35,42 @@ def _override_auth(principal):
 class TestGetUserInfo:
     """GET /api/v1/ext/userinfo"""
 
+    def test_userinfo_prefers_ext_username_over_numeric_sub(
+        self, client, enduser_principal
+    ) -> None:
+        """显示名优先取 introspection 的 username——sub 的锚 v4.2 起是
+        稳定用户 ID（如 754113802395538714 这类数字），直接抠 sub 会把
+        数字 ID 当用户名显示。"""
+        enduser_principal.ext_username = "alice_partner"
+        cleanup = _override_auth(enduser_principal)
+        try:
+            with (
+                patch(
+                    "app.services.external_identity_service.ExternalIdentityService"
+                    ".list_by_platform_user",
+                    new=AsyncMock(return_value=[
+                        {"sub": "app_01:754113802395538714", "platform_user_id": "user_enduser"},
+                    ]),
+                ),
+                patch(
+                    "app.services.user_mcp_credential_service.UserMcpCredentialService"
+                    ".list_bindings",
+                    new=AsyncMock(return_value={
+                        "platform_user_id": "user_enduser",
+                        "app_bindings": {"app_01": {}},
+                    }),
+                ),
+            ):
+                resp = client.get("/api/v1/ext/userinfo")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["name"] == "alice_partner"
+            assert data["binding_count"] == 1
+        finally:
+            cleanup()
+
     def test_userinfo_with_identity_and_bindings(self, client, enduser_principal) -> None:
-        """Name comes from the identity sub username; count from app_bindings."""
+        """无 ext_username 时回退 identity sub 尾段；count from app_bindings."""
         cleanup = _override_auth(enduser_principal)
         try:
             with (
