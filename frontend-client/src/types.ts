@@ -276,15 +276,6 @@ export interface MyAuthorizations {
   updated_at: string
 }
 
-export interface AvailableApp {
-  id: string
-  name: string
-  description: string
-  mcp_count: number
-  /** ext 端点标记：是否为 API Key 对应应用（该应用 username 锁定身份用户名）。 */
-  is_key_app?: boolean
-}
-
 /** 首绑门页引导信息（仅 apikey 模式）。 */
 export interface AuthBootstrap {
   app: { id: string; name: string; has_login_config: boolean }

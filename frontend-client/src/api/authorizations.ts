@@ -7,7 +7,7 @@
  *   bootstrap/PUT 为 relaxed 鉴权——未绑定用户可访问）
  */
 import { AUTH_MODE, apiRequest } from './client'
-import type { AuthBootstrap, AvailableApp, MyAuthorizations } from '../types'
+import type { AuthBootstrap, MyAuthorizations } from '../types'
 
 /** 绑定请求。claim 字段二选一填写：认领已有平台账号（仅首绑时可用）。 */
 export interface AuthorizeAppPayload {
@@ -17,7 +17,7 @@ export interface AuthorizeAppPayload {
   claimPlatformPassword?: string
 }
 
-/** 查询我的应用授权（脱敏）。 */
+/** 查询我的应用授权（脱敏）。运行时授权卡带出已绑定用户名用。 */
 export function fetchMyAuthorizations(): Promise<MyAuthorizations> {
   const path = AUTH_MODE === 'apikey'
     ? '/v1/ext/my-app-authorizations'
@@ -28,23 +28,6 @@ export function fetchMyAuthorizations(): Promise<MyAuthorizations> {
 /** 首绑门页引导信息（仅 apikey 模式；relaxed 鉴权，未绑定可访问）。 */
 export function fetchAuthBootstrap(): Promise<AuthBootstrap> {
   return apiRequest<AuthBootstrap>('/v1/ext/my-app-authorizations/bootstrap')
-}
-
-/** 可授权应用列表。返回 keyAppId（apikey 模式下 username 需锁定的应用）。 */
-export async function fetchAvailableApps(): Promise<{
-  keyAppId?: string
-  items: AvailableApp[]
-}> {
-  if (AUTH_MODE === 'apikey') {
-    const data = await apiRequest<{ key_app_id: string; items: AvailableApp[] }>(
-      '/v1/ext/my-app-authorizations/available-apps',
-    )
-    return { keyAppId: data.key_app_id || undefined, items: data.items }
-  }
-  const data = await apiRequest<{ items: AvailableApp[] }>(
-    '/v1/my-app-authorizations/available-apps',
-  )
-  return { items: data.items }
 }
 
 /** 授权应用（绑定/更新账密）。认领字段仅首绑场景使用。 */
@@ -68,14 +51,6 @@ export function authorizeApp(
         : {}),
     }),
   })
-}
-
-/** 取消授权（解绑凭证 + 删身份映射）。 */
-export function revokeApp(appId: string): Promise<MyAuthorizations> {
-  const path = AUTH_MODE === 'apikey'
-    ? `/v1/ext/my-app-authorizations/${encodeURIComponent(appId)}`
-    : `/v1/my-app-authorizations/${encodeURIComponent(appId)}`
-  return apiRequest<MyAuthorizations>(path, { method: 'DELETE' })
 }
 
 /** MCP 工具错误标记：UNBOUND=未授权；INVALID=已授权但凭证失效（密码/用户名被修改）。 */

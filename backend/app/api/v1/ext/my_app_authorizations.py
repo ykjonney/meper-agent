@@ -3,8 +3,12 @@
 client 端自助授权入口，解决"未绑定用户到不了授权端点"的鸡生蛋问题：
 - bootstrap / PUT 用 relaxed 鉴权（``auth_and_rate_limit_allow_unbound``）
   ——仍要求 API Key 有效 + introspection active，仅跳过「已绑定」检查。
-- 首次绑定（身份不存在）双路径：自动开通 ext_user 账号（默认）或
-  认领已有平台账号（claim 字段，复用平台登录校验防爆破）。
+- 首次绑定（身份不存在）双路径：
+  - 自动开通（默认，前端明确告知并经用户确认）：以当前网站应用的
+    账号密码自动创建 Agent 平台账号（ext_user 角色，用户名/密码同
+    应用）；用户名已有平台账号时用同密码验证——通过即关联（同一
+    自然人），不通过报 PLATFORM_USERNAME_TAKEN 引导走认领。
+  - 认领已有平台账号（claim 字段，复用平台登录校验防爆破）。
 - username：所有应用自由填写，但 key 应用前端默认带出 introspection
   用户名；凭证一律经应用 login_url 真实验证，身份锚（ext_user_id）与
   登录名解耦，安全性对齐 studio 流程（login_url 验证 + sub 抢注保护）。
@@ -140,6 +144,10 @@ async def authorize_app(
       有权使用该账号，且身份锚与登录名解耦（改名/换账号不影响映射）。
     - 认领（claim 字段）仅在首次绑定 key 应用时可用——已有平台身份后
       认领会把凭证挂到别的账号、运行时查不到（禁止）。
+    - 未绑定且未认领时自动开通平台账号（前端已明确告知并经用户确认，
+      非 API 层静默行为）：先验证应用凭证（填错密码不建号），再按
+      用户名创建/关联——同名已有账号且密码不一致时报
+      PLATFORM_USERNAME_TAKEN，由用户改走认领。
     - 跨应用绑定要求已有平台身份（先完成 key 应用首绑）。
     """
     application = await ApplicationService.get_application(app_id)
@@ -202,9 +210,38 @@ async def authorize_app(
                 code="EXT_IDENTITY_REQUIRED",
                 message="请先完成当前应用的授权，再绑定其他应用",
             )
-        platform_user_id = await UserService.ensure_ext_platform_user(
-            app_id, principal.ext_user_id or body.username
-        )
+        # 自动开通平台账号（前端已明确告知并经用户确认）。先验证应用
+        # 凭证——密码填错时不建号，避免白建账号。
+        try:
+            await UserMcpCredentialService.verify_credentials(
+                login_config, body.username, body.password
+            )
+        except PermissionError as exc:
+            raise ValidationError(
+                code="MCP_CREDENTIAL_INVALID",
+                message=str(exc),
+            ) from exc
+        # 用户名已有平台账号 → 同密码验证（同一自然人的既有账号，
+        # 例如 admin 预建或此前自动创建）；验证不过说明密码不是平台
+        # 密码，交由用户改走认领（claim）。
+        existing = await UserService.get_user_by_username(body.username)
+        if existing is not None:
+            try:
+                platform_user_id = await AuthService.verify_platform_credentials(
+                    body.username, body.password
+                )
+            except UnauthorizedError as exc:
+                raise ValidationError(
+                    code="PLATFORM_USERNAME_TAKEN",
+                    message=(
+                        "该用户名已存在平台账号且密码不一致；"
+                        "请在「关联已有账号」中填写平台密码完成关联"
+                    ),
+                ) from exc
+        else:
+            platform_user_id = await UserService.create_ext_user_with_password(
+                body.username, body.password
+            )
 
     # 身份锚点 v4.2：key 应用用 introspection 稳定 ID（改名不漂移）；
     # 跨应用不传（空）——由 bind_credential 从登录响应提取稳定用户 ID

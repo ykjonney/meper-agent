@@ -4,7 +4,7 @@
 - relaxed 鉴权语义（依赖注入层面模拟未绑定 principal，鉴权链本身由
   test_auth_apikey.py 覆盖）
 - key 应用 username 锁定（防冒名）/ 跨应用绑定规则
-- 自动开通（auto-provision）与认领（claim）双路径
+- 自动开通（应用同账户密码建号，前端明确告知）与认领（claim）双路径
 - 列表/解绑（完整鉴权端点）
 """
 from unittest.mock import AsyncMock, patch
@@ -134,9 +134,8 @@ class TestAuthorizeApp:
     def test_key_app_username_override_allowed(self, client) -> None:
         """key 应用 username 可改（默认带出 introspection 用户名但不强制）——
         登录名与 introspection 返回值不同的场景；凭证仍经 login_url 校验。"""
-        cleanup = _override(_principal(bound=False), relaxed=True)
+        cleanup = _override(_principal(bound=True), relaxed=True)
         try:
-            ensure_mock = AsyncMock(return_value="user_new_1")
             bind_mock = AsyncMock(return_value=_list_bindings_result())
             with (
                 patch(
@@ -146,10 +145,6 @@ class TestAuthorizeApp:
                 patch(
                     "app.api.v1.ext.my_app_authorizations.ApplicationService.list_applications",
                     new=AsyncMock(return_value=[APP]),
-                ),
-                patch(
-                    "app.api.v1.ext.my_app_authorizations.UserService.ensure_ext_platform_user",
-                    new=ensure_mock,
                 ),
                 patch(
                     "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.bind_credential",
@@ -170,11 +165,14 @@ class TestAuthorizeApp:
         finally:
             cleanup()
 
-    def test_first_bind_auto_provisions(self, client) -> None:
-        """未绑定 + 不带认领字段 → 自动开通平台账号后绑定。"""
+    def test_first_bind_auto_creates_platform_user_with_app_credentials(
+        self, client
+    ) -> None:
+        """未绑定 + 无认领 + 用户名不存在 → 以应用账号密码自动创建平台
+        账号（前端已明确告知并经用户确认）。先验证应用凭证再建号。"""
         cleanup = _override(_principal(bound=False), relaxed=True)
         try:
-            ensure_mock = AsyncMock(return_value="user_new_1")
+            create_mock = AsyncMock(return_value="user_auto_1")
             bind_mock = AsyncMock(return_value=_list_bindings_result())
             with (
                 patch(
@@ -182,12 +180,16 @@ class TestAuthorizeApp:
                     new=AsyncMock(return_value=APP),
                 ),
                 patch(
-                    "app.api.v1.ext.my_app_authorizations.ApplicationService.list_applications",
-                    new=AsyncMock(return_value=[APP]),
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.verify_credentials",
+                    new=AsyncMock(return_value=None),
                 ),
                 patch(
-                    "app.api.v1.ext.my_app_authorizations.UserService.ensure_ext_platform_user",
-                    new=ensure_mock,
+                    "app.api.v1.ext.my_app_authorizations.UserService.get_user_by_username",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.create_ext_user_with_password",
+                    new=create_mock,
                 ),
                 patch(
                     "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.bind_credential",
@@ -200,30 +202,159 @@ class TestAuthorizeApp:
             ):
                 resp = client.put(
                     f"/api/v1/ext/my-app-authorizations/{APP_ID}",
-                    json={"username": "alice", "password": "pw"},
+                    json={"username": "alice", "password": "app_pw"},
                 )
             assert resp.status_code == 200
-            ensure_mock.assert_awaited_once_with(APP_ID, "extuid_888")
-            bind_mock.assert_awaited_once_with(
-                platform_user_id="user_new_1",
-                app_id=APP_ID,
-                username="alice",
-                password="pw",
-                login_config=APP["login_config"],
-                identity_key="extuid_888",
-            )
-            data = resp.json()
-            assert data["bindings"][0]["app_id"] == APP_ID
-            assert data["bindings"][0]["app_name"] == "主应用"
+            # 建号用应用账号密码（同账户密码）
+            create_mock.assert_awaited_once_with("alice", "app_pw")
+            assert bind_mock.call_args.kwargs["platform_user_id"] == "user_auto_1"
+            # 身份锚点用稳定 ID（ext_user_id），不是登录名
+            assert bind_mock.call_args.kwargs["identity_key"] == "extuid_888"
+        finally:
+            cleanup()
+
+    def test_first_bind_attaches_existing_user_with_matching_password(
+        self, client
+    ) -> None:
+        """用户名已有平台账号且密码一致（admin 预建/此前自动创建的同一
+        自然人）→ 直接关联该账号，不再建新号。"""
+        cleanup = _override(_principal(bound=False), relaxed=True)
+        try:
+            create_mock = AsyncMock(return_value="user_new_1")
+            bind_mock = AsyncMock(return_value=_list_bindings_result())
+            with (
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.ApplicationService.get_application",
+                    new=AsyncMock(return_value=APP),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.verify_credentials",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.get_user_by_username",
+                    new=AsyncMock(return_value={"_id": "user_exist_1"}),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.AuthService.verify_platform_credentials",
+                    new=AsyncMock(return_value="user_exist_1"),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.create_ext_user_with_password",
+                    new=create_mock,
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.bind_credential",
+                    new=bind_mock,
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.list_bindings",
+                    new=AsyncMock(return_value=_list_bindings_result()),
+                ),
+            ):
+                resp = client.put(
+                    f"/api/v1/ext/my-app-authorizations/{APP_ID}",
+                    json={"username": "alice", "password": "app_pw"},
+                )
+            assert resp.status_code == 200
+            create_mock.assert_not_awaited()
+            assert bind_mock.call_args.kwargs["platform_user_id"] == "user_exist_1"
+        finally:
+            cleanup()
+
+    def test_first_bind_username_taken_password_mismatch(self, client) -> None:
+        """用户名已有平台账号但密码不一致 → 422 PLATFORM_USERNAME_TAKEN，
+        引导用户改走「关联已有账号」认领。"""
+        from app.core.errors import UnauthorizedError
+
+        cleanup = _override(_principal(bound=False), relaxed=True)
+        try:
+            create_mock = AsyncMock(return_value="user_new_1")
+            bind_mock = AsyncMock(return_value=_list_bindings_result())
+            with (
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.ApplicationService.get_application",
+                    new=AsyncMock(return_value=APP),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.verify_credentials",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.get_user_by_username",
+                    new=AsyncMock(return_value={"_id": "user_exist_1"}),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.AuthService.verify_platform_credentials",
+                    new=AsyncMock(
+                        side_effect=UnauthorizedError(
+                            code="INVALID_CREDENTIALS",
+                            message="用户名或密码错误",
+                        )
+                    ),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.create_ext_user_with_password",
+                    new=create_mock,
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.bind_credential",
+                    new=bind_mock,
+                ),
+            ):
+                resp = client.put(
+                    f"/api/v1/ext/my-app-authorizations/{APP_ID}",
+                    json={"username": "alice", "password": "wrong_pw"},
+                )
+            assert resp.status_code == 422
+            assert resp.json()["error"]["code"] == "PLATFORM_USERNAME_TAKEN"
+            # 不建号、不落凭证
+            create_mock.assert_not_awaited()
+            bind_mock.assert_not_awaited()
+        finally:
+            cleanup()
+
+    def test_first_bind_invalid_app_credentials_no_user_created(
+        self, client
+    ) -> None:
+        """应用凭证验证失败（密码填错）→ 422 MCP_CREDENTIAL_INVALID，
+        不创建平台账号（先验证再建号）。"""
+        cleanup = _override(_principal(bound=False), relaxed=True)
+        try:
+            create_mock = AsyncMock(return_value="user_new_1")
+            with (
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.ApplicationService.get_application",
+                    new=AsyncMock(return_value=APP),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.verify_credentials",
+                    new=AsyncMock(side_effect=PermissionError("应用登录失败：密码错误")),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.create_ext_user_with_password",
+                    new=create_mock,
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.UserService.get_user_by_username",
+                    new=AsyncMock(return_value=None),
+                ),
+            ):
+                resp = client.put(
+                    f"/api/v1/ext/my-app-authorizations/{APP_ID}",
+                    json={"username": "alice", "password": "bad_pw"},
+                )
+            assert resp.status_code == 422
+            assert resp.json()["error"]["code"] == "MCP_CREDENTIAL_INVALID"
+            create_mock.assert_not_awaited()
         finally:
             cleanup()
 
     def test_first_bind_with_claim_attaches_to_existing_account(self, client) -> None:
-        """认领路径：平台账密验证通过 → 挂到已有账号（不自动开通）。"""
+        """认领路径（首绑唯一路径）：平台账密验证通过 → 挂到已有账号。"""
         cleanup = _override(_principal(bound=False), relaxed=True)
         try:
             verify_mock = AsyncMock(return_value="user_claimed_1")
-            ensure_mock = AsyncMock(return_value="user_new_1")
             bind_mock = AsyncMock(return_value=_list_bindings_result())
             with (
                 patch(
@@ -237,10 +368,6 @@ class TestAuthorizeApp:
                 patch(
                     "app.api.v1.ext.my_app_authorizations.AuthService.verify_platform_credentials",
                     new=verify_mock,
-                ),
-                patch(
-                    "app.api.v1.ext.my_app_authorizations.UserService.ensure_ext_platform_user",
-                    new=ensure_mock,
                 ),
                 patch(
                     "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.bind_credential",
@@ -262,7 +389,6 @@ class TestAuthorizeApp:
                 )
             assert resp.status_code == 200
             verify_mock.assert_awaited_once_with("platform_alice", "platform_pw")
-            ensure_mock.assert_not_awaited()
             assert bind_mock.call_args.kwargs["platform_user_id"] == "user_claimed_1"
             # 身份锚点用稳定 ID（ext_user_id），不是登录名
             assert bind_mock.call_args.kwargs["identity_key"] == "extuid_888"

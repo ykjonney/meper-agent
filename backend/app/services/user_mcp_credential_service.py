@@ -210,6 +210,19 @@ class UserMcpCredentialService:
     def _collection():
         return get_database()[COLLECTION]
 
+    @staticmethod
+    async def verify_credentials(
+        login_config: dict[str, Any],
+        username: str,
+        password: str,
+    ) -> str | None:
+        """公开包装：验证应用账密（client 首绑自动建号前的预验证用）。
+
+        先验证再建平台账号——避免应用密码填错却白建一个平台账号。
+        语义同模块级 ``_verify_credentials``。
+        """
+        return await _verify_credentials(login_config, username, password)
+
     # ------------------------------------------------------------------
     # 查询
     # ------------------------------------------------------------------

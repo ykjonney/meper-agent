@@ -1246,7 +1246,7 @@ export interface paths {
          * @description 返回 API Key 对应应用 + introspection 用户名 + 绑定状态。
          *
          *     未绑定用户可访问（relaxed 鉴权），供首绑门页渲染表单：
-         *     username 锁定为 ext_username，只填密码。
+         *     username 默认取 ext_username（前端可改，见 PUT 端点说明）。
          */
         get: operations["bootstrap_authorization_api_v1_ext_my_app_authorizations_bootstrap_get"];
         put?: never;
@@ -1293,10 +1293,13 @@ export interface paths {
          * @description 授权某应用：绑定/更新账密。
          *
          *     安全规则：
-         *     - key 对应应用：username 必须等于 introspection 用户名（防冒名，
-         *       比 studio 流程更严）；其他应用自由填写（对齐 studio）。
+         *     - username 所有应用均可改（key 应用前端默认带出 introspection
+         *       用户名）；凭证经应用 login_url 真实验证，持有有效账密即视为
+         *       有权使用该账号，且身份锚与登录名解耦（改名/换账号不影响映射）。
          *     - 认领（claim 字段）仅在首次绑定 key 应用时可用——已有平台身份后
          *       认领会把凭证挂到别的账号、运行时查不到（禁止）。
+         *     - 未绑定且未认领时不再自动开通平台账号——返回
+         *       PLATFORM_ACCOUNT_REQUIRED，由前端提示用户联系管理员创建账号。
          *     - 跨应用绑定要求已有平台身份（先完成 key 应用首绑）。
          */
         put: operations["authorize_app_api_v1_ext_my_app_authorizations__app_id__put"];
@@ -8026,8 +8029,11 @@ export interface components {
         TriggerCreate: {
             /** Workflow Id */
             workflow_id: string;
-            /** Type */
-            type: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "cron" | "once";
             /**
              * Enabled
              * @default false
@@ -8051,7 +8057,7 @@ export interface components {
          */
         TriggerUpdate: {
             /** Type */
-            type?: string | null;
+            type?: ("cron" | "once") | null;
             /** Enabled */
             enabled?: boolean | null;
             /** Cron Expression */

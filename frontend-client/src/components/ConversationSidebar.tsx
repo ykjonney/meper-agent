@@ -4,7 +4,6 @@ import {
   MessageOutlined,
   MoonOutlined,
   PlusOutlined,
-  SafetyCertificateOutlined,
   SunOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -26,8 +25,6 @@ interface ConversationSidebarProps {
   creating: boolean
   loading: boolean
   onLogout: () => void
-  /** 打开应用授权面板（绑定/更新/解绑外部应用账密）。 */
-  onOpenAuthorizations?: () => void
 }
 
 function sessionLabel(session: ChatSession): string {
@@ -150,15 +147,6 @@ export function ConversationSidebar(props: ConversationSidebarProps) {
           <strong>{extUserName || user?.username || '用户'}</strong>
           <small>{user?.role || ''}</small>
         </div>
-        {props.onOpenAuthorizations ? (
-          <Button
-            type="text"
-            icon={<SafetyCertificateOutlined />}
-            onClick={props.onOpenAuthorizations}
-            aria-label="应用授权"
-            title="应用授权"
-          />
-        ) : null}
         <Button
           type="text"
           icon={theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
