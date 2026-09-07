@@ -70,25 +70,17 @@ class TestGetUserInfo:
             cleanup()
 
     def test_userinfo_with_identity_and_bindings(self, client, enduser_principal) -> None:
-        """无 ext_username 时回退 identity sub 尾段；count from app_bindings."""
+        """ext_username 提供显示名（鉴权链保证非空）；count from app_bindings."""
+        enduser_principal.ext_username = "partner_user_42"
         cleanup = _override_auth(enduser_principal)
         try:
-            with (
-                patch(
-                    "app.services.external_identity_service.ExternalIdentityService"
-                    ".list_by_platform_user",
-                    new=AsyncMock(return_value=[
-                        {"sub": "app_01:partner_user_42", "platform_user_id": "user_enduser"},
-                    ]),
-                ),
-                patch(
-                    "app.services.user_mcp_credential_service.UserMcpCredentialService"
-                    ".list_bindings",
-                    new=AsyncMock(return_value={
-                        "platform_user_id": "user_enduser",
-                        "app_bindings": {"app_01": {}, "app_02": {}},
-                    }),
-                ),
+            with patch(
+                "app.services.user_mcp_credential_service.UserMcpCredentialService"
+                ".list_bindings",
+                new=AsyncMock(return_value={
+                    "platform_user_id": "user_enduser",
+                    "app_bindings": {"app_01": {}, "app_02": {}},
+                }),
             ):
                 resp = client.get("/api/v1/ext/userinfo")
             assert resp.status_code == 200

@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from app.api.v1.ext import auth_and_rate_limit
 from app.core.auth_apikey import ApiKeyPrincipal
-from app.services.external_identity_service import ExternalIdentityService
 from app.services.user_mcp_credential_service import UserMcpCredentialService
 
 router = APIRouter(tags=["external-userinfo"])
@@ -31,23 +30,10 @@ async def get_user_info(
     """验证终端用户 token，返回用户名和应用绑定数。
 
     chat-widget.js 在宿主页面调用此接口验证用户输入的 token。
-    principal.user_id = platform_user_id（v4：external_identities 反查所得）。
-    显示名优先取 principal.ext_username（introspection 的 username，
-    人类可读，鉴权链保证非空）；identity.sub 里的锚 v4.2 起是稳定
-    用户 ID（可能是 754113802395538714 这类数字 ID，不可读），仅作
-    无 ext_username 时的回退；绑定数取 app_bindings 数量。
+    显示名取 principal.ext_username（introspection 的 username，鉴权
+    链保证非空）；绑定数取 app_bindings 数量。
     """
-    identities = await ExternalIdentityService.list_by_platform_user(principal.user_id or "")
-    name = principal.ext_username or ""
-    if not name:
-        for identity in identities:
-            # sub = {app_id}:{稳定用户ID}（老数据可能是登录名）
-            username = (identity.get("sub") or "").split(":", 1)[-1]
-            if username:
-                name = username
-                break
-    if not name:
-        name = "用户"
+    name = principal.ext_username or "用户"
 
     binding_count = 0
     bindings = await UserMcpCredentialService.list_bindings(principal.user_id or "")

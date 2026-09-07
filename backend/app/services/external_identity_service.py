@@ -73,37 +73,12 @@ class ExternalIdentityService:
         return doc
 
     @staticmethod
-    async def delete_by_sub_and_user(sub: str, platform_user_id: str) -> bool:
-        """Delete a mapping by (sub, platform_user_id).
-
-        Used when a user unbinds a group — removes the identity mapping
-        that was created during binding. Only deletes if both sub AND
-        platform_user_id match (safety: don't delete other users' mappings).
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        result = await ExternalIdentityService._collection().delete_one(
-            {"sub": sub, "platform_user_id": platform_user_id}
-        )
-        if result.deleted_count > 0:
-            logger.info(
-                "external_identity_deleted",
-                sub=sub,
-                platform_user_id=platform_user_id,
-            )
-            return True
-        return False
-
-    @staticmethod
     async def delete_by_app_and_user(app_id: str, platform_user_id: str) -> int:
         """Delete ALL identity mappings of (app_id, platform_user_id).
 
-        取消授权用：同一段绑定史可能留下多个锚维度的 sub——v4.1 登录
-        名锚、v4.2 introspection 稳定 ID 锚、jwt 端点从登录响应提取的
-        userId 锚——bind 的 upsert 只插新不删旧。必须全部清除：任一
-        残留都会被鉴权继续放行（legacy 维度还会被 v4.2 在线升级逻辑
-        复活成稳定维度），表现为"取消授权了仍能直接进入"。
+        取消授权用：ext 首绑（introspection 稳定 ID 锚）与 studio 绑定
+        （登录响应 userId 锚）等多入口可能留下多条 sub，全部清除——
+        任一残留都会让鉴权继续放行。
 
         Returns:
             Number of deleted mappings.

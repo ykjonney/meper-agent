@@ -332,13 +332,9 @@ class UserMcpCredentialService:
     async def unbind_credential(platform_user_id: str, app_id: str) -> dict[str, Any] | None:
         """取消授权：解绑某应用。
 
-        删除该 (app, platform_user) 的**所有维度**身份映射——不只删
-        当前 binding 记录的 sub：同一段绑定史可能并存多个锚（v4.1
-        登录名 / v4.2 introspection 稳定 ID / jwt 端点登录响应提取的
-        userId，bind 的 upsert 只插新不删旧），任一残留都会被鉴权放行
-        （legacy 维度还会被 v4.2 在线升级复活成稳定维度），表现为
-        「取消授权了 client 仍能直接进入」。凭证记录不存在或已无该
-        应用时同样执行清理——自愈「凭证已删、映射残留」的存量状态。
+        删除该 (app, platform_user) 的所有身份映射——ext 首绑与 studio
+        绑定等多入口可能留下多条 sub，任一残留都会让鉴权继续放行。
+        凭证记录不存在或已无该应用时同样执行清理（自愈存量残留）。
 
         Returns:
             更新后的脱敏绑定列表，或 None 如果用户记录不存在。

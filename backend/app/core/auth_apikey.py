@@ -210,16 +210,6 @@ async def authenticate_api_key(
     stable_id = (getattr(result, "sub", "") or "").strip() or result.username
     sub = compose_sub(app_id, stable_id)
     identity = await ExternalIdentityService.find_by_sub(sub)
-    if identity is None and stable_id != result.username:
-        # 老维度兼容：v4.1 及之前 sub 以 username 为锚。命中老 sub →
-        # 在线升级为稳定 ID 维度（同 platform_user_id），删老映射防漂移。
-        legacy_sub = compose_sub(app_id, result.username)
-        identity = await ExternalIdentityService.find_by_sub(legacy_sub)
-        if identity is not None:
-            await ExternalIdentityService.upsert(sub, identity["platform_user_id"])
-            await ExternalIdentityService.delete_by_sub_and_user(
-                legacy_sub, identity["platform_user_id"]
-            )
     if identity is None and require_bound:
         raise UnauthorizedError(
             code="EXT_USER_NOT_BOUND",
