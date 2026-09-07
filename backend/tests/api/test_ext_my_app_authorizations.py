@@ -199,6 +199,10 @@ class TestAuthorizeApp:
                     "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.list_bindings",
                     new=AsyncMock(return_value=_list_bindings_result()),
                 ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.ApplicationService.list_applications",
+                    new=AsyncMock(return_value=[APP]),
+                ),
             ):
                 resp = client.put(
                     f"/api/v1/ext/my-app-authorizations/{APP_ID}",
@@ -250,6 +254,10 @@ class TestAuthorizeApp:
                 patch(
                     "app.api.v1.ext.my_app_authorizations.UserMcpCredentialService.list_bindings",
                     new=AsyncMock(return_value=_list_bindings_result()),
+                ),
+                patch(
+                    "app.api.v1.ext.my_app_authorizations.ApplicationService.list_applications",
+                    new=AsyncMock(return_value=[APP]),
                 ),
             ):
                 resp = client.put(
