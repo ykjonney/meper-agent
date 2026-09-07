@@ -286,9 +286,10 @@ async def _user_token_interceptor(
         return _make_error_result(f"MCP 凭证兑换失败({server_name}): {exc}")
 
     if cred is None:
-        # 未绑定 / MCP 不在任何组 → 返回错误结果
+        # 连接不存在 / 应用 login_config 缺失等配置问题（公共放行后
+        # None 只剩配置类错误）→ 引导找管理员，而非自助绑定凭证
         return _make_error_result(
-            f"用户未绑定该 MCP 服务({server_name})，请在设置页绑定凭证。"
+            f"MCP 服务 {server_name} 暂不可用（未配置或配置不完整），请联系管理员。"
         )
 
     # 按 auth_type 构造 header（bearer/api_key/basic）

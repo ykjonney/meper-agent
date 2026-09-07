@@ -9,6 +9,12 @@ v4 改造（vs v3）：
 - login_config 从应用上取
 - session 缓存 key 为 (platform_user_id, app_id)
 - 注入方式用连接自己的 auth_type + auth_config.header_name
+
+v5 增补（公共 MCP 放行）：
+- conn.auth_type == "none"：连接无认证，直接放行（不反查应用/不查绑定）
+- conn 不属于任何应用：无授权单元，用平台静态凭证（auth_config）放行
+- 两者返回的凭证经 harness loader._cred_to_headers 转 headers；为空时
+  loader 裸透传 handler（loader.py `if not headers` 分支）
 """
 from __future__ import annotations
 
@@ -44,20 +50,36 @@ class UserCredentialResolver:
             )
             return None
 
-        # 2. conn_id → 反查应用（applications.mcp_connection_ids 包含它）
+        # 2. 公共 MCP 放行（v5）——无认证连接不反查应用、不查绑定：
+        #    凭证经 _cred_to_headers 转 headers，auth_type=none 得空
+        #    headers，loader 走裸透传分支。
+        auth_type = conn.get("auth_type", "none")
+        if auth_type == "none":
+            logger.info(
+                "mcp_public_access",
+                server_name=server_name,
+                conn_id=conn["_id"],
+                auth_type=auth_type,
+            )
+            return {"auth_type": "none"}
+
+        # 3. conn_id → 反查应用（授权单元）
         from app.services.application_service import ApplicationService
 
         app = await ApplicationService.find_by_mcp_connection(conn["_id"])
         if not app:
-            # MCP 不在任何应用 → 不能被外部用户调用
-            logger.warning(
-                "mcp_credential_no_application",
+            # 不挂任何应用 = 公共 MCP：无授权单元，用平台静态凭证放行
+            # （auth_config 为空时同样裸透传）。info 留审计痕迹。
+            logger.info(
+                "mcp_public_access",
                 server_name=server_name,
                 conn_id=conn["_id"],
+                auth_type=auth_type,
+                static_credentials=True,
             )
-            return None
+            return {"auth_type": auth_type, **(conn.get("auth_config") or {})}
 
-        # 3. 查用户对该应用的授权
+        # 4. 查用户对该应用的授权
         from app.services.user_mcp_credential_service import (
             UserMcpCredentialService,
         )
@@ -76,7 +98,7 @@ class UserCredentialResolver:
                 server_name=server_name,
             )
 
-        # 4. 查/换 session（Redis 缓存）。登录失败（账密被用户在外部系统
+        # 5. 查/换 session（Redis 缓存）。登录失败（账密被用户在外部系统
         #    改掉等）→ 结构化 INVALID 错误：身份映射不受影响（sub 以稳定
         #    用户 ID 为锚），拦截器据此引导用户在聊天内更新授权凭证。
         from agent_flow_harness.mcp.errors import McpCredentialInvalid
@@ -95,7 +117,7 @@ class UserCredentialResolver:
         if not session:
             return None
 
-        # 5. 按连接的 auth_type 注入 session（header_name 从 auth_config 取）
+        # 6. 按连接的 auth_type 注入 session（header_name 从 auth_config 取）
         auth_config = conn.get("auth_config") or {}
         return {
             "auth_type": conn.get("auth_type", "bearer_token"),

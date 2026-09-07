@@ -108,7 +108,8 @@ class TestInterceptorExternalPath:
             reset_token_record_id_context(token)
 
     async def test_unbound_mcp_returns_error_result(self) -> None:
-        """未绑定该 MCP（resolver 返回 None）→ 返回 isError 结果，不调 handler。"""
+        """resolver 返回 None（连接不存在 / login_config 缺失等配置问题）
+        → 返回 isError 结果，不调 handler，文案引导找管理员。"""
         resolver = _MockResolver(return_value=None)
         set_credential_resolver(resolver)
 
@@ -125,7 +126,7 @@ class TestInterceptorExternalPath:
             assert not handler_called  # handler 没被调用
             # 返回 isError 的 CallToolResult
             assert getattr(result, "isError", False) is True
-            assert "未绑定" in str(result.content)
+            assert "暂不可用" in str(result.content)
         finally:
             reset_token_record_id_context(token)
 

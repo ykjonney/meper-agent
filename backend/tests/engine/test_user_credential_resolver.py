@@ -5,6 +5,9 @@ server_name → conn → 反查 app（find_by_mcp_connection）→
 get_binding(platform_user_id, app_id) → _get_or_exchange_session
 （Redis 缓存 / POST login_url 换 session）→ 按 conn.auth_type + auth_config 注入。
 token 型绑定已废弃。
+
+v5 增补（公共 MCP 放行）：auth_type=none 的连接直接放行（不反查应用）；
+不挂任何应用的连接用平台静态凭证放行（无授权单元）。
 """
 from unittest.mock import AsyncMock, patch
 
@@ -51,19 +54,72 @@ class TestResolve:
             result = await resolver.resolve("user_platform_01", "unknown")
         assert result is None
 
-    async def test_no_application_returns_none(self) -> None:
-        """MCP 不在任何应用 → None（不能被外部用户调用）。"""
+    async def test_auth_type_none_passes_through_without_app_lookup(self) -> None:
+        """公共 MCP（auth_type=none）：直接放行，不反查应用、不查绑定。"""
+        resolver = UserCredentialResolver()
+        conn = {"_id": "mcp_public", "auth_type": "none", "auth_config": {}}
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=conn),
+        ), patch(
+            "app.services.application_service.ApplicationService.find_by_mcp_connection",
+            AsyncMock(side_effect=AssertionError("不应反查应用")),
+        ) as mock_find:
+            result = await resolver.resolve("user_platform_01", "weather")
+        assert result == {"auth_type": "none"}
+        mock_find.assert_not_awaited()
+
+    async def test_auth_type_none_bound_app_also_passes_through(self) -> None:
+        """auth_type=none 即使挂在应用下也放行——无需用户授权（换出的
+        session 本来也不会注入 header，授权流程形同虚设）。"""
+        resolver = UserCredentialResolver()
+        conn = {"_id": "mcp_public", "auth_type": "none", "auth_config": {}}
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=conn),
+        ):
+            result = await resolver.resolve("user_platform_01", "weather")
+        assert result == {"auth_type": "none"}
+
+    async def test_no_application_uses_static_credentials(self) -> None:
+        """不挂任何应用 = 公共 MCP：返回平台静态凭证（auth_config）放行；
+        auth_config 为空则裸透传（loader 空 headers 分支）。"""
+        resolver = UserCredentialResolver()
+        conn = {
+            "_id": "mcp_public_key",
+            "auth_type": "bearer_token",
+            "auth_config": {"token": "platform_static_token"},
+        }
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=conn),
+        ), patch(
+            "app.services.application_service.ApplicationService.find_by_mcp_connection",
+            AsyncMock(return_value=None),
+        ):
+            result = await resolver.resolve("user_platform_01", "public_api")
+
+        assert result is not None
+        assert result["auth_type"] == "bearer_token"
+        assert result["token"] == "platform_static_token"
+
+    async def test_no_application_without_static_credentials(self) -> None:
+        """不挂应用且 auth_config 为空：仍放行（返回不含凭证的描述，
+        loader 空 headers 裸透传）。"""
         resolver = UserCredentialResolver()
         with patch.object(
             UserCredentialResolver,
             "_get_connection_by_name",
-            AsyncMock(return_value=_CONN),
+            AsyncMock(return_value=_CONN),  # bearer_token + 空 auth_config
         ), patch(
             "app.services.application_service.ApplicationService.find_by_mcp_connection",
             AsyncMock(return_value=None),
         ):
             result = await resolver.resolve("user_platform_01", "oa_system")
-        assert result is None
+        assert result == {"auth_type": "bearer_token"}
 
     async def test_unbound_raises_structured_error(self) -> None:
         """用户未绑定该应用 → 抛 McpCredentialUnbound（携带 app_id/app_name，
