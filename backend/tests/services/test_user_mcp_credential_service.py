@@ -6,6 +6,7 @@
 - ``bind_credential`` 的 identity_key 优先级：
   显式传入（key 应用 introspection sub）> 登录响应 userId > 登录名
 """
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -157,3 +158,68 @@ class TestBindCredentialIdentityKey:
         """③ 登录响应无 userId → 退回登录名（v4.1 行为）。"""
         captured = await self._bind({"data": {"token": "tok"}})
         assert captured["sub"] == "app_1:zhangsan"
+
+
+class TestUnbindCredential:
+    """unbind_credential——按 (app, user) 全维度清身份映射。
+
+    只删 binding 记录的单个 sub 不够：多版本锚（v4.1 登录名 / v4.2
+    introspection 稳定 ID / jwt 端点登录响应 userId）可能并存，任一
+    残留都会被鉴权放行（legacy 维度还会被在线升级复活），表现为
+    「取消授权了 client 仍能直接进入」。
+    """
+
+    @staticmethod
+    async def _unbind(doc: dict | None) -> object:
+        """跑一次 unbind_credential，返回 delete_by_app_and_user 的 mock。"""
+        delete_mock = AsyncMock(return_value=1)
+        with (
+            patch(
+                "app.services.user_mcp_credential_service.UserMcpCredentialService._collection",
+                return_value=MagicMock(
+                    find_one=AsyncMock(return_value=doc),
+                    update_one=AsyncMock(),
+                ),
+            ),
+            patch(
+                "app.services.user_mcp_credential_service"
+                ".ExternalIdentityService.delete_by_app_and_user",
+                new=delete_mock,
+            ),
+            patch(
+                "app.services.user_mcp_credential_service.clear_app_session_cache",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.services.user_mcp_credential_service"
+                ".UserMcpCredentialService.list_bindings",
+                new=AsyncMock(return_value={"bindings": []}),
+            ),
+        ):
+            result = await UserMcpCredentialService.unbind_credential(
+                platform_user_id="user_p1", app_id="app_1"
+            )
+        return SimpleNamespace(delete_mock=delete_mock, result=result)
+
+    async def test_unbind_deletes_all_identity_dimensions(self) -> None:
+        """正常解绑：按 (app, user) 全维度清映射 + 删凭证 + 清缓存。"""
+        out = await self._unbind(
+            {"platform_user_id": "user_p1", "app_bindings": {"app_1": {}}}
+        )
+        out.delete_mock.assert_awaited_once_with("app_1", "user_p1")
+        assert out.result is not None
+
+    async def test_unbind_without_binding_still_cleans_orphan_identities(self) -> None:
+        """凭证已无该应用（此前取消过但残留了别的维度映射）→ 仍清孤儿
+        映射（自愈存量状态），不改凭证记录。"""
+        out = await self._unbind(
+            {"platform_user_id": "user_p1", "app_bindings": {"app_other": {}}}
+        )
+        out.delete_mock.assert_awaited_once_with("app_1", "user_p1")
+        assert out.result is not None
+
+    async def test_unbind_without_record_still_cleans_identities(self) -> None:
+        """凭证记录不存在 → 返回 None，但仍清孤儿映射。"""
+        out = await self._unbind(None)
+        out.delete_mock.assert_awaited_once_with("app_1", "user_p1")
+        assert out.result is None

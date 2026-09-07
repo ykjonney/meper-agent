@@ -332,28 +332,31 @@ class UserMcpCredentialService:
     async def unbind_credential(platform_user_id: str, app_id: str) -> dict[str, Any] | None:
         """取消授权：解绑某应用。
 
-        同时删除绑定时建立的身份映射（sub 由 app_id + 绑定时存的
-        identity_key 组合——v4.2 与登录名解耦；旧数据无 identity_key
-        则退回 username）。无需再调 login_url。
+        删除该 (app, platform_user) 的**所有维度**身份映射——不只删
+        当前 binding 记录的 sub：同一段绑定史可能并存多个锚（v4.1
+        登录名 / v4.2 introspection 稳定 ID / jwt 端点登录响应提取的
+        userId，bind 的 upsert 只插新不删旧），任一残留都会被鉴权放行
+        （legacy 维度还会被 v4.2 在线升级复活成稳定维度），表现为
+        「取消授权了 client 仍能直接进入」。凭证记录不存在或已无该
+        应用时同样执行清理——自愈「凭证已删、映射残留」的存量状态。
 
         Returns:
             更新后的脱敏绑定列表，或 None 如果用户记录不存在。
         """
         col = UserMcpCredentialService._collection()
         doc = await col.find_one({"platform_user_id": platform_user_id})
+
+        # 全维度清理身份映射（含孤儿映射自愈）
+        await ExternalIdentityService.delete_by_app_and_user(
+            app_id, platform_user_id
+        )
+
         if doc is None:
             return None
 
         bindings = doc.get("app_bindings") or {}
         if app_id not in bindings:
             return UserMcpCredentialService.list_bindings(platform_user_id)
-
-        # 删除身份映射（优先 identity_key，旧数据退回 username）
-        binding = _decrypt_binding(dict(bindings[app_id]))
-        identity_key = binding.get("identity_key") or binding.get("username", "")
-        if identity_key:
-            sub = compose_sub(app_id, identity_key)
-            await ExternalIdentityService.delete_by_sub_and_user(sub, platform_user_id)
 
         # 删除 app_bindings 里的该应用
         now_iso = utc_now().isoformat()

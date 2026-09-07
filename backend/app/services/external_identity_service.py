@@ -96,6 +96,42 @@ class ExternalIdentityService:
         return False
 
     @staticmethod
+    async def delete_by_app_and_user(app_id: str, platform_user_id: str) -> int:
+        """Delete ALL identity mappings of (app_id, platform_user_id).
+
+        取消授权用：同一段绑定史可能留下多个锚维度的 sub——v4.1 登录
+        名锚、v4.2 introspection 稳定 ID 锚、jwt 端点从登录响应提取的
+        userId 锚——bind 的 upsert 只插新不删旧。必须全部清除：任一
+        残留都会被鉴权继续放行（legacy 维度还会被 v4.2 在线升级逻辑
+        复活成稳定维度），表现为"取消授权了仍能直接进入"。
+
+        Returns:
+            Number of deleted mappings.
+        """
+        mappings = await ExternalIdentityService.list_by_platform_user(
+            platform_user_id
+        )
+        prefix = f"{app_id}:"
+        subs = [
+            m["sub"]
+            for m in mappings
+            if isinstance(m.get("sub"), str) and m["sub"].startswith(prefix)
+        ]
+        if not subs:
+            return 0
+        result = await ExternalIdentityService._collection().delete_many(
+            {"sub": {"$in": subs}, "platform_user_id": platform_user_id}
+        )
+        if result.deleted_count:
+            logger.info(
+                "external_identities_deleted_by_app",
+                app_id=app_id,
+                platform_user_id=platform_user_id,
+                count=result.deleted_count,
+            )
+        return result.deleted_count
+
+    @staticmethod
     async def list_by_platform_user(platform_user_id: str) -> list[dict]:
         """List all identity mappings for a platform user."""
         cursor = ExternalIdentityService._collection().find(
