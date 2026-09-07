@@ -16,6 +16,7 @@ import { modelApi, modelKeys } from '../services/model-api';
 import { toStudioAgent } from '../services/adapters';
 import { getFileBlob, downloadFile as downloadFileById } from '../services/file-api';
 import { parseSSEStream } from '../lib/sse-parser';
+import { countZi, truncateByZi } from '../lib/text-stats';
 import { SessionFilesPanel, type SessionFilesPanelHandle } from './SessionFilesPanel';
 import AvatarRender from './AvatarRender';
 import { Markdown } from './Markdown';
@@ -2162,27 +2163,6 @@ function formatToolResult(raw?: string): { text: string; isJson: boolean } {
 
 const RESULT_COLLAPSE_THRESHOLD = 800;
 
-/** 中文“字数”口径（Word/WPS 同款）：CJK 字符（含中文标点）每字计 1，
- *  连续的非 CJK 非空白串（英文单词、数字、emoji 等）整体计 1。
- *  思考内容多为英文，逐字符计数会数倍虚高于视觉感知。 */
-const countZi = (s: string): number => {
-  const cjkRe = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3000-\u30ff\uff00-\uffef]/;
-  let n = 0;
-  let inRun = false;
-  for (const ch of s) {
-    if (cjkRe.test(ch)) {
-      n += 1;
-      inRun = false;
-    } else if (/\s/.test(ch)) {
-      inRun = false;
-    } else if (!inRun) {
-      n += 1;
-      inRun = true;
-    }
-  }
-  return n;
-};
-
 /** Thinking entry — collapsible reasoning card with streaming animation.
  *  内容区固定最大高度（内部滚动），避免长思考撑爆版面；流式期间内部
  *  贴底跟随（终端效果），思考结束自动收起。 */
@@ -2329,10 +2309,10 @@ function ToolEntryCard({
   const argsText = formatToolArgs(entry.args);
   const result = formatToolResult(entry.result);
   const hasDetail = Boolean(argsText || result.text);
-  const resultTooLong = result.text.length > RESULT_COLLAPSE_THRESHOLD;
+  const resultTooLong = countZi(result.text) > RESULT_COLLAPSE_THRESHOLD;
   const shownResult =
     !resultExpanded && resultTooLong
-      ? result.text.slice(0, RESULT_COLLAPSE_THRESHOLD) + '…'
+      ? truncateByZi(result.text, RESULT_COLLAPSE_THRESHOLD) + '…'
       : result.text;
 
   const StatusIcon =
@@ -2414,7 +2394,7 @@ function ToolEntryCard({
                   onClick={() => setResultExpanded((v) => !v)}
                   className={`mt-1 text-[10px] underline ${cfg.icon} opacity-80 hover:opacity-100 cursor-pointer`}
                 >
-                  {resultExpanded ? '收起结果' : `展开全部 (${result.text.length} 字符)`}
+                  {resultExpanded ? '收起结果' : `展开全部 (${countZi(result.text)} 字)`}
                 </button>
               )}
             </div>

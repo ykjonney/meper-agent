@@ -1,17 +1,18 @@
 /**
  * WorkflowBaseNode — 通用自定义节点底座。
  *
- * 两行结构：上行「类别」（图标 + 类型名，类型色），下行「信息区」
- * （所选 Agent/工具名、模型、输入变量清单、分支数等摘要，逐行展示）。
- * 不放 node label——节点身份由类别 + 配置摘要表达。
+ * 横向卡片（Dify 风）：左侧图标 badge（类型色淡底 + 类型色图标，类型
+ * 识别的第一要素），右侧文字列——主标题 = 节点名称（WorkflowNode.label，
+ * 用户在配置面板命名）|| 类型名（二选一，永不并排），下方信息区逐行
+ * 展示配置摘要（Agent/工具名、模型、输入变量清单、分支数等）。
  *
  * 样式规范：
  * - 边框：细边框 + 左侧 2px 类型色 accent 条（不同类型一眼可辨）；
  *   选中态整框品牌蓝，配置不完整 amber 警示。
  * - 尺寸：宽度按类型固定给定（不随内容变化，不同类型宽度不同）；
  *   高度随信息行数自适应（内容超宽换行/截断）。
- * - 字体层次：类别行 8px/medium/类型色；信息行 7px/regular/灰，
- *   必填项以红色 * 标记。
+ * - 字体层次：主标题 9px/medium/白；信息行 7px/regular/灰，
+ *   必填项以红色 * 标记；hover 全文由文字列 title 承载。
  *
  * lucide-react 版本（替换原 @ant-design/icons）。
  */
@@ -31,15 +32,15 @@ import { useAgentInfo, useToolNames } from '../agent-info'
 
 type Props = NodeProps & { data: WorkflowNodeData }
 
-/** 节点类型 → 图标组件映射（直接在渲染时创建，避免序列化问题） */
+/** 节点类型 → 图标组件映射（直接在渲染时创建，避免序列化问题；badge 内 11px） */
 const TYPE_ICONS: Record<string, ReactNode> = {
-  start: <PlayCircle size={9} strokeWidth={2} />,
-  end: <StopCircle size={9} strokeWidth={2} />,
-  agent: <Workflow size={9} strokeWidth={2} />,
-  tool: <Wrench size={9} strokeWidth={2} />,
-  gateway: <GitBranch size={9} strokeWidth={2} />,
-  parallel: <Split size={9} strokeWidth={2} />,
-  human: <UserCheck size={9} strokeWidth={2} />,
+  start: <PlayCircle size={11} strokeWidth={2} />,
+  end: <StopCircle size={11} strokeWidth={2} />,
+  agent: <Workflow size={11} strokeWidth={2} />,
+  tool: <Wrench size={11} strokeWidth={2} />,
+  gateway: <GitBranch size={11} strokeWidth={2} />,
+  parallel: <Split size={11} strokeWidth={2} />,
+  human: <UserCheck size={11} strokeWidth={2} />,
 }
 
 /** 节点类型 → 类别名（上行固定展示） */
@@ -53,15 +54,16 @@ const TYPE_NAMES: Record<string, string> = {
   human: '人工审批',
 }
 
-/** 节点类型 → 固定宽度（按类型实际情况给定，不随内容变化；高度自适应） */
+/** 节点类型 → 固定宽度（按类型实际情况给定，不随内容变化；高度自适应。
+ *  紧凑画布密度优先——badge+标题同排已省一行，宽度按文字列实际内容收紧。） */
 const TYPE_WIDTH: Record<string, number> = {
-  start: 105,
-  end: 85,
-  agent: 120,
-  tool: 115,
-  gateway: 80,
-  parallel: 80,
-  human: 115,
+  start: 125,
+  end: 105,
+  agent: 135,
+  tool: 125,
+  gateway: 100,
+  parallel: 100,
+  human: 130,
 }
 
 /** 信息区单行（text 必填时可带红色 * 标记） */
@@ -186,6 +188,8 @@ function WorkflowBaseNode({ data, selected }: Props) {
   const size = TYPE_WIDTH[nodeType] ?? 130
   const agentInfoMap = useAgentInfo()
   const toolNameMap = useToolNames()
+  // 节点名称（画布标识，可选）——trim 后为空则不渲染该行
+  const nodeLabel = (workflowNode.label || '').trim()
   const rows = getInfoRows(
     nodeType, workflowNode.config as Record<string, unknown>, agentInfoMap, toolNameMap,
   )
@@ -193,7 +197,9 @@ function WorkflowBaseNode({ data, selected }: Props) {
 
   // 左侧 accent 色随状态让位：选中 > 配置不完整 > 类型色。
   const accentColor = selected ? '#1E5EFF' : incomplete ? '#f59e0b' : typeColor
-  const fullText = rows.map((r) => `${r.text}${r.required ? ' *' : ''}`).join('\n')
+  // hover 全文：主标题 + 各摘要行（必带回退类型名，与卡片所见一致）
+  const hoverText = [nodeLabel || typeName, ...rows.map((r) => `${r.text}${r.required ? ' *' : ''}`)]
+    .join('\n')
 
   return (
     <div
@@ -210,30 +216,36 @@ function WorkflowBaseNode({ data, selected }: Props) {
           className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-amber-500"
         />
       )}
-      {/* 主体：上行类别 / 下行信息区（逐行，高度自适应）。
-          类别行用 leading-tight——leading-none 会裁掉 "Agent" 的 g 等
-          字母下伸部（高度=字号时字形溢出行盒）。 */}
-      <div className="px-1.5 py-1">
-        <div className="flex items-center gap-1 leading-tight">
-          <span className="flex-shrink-0" style={{ color: typeColor }}>{icon}</span>
-          <span className="text-[8px] font-medium truncate" style={{ color: typeColor }}>
-            {typeName}
-          </span>
+      {/* 主体：左侧图标 badge（类型色淡底 + 类型色图标，类型识别第一要素）
+          + 右侧文字列。主标题 = 节点名称 || 类型名（二选一，永不并排），
+          下方配置摘要逐行、高度自适应。标题行用 leading-tight——
+          leading-none 会裁掉 "g" 等字母下伸部（高度=字号时字形溢出行盒）。 */}
+      <div className="flex items-start gap-1.5 px-1.5 py-1">
+        <div
+          className="shrink-0 w-5 h-5 rounded flex items-center justify-center"
+          style={{ backgroundColor: `${typeColor}1F`, color: typeColor }}
+        >
+          {icon}
         </div>
-        {rows.length > 0 && (
-          <div className="mt-0.5 space-y-px" title={fullText}>
-            {rows.map((row, i) => (
-              <div key={i} className="flex items-baseline leading-snug">
-                <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
-                  {row.text}
-                </span>
-                {row.required && (
-                  <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
-                )}
-              </div>
-            ))}
+        <div className="min-w-0 flex-1" title={hoverText}>
+          <div className="text-[9px] font-medium text-[#fafafa] truncate leading-tight">
+            {nodeLabel || typeName}
           </div>
-        )}
+          {rows.length > 0 && (
+            <div className="mt-0.5 space-y-px">
+              {rows.map((row, i) => (
+                <div key={i} className="flex items-baseline leading-snug">
+                  <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
+                    {row.text}
+                  </span>
+                  {row.required && (
+                    <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Source Handle — End 节点隐藏 */}

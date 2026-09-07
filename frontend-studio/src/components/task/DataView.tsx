@@ -33,6 +33,7 @@ import { Markdown } from '../Markdown'
 import { NODE_TYPE_LABEL } from './task-flow-utils'
 import { downloadFile } from '../../services/file-api'
 import { formatFileSize } from '../../lib/file-preview'
+import { countZi, truncateByZi } from '../../lib/text-stats'
 
 export type DataViewContext =
   | 'node_output' | 'event_data' | 'task_input' | 'approval_upstream' | 'generic'
@@ -358,7 +359,8 @@ function StringValue({ value, depth }: { value: string; depth: number }) {
   return <span className="text-[11px] text-[#d4d4d8] break-all">{value}</span>
 }
 
-/** 长文本 / 多行文本 → 卡片 + 默认折叠前 N 字。
+/** 长文本 / 多行文本 → 卡片 + 默认折叠前 N 字（「字数」口径，与思考过程/
+ *  工具结果统计一致：CJK 每字 1、英文单词整体 1、空白不计）。
  *  variant='primary'：主题字段正文——字号放大、亮色，突出主题。 */
 function LongText({
   text,
@@ -370,7 +372,8 @@ function LongText({
   variant?: 'default' | 'primary'
 }) {
   const [open, setOpen] = useState(false)
-  const isLong = text.length > LONG_TEXT_THRESHOLD
+  const ziCount = countZi(text)
+  const isLong = ziCount > LONG_TEXT_THRESHOLD
   const bodyColor = tone === 'danger' ? 'text-rose-400' : variant === 'primary' ? 'text-[#fafafa]' : 'text-[#d4d4d8]'
   const bodySize = variant === 'primary' ? 'text-[12px]' : 'text-[11px]'
   return (
@@ -380,14 +383,14 @@ function LongText({
       }`}
     >
       <div className={`${bodyColor} ${bodySize} leading-relaxed whitespace-pre-wrap break-all`}>
-        {open || !isLong ? text : `${text.slice(0, LONG_TEXT_THRESHOLD)}…`}
+        {open || !isLong ? text : `${truncateByZi(text, LONG_TEXT_THRESHOLD)}…`}
       </div>
       {isLong && (
         <button
           onClick={() => setOpen((v) => !v)}
           className="mt-1 text-[10px] text-[#1E5EFF] hover:underline cursor-pointer"
         >
-          {open ? '收起' : `展开（共 ${text.length} 字）`}
+          {open ? '收起' : `展开（共 ${ziCount} 字）`}
         </button>
       )}
     </div>
@@ -759,7 +762,7 @@ function detectStringKind(s: string): 'url' | 'json-like' | 'multiline' | 'long'
     if (tryParseJsonLike(t) !== undefined) return 'json-like'
   }
   if (s.includes('\n')) return 'multiline'
-  if (s.length > LONG_TEXT_THRESHOLD) return 'long'
+  if (countZi(s) > LONG_TEXT_THRESHOLD) return 'long'
   return 'short'
 }
 
