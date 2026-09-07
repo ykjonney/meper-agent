@@ -262,18 +262,66 @@ async def test_recent_turns_protected_when_under_threshold() -> None:
 
 @pytest.mark.asyncio
 async def test_unconsumed_oversized_tool_raises() -> None:
-    """未消费的单个工具结果超阈值 → 报错(无法压缩,留着必超窗口)。"""
-    big = _big_tool_result("big_tc")  # ~950 tokens
+    """未消费的单个工具结果超出剩余预算 → 报错(无法压缩,留着必超窗口)。
+
+    窗口需 > RESERVED_RESPONSE(4000) 才能构造出正预算:工具 ~5000 tokens,
+    预算 = 8000 - 少量其它 - 4000 ≈ 3900 < 5000 → 走"返回结果过大"分支。
+    """
+    big = ToolMessage(content="z" * 20000, tool_call_id="big_tc")  # ~5000 tokens
     msgs = [
         SystemMessage(content="sys", id="sys"),
         HumanMessage(content="q", id="h0"),
         AIMessage(content="", tool_calls=[{"name": "kb", "args": {}, "id": "big_tc"}]),
         big,  # 未消费(后面无 AIMessage)
     ]
-    # 小窗口:阈值 = 200*0.7 = 140,工具 950 > 140 → 报错。
-    config = _config(context_window=200)
+    config = _config(context_window=8000)
     with pytest.raises(ValueError, match="返回结果过大"):
         await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
+
+
+@pytest.mark.asyncio
+async def test_history_over_window_error_not_blames_tool() -> None:
+    """历史本身超窗(budget<0) → 报错归因"上下文已超出模型窗口",
+    不再误导性地指责工具返回过大(实测事故:59 tokens 的结果背了 331k 历史的锅)。"""
+    msgs = [
+        SystemMessage(content="sys", id="sys"),
+        HumanMessage(content="q", id="h0"),
+        AIMessage(content="", tool_calls=[{"name": "kb", "args": {}, "id": "tc_small"}]),
+        ToolMessage(content="ok", tool_call_id="tc_small"),  # 很小的未消费结果
+    ]
+    config = _config(context_window=200)  # budget = 200 - few - 4000 < 0
+    with pytest.raises(ValueError, match="已超出模型窗口"):
+        await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
+
+
+@pytest.mark.asyncio
+async def test_compressible_history_rescues_oversized_check() -> None:
+    """回归:可压缩历史 + 小的未消费工具结果 → 压缩先行救回,不再误报。
+
+    旧时序(检查在压缩前)会直接抛错;新时序先压已消费工具输出,
+    budget 转正即放行——正是线上"59 tokens 结果 + 331k 历史"误报的形态。
+    """
+    msgs = [SystemMessage(content="sys", id="sys")]
+    # 8 轮含大已消费工具输出(>1500 字,可被截断压缩),总计超阈值。
+    for i in range(8):
+        msgs.append(HumanMessage(content=f"q{i}", id=f"h{i}"))
+        msgs.append(
+            AIMessage(content="", tool_calls=[{"name": "kb", "args": {}, "id": f"tc{i}"}])
+        )
+        msgs.append(ToolMessage(content="x" * 4000, tool_call_id=f"tc{i}"))
+        msgs.append(AIMessage(content=f"done{i}", id=f"a{i}"))  # 消费
+    # 末尾:小的未消费工具结果。
+    msgs.append(
+        AIMessage(content="", tool_calls=[{"name": "kb", "args": {}, "id": "tc_new"}])
+    )
+    msgs.append(ToolMessage(content="small", tool_call_id="tc_new"))
+
+    config = _config(context_window=10_000)  # 阈值 7000;压缩前 ~8100 超
+    patch = await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
+    # 不抛错;返回压缩 patch;未消费的小结果原样保留。
+    result = _patch_msgs(patch)
+    kept = [m for m in result if getattr(m, "tool_call_id", "") == "tc_new"]
+    assert kept and kept[0].content == "small"
 
 
 @pytest.mark.asyncio
@@ -307,8 +355,9 @@ async def test_legacy_system_summary_migrated_to_history() -> None:
             return AIMessage(content="新结构化摘要")
 
     # sys + 旧 SystemMessage 摘要 + 8 轮长历史。
-    # 尺寸设计：~3.2k tokens，窗口 4000 → 超阈值(2800)但未达硬上限(3600)，
-    # 不触发兜底丢弃（丢弃会从 outer 头部扔消息，干扰迁移断言）。
+    # 尺寸设计：CJK 估算校正(0.75 token/字)后 ~9.7k tokens，窗口 12000 →
+    # 超阈值(8400)但未达硬上限(10800)，不触发兜底丢弃（丢弃会从 outer
+    # 头部扔消息，干扰迁移断言）。
     msgs: list = [SystemMessage(content="AGENT PROMPT", id="sys")]
     msgs.append(SystemMessage(content="用户此前要求整理 Q3 报销", id="llm_summary"))
     for i in range(8):
@@ -318,7 +367,7 @@ async def test_legacy_system_summary_migrated_to_history() -> None:
     config = {
         "configurable": {
             "llm": _MockLLM(),
-            "context_window": 4_000,
+            "context_window": 12_000,
             "protected_turns": 5,
         },
     }

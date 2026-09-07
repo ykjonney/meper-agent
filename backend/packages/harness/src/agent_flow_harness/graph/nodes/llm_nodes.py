@@ -111,9 +111,6 @@ async def compress_node(
     threshold_tokens = int(window * compression_threshold)
     before_tokens = estimate_context_tokens(current_messages)
 
-    # ── 单个工具结果超过 LLM 阈值 → 直接报错(无法压缩,继续只会超窗口失败)。
-    _check_oversized_tool_result(current_messages, window, state)
-
     # ── 中断标注：新一轮开始时检测上一轮是否被中断，注入显式标记。
     #    在所有路径分叉之前执行；标注变更必须强制产生替换补丁，
     #    否则未达压缩阈值时标记不会写入 thread。──
@@ -144,10 +141,18 @@ async def compress_node(
                 messages_before=before,
                 messages_after=len(current_messages),
                 tokens_before=before_tokens,
-                tokens_after=estimate_context_tokens(current_messages),
+                tokens_after=estimate_context_tokens(
+                    current_messages, prefer_usage=False
+                ),
                 threshold_tokens=threshold_tokens,
             )
+            _check_oversized_tool_result(
+                current_messages, window, state, prefer_usage=False
+            )
             return _pack_replace(_trim_tool_outputs(current_messages, config))
+        _check_oversized_tool_result(
+            current_messages, window, state, prefer_usage=not annotate_changed
+        )
         if annotate_changed:
             return _pack_replace(_trim_tool_outputs(current_messages, config))
         return {}
@@ -165,6 +170,15 @@ async def compress_node(
         state,
     )
 
+    # ── 单个工具结果超过窗口 → 报错。必须在压缩【之后】判定:先压已消费
+    # 历史,budget 转正即放行;此时仍放不下才是真放不下(未消费结果无法
+    # 压缩)。此前检查在压缩前执行,压缩明明救得回来却直接报错。
+    # 压缩改写过历史 → 旧 usage 基准失效,估算需全量重算(prefer_usage=False)。
+    history_mutated = bool(detail.get("changed")) or annotate_changed
+    _check_oversized_tool_result(
+        result, window, state, prefer_usage=not history_mutated
+    )
+
     if detail["changed"] or annotate_changed:
         logger.info(
             "compress_done",
@@ -172,7 +186,9 @@ async def compress_node(
             request_id=state.get("request_id"),
             actions=detail.get("actions", ""),
             tokens_before=before_tokens,
-            tokens_after=estimate_context_tokens(result),
+            tokens_after=estimate_context_tokens(
+                result, prefer_usage=not history_mutated
+            ),
             threshold_tokens=threshold_tokens,
             messages_before=len(current_messages),
             messages_after=len(result),
@@ -401,6 +417,8 @@ def _check_oversized_tool_result(
     messages: list[Any],
     window: int,
     state: "AgentState",
+    *,
+    prefer_usage: bool = True,
 ) -> None:
     """「未消费的」单个工具结果放不下模型窗口时抛 ValueError(转 ErrorEvent 发前端)。
 
@@ -410,6 +428,11 @@ def _check_oversized_tool_result(
 
     比之前用固定 70% 阈值更准确:一个占 75% 窗口的工具,如果其它消息很少,
     可能完全放得下,不该报错。
+
+    ``prefer_usage=False``:历史已被压缩改写,旧 usage 基准失效,需全量
+    估算(见 estimate_context_tokens)。budget<0 说明其它消息本身就已超窗,
+    与本条工具结果大小无关——文案按"上下文超窗"归因,不再误导性地
+    指责工具返回过大。
     """
     from langchain_core.messages import ToolMessage
 
@@ -427,18 +450,28 @@ def _check_oversized_tool_result(
         if isinstance(m, ToolMessage) and (m.tool_call_id or "") in unconsumed:
             tool_tokens = estimate_message_tokens(m)
             # 其它消息的 token(排除这个工具结果本身)。
-            other_tokens = estimate_context_tokens(messages) - tool_tokens
+            other_tokens = estimate_context_tokens(
+                messages, prefer_usage=prefer_usage
+            ) - tool_tokens
             budget = window - other_tokens - RESERVED_RESPONSE
             if tool_tokens > budget:
                 tcid = m.tool_call_id or "?"
                 tool_name = getattr(m, "name", "") or "未知工具"
-                msg = (
-                    f"工具 {tool_name} 的返回结果过大(约 {tool_tokens} tokens),"
-                    f"剩余上下文空间不足以容纳(剩余约 {budget} tokens)。"
-                    f"该工具结果尚未被处理、无法压缩,请减少返回内容"
-                    f"(如调小 top_k、缩小查询范围),或使用上下文窗口更大的模型。"
-                    f"(tool_call_id={tcid})"
-                )
+                if budget <= 0:
+                    msg = (
+                        f"会话上下文已超出模型窗口(窗口 {window} tokens,"
+                        f"当前历史约 {other_tokens} tokens,已超出 {-budget})。"
+                        f"请精简系统提示与工具、开启/等待历史压缩生效,"
+                        f"或更换上下文窗口更大的模型。(tool_call_id={tcid})"
+                    )
+                else:
+                    msg = (
+                        f"工具 {tool_name} 的返回结果过大(约 {tool_tokens} tokens),"
+                        f"剩余上下文空间不足以容纳(剩余约 {budget} tokens)。"
+                        f"该工具结果尚未被处理、无法压缩,请减少返回内容"
+                        f"(如调小 top_k、缩小查询范围),或使用上下文窗口更大的模型。"
+                        f"(tool_call_id={tcid})"
+                    )
                 logger.error(
                     "compress_tool_result_oversized",
                     agent_id=state.get("agent_id"),
@@ -448,6 +481,7 @@ def _check_oversized_tool_result(
                     tool_tokens=tool_tokens,
                     budget=budget,
                     window=window,
+                    other_tokens=other_tokens,
                 )
                 raise ValueError(msg)
 
@@ -591,20 +625,29 @@ def _compress_by_turns(
 
     unconsumed_ids = find_unconsumed_tool_call_ids(history)
 
+    # 估算基准管理:usage 基准(last AIMessage.input_tokens)只在历史未被改写
+    # 时有效。任何一级压缩实际改动了内容 → 后续估算切换为全量重算
+    # (prefer_usage=False),否则旧的大基准会持续虚高预算判断。
+    mutated = changed
+
     # 第1级:5轮外已消费工具压。
+    outer_orig = list(outer)
     outer = compress_tool_outputs(
         outer, reference_formatter=formatter, unconsumed_ids=unconsumed_ids
     )
+    mutated = mutated or outer != outer_orig
     combined = [*system_msgs, *outer, *recent]
-    if estimate_context_tokens(combined) <= threshold:
+    if estimate_context_tokens(combined, prefer_usage=not mutated) <= threshold:
         return ensure_tool_pairing(combined), {"changed": True, "actions": "5轮外工具压缩"}
 
     # 第2级:5轮内已消费工具压(未消费保护内置)。
+    recent_orig = list(recent)
     recent = compress_tool_outputs(
         recent, reference_formatter=formatter, unconsumed_ids=unconsumed_ids
     )
+    mutated = mutated or recent != recent_orig
     combined = [*system_msgs, *outer, *recent]
-    after_tools = estimate_context_tokens(combined)
+    after_tools = estimate_context_tokens(combined, prefer_usage=not mutated)
     if after_tools <= threshold:
         return ensure_tool_pairing(combined), {"changed": True, "actions": "5轮内工具压缩"}
 
@@ -635,19 +678,37 @@ def _compress_by_turns(
     if after_tools > hard_limit:
         safe_limit = int(window * 0.85)
         # 差量计算:base = system + recent(不变),循环只减 outer 的 token。
+        # 子列表的 usage 基准描述的是完整列表的调用,天然失真 → 全量估算。
         from agent_flow_harness.engine.context import estimate_message_tokens
 
-        base_tokens = estimate_context_tokens([*system_msgs, *recent])
+        base_tokens = estimate_context_tokens(
+            [*system_msgs, *recent], prefer_usage=False
+        )
         discard_outer = list(outer)
         outer_tokens = sum(estimate_message_tokens(m) for m in discard_outer)
         while base_tokens + outer_tokens > safe_limit and discard_outer:
             outer_tokens -= estimate_message_tokens(discard_outer.pop(0))
         combined = [*system_msgs, *discard_outer, *recent]
+        discarded_count = len(outer) - len(discard_outer)
+
+        # outer 耗尽仍超 → system+recent 本身过大:连 recent 最早的消息也丢弃
+        # (此前该场景丢弃循环空转,超窗调用照样发出去)。保底约束:最后 2 条
+        # 不丢(未消费的 tool_call/结果对就在尾部,绝不能丢);孤儿由收口处
+        # ensure_tool_pairing 清理;仍放不下则由压缩后的 oversized 检查报错。
+        if not discard_outer and base_tokens > safe_limit and len(recent) > 2:
+            sys_tokens = estimate_context_tokens(system_msgs, prefer_usage=False)
+            kept_recent = list(recent)
+            recent_tokens = base_tokens - sys_tokens
+            while len(kept_recent) > 2 and sys_tokens + recent_tokens > safe_limit:
+                recent_tokens -= estimate_message_tokens(kept_recent.pop(0))
+            combined = [*system_msgs, *kept_recent]
+            discarded_count += len(recent) - len(kept_recent)
+
         logger.warning(
             "compress_discard_emergency",
             agent_id=state.get("agent_id"),
             request_id=state.get("request_id"),
-            discarded=len(outer) - len(discard_outer),
+            discarded=discarded_count,
             note="逼近硬上限,丢弃早期历史防崩溃(后台摘要回填后恢复)",
         )
         actions_parts.append("丢弃早期历史(防崩溃)")

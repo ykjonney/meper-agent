@@ -241,3 +241,43 @@ def test_estimate_context_tokens_uses_last_ai() -> None:
     result = estimate_context_tokens(msgs)
     # 用 ai2 的 2000,ai2 之后无新增消息
     assert result == 2000
+
+
+# ---------------------------------------------------------------------------
+# CJK 估算校正 + 压缩后 usage 基准失效（回归：中文会话压缩系统性偏晚）
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_tokens_cjk_not_underestimated() -> None:
+    """中文按 ~0.75 token/字估算——旧的 len//4 (0.25/字) 低估 3 倍，
+    导致压缩阈值判断偏晚、真实 prompt 早已逼近窗口。"""
+    text = "查" * 100  # 纯 CJK 100 字
+    assert estimate_tokens(text) >= 60  # ~75,不再是 25
+
+
+def test_estimate_tokens_ascii_unchanged() -> None:
+    """ASCII 内容维持 4 字符/token 的旧口径,行为不变。"""
+    assert estimate_tokens("z" * 400) == 100
+    assert estimate_tokens("hello world!") == 3  # 12//4
+
+
+def test_estimate_tokens_mixed() -> None:
+    """中英混合:各按各的系数相加。"""
+    text = "查" * 40 + "z" * 400  # ~30 + 100
+    assert 120 <= estimate_tokens(text) <= 140
+
+
+def test_estimate_context_tokens_prefer_usage_false_ignores_stale_base() -> None:
+    """prefer_usage=False → 忽略旧 input_tokens 基准,全量重算。
+
+    压缩改写历史后,旧基准(描述的是压缩前那次调用的 prompt)会持续
+    虚高预算判断——直到下一次真实调用才校准。"""
+    ai = AIMessage(
+        content="done",
+        usage_metadata={"input_tokens": 100_000, "output_tokens": 10, "total_tokens": 100_010},
+    )
+    msgs = [SystemMessage(content="sys"), ai]
+    # 默认:用 usage 基准(100000 + 后续无新增)。
+    assert estimate_context_tokens(msgs) == 100_000
+    # prefer_usage=False:全量估算(真实内容很小)。
+    assert estimate_context_tokens(msgs, prefer_usage=False) < 100

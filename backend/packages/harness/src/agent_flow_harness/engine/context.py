@@ -11,6 +11,7 @@ window during multi-step reasoning or long conversations.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -55,14 +56,29 @@ _MAX_COMPRESS_DEPTH = 5  # Limit recursion depth to prevent infinite loops
 # ---------------------------------------------------------------------------
 
 
+# CJK 字符区段(汉字 + 全角标点 + 假名/谚文兼容区):这些字符在主流
+# tokenizer 下约 0.6~1.0 token/字,而 len//4 的 0.25 token/字会低估 2~4 倍,
+# 导致中文会话的压缩阈值判断系统性偏晚(真实 token 早已逼近窗口,账面
+# 却显示安全)。取 0.75 token/字作中间偏保守值——宁可稍早压缩,不可迟到。
+_CJK_RE = re.compile(r"[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]")
+
+
 def estimate_tokens(text: str) -> int:
     """Estimate token count for a string.
 
-    Uses ~4 characters per token as a rough heuristic.  Works reasonably
-    well for mixed Chinese/English content without pulling in a tokenizer
-    library.
+    Lightweight heuristic without a tokenizer dependency: ASCII content uses
+    ~4 chars/token; CJK characters (Chinese text, full-width punctuation)
+    count 0.75 token each — plain ``len//4`` underestimates Chinese 2-4×,
+    which historically delayed compression decisions until the real prompt
+    had already exceeded the model window.
     """
-    return max(1, len(text) // 4)
+    if not text:
+        return 0
+    if text.isascii():
+        return max(1, len(text) // 4)
+    cjk = len(_CJK_RE.findall(text))
+    other = len(text) - cjk
+    return max(1, int(cjk * 0.75 + other * 0.25))
 
 
 # Rough per-image vision-token estimate used when a message carries multimodal
@@ -120,7 +136,7 @@ def estimate_messages_tokens(
     return sum(estimate_message_tokens(m) for m in messages)
 
 
-def estimate_context_tokens(messages: Sequence[Any]) -> int:
+def estimate_context_tokens(messages: Sequence[Any], *, prefer_usage: bool = True) -> int:
     """Estimate the current context size using the model's real token count.
 
     Prefers the ``input_tokens`` recorded on the **last** AIMessage's
@@ -130,24 +146,32 @@ def estimate_context_tokens(messages: Sequence[Any]) -> int:
     (new tool results / user input) are estimated with ``len//4``.
 
     Falls back to full ``estimate_messages_tokens`` when there is no AIMessage
-    yet (first turn) or when ``usage_metadata`` is missing.
+    yet (first turn), when ``usage_metadata`` is missing, or when
+    ``prefer_usage=False`` — the usage base describes the prompt of a past
+    invocation, so it is only valid while the messages preceding (and
+    including) that AIMessage are unchanged. Compression replaces/trims
+    history in place; callers must pass ``prefer_usage=False`` for lists
+    produced by compression, otherwise the stale (larger) base keeps
+    inflating every subsequent budget check until the next real call.
     """
     from langchain_core.messages import AIMessage
 
     # Find the last AIMessage with usage_metadata.
     last_ai_idx = -1
     base_input_tokens = 0
-    for i in range(len(messages) - 1, -1, -1):
-        m = messages[i]
-        if isinstance(m, AIMessage):
-            um = getattr(m, "usage_metadata", None)
-            if isinstance(um, dict) and um.get("input_tokens"):
-                last_ai_idx = i
-                base_input_tokens = int(um["input_tokens"])
-            break
+    if prefer_usage:
+        for i in range(len(messages) - 1, -1, -1):
+            m = messages[i]
+            if isinstance(m, AIMessage):
+                um = getattr(m, "usage_metadata", None)
+                if isinstance(um, dict) and um.get("input_tokens"):
+                    last_ai_idx = i
+                    base_input_tokens = int(um["input_tokens"])
+                break
 
     if last_ai_idx < 0:
-        # No AIMessage with usage → full estimate.
+        # No usable AIMessage usage (or invalidated by compression)
+        # → full estimate.
         return estimate_messages_tokens(messages)
 
     # Tokens for messages after the last AIMessage (new additions).
