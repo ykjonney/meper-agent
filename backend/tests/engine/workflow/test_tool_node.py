@@ -24,10 +24,20 @@ def _make(config: dict) -> ToolNodeExecutor:
 
 
 def _patch_db(monkeypatch, tool_doc: dict | None):
-    """Mock app.db.mongodb.get_database → tools.find_one 返回 tool_doc。"""
+    """Mock app.db.mongodb.get_database → tools.find_one 返回 tool_doc。
+
+    record_load（调用计数）单独 mock：ToolService 顶层 from-import 持有
+    get_database 本地引用，模块属性 mock 拦不住，CI 无 Mongo 会真连。
+    """
     find_one = AsyncMock(return_value=tool_doc)
-    db = {"tools": type("Coll", (), {"find_one": staticmethod(find_one)})()}
+    update_one = AsyncMock()
+    db = {"tools": type(
+        "Coll", (), {"find_one": staticmethod(find_one), "update_one": staticmethod(update_one)},
+    )()}
     monkeypatch.setattr("app.db.mongodb.get_database", lambda: db)
+    monkeypatch.setattr(
+        "app.services.user_tool_service.UserToolService.record_load", AsyncMock()
+    )
     return find_one
 
 
