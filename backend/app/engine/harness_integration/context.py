@@ -64,10 +64,11 @@ DEFAULT_BUILTIN_CONFIG: tuple[str, ...] = tuple(
 )
 
 
-def _decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
+def decrypt_user_args(tool_doc: dict, user_args: dict) -> dict:
     """解密 user_args 里标记为 sensitive 的字段。
 
-    Agent 绑定时 sensitive 字段加密存储（前缀 enc:），运行时解密。
+    Agent 绑定/工具节点配置时 sensitive 字段加密存储（前缀 enc:），
+    运行时解密。
     """
     if not user_args:
         return {}
@@ -267,7 +268,7 @@ async def _resolve_skill_tools(
 
 
 async def _resolve_kb_tools(agent: dict) -> list:
-    """解析知识库工具(tree: kb_glob/grep/read, vector: kb_search)。"""
+    """解析知识库工具(tree: kb_glob/grep/read + Wiki 维护套件, vector: kb_search)。"""
     from pathlib import Path
 
     from app.engine.kb.tree.fs import get_kb_base_path
@@ -286,13 +287,12 @@ async def _resolve_kb_tools(agent: dict) -> list:
 
     tools: list = []
 
-    kb_roots: dict[str, Path] = {
-        d["_id"]: get_kb_base_path(d["_id"])
-        for d in kb_docs
-        if d.get("type", "tree") == "tree"
-    }
+    tree_docs = [d for d in kb_docs if d.get("type", "tree") == "tree"]
+    kb_roots: dict[str, Path] = {d["_id"]: get_kb_base_path(d["_id"]) for d in tree_docs}
     if kb_roots:
-        tools.extend(KbManager(kb_roots).make_tools())
+        # tree 即 wiki：全部 tree KB 获得维护工具集（kb_guide/write/delete/lint），
+        # 且 grep/read 支持 sources/wiki 分区与源提取文本读取。
+        tools.extend(KbManager(kb_roots, wiki_kb_ids=set(kb_roots)).make_tools())
 
     vector_infos: dict[str, str] = {
         d["_id"]: f"{d.get('name', '')} — {d.get('description', '')}".strip(" —")
@@ -335,9 +335,13 @@ async def _resolve_mcp_tools(agent: dict) -> tuple[list, list[dict]]:
 
 
 async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
-    """解析自定义工具(openapi/code/prebuilt),含 user_args 解密。
+    """解析 Agent 静态绑定的自定义工具（openapi/code，组织治理模型）。
 
-    单个工具构建失败收集到 errors 不中断其他工具。
+    候选 = 组织库中「已开启」的工具：官方（tools 表 active）与用户工具
+    （uto_ published+enabled）统一经 ``UserToolService.resolve_org_tool``
+    解析——凭证用**工具级统一配置**（org_user_args，admin 维护）；
+    存量绑定上的 binding.user_args 非空时兼容覆盖（旧数据）。
+    停用/未开启/不存在收集到 errors 不中断其他工具。
     """
     custom_tools = agent.get("custom_tools") or []
     if not custom_tools:
@@ -345,13 +349,18 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
 
     from app.engine.tool.tool_builder import build_tool
     from app.services.tool_service import ToolService
+    from app.services.user_tool_service import UserToolService
 
-    # 批量查 tool docs,避免循环内重复查询
-    tool_ids = [b.get("tool_id", "") for b in custom_tools if b.get("tool_id")]
-    if not tool_ids:
-        return [], []
-    docs = await ToolService.get_tools_by_ids(tool_ids)
-    docs_by_id = {d.get("_id"): d for d in docs if d.get("_id")}
+    # 官方工具批量查；uto_ 逐个走 resolve_org_tool（治理校验）
+    official_ids = [
+        b.get("tool_id", "") for b in custom_tools
+        if b.get("tool_id") and not b.get("tool_id", "").startswith("uto_")
+    ]
+    docs_by_id = {
+        d.get("_id"): d
+        for d in (await ToolService.get_tools_by_ids(official_ids) if official_ids else [])
+        if d.get("_id")
+    }
 
     all_tools: list = []
     errors: list[dict] = []
@@ -359,16 +368,32 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
         tool_id = binding.get("tool_id", "")
         if not tool_id:
             continue
-        doc = docs_by_id.get(tool_id)
-        if not doc:
-            errors.append({"tool_name": f"custom:{tool_id}", "error": "自定义工具不存在"})
-            continue
+        if tool_id.startswith("uto_"):
+            resolved = await UserToolService.resolve_org_tool(tool_id)
+            if resolved is None:
+                errors.append({"tool_name": f"custom:{tool_id}", "error": "工具不可用（未开启或已停用）"})
+                continue
+            doc, org_args = resolved
+        else:
+            found = docs_by_id.get(tool_id)
+            if found is None:
+                errors.append({"tool_name": f"custom:{tool_id}", "error": "自定义工具不存在"})
+                continue
+            if not ToolService.is_tool_active(found):
+                errors.append({"tool_name": found.get("name", tool_id), "error": "官方工具已停用"})
+                continue
+            doc = found
+            org_args = decrypt_user_args(found, found.get("org_user_args") or {})
         name = doc.get("name", tool_id)
-        user_args = _decrypt_user_args(doc, binding.get("user_args", {}))
+        # 凭证：工具级统一配置；存量绑定 user_args 非空时兼容覆盖
+        user_args = binding.get("user_args") or {}
+        user_args = decrypt_user_args(doc, user_args) if user_args else org_args
         try:
             tool = await build_tool(doc, user_args=user_args)
             if tool is not None:
                 all_tools.append(tool)
+                if tool_id.startswith("uto_"):
+                    await UserToolService.record_load(tool_id)
             else:
                 errors.append({"tool_name": name, "error": "工具构建返回空"})
         except Exception as exc:
@@ -390,6 +415,7 @@ async def resolve_all_tools(
 
     传 user_id（平台用户）时额外装配：load_skill 双根（个人技能）+
     skill_manage / memory 常驻工具（§2）；preview 不传则保持原工具集。
+    自定义工具为组织治理模型：静态绑定「已开启」的工具，凭证工具级统一。
 
     execution_context 透传给 _resolve_builtin_tools：workflow 上下文剥离
     交互式/任务编排工具并注入 abort_workflow（见其 docstring）。
@@ -439,6 +465,7 @@ async def resolve_harness_context(
     enable_thinking: bool = False,
     workspace: Any | None = None,
     user_token: str | None = None,
+    require_user_credentials: bool = False,
     execution_context: str = "chat",
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
@@ -449,7 +476,7 @@ async def resolve_harness_context(
       ② Skill(load_skill)— harness SkillManager
       ③ 知识库(kb_glob/grep/read + kb_search)
       ④ MCP(逐连接,走 get_mcp_tools_cached 缓存)
-      ⑤ 自定义工具(openapi/code/prebuilt,含 user_args 解密)
+      ⑤ 自定义工具(openapi/code,含 user_args 解密)
 
     Args:
         workspace: 可选,workflow agent 节点传入已创建的 task workspace。
@@ -608,17 +635,24 @@ async def resolve_harness_context(
     # asyncio.create_task 会复制 contextvars,所以即便 stream/resume 的
     # 真正执行在后台任务里,MCP loader 的 interceptor 也能读到。
     from agent_flow_harness import set_user_token_context
-    from agent_flow_harness.mcp.user_token_context import set_token_record_id_context
+    from agent_flow_harness.mcp.user_token_context import (
+        set_external_required_context,
+        set_token_record_id_context,
+    )
 
     ut_token = set_user_token_context(user_token)
 
-    # 外部路径（/ext/*，user_token 非空）额外注入 token_record_id，触发 MCP
-    # 凭证兑换。内部路径（studio 测试，user_token=None）不注入，interceptor
-    # 自然降级用 connection 静态凭证。
+    # 外部路径（/ext/*、外部触发的 workflow 任务）注入 token_record_id，
+    # 触发 MCP 凭证兑换。内部路径（studio 测试，user_token=None 且未声明
+    # 外部）不注入，interceptor 自然降级用 connection 静态凭证。
     # user_id 在外部路径 = principal.user_id = mcp_token_credentials._id。
+    # require_user_credentials：任务级外部标记（engine._is_external_task），
+    # 即使 user_token 丢失（旧数据）也强制外部语义 → interceptor fail-closed。
+    external = bool(user_token or require_user_credentials)
     tri_token = set_token_record_id_context(
-        state.get("user_id") if user_token else None
+        state.get("user_id") if external else None
     )
+    ext_token = set_external_required_context(external)
 
     logger.debug(
         "harness_context_resolved",
@@ -641,6 +675,7 @@ async def resolve_harness_context(
         "ws_token": ws_token,
         "ut_token": ut_token,
         "tri_token": tri_token,
+        "ext_token": ext_token,
         "tb_token": tb_token,
         "middlewares": [UsageMiddleware()],
         "context_window": context_window,
@@ -708,6 +743,12 @@ def release_harness_context(hctx: dict) -> None:
     reset_user_token_context(hctx["ut_token"])
     if hctx.get("tri_token") is not None:
         reset_token_record_id_context(hctx["tri_token"])
+    if hctx.get("ext_token") is not None:
+        from agent_flow_harness.mcp.user_token_context import (
+            reset_external_required_context,
+        )
+
+        reset_external_required_context(hctx["ext_token"])
     if hctx.get("tb_token") is not None:
         reset_tool_bridge_context(hctx["tb_token"])
 

@@ -124,37 +124,6 @@ async def list_app_tools(
     ]
 
 
-@router.get(
-    "/prebuilt",
-    response_model=list[dict],
-    summary="List prebuilt tools (platform-registered)",
-    responses={403: {"description": "Forbidden — tool:read permission required"}},
-)
-async def list_prebuilt_tools(
-    _: UserResponse = Depends(require_permission("tool:read")),
-) -> list[dict]:
-    """Return the list of prebuilt tools registered in TOOL_REGISTRY.
-
-    Prebuilt tools are platform-level integrations (Wikipedia, Web Search,
-    etc.) registered at startup via CommunityTool protocol.
-    """
-    from agent_flow_harness import TOOL_REGISTRY
-
-    tools = []
-    for entry in TOOL_REGISTRY.list_community_tools():
-        info: dict[str, Any] = {
-            "name": entry.name,
-            "description": entry.description,
-            "enabled_by_default": entry.enabled_by_default,
-        }
-        try:
-            info["config_schema"] = entry.config_schema.model_json_schema()
-        except Exception:
-            info["config_schema"] = {}
-        tools.append(info)
-    return tools
-
-
 def _doc_to_response(doc: dict) -> ToolResponse:
     """Convert a raw MongoDB document to ToolResponse.
 
@@ -182,10 +151,17 @@ def _doc_to_response(doc: dict) -> ToolResponse:
         source=doc.get("source", "markdown"),
         source_file=doc.get("source_file", ""),
         mcp_connection_id=doc.get("mcp_connection_id", ""),
+        user_args_schema=doc.get("user_args_schema", {}),
+        llm_args_schema=doc.get("llm_args_schema", {}),
+        endpoint=doc.get("endpoint", {}),
+        code=doc.get("code", ""),
+        org_user_args=doc.get("org_user_args", {}),
         version=doc.get("version", 1),
         tags=doc.get("tags", []),
         avatar=doc.get("avatar", ""),
         files=files,
+        created_by=doc.get("created_by", ""),
+        stats=doc.get("stats", {}),
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
     )
@@ -243,12 +219,59 @@ async def remove_tool_avatar(
     return {"avatar": ""}
 
 
+class ToolStatusRequest(BaseModel):
+    status: str = Field(..., description="active | disabled")
+
+
+@router.post(
+    "/{tool_id}/status",
+    response_model=ToolResponse,
+    summary="Enable/disable an official custom tool",
+)
+async def set_tool_status(
+    tool_id: str,
+    body: ToolStatusRequest,
+    _: UserResponse = Depends(require_permission("tool:write")),
+) -> ToolResponse:
+    """启用/停用官方自定义工具（openapi/code）。
+
+    启用校验定义与凭证完整性（openapi 需 endpoint.url、code 需代码、
+    user_args_schema 字段需在 org_user_args 配齐）；停用后 Agent 绑定 /
+    工作流节点 / 组织库统一跳过。
+    """
+    doc = await ToolService.set_tool_status(tool_id, body.status)
+    return _doc_to_response(doc)
+
+
+class ToolOrgArgsRequest(BaseModel):
+    """工具级统一凭证（ToB 治理：admin 配置一次，全使用点共用）。"""
+
+    user_args: dict = Field(default_factory=dict)
+
+
+@router.put(
+    "/{tool_id}/args",
+    response_model=ToolResponse,
+    summary="Configure org-level credentials for an official custom tool",
+)
+async def save_tool_org_args(
+    tool_id: str,
+    body: ToolOrgArgsRequest,
+    admin: UserResponse = Depends(require_permission("tool:write")),
+) -> ToolResponse:
+    """配置官方工具的工具级统一凭证（sensitive 字段 enc: 加密存储）。"""
+    doc = await ToolService.save_org_args(admin.id, tool_id, body.user_args)
+    if doc is None:
+        raise NotFoundError(code="TOOL_NOT_FOUND", message=f"Tool {tool_id} 不存在")
+    return _doc_to_response(doc)
+
+
 class CustomToolCreate(BaseModel):
-    """Request body for creating a custom tool (openapi / code / prebuilt)."""
+    """Request body for creating a custom tool (openapi / code)."""
 
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
-    source: str = Field(..., description="openapi | code | prebuilt")
+    source: str = Field(..., description="openapi | code")
     user_args_schema: dict[str, Any] = Field(
         default_factory=dict,
         description="用户参数 schema（Agent 绑定时填入）。sensitive=true 加密。",
@@ -259,14 +282,13 @@ class CustomToolCreate(BaseModel):
     )
     endpoint: dict[str, Any] = Field(default_factory=dict)
     code: str = Field(default="")
-    prebuilt_name: str = Field(default="")
 
 
 @router.post(
     "",
     response_model=ToolResponse,
     status_code=201,
-    summary="Create a custom tool (OpenAPI / Code / Prebuilt)",
+    summary="Create a custom tool (OpenAPI / Code)",
     responses={
         403: {"description": "Forbidden — tool:write permission required"},
         409: {"description": "Tool name conflict"},
@@ -274,14 +296,17 @@ class CustomToolCreate(BaseModel):
 )
 async def create_custom_tool(
     body: CustomToolCreate,
-    _: UserResponse = Depends(require_permission("tool:write")),
+    user: UserResponse = Depends(require_permission("tool:write")),
 ) -> ToolResponse:
     """Create a custom tool from user configuration (no file upload needed).
 
-    Supports three source types:
+    Supports two source types:
     - ``openapi``: HTTP endpoint with template-based URL/headers
     - ``code``: User-defined Python code executed in sandbox
-    - ``prebuilt``: References a prebuilt tool from the tool registry
+
+    Legacy 入口：旧管理端（frontend/）仍在调用；工具落 tools 表、默认停用。
+    新工具请走 ``POST /user-tools``（组织库统一治理流程：审查→开启），
+    tools 表的 openapi/code 仅保留存量兼容，不再新增。
     """
     doc = await ToolService.create_custom_tool(
         name=body.name,
@@ -291,7 +316,7 @@ async def create_custom_tool(
         llm_args_schema=body.llm_args_schema,
         endpoint=body.endpoint,
         code=body.code,
-        prebuilt_name=body.prebuilt_name,
+        created_by=user.id,
     )
     return ToolResponse(**doc)
 

@@ -48,6 +48,7 @@ export const VALIDATION_ERROR_CODES = {
   AGENT_MISSING_ID: 'AGENT_MISSING_ID',
   AGENT_MISSING_QUERY: 'AGENT_MISSING_QUERY',
   TOOL_MISSING_ID: 'TOOL_MISSING_ID',
+  TOOL_SKILL_SOURCE: 'TOOL_SKILL_SOURCE',
   GATEWAY_NO_CONDITIONS: 'GATEWAY_NO_CONDITIONS',
   GATEWAY_INVALID_CONDITION: 'GATEWAY_INVALID_CONDITION',
   HUMAN_MISSING_TITLE: 'HUMAN_MISSING_TITLE',
@@ -224,6 +225,16 @@ function validateNodeConfigs(nodes: WorkflowNode[]): ValidationError[] {
             level: 'error',
             code: VALIDATION_ERROR_CODES.TOOL_MISSING_ID,
             message: `工具节点 "${nodeLabel}" 必须选择一个工具`,
+            nodeId: node.node_id,
+          })
+        } else if (config.tool_source === 'markdown' || config.tool_source === 'skill') {
+          // markdown/skill 工具节点只透传说明，完整执行需下游 Agent 节点
+          issues.push({
+            id: `tool_skill_source_${node.node_id}`,
+            category: 'config',
+            level: 'warning',
+            code: VALIDATION_ERROR_CODES.TOOL_SKILL_SOURCE,
+            message: `工具节点 "${nodeLabel}" 选择的 Skill 类工具仅透传说明，需由下游 Agent 节点执行`,
             nodeId: node.node_id,
           })
         }

@@ -61,8 +61,14 @@ class LocalSandbox(Sandbox):
 
     # ── 命令执行 ──────────────────────────────────────────────────────
 
-    def execute_command(self, command: str, *, timeout: int | None = None) -> SandboxResult:
-        """执行 shell 命令，超时强制 kill。"""
+    def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: int | None = None,
+        env: dict[str, str] | None = None,
+    ) -> SandboxResult:
+        """执行 shell 命令，超时强制 kill。env 合并注入子进程，不污染宿主。"""
         effective_timeout = timeout if timeout is not None else self._timeout
         start = time.monotonic()
         try:
@@ -71,6 +77,7 @@ class LocalSandbox(Sandbox):
                 cwd=str(self._work_dir),
                 capture_output=True,
                 timeout=effective_timeout,
+                env={**os.environ, **(env or {})},
             )
             duration = time.monotonic() - start
             return SandboxResult(

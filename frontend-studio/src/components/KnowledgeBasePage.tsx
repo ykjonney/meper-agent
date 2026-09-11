@@ -5,9 +5,10 @@
  * open KbDetailPage (file management). Modelled on AgentSpace.
  */
 import { useState, type FormEvent } from 'react';
-import { Plus, BookOpen, Trash2, Loader2, FileText, Search } from 'lucide-react';
+import { Plus, BookOpen, Trash2, Loader2, FileText, Search, Sparkles } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { knowledgeApi, knowledgeKeys } from '../services/knowledge-api';
+import { modelApi } from '../services/model-api';
 import { usePermission } from '../hooks/use-permission';
 import { confirmDialog } from './ui/confirm';
 import { toast } from './ui/toast';
@@ -24,14 +25,14 @@ type KbType = 'tree' | 'vector';
 function TypeBadge({ type }: { type: KbType }) {
   if (type === 'vector') {
     return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-950/40 border border-emerald-700/40 text-emerald-400">
-        <Search className="w-2.5 h-2.5" />向量
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-300">
+        <Search className="w-3 h-3" />向量
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-950/40 border border-indigo-700/40 text-indigo-400">
-      <BookOpen className="w-2.5 h-2.5" />文档树
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-300">
+      <Sparkles className="w-3 h-3" />Wiki
     </span>
   );
 }
@@ -48,7 +49,15 @@ export function KnowledgeBasePage({
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newType, setNewType] = useState<KbType>('tree');
+  const [newBuilderModel, setNewBuilderModel] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const { data: modelsData } = useQuery({
+    queryKey: ['models', 'wiki-builder'],
+    queryFn: () => modelApi.list({ page_size: 100 }),
+    enabled: isCreating && newType === 'tree',
+  });
+  const activeModels = (modelsData?.items ?? []).filter((m) => m.status === 'active');
 
   const { data, isLoading } = useQuery({
     queryKey: knowledgeKeys.list({}),
@@ -57,8 +66,12 @@ export function KnowledgeBasePage({
   const kbs = data?.items ?? [];
 
   const createM = useMutation({
-    mutationFn: (input: { name: string; description?: string; type?: KbType }) =>
-      knowledgeApi.create(input),
+    mutationFn: (input: {
+      name: string;
+      description?: string;
+      type?: KbType;
+      builder_model_id?: string;
+    }) => knowledgeApi.create(input),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: knowledgeKeys.all });
       setError(null);
@@ -66,6 +79,7 @@ export function KnowledgeBasePage({
       setNewName('');
       setNewDesc('');
       setNewType('tree');
+      setNewBuilderModel('');
       onOpenKb({ id: created.id, name: created.name, type: created.type });
     },
     onError: (e: unknown) => setError(getErrorMessage(e, '创建失败')),
@@ -96,6 +110,7 @@ export function KnowledgeBasePage({
       name: newName.trim(),
       description: newDesc.trim() || undefined,
       type: newType,
+      ...(newType === 'tree' ? { builder_model_id: newBuilderModel } : {}),
     });
   };
 
@@ -109,7 +124,7 @@ export function KnowledgeBasePage({
             知识库 ({kbs.length})
           </h2>
           <p className="text-xs text-[#71717a]">
-            文档树（agent 探索 kb_glob/grep/read）与向量库（agent/workflow 检索 kb_search）并存。
+            文档树 / Wiki（AI 编译维护）/ 向量库（RAG 检索）三种形态并存，均可绑定到 Agent。
           </p>
         </div>
         {canWrite && (
@@ -143,18 +158,18 @@ export function KnowledgeBasePage({
             >
               <div className="p-5 space-y-3">
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-11 h-11 bg-[#121214] rounded-xl flex items-center justify-center border border-[#27272a]">
                       {kbType === 'vector'
                         ? <Search className="w-5 h-5 text-emerald-400" />
                         : <BookOpen className="w-5 h-5 text-indigo-400" />}
                     </div>
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-white">{kb.name}</h4>
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h4 className="text-sm font-bold text-white truncate min-w-0" title={kb.name}>{kb.name}</h4>
                         <TypeBadge type={kbType} />
                       </div>
-                      <span className="text-[10px] text-[#71717a] font-mono">{kb.id}</span>
+                      <span className="text-[10px] text-[#71717a] font-mono block truncate" title={kb.id}>{kb.id}</span>
                     </div>
                   </div>
                   {canWrite && (
@@ -222,9 +237,9 @@ export function KnowledgeBasePage({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 text-white font-semibold">
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-400" />文档树
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-400" />Wiki（AI 维护）
                     </div>
-                    <p className="text-[10px] text-[#71717a] mt-0.5">.md 文件，agent 用 glob/grep/read 探索</p>
+                    <p className="text-[10px] text-[#71717a] mt-0.5">上传源资料，AI 编译成带引用的 wiki 页面</p>
                   </button>
                   <button
                     type="button"
@@ -241,11 +256,26 @@ export function KnowledgeBasePage({
                     <p className="text-[10px] text-[#71717a] mt-0.5">PDF/Word/MD，语义检索 + 重排</p>
                   </button>
                 </div>
+                {newType === 'tree' && (
+                  <div className="space-y-1">
+                    <label className="text-slate-400 font-semibold uppercase tracking-wide">构建模型</label>
+                    <select
+                      value={newBuilderModel}
+                      onChange={(e) => setNewBuilderModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition cursor-pointer"
+                    >
+                      <option value="">稍后在详情页选择</option>
+                      {activeModels.map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
               <p className="text-[10px] text-[#52525b] italic">
-                {newType === 'tree'
-                  ? '创建后进入详情页，可上传 .md 文件。'
-                  : '创建后进入详情页，可上传文档并查看索引状态。需在 .env 配置 KB_EMBEDDING_* 后方可索引。'}
+                {newType === 'vector'
+                  ? '创建后进入详情页，可上传文档并查看索引状态。需在 .env 配置 KB_EMBEDDING_* 后方可索引。'
+                  : '创建后上传源资料（PDF/Word/MD/…），选择构建模型即可一键「构建 Wiki」；sources/ 只读，wiki 页由 AI 维护。'}
               </p>
               <div className="p-4 border-t border-[#27272a] bg-[#121214] flex justify-end gap-3 -mx-6 -mb-6">
                 <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">

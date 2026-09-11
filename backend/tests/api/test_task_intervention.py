@@ -1,5 +1,5 @@
 """Tests for Task intervention variables write behavior (spec-human-node-approval)."""
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.core.security import create_access_token
@@ -97,6 +97,8 @@ def test_intervene_approve_writes_human_decision_to_variables(auth_token: str, c
         assert expected_key in variables, f"Missing key {expected_key} in {variables}"
         decision = variables[expected_key]
         assert decision["decision"] == "approve"
+        # 审批决策同时修正节点 status（覆盖执行器写入的 waiting_human）
+        assert decision["status"] == "approved"
         assert decision["comment"] == "数据已确认"
         assert decision["approver"] == USER_ID
         assert "decided_at" in decision and decision["decided_at"]
@@ -112,10 +114,16 @@ def test_intervene_reject_writes_comment_to_variables(auth_token: str, current_u
         updated_doc = {**task_doc, "status": "failed", "version": task_doc["version"] + 1}
 
         update_variables_mock = AsyncMock(return_value=updated_doc)
+        checkpoint_clear_mock = AsyncMock()
         with (
             patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
             patch.object(tasks_module.TaskService, "transition_task", AsyncMock(return_value=updated_doc)),
             patch.object(tasks_module.TaskService, "update_variables", update_variables_mock),
+            # reject 是终态，需 mock 掉清 checkpoint 的 DB 写入（CI 无 Mongo）
+            patch.object(
+                tasks_module.TaskService, "_collection",
+                return_value=MagicMock(update_one=checkpoint_clear_mock),
+            ),
         ):
             status_code, payload = _post_intervene(
                 client,
@@ -128,9 +136,16 @@ def test_intervene_reject_writes_comment_to_variables(auth_token: str, current_u
         expected_key = f"human_decision_{_sanitize_node_id(HUMAN_NODE_ID)}"
         decision = variables[expected_key]
         assert decision["decision"] == "reject"
+        assert decision["status"] == "rejected"
         assert decision["comment"] == "质检不通过"
         assert decision["approver"] == USER_ID
         assert "decided_at" in decision and decision["decided_at"]
+        # 终态必须清空 checkpoint：残留的 paused_at_node 会让前端把审批节点
+        # 误显示为「审批中」
+        assert checkpoint_clear_mock.await_count == 1
+        clear_filter, clear_update = checkpoint_clear_mock.await_args.args
+        assert clear_filter == {"_id": TASK_ID}
+        assert clear_update["$set"]["checkpoint"] is None
     finally:
         app.dependency_overrides.clear()
 
@@ -151,6 +166,11 @@ def test_intervene_attaches_node_attribution_to_timeline(
             patch.object(tasks_module.TaskService, "transition_task", transition_mock),
             patch.object(tasks_module.TaskService, "update_variables", AsyncMock(return_value=updated_doc)),
             patch.object(tasks_module.TaskService, "resume_task_execution"),
+            # reject 分支终态清 checkpoint 走 DB 写入（CI 无 Mongo，mock 掉）
+            patch.object(
+                tasks_module.TaskService, "_collection",
+                return_value=MagicMock(update_one=AsyncMock()),
+            ),
         ):
             status_code, payload = _post_intervene(client, {"action": action, "version": task_doc["version"]})
 
@@ -238,6 +258,11 @@ def test_intervene_reject_uses_comment_in_error_message(auth_token: str, current
             patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
             patch.object(tasks_module.TaskService, "transition_task", transition_mock),
             patch.object(tasks_module.TaskService, "update_variables", AsyncMock(return_value=updated_doc)),
+            # reject 终态清 checkpoint 走 DB 写入（CI 无 Mongo，mock 掉）
+            patch.object(
+                tasks_module.TaskService, "_collection",
+                return_value=MagicMock(update_one=AsyncMock()),
+            ),
         ):
             status_code, payload = _post_intervene(
                 client,
@@ -364,6 +389,11 @@ def test_intervene_reject_json_comment_renders_in_error_message(current_user: Us
             patch.object(tasks_module.TaskService, "get_task_or_404", AsyncMock(return_value=task_doc)),
             patch.object(tasks_module.TaskService, "transition_task", transition_mock),
             patch.object(tasks_module.TaskService, "update_variables", AsyncMock(return_value=updated_doc)),
+            # reject 终态清 checkpoint 走 DB 写入（CI 无 Mongo，mock 掉）
+            patch.object(
+                tasks_module.TaskService, "_collection",
+                return_value=MagicMock(update_one=AsyncMock()),
+            ),
         ):
             status_code, payload = _post_intervene(
                 client,

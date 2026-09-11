@@ -179,6 +179,31 @@ async def create_indexes() -> None:
         "idx_skill_logs_round, uq_message_feedback_round"
     )
 
+    # 用户工具（工具市场）
+    await _create_user_tool_indexes(db)
+
+
+async def _create_user_tool_indexes(db) -> None:
+    """组织工具库索引——组织内名称唯一 + 目录排序 + 投票唯一键。"""
+    # 名称唯一按归一化键判定（send-email/send_email/SendEmail 同名）；
+    # sparse 兼容未回填 name_key 的存量文档，应用层校验为第一道防线。
+    await db.user_tools.drop_index("uq_user_tools_name")
+    await db.user_tools.create_index(
+        "name_key", name="uq_user_tools_name_key", unique=True, sparse=True
+    )
+    await db.user_tools.create_index(
+        [("status", 1), ("stats.up", -1)],
+        name="idx_user_tools_marketplace",
+    )
+    await db.tool_votes.create_index(
+        [("user_id", 1), ("tool_id", 1)],
+        name="uq_tool_votes",
+        unique=True,
+    )
+    logger.info(
+        "Created indexes: uq_user_tools_name_key, idx_user_tools_marketplace, uq_tool_votes"
+    )
+
 
 if __name__ == "__main__":
     import asyncio

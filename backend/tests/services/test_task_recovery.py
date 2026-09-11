@@ -241,3 +241,29 @@ class TestRecoverOrphanRunningTasks:
                 find_kwargs = mock_collection.find.call_args.args[0]
                 assert "updated_at" in find_kwargs
                 assert "$lt" in find_kwargs["updated_at"]
+
+    @pytest.mark.asyncio
+    async def test_orphan_failed_clears_checkpoint(self) -> None:
+        """孤儿任务标记 failed 时必须同时清空 checkpoint——残留的
+        paused_at_node 会让前端把暂停过的人工审批节点误显示为「审批中」。"""
+        from app.services.task_recovery import _mark_orphan_running_failed
+
+        mock_collection = MagicMock()
+        mock_collection.update_one = AsyncMock(
+            return_value=MagicMock(matched_count=1)
+        )
+        with patch("app.services.task_recovery.get_database") as mock_db:
+            mock_db.return_value = {"tasks": mock_collection}
+            await _mark_orphan_running_failed(
+                task_id="task_orphan_ckpt",
+                node_id="node_human_1",
+                node_type="human",
+            )
+
+        update_filter, update_doc = mock_collection.update_one.await_args.args
+        assert update_filter == {
+            "_id": "task_orphan_ckpt",
+            "status": TaskStatus.RUNNING.value,
+        }
+        assert update_doc["$set"]["status"] == TaskStatus.FAILED.value
+        assert update_doc["$set"]["checkpoint"] is None

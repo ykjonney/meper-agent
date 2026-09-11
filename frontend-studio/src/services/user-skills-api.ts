@@ -75,12 +75,12 @@ export const userSkillsApi = {
     const form = new FormData()
     form.append('file', file)
     return apiClient
-      .post<{ avatar: string }>(`/api/v1/user-skills/\${skillId}/avatar`, form)
+      .post<{ avatar: string }>(`/api/v1/user-skills/${skillId}/avatar`, form)
       .then((r) => r.data)
   },
 
   removeAvatar(skillId: string) {
-    return apiClient.delete<{ avatar: string }>(`/api/v1/user-skills/\${skillId}/avatar`).then((r) => r.data)
+    return apiClient.delete<{ avatar: string }>(`/api/v1/user-skills/${skillId}/avatar`).then((r) => r.data)
   },
 
   remove(skillId: string) {

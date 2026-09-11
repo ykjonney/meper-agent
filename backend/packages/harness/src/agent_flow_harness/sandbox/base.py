@@ -39,8 +39,15 @@ class Sandbox(ABC):
         ...
 
     @abstractmethod
-    def execute_command(self, command: str, *, timeout: int = 120) -> SandboxResult:
-        """执行 shell 命令。"""
+    def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: int = 120,
+        env: dict[str, str] | None = None,
+    ) -> SandboxResult:
+        """执行 shell 命令。env 为额外注入的环境变量（凭证等，
+        不污染宿主进程环境）。"""
         ...
 
     @abstractmethod

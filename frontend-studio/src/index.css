@@ -444,9 +444,10 @@
   color: #64748b !important;
 }
 
-/* Input Fields, select dropdown, and Textareas */
-.theme-light input,
-.theme-light textarea {
+/* Input Fields, select dropdown, and Textareas
+   (.code-editor-input 除外——代码编辑器输入层需保持透明以透出高亮回显层) */
+.theme-light input:not(.code-editor-input),
+.theme-light textarea:not(.code-editor-input) {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
   color: #0f172a !important;
@@ -952,4 +953,27 @@
 }
 .theme-light .var-editor:empty::before {
   color: #94a3b8;
+}
+
+/* ── 固定视口壳层：文档级滚动一律禁止 ──────────────────────────────
+ * App 根节点是 h-dvh + overflow-hidden 的固定布局，所有滚动都发生在
+ * 内部容器（主区/文件树/阅读器）。这里把 html/body/#root 也锁死，
+ * 防止任何逃逸裁剪链的元素（如 mermaid 渲染容器、绝对定位残骸）
+ * 在特定引擎（Safari 对 scrollable overflow 的判定与 Chrome 不同）
+ * 或渲染瞬间把整个窗口撑出滚动区——「页面被顶上去+底部空白」的
+ * 症状类别从此在物理上不可能发生。 */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* absolute 元素的包含块兜底：remark-gfm 脚注的 .sr-only 标签、下拉气泡等
+ * position:absolute 元素在没有 positioned 祖先时会以初始视口为包含块，
+ * 逃逸整条 overflow 裁剪链，把文档 scrollable 区域撑出「幻影高度」
+ * （页面被顶上去 + 底部空白的根源）。#root 恰好铺满视口（height:100%），
+ * 成为包含块后坐标不变，但从此被 overflow:hidden 正确裁剪。 */
+#root {
+  position: relative;
 }

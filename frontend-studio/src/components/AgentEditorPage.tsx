@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { agentApi, agentKeys, type AgentUpdateInput } from '../services/agent-api';
 import { modelApi, modelKeys } from '../services/model-api';
 import { toolsApi, toolKeys, type BuiltinTool } from '../services/tools-api';
+import { userToolsApi, userToolKeys } from '../services/user-tools-api';
 import { mcpApi, mcpKeys } from '../services/mcp-api';
 import { workflowsApi, workflowKeys } from '../services/workflows-api';
 import { knowledgeApi, knowledgeKeys } from '../services/knowledge-api';
@@ -100,6 +101,29 @@ export function AgentEditorPage({
     queryFn: () => knowledgeApi.list({ page: 1, page_size: 100 }),
   });
   const knowledgeBases = kbData?.items ?? [];
+
+  // 自定义工具候选：组织库「已开启」工具全集（官方 active + uto_ published&enabled）。
+  // 凭证为工具级统一配置（admin 维护），绑定只需选工具——勾选即绑。
+  const { data: enabledToolsData } = useQuery({
+    queryKey: userToolKeys.enabled(),
+    queryFn: () => userToolsApi.listEnabled(),
+  });
+  const customToolCandidates: CustomToolCandidate[] = useMemo(
+    () => (enabledToolsData ?? []).map((t) => ({ id: t.id, name: t.name, source: t.source })),
+    [enabledToolsData],
+  );
+
+  /** 勾选/移除自定义工具（凭证工具级统一，无需绑定时填写） */
+  const handleCustomToggle = (toolId: string) => {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const bindings = prev.customTools ?? [];
+      const next = bindings.some((b) => b.tool_id === toolId)
+        ? bindings.filter((b) => b.tool_id !== toolId)
+        : [...bindings, { tool_id: toolId, user_args: {} }];
+      return { ...prev, customTools: next };
+    });
+  };
 
   const updateM = useMutation({
     mutationFn: (input: AgentUpdateInput) => agentApi.update(agentId, input),
@@ -426,6 +450,16 @@ export function AgentEditorPage({
               <ToolChip key={`kb:${kb.id}`} label={kb.name} checked={form.skills.includes(`kb:${kb.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `kb:${kb.id}`) })} />
             ))}
           </ToolGroup>
+          <ToolGroup title="自定义工具 (OpenAPI / Code)" hint={customToolCandidates.length === 0 ? '暂无已开启的工具——需在工具库中开启' : undefined}>
+            {customToolCandidates.map((c) => (
+              <ToolChip
+                key={c.id}
+                label={c.name}
+                checked={(form.customTools ?? []).some((b) => b.tool_id === c.id)}
+                onToggle={() => handleCustomToggle(c.id)}
+              />
+            ))}
+          </ToolGroup>
         </Section>
 
       </div>
@@ -632,3 +666,19 @@ const ToolChip: FC<{ label: string; checked: boolean; onToggle: () => void }> = 
     {checked ? '✓ ' : ''}{label}
   </button>
 );
+
+/* ── 自定义工具绑定 ── */
+
+interface CustomToolCandidate {
+  id: string;
+  name: string;
+  source: string;
+}
+
+/**
+ * 单个已绑定自定义工具的 user_args 表单——按 user_args_schema 渲染。
+ *
+ * 回显脱敏：已加密值（enc: 前缀）显示空 + placeholder「已设置」，未改动
+ * 则保留原值提交（后端不重复加密）；输入新值即覆盖。
+ * 用户工具（uto_）的 schema 在详情里，按需查询。
+ */

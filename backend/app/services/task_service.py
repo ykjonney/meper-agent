@@ -1325,6 +1325,7 @@ class TaskService:
             if human_node_id:
                 decision_data = {
                     "decision": "approve",
+                    "status": "approved",
                     "comment": _normalize_comment(comment),
                     "approver": triggered_by,
                     "decided_at": utc_now().isoformat(),
@@ -1381,6 +1382,7 @@ class TaskService:
             if human_node_id:
                 decision_data = {
                     "decision": "reject",
+                    "status": "rejected",
                     "comment": _normalize_comment(comment),
                     "approver": triggered_by,
                     "decided_at": utc_now().isoformat(),
@@ -1398,6 +1400,15 @@ class TaskService:
                     version=doc.get("version", 1),
                     reason=comment,
                     triggered_by=triggered_by,
+                )
+            # Terminal state — clear checkpoint (update_variables above syncs
+            # checkpoint.variable_snapshot, so clear afterwards): paused_at_node
+            # is a stale signal once the decision is made and would keep the
+            # frontend showing the human node as "waiting".
+            if human_node_id:
+                await TaskService._collection().update_one(
+                    {"_id": task_id},
+                    {"$set": {"checkpoint": None, "updated_at": utc_now()}},
                 )
 
         elif action == "cancel":

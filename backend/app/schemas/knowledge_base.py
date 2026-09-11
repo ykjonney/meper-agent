@@ -43,6 +43,11 @@ class KnowledgeBaseResponse(BaseModel):
     description: str = ""
     type: str = "tree"
     embedding_model_id: str = ""
+    # ── Wiki (THE tree-KB behaviour) ────────────────────────────────
+    builder_model_id: str = ""
+    last_build_status: str = ""
+    last_build_at: str = ""
+    last_build_error: str = ""
     owner_user_id: str = ""
     status: str = "active"
     file_count: int = 0
@@ -69,6 +74,10 @@ class KnowledgeBaseCreate(BaseModel):
         default="tree",
         description="tree (Markdown 文件树，agent 探索) / vector (RAG 语义检索)",
     )
+    builder_model_id: str = Field(
+        default="",
+        description="tree（Wiki）型的构建模型（Model 表 _id，用于一键构建）",
+    )
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -76,6 +85,9 @@ class KnowledgeBaseUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
+    builder_model_id: str | None = Field(
+        default=None, description="Wiki 构建模型（Model 表 _id）"
+    )
 
 
 class KbUploadErrorItem(BaseModel):
@@ -163,3 +175,51 @@ class KbChunkItem(BaseModel):
     page: int | None = None
     section: str = ""
     image_ref_ids: list[str] = Field(default_factory=list)
+
+
+# ── Wiki mode (llmwiki-style compiled wiki on tree KBs) ─────────────────
+
+
+class KbWikiSourceItem(BaseModel):
+    """One source file in a wiki-mode KB (with extraction status)."""
+
+    path: str
+    name: str
+    size: int = 0
+    file_type: str = ""
+    status: str = Field(
+        "ready", description="pending / processing / ready / failed（md 恒为 ready）"
+    )
+    error: str = ""
+    has_registry: bool = Field(True, description="是否在登记表中（False=手动放入）")
+
+
+class KbWikiFilesResponse(BaseModel):
+    """Wiki-mode file view: page tree + source list."""
+
+    kb_id: str
+    wiki: list[KbFileTreeNode] = Field(default_factory=list)
+    sources: list[KbWikiSourceItem] = Field(default_factory=list)
+
+
+class KbWikiLintIssue(BaseModel):
+    """One lint finding."""
+
+    severity: str = Field(..., description="error / warn / info")
+    rule: str
+    path: str
+    detail: str
+
+
+class KbWikiLintStats(BaseModel):
+    page_count: int = 0
+    source_count: int = 0
+    cited_source_count: int = 0
+    error_count: int = 0
+    warn_count: int = 0
+
+
+class KbWikiLintResponse(BaseModel):
+    issues: list[KbWikiLintIssue] = Field(default_factory=list)
+    stats: KbWikiLintStats = Field(default_factory=KbWikiLintStats)
+

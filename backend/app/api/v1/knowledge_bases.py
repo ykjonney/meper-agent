@@ -17,6 +17,11 @@ from app.schemas.knowledge_base import (
     KbSearchResultItem,
     KbUploadErrorItem,
     KbUploadResponse,
+    KbWikiFilesResponse,
+    KbWikiLintIssue,
+    KbWikiLintResponse,
+    KbWikiLintStats,
+    KbWikiSourceItem,
     KnowledgeBaseCreate,
     KnowledgeBaseListResponse,
     KnowledgeBaseResponse,
@@ -39,6 +44,10 @@ def _doc_to_response(doc: dict) -> KnowledgeBaseResponse:
         description=doc.get("description", ""),
         type=doc.get("type", "tree"),
         embedding_model_id=doc.get("embedding_model_id", ""),
+        builder_model_id=doc.get("builder_model_id", ""),
+        last_build_status=doc.get("last_build_status", ""),
+        last_build_at=doc.get("last_build_at", ""),
+        last_build_error=doc.get("last_build_error", ""),
         owner_user_id=doc.get("owner_user_id", ""),
         status=doc.get("status", "active"),
         file_count=doc.get("file_count", 0),
@@ -76,6 +85,7 @@ async def create_kb(
         description=body.description,
         owner_user_id=user.id,
         type=body.type,
+        builder_model_id=body.builder_model_id,
     )
     return _doc_to_response(doc)
 
@@ -142,7 +152,10 @@ async def update_kb(
     from app.core.errors import NotFoundError
 
     doc = await KnowledgeBaseService.update_kb(
-        kb_id, name=body.name, description=body.description
+        kb_id,
+        name=body.name,
+        description=body.description,
+        builder_model_id=body.builder_model_id,
     )
     if doc is None:
         raise NotFoundError(code="KB_NOT_FOUND", message=f"知识库 {kb_id} 不存在")
@@ -503,4 +516,112 @@ async def search_kb(
         query=body.query,
         results=[KbSearchResultItem(**r) for r in results],
     )
+
+
+# ── Wiki mode (llmwiki-style compiled wiki on tree KBs) ─────────────────
+
+
+async def _require_wiki_kb(kb_id: str) -> dict:
+    """Fetch a KB and ensure it is tree-typed (tree == wiki)."""
+    from app.core.errors import NotFoundError, ValidationError
+
+    doc = await KnowledgeBaseService.get_kb(kb_id)
+    if doc is None:
+        raise NotFoundError(code="KB_NOT_FOUND", message=f"知识库 {kb_id} 不存在")
+    if doc.get("type", "tree") != "tree":
+        raise ValidationError(
+            code="KB_NOT_TREE",
+            message=f"知识库 {kb_id} 不是 tree 类型，不支持此操作",
+        )
+    return doc
+
+
+@router.get(
+    "/{kb_id}/wiki/files",
+    response_model=KbWikiFilesResponse,
+    summary="Wiki-mode file view: page tree + source list with status",
+    responses={
+        403: {"description": "Forbidden — knowledge:read required"},
+        404: {"description": "Knowledge base not found"},
+    },
+)
+async def get_wiki_files(
+    kb_id: str,
+    _: UserResponse = Depends(require_permission("knowledge:read")),
+) -> KbWikiFilesResponse:
+    """List wiki pages (tree) and sources (with extraction status)."""
+    from app.core.errors import NotFoundError
+
+    await _require_wiki_kb(kb_id)
+    data = await KnowledgeBaseService.get_wiki_files(kb_id)
+    if data is None:
+        raise NotFoundError(code="KB_NOT_FOUND", message=f"知识库 {kb_id} 不存在")
+    return KbWikiFilesResponse(
+        kb_id=kb_id,
+        wiki=[_dict_to_node(d) for d in data["wiki"]],
+        sources=[KbWikiSourceItem(**s) for s in data["sources"]],
+    )
+
+
+@router.get(
+    "/{kb_id}/wiki/lint",
+    response_model=KbWikiLintResponse,
+    summary="Run wiki hygiene checks",
+    responses={
+        403: {"description": "Forbidden — knowledge:read required"},
+        404: {"description": "Knowledge base not found"},
+    },
+)
+async def lint_wiki(
+    kb_id: str,
+    _: UserResponse = Depends(require_permission("knowledge:read")),
+) -> KbWikiLintResponse:
+    """Same checks as the agent's kb_lint tool, exposed for the UI."""
+    from app.engine.kb.tree.lint import run_lint
+
+    await _require_wiki_kb(kb_id)
+    report = run_lint(kb_id)
+    return KbWikiLintResponse(
+        issues=[KbWikiLintIssue(**i) for i in report["issues"]],
+        stats=KbWikiLintStats(**report["stats"]),
+    )
+
+
+@router.post(
+    "/{kb_id}/wiki/build",
+    summary="Dispatch the one-click wiki build (Celery)",
+    responses={
+        403: {"description": "Forbidden — knowledge:write required"},
+        404: {"description": "Knowledge base not found"},
+        409: {"description": "A build is already running"},
+        422: {"description": "Wiki mode off or builder model unset"},
+    },
+)
+async def build_wiki(
+    kb_id: str,
+    _: UserResponse = Depends(require_permission("knowledge:write")),
+) -> dict:
+    """Run the LLM ingest routine over undigested sources."""
+    from app.core.errors import ConflictError, ValidationError
+
+    doc = await _require_wiki_kb(kb_id)
+    if doc.get("last_build_status") == "running":
+        from app.services.kb_wiki_builder import is_stale_running
+
+        if not is_stale_running(doc):
+            raise ConflictError(
+                code="KB_WIKI_BUILD_RUNNING",
+                message="构建正在进行中，请稍后再试",
+            )
+        # 卡死 claim（worker 被杀后 SIGKILL 未来得及置 failed）——放行重派；
+        # 任务侧原子 claim 仍兜底真正的并发。
+    if not (doc.get("builder_model_id") or "").startswith("model_"):
+        raise ValidationError(
+            code="KB_WIKI_NO_BUILDER_MODEL",
+            message="尚未配置构建模型（builder_model_id），请先在知识库设置中选择",
+        )
+    from app.services.kb_wiki_builder import dispatch_build_task
+
+    dispatch_build_task(kb_id)
+    return {"status": "dispatched", "kb_id": kb_id}
 

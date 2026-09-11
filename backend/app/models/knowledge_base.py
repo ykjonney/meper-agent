@@ -39,6 +39,16 @@ class KnowledgeBase(BaseModel):
     # Vector KB only: which embedding model generated the dense vectors.
     # Mirrors settings.KB_EMBEDDING_MODEL_ID at creation time.
     embedding_model_id: str = Field(default="")
+    # ── Wiki mode (THE tree-KB behaviour, llmwiki-style) ───────────────
+    # Every tree KB is a wiki: sources/ (raw materials, read-only) +
+    # wiki/ (AI-compiled layer). Legacy plain-tree KBs are migrated
+    # lazily by ``fs.ensure_wiki_layout`` (loose .md → sources/).
+    # Model-table id used by the one-click wiki builder (Celery task).
+    builder_model_id: str = Field(default="")
+    # Last build lifecycle: pending|running|completed|failed ("" = never).
+    last_build_status: str = Field(default="")
+    last_build_at: str = Field(default="")
+    last_build_error: str = Field(default="")
     owner_user_id: str = Field(default="")
     status: str = Field(default="active", description="active / archived")
     # Cached stats — refreshed by kb_service.recompute_stats after FS changes

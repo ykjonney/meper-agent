@@ -50,8 +50,11 @@ from agent_flow_harness.middleware import (
 from agent_flow_harness.mcp import (
     McpConnectionConfig,
     McpToolLoader,
+    get_external_required_context,
     get_user_token_context,
+    reset_external_required_context,
     reset_user_token_context,
+    set_external_required_context,
     set_user_token_context,
 )
 from agent_flow_harness.state import AgentState
@@ -186,6 +189,7 @@ __all__ = [
     "configure_checkpointer",
     "delegate_to_subagent",
     "get_checkpointer",
+    "get_external_required_context",
     "get_sandbox_context",
     "get_sandbox_provider",
     "get_subagent_context",
@@ -196,6 +200,7 @@ __all__ = [
     "grep",
     "read",
     "reset_checkpointer",
+    "reset_external_required_context",
     "reset_sandbox_context",
     "reset_sandbox_provider",
     "reset_subagent_context",
@@ -209,6 +214,7 @@ __all__ = [
     "run_agent",
     "run_agent_streaming",
     "run_code",
+    "set_external_required_context",
     "set_sandbox_context",
     "set_sandbox_provider",
     "set_subagent_context",

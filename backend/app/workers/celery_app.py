@@ -21,6 +21,8 @@ celery_app = Celery(
         "app.workers.tasks.channel_inbound",
         "app.workers.tasks.kb_indexing",
         "app.workers.tasks.human_timeout",
+        "app.workers.tasks.wiki_source_extract",
+        "app.workers.tasks.wiki_build",
     ],
 )
 
@@ -74,6 +76,11 @@ def _init_worker(**_kwargs: object) -> None:
     2. **MongoDB checkpointer** — 同上，harness 默认使用 ``InMemorySaver``，
        agent 节点的 checkpoint 只存在于内存中，进程重启后丢失，前端无法
        按 task+node 反查执行详情。
+
+    3. **MCP 凭证兑换器** — workflow task 全部在本进程执行，外部来源任务的
+       MCP 调用必须以终端用户身份兑换凭证。不注入时 harness 拦截器对
+       external_required 的调用按 fail-closed 拒绝（不会静默降级内部凭证，
+       但外部任务会全部失败），因此注入失败只记日志、不阻断 worker 启动。
     """
     # 1. 日志初始化 — 必须在打任何日志之前完成
     from app.core.logging import setup_logging
@@ -83,6 +90,19 @@ def _init_worker(**_kwargs: object) -> None:
     from app.core.checkpointer import configure_mongo_checkpointer
 
     configure_mongo_checkpointer(log_on_error=True)
+
+    # 3. MCP 用户凭证兑换器 — 与 FastAPI lifespan（app/main.py）对齐
+    try:
+        from agent_flow_harness.mcp.loader import set_credential_resolver
+
+        from app.engine.mcp.user_credential_resolver import UserCredentialResolver
+
+        set_credential_resolver(UserCredentialResolver())
+        logger.info("mcp_credential_resolver_injected", process="celery_worker")
+    except Exception as exc:
+        # fail-closed 已兜底：外部任务的 MCP 调用会被拦截器拒绝而非静默
+        # 降级为内部静态凭证；内部任务不受影响。
+        logger.error("mcp_resolver_init_failed", error=str(exc))
 
 
 @task_prerun.connect

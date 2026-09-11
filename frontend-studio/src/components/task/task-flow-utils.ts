@@ -47,15 +47,21 @@ export function hasTaskRejectSignal(timeline: TimelineEvent[]): boolean {
  * 规则（按优先级）：
  * 1. 有 node_failed → failed
  * 2. 审批被拒绝（reject 事件 / 超时 auto_reject·fail 事件 / decision='reject'）→ rejected
- * 3. pausedAtThisNode（checkpoint.paused_at_node 命中）→ waiting（人工审批中）；
- *    若存在任务级拒绝信号（存量事件无 node_id 无法归属节点）→ rejected
+ * 3. pausedAtThisNode（checkpoint.paused_at_node 命中）且**无审批决策信号** →
+ *    waiting（人工审批中）；有任务级拒绝信号（存量事件无 node_id 无法归属）
+ *    → rejected
  * 4. 有 node_complete → completed
  * 5. 有 node_start 但无 complete/failed → executing
  * 6. 否则 → pending
  *
- * 注：human 节点在暂停前就写入了 node_complete（引擎恢复信号），因此通过/跳过后
- * 走规则 4 显示「已完成」；拒绝时 checkpoint 不会清空（reject / 超时 fail 均如此），
- * 必须靠规则 2、3（在 waiting 之前）压过 pausedAtThisNode。decision 参数取
+ * 审批节点状态以**决策事件**为准：approve/skip 事件（后端已带 data.node_id
+ * 归属到本节点）或 decision='approve' 压制 waiting——checkpoint 要保留到
+ * 任务终态才清空（Celery resume 依赖它），若以其为准，审批通过后下游执行
+ * 期间、乃至下游失败（FAILED 不清 checkpoint）都会误显示「审批中」。
+ *
+ * 注：human 节点在暂停前就写入了 node_complete（引擎恢复信号），通过/跳过
+ * 后走规则 4 显示「已完成」；拒绝时（reject / 超时 fail 终态均不清
+ * checkpoint）靠规则 2、3 在 waiting 之前压制。decision 参数取
  * variables[node_id].decision，taskRejected 取 hasTaskRejectSignal(全量 timeline)。
  */
 export function getNodeExecState(
@@ -70,7 +76,9 @@ export function getNodeExecState(
     (e) => e.event_type === 'timeout' && (e.data?.timeout_action === 'auto_reject' || e.data?.timeout_action === 'fail'),
   )
   if (types.has('reject') || rejectedByTimeout || decision === 'reject') return 'rejected'
-  if (pausedAtThisNode) return taskRejected ? 'rejected' : 'waiting'
+  // 审批已决策（通过/跳过）→ 不再是「审批中」，落到规则 4 node_complete
+  const approved = types.has('approve') || types.has('skip') || decision === 'approve'
+  if (pausedAtThisNode && !approved) return taskRejected ? 'rejected' : 'waiting'
   if (types.has('node_complete')) return 'completed'
   if (types.has('node_start')) return 'executing'
   return 'pending'

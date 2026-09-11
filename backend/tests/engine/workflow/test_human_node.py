@@ -101,16 +101,30 @@ async def test_default_timeout_action_is_fail():
 
 
 @pytest.mark.asyncio
-async def test_description_pure_ref_dict_serialized_to_json():
+async def test_description_pure_ref_dict_serialized_to_pretty_json():
     """When description is a pure {{ref}} that resolves to a dict, it's JSON-serialized.
+
+    Description uses indent=2 (pretty, multi-line) — the frontend renders it as
+    Markdown / pre-wrap, where a compact one-liner loses all formatting.
+    Title stays single-line compact (one-line truncated display).
 
     Note: mixed text like 'data: {{ref}}' goes through Jinja2 string rendering,
     which produces Python repr for dicts. Only a *pure* reference preserves the
     dict and triggers JSON serialization in _resolve_to_str.
     """
-    executor = _make(config={"description": "{{input.payload}}"})
-    result = await executor.execute({"input": {"payload": {"key": "value"}}})
+    executor = _make(config={
+        "title": "{{input.payload}}",
+        "description": "{{input.payload}}",
+    })
+    result = await executor.execute({"input": {"payload": {"key": "value", "nested": {"a": 1}}}})
 
-    # Pure ref → dict → JSON serialization (no Python single-quote repr)
-    assert '"key"' in result.output["description"]
-    assert "'key'" not in result.output["description"]
+    # description: pure ref → dict → pretty JSON（多行 + 缩进，无 Python repr）
+    desc = result.output["description"]
+    assert '"key": "value"' in desc
+    assert '"nested": {' in desc
+    assert "\n" in desc  # indent=2 多行
+    assert "'key'" not in desc
+    # title: 同样解析为 dict，但保持单行紧凑（单行截断展示）
+    title = result.output["title"]
+    assert '"key": "value"' in title
+    assert "\n" not in title

@@ -93,29 +93,40 @@ class ToolService:
     async def create_custom_tool(
         *,
         name: str,
-        description: str,
+        description: str = "",
         source: str,
         user_args_schema: dict | None = None,
         llm_args_schema: dict | None = None,
         endpoint: dict | None = None,
         code: str = "",
-        prebuilt_name: str = "",
+        created_by: str = "",
     ) -> dict:
-        """Create a custom tool (openapi / code / prebuilt).
+        """Create a custom tool (openapi / code).
 
         Args:
             user_args_schema: 用户参数 schema（Agent 绑定时填入）。
                 字段标记 sensitive=true 的加密存储。
             llm_args_schema: LLM 参数 schema（运行时 LLM 填入）。
+            created_by: 创建者用户 id（市场/归属展示用）。
         """
         from app.models.tool import Tool
 
+        if source == "code" and (code or "").strip():
+            from app.services.user_tool_service import UserToolService
+
+            UserToolService._validate_code(code)
+
         existing = await ToolService.find_by_name(name)
+        if existing is None:
+            # 跨表归一化查重：组织库（uto_）已有同名（-/_ 变体、大小写）也拦
+            from app.services.user_tool_service import UserToolService
+
+            existing = await UserToolService.find_by_name(name)
         if existing:
             from app.core.errors import ValidationError
             raise ValidationError(
                 code="TOOL_NAME_EXISTS",
-                message=f"工具名 '{name}' 已存在",
+                message=f"工具名 '{name}' 已存在（组织内唯一，不区分大小写与 -/_ 变体）",
             )
 
         tool = Tool(
@@ -126,9 +137,11 @@ class ToolService:
             llm_args_schema=llm_args_schema or {},
             endpoint=endpoint or {},
             code=code,
-            prebuilt_name=prebuilt_name,
         )
         doc = tool.model_dump(by_alias=True)
+        # 归属与广场统计字段（模型未声明，服务层附加——与 markdown 创建路径一致）
+        doc["created_by"] = created_by
+        doc["stats"] = {"load_count": 0, "up": 0, "down": 0}
         db = get_database()
         await db[ToolService.COLLECTION].insert_one(doc)
         logger.info("custom_tool_created", tool_id=doc["_id"], name=name, source=source)
@@ -572,6 +585,81 @@ class ToolService:
             {"_id": tool_id},
             {"$set": {"avatar": avatar_url, "updated_at": utc_now().isoformat()}},
         )
+        return await ToolService.get_tool(tool_id)
+
+    @staticmethod
+    def is_tool_active(tool_doc: dict) -> bool:
+        """官方自定义工具是否可用（存量文档无 status 字段视为 active）。
+
+        仅约束 openapi/code 消费路径；MCP 镜像与其他来源不受影响。
+        """
+        if (tool_doc.get("source") or "") not in ("openapi", "code"):
+            return True
+        return (tool_doc.get("status") or "active") == "active"
+
+    @staticmethod
+    async def set_tool_status(tool_id: str, status: str) -> dict:
+        """启用/停用官方自定义工具（tool:write 调用）。
+
+        启用前校验定义完整性：openapi 必须有 endpoint.url、code 必须有代码——
+        防半成品被 Agent 绑定/工作流直调。停用全局生效（所有解析点跳过）。
+        """
+        from app.core.errors import ValidationError
+
+        if status not in ("active", "disabled"):
+            raise ValidationError(code="TOOL_STATUS_INVALID", message="status 仅支持 active | disabled")
+        doc = await ToolService.get_tool(tool_id)
+        if doc is None:
+            raise ValidationError(code="TOOL_NOT_FOUND", message=f"Tool {tool_id} 不存在")
+        if (doc.get("source") or "") not in ("openapi", "code"):
+            raise ValidationError(code="TOOL_STATUS_UNSUPPORTED", message="仅自定义工具（openapi/code）支持启停")
+
+        if status == "active":
+            missing: list[str] = []
+            if doc.get("source") == "openapi" and not (doc.get("endpoint") or {}).get("url"):
+                missing.append("endpoint.url")
+            if doc.get("source") == "code" and not (doc.get("code") or "").strip():
+                missing.append("code")
+            # 凭证完整性：定义了 user_args_schema 的字段必须在 org_user_args 配齐
+            props = (doc.get("user_args_schema") or {}).get("properties") or {}
+            org_args = doc.get("org_user_args") or {}
+            missing += [
+                key for key in props
+                if not (isinstance(org_args.get(key), str) and org_args[key].strip())
+            ]
+            if missing:
+                raise ValidationError(
+                    code="TOOL_DEFINITION_INCOMPLETE",
+                    message=f"工具定义/凭证不完整，无法启用：缺少 {'、'.join(missing)}",
+                )
+
+        await ToolService._collection().update_one(
+            {"_id": tool_id},
+            {"$set": {"status": status, "updated_at": utc_now().isoformat()}},
+        )
+        logger.info("tool_status_changed", tool_id=tool_id, status=status)
+        return await ToolService.get_tool(tool_id) or doc
+
+    @staticmethod
+    async def save_org_args(admin_id: str, tool_id: str, user_args: dict) -> dict | None:
+        """配置官方工具的工具级统一凭证（sensitive 加密，全使用点共用）。
+
+        合并语义（与组织库一致）：提交中缺失的字段保留旧值。
+        """
+        from app.services.user_tool_service import UserToolService
+
+        doc = await ToolService.get_tool(tool_id)
+        if doc is None:
+            return None
+        if (doc.get("source") or "") not in ("openapi", "code"):
+            raise ValidationError(code="TOOL_STATUS_UNSUPPORTED", message="仅自定义工具（openapi/code）支持凭证配置")
+        merged = {**(doc.get("org_user_args") or {}), **(user_args or {})}
+        encrypted = await UserToolService.encrypt_user_args(tool_id, merged)
+        await ToolService._collection().update_one(
+            {"_id": tool_id},
+            {"$set": {"org_user_args": encrypted, "updated_at": utc_now().isoformat()}},
+        )
+        logger.info("tool_org_args_saved", by=admin_id, tool_id=tool_id)
         return await ToolService.get_tool(tool_id)
 
     @staticmethod

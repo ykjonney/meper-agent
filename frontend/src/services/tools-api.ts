@@ -28,7 +28,6 @@ export interface Tool {
   llm_args_schema: Record<string, unknown>
   endpoint: Record<string, unknown>
   code: string
-  prebuilt_name: string
   version: number
   tags: string[]
   files: SkillFile[]
@@ -127,16 +126,7 @@ export const toolsApi = {
   },
 
   /**
-   * List prebuilt tools (platform-registered).
-   * GET /api/v1/tools/prebuilt
-   */
-  async listPrebuilt(): Promise<Record<string, unknown>[]> {
-    const res = await apiClient.get<Record<string, unknown>[]>('/api/v1/tools/prebuilt')
-    return res.data
-  },
-
-  /**
-   * Create a custom tool (OpenAPI / Code / Prebuilt).
+   * Create a custom tool (OpenAPI / Code).
    * POST /api/v1/tools
    */
   async createCustom(body: {
@@ -147,7 +137,6 @@ export const toolsApi = {
     llm_args_schema?: Record<string, unknown>
     endpoint?: Record<string, unknown>
     code?: string
-    prebuilt_name?: string
   }): Promise<Tool> {
     const res = await apiClient.post<Tool>('/api/v1/tools', body)
     return res.data
@@ -235,7 +224,6 @@ export const toolKeys = {
   list: (params: ToolListParams) => [...toolKeys.lists(), params] as const,
   builtins: () => [...toolKeys.all, 'builtin'] as const,
   appTools: () => [...toolKeys.all, 'app'] as const,
-  prebuilts: () => [...toolKeys.all, 'prebuilt'] as const,
   customTools: () => [...toolKeys.all, 'custom'] as const,
   details: () => [...toolKeys.all, 'detail'] as const,
   detail: (id: string) => [...toolKeys.details(), id] as const,

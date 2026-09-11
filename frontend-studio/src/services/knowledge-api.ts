@@ -14,6 +14,10 @@ export interface KnowledgeBase {
   description: string
   type: 'tree' | 'vector'
   embedding_model_id: string
+  builder_model_id: string
+  last_build_status: string
+  last_build_at: string
+  last_build_error: string
   owner_user_id: string
   status: string
   file_count: number
@@ -26,11 +30,13 @@ export interface KnowledgeBaseCreateInput {
   name: string
   description?: string
   type?: 'tree' | 'vector'
+  builder_model_id?: string
 }
 
 export interface KnowledgeBaseUpdateInput {
   name?: string
   description?: string
+  builder_model_id?: string
 }
 
 export interface KnowledgeBaseListParams {
@@ -132,6 +138,46 @@ export interface KbChunkItem {
   page: number | null
   section?: string
   image_ref_ids?: string[]
+}
+
+/* ─── Wiki mode (llmwiki-style compiled wiki on tree KBs) ─── */
+
+export type KbWikiSourceStatus = 'pending' | 'processing' | 'ready' | 'failed'
+
+export interface KbWikiSourceItem {
+  path: string
+  name: string
+  size: number
+  file_type: string
+  status: KbWikiSourceStatus
+  error: string
+  has_registry: boolean
+}
+
+export interface KbWikiFilesResponse {
+  kb_id: string
+  wiki: KbFileTreeNode[]
+  sources: KbWikiSourceItem[]
+}
+
+export interface KbWikiLintIssue {
+  severity: 'error' | 'warn' | 'info'
+  rule: string
+  path: string
+  detail: string
+}
+
+export interface KbWikiLintStats {
+  page_count: number
+  source_count: number
+  cited_source_count: number
+  error_count: number
+  warn_count: number
+}
+
+export interface KbWikiLintResponse {
+  issues: KbWikiLintIssue[]
+  stats: KbWikiLintStats
 }
 
 /* ─── API methods ─── */
@@ -284,6 +330,32 @@ export const knowledgeApi = {
     )
     return res.data
   },
+
+  /* ── Wiki (tree KB): files / lint / build ── */
+
+  /** GET /api/v1/knowledge-bases/{id}/wiki/files */
+  async getWikiFiles(kbId: string): Promise<KbWikiFilesResponse> {
+    const res = await apiClient.get<KbWikiFilesResponse>(
+      `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/wiki/files`,
+    )
+    return res.data
+  },
+
+  /** GET /api/v1/knowledge-bases/{id}/wiki/lint */
+  async lintWiki(kbId: string): Promise<KbWikiLintResponse> {
+    const res = await apiClient.get<KbWikiLintResponse>(
+      `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/wiki/lint`,
+    )
+    return res.data
+  },
+
+  /** POST /api/v1/knowledge-bases/{id}/wiki/build */
+  async buildWiki(kbId: string): Promise<{ status: string }> {
+    const res = await apiClient.post<{ status: string }>(
+      `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/wiki/build`,
+    )
+    return res.data
+  },
 }
 
 /* ─── Query key factory ─── */
@@ -298,4 +370,6 @@ export const knowledgeKeys = {
   fileContent: (id: string, path: string) => [...knowledgeKeys.detail(id), 'file', path] as const,
   documents: (id: string) => [...knowledgeKeys.detail(id), 'documents'] as const,
   chunks: (id: string, docId: string) => [...knowledgeKeys.detail(id), 'chunks', docId] as const,
+  wikiFiles: (id: string) => [...knowledgeKeys.detail(id), 'wiki-files'] as const,
+  wikiLint: (id: string) => [...knowledgeKeys.detail(id), 'wiki-lint'] as const,
 }

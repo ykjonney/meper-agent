@@ -105,7 +105,7 @@ export function Toaster() {
   const themeClass = useThemeClass()
 
   return (
-    <div className={`fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none ${themeClass}`}>
+    <div className={`fixed top-4 right-4 z-[100] flex flex-col gap-2 max-h-[calc(100dvh-2rem)] overflow-y-auto pointer-events-none ${themeClass}`}>
       {toasts.map((t) => {
         const { icon: Icon, color } = TYPE_STYLE[t.type]
         return (

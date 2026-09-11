@@ -205,3 +205,81 @@ class TestResumeAfterRewind:
         # (human_context non-empty) would instead add 'a' to completed_nodes
         # and skip it — so 'a' in `executed` proves the re-execute branch ran.
         assert "a" in executed, "paused_at_node was not executed — wrong resume branch taken"
+
+
+class TestResumeFailureClearsCheckpoint:
+    """审批通过后续跑失败：任务转 FAILED 的同时必须清空 checkpoint。
+
+    checkpoint.paused_at_node 在审批决策后已是过期信号（审批已通过），
+    残留会让前端把 human 节点误显示为「审批中」——即使任务已终态失败。
+    """
+
+    @pytest.mark.asyncio
+    async def test_resume_downstream_failure_clears_checkpoint(self) -> None:
+        """approve 分支（human_context 非空）resume，下游 'b' 抛异常 →
+        FAILED + checkpoint 清空。"""
+        from app.models.task import TaskStatus
+
+        wf = {
+            "_id": "wf_test",
+            "nodes": [
+                {"node_id": "start", "type": "start", "config": {"next_nodes": [{"target": "human"}]}},
+                {"node_id": "human", "type": "human", "config": {"next_nodes": [{"target": "b"}]}},
+                {"node_id": "b", "type": "agent", "config": {"next_nodes": []}},
+            ],
+            "edges": [],
+        }
+        task = {
+            "_id": "task_1", "workflow_id": "wf_test", "status": "running", "version": 6,
+            "created_by": "user_1",
+            "checkpoint": {
+                "paused_at_node": "human",
+                "completed_nodes": ["start", "human"],
+                "variable_snapshot": {
+                    "start": {},
+                    "human": {"status": "waiting_human"},
+                    "system": {"task_id": "task_1", "user_id": "user_1", "workflow_id": "wf_test"},
+                },
+                "human_context": {"title": "审批"},  # 非空 → approve 分支：human 跳过
+                "agent_thread_id": "",
+            },
+        }
+
+        tasks_col = MagicMock()
+        tasks_col.find_one = AsyncMock(return_value=task)
+        tasks_col.update_one = AsyncMock()
+        workflows_col = MagicMock()
+        workflows_col.find_one = AsyncMock(return_value=wf)
+        db = MagicMock()
+        db.__getitem__ = lambda self, key: tasks_col if key == "tasks" else workflows_col
+
+        engine = WorkflowEngine()
+
+        async def _failing_execute(node_id: str):
+            if node_id in engine._completed_nodes:
+                return None
+            if node_id == "b":
+                raise RuntimeError("downstream boom")
+            engine._completed_nodes.add(node_id)
+
+        engine._execute_node = _failing_execute  # type: ignore[method-assign]
+
+        with (
+            patch("app.db.mongodb.get_database", return_value=db),
+            patch("app.engine.workflow.engine.TaskService.transition_task", AsyncMock()) as transition_mock,
+        ):
+            await engine.resume_from_checkpoint("task_1")
+
+        # 任务转 FAILED
+        to_status = transition_mock.await_args.kwargs.get("to_status")
+        assert to_status == TaskStatus.FAILED, f"expected FAILED, got {to_status}"
+        # 且 checkpoint 被清空（$set checkpoint=None）
+        checkpoint_cleared = any(
+            (call.args[1] or {}).get("$set", {}).get("checkpoint") is None
+            for call in tasks_col.update_one.await_args_list
+            if len(call.args) >= 2
+        )
+        assert checkpoint_cleared, (
+            f"checkpoint not cleared on resume failure; update_one calls: "
+            f"{[c.args for c in tasks_col.update_one.await_args_list]}"
+        )

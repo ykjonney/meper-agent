@@ -356,3 +356,30 @@ class TestEvalExpressionTyped:
         # Undefined variable → ChainableUndefined renders to ""
         result = engine._eval_expression_typed("nonexistent")
         assert result == ""
+
+
+class TestToolResultFieldAccess:
+    """工具节点 result 的字段调用链路——返回 JSON 文本时预解析为结构，
+    下游 {{node.result.status}} 直接取值（gateway 分支/参数引用共用）。"""
+
+    def test_json_text_result_field_access(self) -> None:
+        engine = ExpressionEngine({
+            "tool_1": {"result": '{"status": "success", "data": {"temperature": 25}}', "success": True},
+        })
+        assert engine.resolve("{{tool_1.result.status}}") == "success"
+        assert engine.resolve("{{tool_1.result.data.temperature}}") == 25
+        assert engine.resolve("{{tool_1.success}}") is True
+
+    def test_list_json_result_index_access(self) -> None:
+        engine = ExpressionEngine({
+            "tool_2": {"result": '[{"id": 1}, {"id": 2}]'},
+        })
+        assert engine.resolve("{{tool_2.result.0.id}}") == 1
+        assert engine.resolve("{{tool_2.result.1.id}}") == 2
+
+    def test_non_json_result_field_returns_empty(self) -> None:
+        """非 JSON 文本（HTML/纯文本）声明字段取不到 → 空串而非崩溃。"""
+        engine = ExpressionEngine({
+            "tool_3": {"result": "<html>OK</html>"},
+        })
+        assert engine.resolve("{{tool_3.result.status}}") == ""

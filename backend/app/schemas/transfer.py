@@ -10,7 +10,7 @@ TRANSFER_KINDS: frozenset[str] = frozenset(
         "agent",
         "workflow",
         "skill",           # tools 集合 source=markdown（官方 Skill）
-        "tool",            # tools 集合 source=openapi/code/prebuilt（自定义工具）
+        "tool",            # tools 集合 source=openapi/code（自定义工具）
         "mcp_connection",
         "mcp_category",
         "model",

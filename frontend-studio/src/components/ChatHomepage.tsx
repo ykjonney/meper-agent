@@ -378,7 +378,7 @@ function ChatAttachmentCard({
   // ── 非图片：文件卡片（名称 + 类型徽标 + 预览/下载） ──
   return (
     <>
-      <div className="flex items-center gap-2.5 w-72 px-3 py-2.5 rounded-lg border border-[#27272a] bg-[#18181b] hover:border-indigo-500/40 transition-colors group">
+      <div className="flex items-center gap-2.5 w-72 max-w-full px-3 py-2.5 rounded-lg border border-[#27272a] bg-[#18181b] hover:border-indigo-500/40 transition-colors group">
         <div className="w-8 h-8 rounded-md bg-[#121214] border border-[#27272a] flex items-center justify-center shrink-0">
           <FileText className="w-4 h-4 text-indigo-400" />
         </div>
@@ -1644,18 +1644,18 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       {/* 2. CHAT STREAM PANEL */}
       <div className={`${sidebarCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} min-h-0 flex flex-col h-full bg-[#121214]`}>
         <div className="px-6 h-16 border-b border-[#27272a] bg-[#18181b]/50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-[#121214] border border-[#27272a] text-xl flex items-center justify-center overflow-hidden">
               <BotAvatar avatar={activeAgent?.avatar} className="w-full h-full p-1 text-xl" />
             </div>
-            <div>
-              <h3 className="text-xs font-bold text-white flex items-center gap-1.5 font-sans">
-                {activeSession?.title || activeAgent?.name || '选择一个会话'}
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono">
+            <div className="min-w-0">
+              <h3 className="text-xs font-bold text-white flex items-center gap-1.5 font-sans min-w-0">
+                <span className="truncate">{activeSession?.title || activeAgent?.name || '选择一个会话'}</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono shrink-0">
                   SSE 流式
                 </span>
               </h3>
-              <p className="text-[11px] text-[#71717a] font-sans">
+              <p className="text-[11px] text-[#71717a] font-sans truncate">
                 {modelLabel(activeAgent?.model)} • {activeAgent?.name ?? '—'}
               </p>
             </div>

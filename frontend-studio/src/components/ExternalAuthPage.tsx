@@ -366,7 +366,7 @@ export function ExternalAuthPage() {
                   </div>
                   <div className="grid grid-cols-[64px_1fr] gap-2 text-[10px] leading-relaxed">
                     <span className="text-[#71717a]">外部账号</span>
-                    <strong className="text-white font-medium overflow-hidden text-ellipsis">
+                    <strong className="text-white font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                       {bound ? (binding!.username || '—') : '尚未绑定'}
                     </strong>
                   </div>

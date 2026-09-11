@@ -299,7 +299,7 @@ export function ModelsPage() {
       )}
 
       {/* ── Table ── */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+      <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-x-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-16 text-[#71717a]">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
@@ -324,9 +324,9 @@ export function ModelsPage() {
             <tbody>
               {filtered.map((m) => (
                 <tr key={m.id} className="border-b border-[#27272a] last:border-0 hover:bg-[#1c1c1f] transition">
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-white">{m.name}</p>
-                    <p className="text-[11px] text-[#71717a] font-mono">{m.model_id}</p>
+                  <td className="px-4 py-3 max-w-[320px]">
+                    <p className="font-semibold text-white truncate" title={m.name}>{m.name}</p>
+                    <p className="text-[11px] text-[#71717a] font-mono truncate" title={m.model_id}>{m.model_id}</p>
                   </td>
                   <td className="px-4 py-3 text-[11px] text-[#a1a1aa]">{AUTH_LABELS[m.auth_type]}</td>
                   <td className="px-4 py-3 text-[11px] text-[#a1a1aa] font-mono">
@@ -587,7 +587,7 @@ export function ModelsPage() {
       {/* ── Test Modal ── */}
       {testingId && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-lg bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a]">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-400" />
@@ -620,7 +620,7 @@ export function ModelsPage() {
                   {testResult.reply && (
                     <div>
                       <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">模型回复</p>
-                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-[#a1a1aa] whitespace-pre-wrap font-mono text-[11px]">
+                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-[#a1a1aa] whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
                         {testResult.reply}
                       </pre>
                     </div>
@@ -642,7 +642,7 @@ export function ModelsPage() {
                   {testResult.error && (
                     <div>
                       <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">错误详情</p>
-                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-rose-300/80 whitespace-pre-wrap font-mono text-[11px]">
+                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-rose-300/80 whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
                         {testResult.error}
                       </pre>
                     </div>

@@ -1,12 +1,10 @@
 """Agent business logic — CRUD operations and lifecycle management."""
 from __future__ import annotations
 
-import contextlib
 import re
 
 from loguru import logger
 
-from app.core.crypto import encrypt_secret
 from app.core.errors import ConflictError, ValidationError
 from app.db.mongodb import get_database
 from app.models.agent import Agent, AgentStatus
@@ -24,6 +22,7 @@ async def _resolve_custom_tools(
     (user_args={})以保持向后兼容。``encrypt=True`` 时对 user_args 中标记
     sensitive 且尚未加密(无 ``enc:`` 前缀)的字段做 AES 加密 —— 已加密的
     原样保留(前端回显脱敏值时提交回来仍是 ``enc:xxx``,不重复加密)。
+    加密逻辑复用 UserToolService.encrypt_user_args(与工具级凭证配置共用)。
     """
     if custom_tools:
         bindings = [
@@ -37,27 +36,10 @@ async def _resolve_custom_tools(
     if not encrypt or not bindings:
         return bindings
 
-    # 加密:按 tool_id 批量查 schema,对 sensitive 字段加密。
-    try:
-        from app.services.tool_service import ToolService
-
-        ids = [b["tool_id"] for b in bindings]
-        docs = await ToolService.get_tools_by_ids(ids) if ids else []
-    except Exception:
-        docs = []
-    schema_by_id = {d.get("_id"): d for d in docs if d.get("_id")}
+    from app.services.user_tool_service import UserToolService
 
     for b in bindings:
-        doc = schema_by_id.get(b["tool_id"])
-        if not doc:
-            continue
-        props = (doc.get("user_args_schema") or {}).get("properties") or {}
-        user_args = b["user_args"]
-        for key, val in list(user_args.items()):
-            if props.get(key, {}).get("sensitive") and isinstance(val, str) and val and not val.startswith("enc:"):
-                with contextlib.suppress(Exception):
-                    user_args[key] = f"enc:{encrypt_secret(val)}"
-        b["user_args"] = user_args
+        b["user_args"] = await UserToolService.encrypt_user_args(b["tool_id"], b["user_args"])
     return bindings
 
 
@@ -330,7 +312,6 @@ class AgentService:
             "avatar": avatar,
             "updated_at": now_iso,
         }
-
         await col.update_one(
             {"_id": agent_id},
             {"$set": set_fields},

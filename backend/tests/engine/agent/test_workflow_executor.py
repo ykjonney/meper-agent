@@ -457,3 +457,64 @@ class TestDispatchWorkflow:
             mock_create.assert_awaited_once()
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["created_by"] == "agent"
+
+
+class TestDispatchWorkflowExternalIdentity:
+    """dispatch_workflow 的外部终端用户身份跨进程透传。
+
+    外部 chat（ContextVar 有 token/uid）→ ext_metadata 携带
+    ext_user_token/ext_user_id/ext_origin，Celery worker 里的 agent 节点
+    才能以该用户身份兑换 MCP 凭证；内部 chat（studio）不写字段。
+    """
+
+    @pytest.mark.asyncio
+    async def test_external_chat_passes_identity(self):
+        """外部 chat → ext_metadata 携带身份三字段。"""
+        from agent_flow_harness.mcp.user_token_context import (
+            reset_token_record_id_context,
+            reset_user_token_context,
+            set_token_record_id_context,
+            set_user_token_context,
+        )
+
+        ut = set_user_token_context("ext-token-abc")
+        tri = set_token_record_id_context("platform-user-1")
+        try:
+            with patch(
+                "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+                return_value=_FAKE_WORKFLOW_ENTRY,
+            ), patch(
+                "app.engine.agent.workflow_executor.TaskService.create_task",
+                AsyncMock(return_value=_FAKE_TASK),
+            ) as mock_create:
+                await dispatch_workflow.ainvoke({"workflow_name": "数据拉取"})
+
+                mock_create.assert_awaited_once()
+                ext_meta = mock_create.call_args.kwargs.get("ext_metadata") or {}
+                assert ext_meta["ext_user_token"] == "ext-token-abc"
+                assert ext_meta["ext_user_id"] == "platform-user-1"
+                assert ext_meta["ext_origin"] == "external"
+        finally:
+            reset_user_token_context(ut)
+            reset_token_record_id_context(tri)
+
+    @pytest.mark.asyncio
+    async def test_internal_chat_no_identity_fields(self):
+        """内部 chat（ContextVar 为空）→ 不写身份字段（内部凭证语义）。"""
+        with patch(
+            "app.services.workflow_registry_service.WorkflowRegistryService.get_by_name",
+            return_value=_FAKE_WORKFLOW_ENTRY,
+        ), patch(
+            "app.engine.agent.workflow_executor.TaskService.create_task",
+            AsyncMock(return_value=_FAKE_TASK),
+        ) as mock_create, patch(
+            "app.engine.agent.builtin_tools._get_workspace",
+            return_value=None,
+        ):
+            await dispatch_workflow.ainvoke({"workflow_name": "数据拉取"})
+
+            mock_create.assert_awaited_once()
+            ext_meta = mock_create.call_args.kwargs.get("ext_metadata") or {}
+            assert "ext_user_token" not in ext_meta
+            assert "ext_user_id" not in ext_meta
+            assert "ext_origin" not in ext_meta

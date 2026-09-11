@@ -384,6 +384,33 @@ async def dispatch_workflow(
         # for full-conversation token accounting.
         ext_meta = {"source_session_id": source_session_id} if source_session_id else None
 
+        # 外部终端用户身份跨进程透传：工具执行与 chat invoke 在同一
+        # asyncio task 链上，resolve_harness_context 设置的 ContextVar 可读。
+        # 写入任务文档后，Celery worker 里的 agent 节点才能以该用户身份
+        # 兑换 MCP 凭证（ext_user_token=门闸，ext_user_id=兑换键）。
+        # 读不到（studio 内部聊天/异常）不写 → 任务按内部凭证执行。
+        try:
+            # 注意从子模块导入：顶层包只 re-export user_token 三件套
+            from agent_flow_harness.mcp.user_token_context import (
+                get_token_record_id_context,
+                get_user_token_context,
+            )
+
+            ext_user_token = get_user_token_context() or ""
+            ext_user_id = get_token_record_id_context() or ""
+            if ext_user_token and ext_user_id:
+                ext_meta = {
+                    **(ext_meta or {}),
+                    "ext_user_token": ext_user_token,
+                    "ext_user_id": ext_user_id,
+                    # 外部来源标记：即使 token 后续丢失，engine 仍按外部
+                    # 任务处理（fail-closed 拒绝而非静默降级内部凭证）
+                    "ext_origin": "external",
+                }
+        except Exception:
+            # 身份透传是叠加能力，绝不能让任务派发本身失败
+            pass
+
         doc = await TaskService.create_task(
             workflow_id=entry.get("workflow_id") or entry.get("_id", ""),
             input_data=input_data,

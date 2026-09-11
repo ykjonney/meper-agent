@@ -324,8 +324,9 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                       {taskDetail.checkpoint.human_context?.description && (
                         <div>
                           <div className="text-xs text-[#a1a1aa] mb-1">审批内容</div>
-                          <div className="text-xs text-[#d4d4d8] bg-[#09090b] rounded-lg p-3 border border-[#27272a]">
-                            <Markdown content={String(taskDetail.checkpoint.human_context.description)} />
+                          {/* 审批正文封顶可滚动：description 经变量注入可能携带上游大段输出（如整份报告 JSON），不设限会把下方流程图/输入/输出推到极远 */}
+                          <div className="text-xs text-[#d4d4d8] bg-[#09090b] rounded-lg p-3 border border-[#27272a] max-h-[50vh] overflow-y-auto scrollbar-custom">
+                            <Markdown content={fenceJsonContent(String(taskDetail.checkpoint.human_context.description))} />
                           </div>
                         </div>
                       )}
@@ -494,6 +495,25 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
       </span>
     </div>
   )
+}
+
+/**
+ * JSON 形态的审批内容（上游 dict 序列化产物或手写紧凑 JSON）包 ```json 围栏
+ * 再交 Markdown 渲染：成为带语法高亮、横向滚动的代码块；否则整段 JSON 被
+ * Markdown 当普通段落折行，格式全失。非合法 JSON 的文本原样返回。
+ */
+function fenceJsonContent(text: string): string {
+  const t = text.trim()
+  if (!/^[[{]/.test(t)) return text
+  try {
+    const parsed: unknown = JSON.parse(t)
+    if (parsed && typeof parsed === 'object') {
+      return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``
+    }
+  } catch {
+    // 非 JSON —— 按普通 Markdown 渲染
+  }
+  return text
 }
 
 /** 右侧栏可折叠 section —— 借鉴 silieco 的渐进式披露。 */

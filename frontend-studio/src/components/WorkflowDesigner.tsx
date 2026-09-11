@@ -23,6 +23,7 @@ import {
 } from '../services/workflows-api'
 import { agentApi, agentKeys } from '../services/agent-api'
 import { toolsApi, toolKeys } from '../services/tools-api'
+import { userToolsApi, userToolKeys } from '../services/user-tools-api'
 import { modelApi, modelKeys } from '../services/model-api'
 import {
   AgentInfoContext,
@@ -297,11 +298,17 @@ export function WorkflowDesigner({
     queryKey: toolKeys.list({ page: 1, page_size: 100 }),
     queryFn: () => toolsApi.list({ page: 1, page_size: 100 }),
   })
+  // 组织库「已开启」工具——节点卡显示名兜底同一 map
+  const { data: enabledToolsData } = useQuery({
+    queryKey: userToolKeys.enabled(),
+    queryFn: () => userToolsApi.listEnabled(),
+  })
   const toolNameMap = useMemo(() => {
     const map: Record<string, string> = {}
     for (const t of toolsData?.items ?? []) map[t.id] = t.name
+    for (const t of enabledToolsData ?? []) map[t.id] = t.name
     return map
-  }, [toolsData])
+  }, [toolsData, enabledToolsData])
 
   /* ─── render ─── */
   return (
@@ -345,7 +352,7 @@ export function WorkflowDesigner({
 
             {/* 中：Canvas + 浮动操作栏（画布左上角，不占顶部行）*/}
             <div className="flex-1 min-w-0 relative bg-[#09090b] rounded-xl border border-[#27272a] overflow-hidden">
-              <div className="absolute top-3 left-3 z-20 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#18181b]/80 backdrop-blur border border-[#27272a] shadow-lg">
+              <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-x-2 gap-y-1 max-w-[calc(100%-1.5rem)] px-2 py-1.5 rounded-lg bg-[#18181b]/80 backdrop-blur border border-[#27272a] shadow-lg">
                 {/* 关闭编辑（返回列表）*/}
                 {onBack && (
                   <button
@@ -406,7 +413,7 @@ export function WorkflowDesigner({
 
             {/* 右：ConfigPanel（仅选中节点时渲染；未选中时画布占满）*/}
             {selectedNode && (
-              <div className="shrink-0 w-96 overflow-y-auto scrollbar-custom">
+              <div className="shrink-0 w-96 max-h-[60vh] xl:max-h-none overflow-y-auto scrollbar-custom">
                 <WorkflowNodeConfigPanel
                   selectedNode={selectedNode}
                   allNodes={nodes}

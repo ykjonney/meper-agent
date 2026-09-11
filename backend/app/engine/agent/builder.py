@@ -208,7 +208,7 @@ async def _build_kb_declaration(kb_ids: list[str]) -> str:
         desc = doc.get("description", "")
         kb_type = doc.get("type", "tree")
         kb_id = doc.get("_id", "")
-        type_label = "向量" if kb_type == "vector" else "树形"
+        type_label = "向量" if kb_type == "vector" else "Wiki"
         lines.append(f"- **{name}** ({type_label}, id: `{kb_id}`): {desc}")
     lines.append("")
 
@@ -224,11 +224,18 @@ async def _build_kb_declaration(kb_ids: list[str]) -> str:
 
     if has_tree:
         lines.extend([
-            "### 树形知识库 (kb_glob / kb_grep / kb_read)",
+            "### Wiki 知识库 (kb_glob / kb_grep / kb_read / kb_guide)",
             "",
-            "- `kb_glob(pattern, kb_ids?)` — list .md files matching a glob pattern.",
-            "- `kb_grep(pattern, kb_ids?)` — search file contents by regex.",
-            "- `kb_read(path, kb_id?)` — read a single .md file's content.",
+            "Wiki 型知识库分两层：`wiki/` 是 AI 编译的知识页面（优先查这里），"
+            "`sources/` 是只读原始资料（降级兜底）。",
+            "",
+            "**查询工作流（wiki 优先两段式）：**",
+            "1. 首次进库：读 `wiki/overview.md`（全库地图 + 词汇表），顺链接导航到概念/实体页；",
+            "2. 点状事实可用 `kb_grep(pattern, scope='wiki')` 定位，再 `kb_read` 命中页；",
+            "3. wiki 层确实不足才降级：`kb_grep(scope='sources')` / 按脚注回源读原文。",
+            "",
+            "注意：`kb_grep` 返回的是**行号**不是页码；`kb_read` 的 `pages` 参数仅对"
+            "二进制源（PDF/Word 等）的提取文本有效，`.md` 源无分页。",
             "",
         ])
 

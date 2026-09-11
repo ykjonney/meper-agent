@@ -8,7 +8,7 @@
     mcp/{original_id}.json           # auth_config 脱敏
     mcp_categories/{original_id}.json
     models/{original_id}.json        # 不含 api_key
-    tools/{original_id}.json         # 自定义工具（openapi/code/prebuilt）
+    tools/{original_id}.json         # 自定义工具（openapi/code）
     skills/{name}/...                # 官方 Skill 整目录（SKILL.md + 辅助文件）
     kbs/{original_id}/kb.json
     kbs/{original_id}/files/**.md    # tree（Wiki）KB 的 .md 文件树

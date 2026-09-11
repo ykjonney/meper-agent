@@ -37,10 +37,12 @@ class KnowledgeBaseService:
         description: str,
         owner_user_id: str = "",
         type: str = "tree",
+        builder_model_id: str = "",
     ) -> dict:
         """Create a KB record.
 
-        - tree: also creates the on-disk ``.md`` directory.
+        - tree (= wiki, llmwiki-style): initializes the sources/ + wiki/
+          skeleton; agents get the maintenance toolset.
         - vector: records the configured embedding model name; no FS directory.
         """
         now = utc_now().isoformat()
@@ -53,6 +55,10 @@ class KnowledgeBaseService:
             "embedding_model_id": (
                 settings.KB_EMBEDDING_MODEL if kb_type == "vector" else ""
             ),
+            "builder_model_id": builder_model_id if kb_type == "tree" else "",
+            "last_build_status": "",
+            "last_build_at": "",
+            "last_build_error": "",
             "owner_user_id": owner_user_id,
             "status": "active",
             "file_count": 0,
@@ -62,8 +68,10 @@ class KnowledgeBaseService:
         }
         await KnowledgeBaseService._collection().insert_one(doc)
         if kb_type == "tree":
-            kb_fs.ensure_kb_dir(doc["_id"])
-        logger.info("kb_created", kb_id=doc["_id"], name=name, type=kb_type)
+            kb_fs.init_wiki_skeleton(doc["_id"])
+        logger.info(
+            "kb_created", kb_id=doc["_id"], name=name, type=kb_type
+        )
         return doc
 
     @staticmethod
@@ -98,6 +106,7 @@ class KnowledgeBaseService:
         kb_id: str,
         name: str | None = None,
         description: str | None = None,
+        builder_model_id: str | None = None,
     ) -> dict | None:
         col = KnowledgeBaseService._collection()
         if await col.find_one({"_id": kb_id}) is None:
@@ -107,6 +116,8 @@ class KnowledgeBaseService:
             set_fields["name"] = name
         if description is not None:
             set_fields["description"] = description
+        if builder_model_id is not None:
+            set_fields["builder_model_id"] = builder_model_id
         await col.update_one({"_id": kb_id}, {"$set": set_fields})
         return await KnowledgeBaseService.get_kb(kb_id)
 
@@ -153,6 +164,9 @@ class KnowledgeBaseService:
                 await KnowledgeDocumentService.delete_by_kb(kb_id)
             else:
                 kb_fs.delete_kb_dir(kb_id)
+                from app.services import kb_wiki_registry
+
+                await kb_wiki_registry.delete_by_kb(kb_id)
             logger.info("kb_deleted", kb_id=kb_id, type=kb_type)
             return True
         return False
@@ -163,10 +177,45 @@ class KnowledgeBaseService:
 
     @staticmethod
     async def get_kb_files(kb_id: str) -> list[dict] | None:
-        if await KnowledgeBaseService._collection().find_one({"_id": kb_id}) is None:
+        """Tree KB = wiki：文件树只含 wiki 页面（sources 走 get_wiki_files）。"""
+        kb_doc = await KnowledgeBaseService._collection().find_one(
+            {"_id": kb_id}, {"type": 1}
+        )
+        if kb_doc is None:
             return None
-        files = kb_fs.list_kb_files(kb_id)
-        return ToolService._build_file_tree(files)
+        kb_fs.ensure_wiki_layout(kb_id)
+        return ToolService._build_file_tree(kb_fs.list_wiki_pages(kb_id))
+
+    @staticmethod
+    async def get_wiki_files(kb_id: str) -> dict | None:
+        """Wiki file view: page tree + source list with parse status."""
+        from app.services import kb_wiki_registry
+
+        kb_doc = await KnowledgeBaseService._collection().find_one(
+            {"_id": kb_id}, {"type": 1}
+        )
+        if kb_doc is None:
+            return None
+        kb_fs.ensure_wiki_layout(kb_id)
+        wiki_tree = ToolService._build_file_tree(kb_fs.list_wiki_pages(kb_id))
+        registry = {
+            r["relative_path"]: r for r in await kb_wiki_registry.list_by_kb(kb_id)
+        }
+        sources: list[dict] = []
+        for f in kb_fs.list_wiki_sources(kb_id):
+            reg = registry.get(f["path"])
+            sources.append(
+                {
+                    "path": f["path"],
+                    "name": f["path"].rsplit("/", 1)[-1],
+                    "size": f["size"],
+                    "file_type": (f["path"].rsplit(".", 1)[-1] or "").lower(),
+                    "status": (reg or {}).get("status", "ready"),
+                    "error": (reg or {}).get("error", ""),
+                    "has_registry": reg is not None,
+                }
+            )
+        return {"wiki": wiki_tree, "sources": sources}
 
     @staticmethod
     async def get_kb_file_content(kb_id: str, rel_path: str) -> dict | None:
@@ -206,10 +255,19 @@ class KnowledgeBaseService:
     @staticmethod
     async def delete_kb_file(kb_id: str, rel_path: str) -> bool:
         col = KnowledgeBaseService._collection()
-        if await col.find_one({"_id": kb_id}) is None:
+        kb_doc = await col.find_one({"_id": kb_id}, {"type": 1})
+        if kb_doc is None:
             return False
         ok = kb_fs.delete_kb_file(kb_id, rel_path)
         if ok:
+            if rel_path.startswith("sources/"):
+                # 源文件删除：同步清登记 + 提取文本。
+                from app.services import kb_wiki_registry
+
+                await kb_wiki_registry.remove_source(kb_id, rel_path)
+                extracted = kb_fs.extracted_path_for(kb_id, rel_path)
+                if extracted != rel_path:
+                    kb_fs.delete_kb_file(kb_id, extracted)
             await col.update_one({"_id": kb_id}, {"$set": {"updated_at": utc_now().isoformat()}})
             await KnowledgeBaseService.recompute_stats(kb_id)
         return ok
@@ -248,7 +306,11 @@ class KnowledgeBaseService:
             return await KnowledgeBaseService._upload_vector(
                 kb_id, kb_doc, files, uploaded_by, chunk_strategy=chunk_strategy
             )
-        return await KnowledgeBaseService._upload_tree(kb_id, files)
+        # tree = wiki：上传一律进 sources/（只读源），wiki 页由 AI/编辑器维护
+        kb_fs.ensure_wiki_layout(kb_id)
+        return await KnowledgeBaseService._upload_wiki_sources(
+            kb_id, kb_doc, files, uploaded_by
+        )
 
     @staticmethod
     async def _upload_tree(kb_id: str, files: list[tuple[str, bytes]]) -> dict:
@@ -381,6 +443,89 @@ class KnowledgeBaseService:
             error_count=len(errors),
         )
         return {"created": created, "errors": errors, "document_ids": document_ids}
+
+    @staticmethod
+    async def _upload_wiki_sources(
+        kb_id: str,
+        kb_doc: dict,
+        files: list[tuple[str, bytes]],
+        uploaded_by: str,
+    ) -> dict:
+        """Tree(wiki) upload — originals into ``sources/`` + extraction dispatch.
+
+        Type whitelist/size limit mirror the vector KB (pdf/docx/pptx/xlsx/
+        csv/md/txt/html, 50MB). ``.md`` sources register as ready (read
+        as-is); everything else dispatches the Celery extraction task that
+        writes ``sources/.extracted/{name}.md``.
+        """
+        import hashlib
+
+        from app.services import kb_wiki_registry
+
+        allowed = {
+            t.strip().lstrip(".").lower()
+            for t in settings.KB_VECTOR_ALLOWED_TYPES.split(",")
+        }
+        max_file = settings.KB_VECTOR_MAX_FILE_SIZE
+
+        created: list[str] = []
+        errors: list[dict] = []
+        for rel_path, raw in files:
+            rel_path = rel_path.replace("\\", "/").lstrip("/")
+            # Wiki 模式统一收纳到 sources/ 根（丢弃上传路径结构，避免与
+            # wiki/ 混写；重名文件按内容覆盖语义处理）。
+            filename = rel_path.rsplit("/", 1)[-1] or rel_path
+            if not filename:
+                continue
+            if ".." in filename or filename.startswith("."):
+                errors.append({"filename": filename, "error": "非法文件名"})
+                continue
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            if ext not in allowed:
+                errors.append(
+                    {
+                        "filename": filename,
+                        "error": f"不支持的文件类型 .{ext}（支持 pdf/docx/pptx/xlsx/csv/md/txt/html）",
+                    }
+                )
+                continue
+            if len(raw) > max_file:
+                errors.append(
+                    {"filename": filename, "error": f"文件过大（>{max_file} bytes）"}
+                )
+                continue
+            target = f"sources/{filename}"
+            try:
+                full = kb_fs.get_kb_base_path(kb_id) / target
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_bytes(raw)
+                content_hash = hashlib.sha256(raw).hexdigest()
+                reg = await kb_wiki_registry.register_source(
+                    kb_id=kb_id,
+                    rel_path=target,
+                    file_type=ext,
+                    file_size=len(raw),
+                    content_hash=content_hash,
+                    uploaded_by=uploaded_by,
+                )
+                created.append(filename)
+                if reg.get("status") == "pending":
+                    kb_wiki_registry.dispatch_extract_task(reg["_id"])
+            except Exception as exc:
+                logger.exception("kb_wiki_upload_failed", filename=filename)
+                errors.append({"filename": filename, "error": f"上传失败: {exc}"})
+
+        await KnowledgeBaseService.recompute_stats(kb_id)
+        await KnowledgeBaseService._collection().update_one(
+            {"_id": kb_id}, {"$set": {"updated_at": utc_now().isoformat()}}
+        )
+        logger.info(
+            "kb_wiki_sources_uploaded",
+            kb_id=kb_id,
+            accepted=len(created),
+            error_count=len(errors),
+        )
+        return {"created": created, "errors": errors, "document_ids": []}
 
     @staticmethod
     async def recompute_stats(kb_id: str) -> dict:

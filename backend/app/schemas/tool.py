@@ -49,10 +49,19 @@ class ToolResponse(BaseModel):
     source: str = "markdown"
     source_file: str = ""
     mcp_connection_id: str = ""
+    # 自定义工具定义（openapi/code）——schema 与定义本体；org_user_args 为
+    # 工具级凭证（sensitive 字段 enc: 密文，非敏感明文），供 admin 凭证弹窗回显
+    user_args_schema: dict[str, Any] = Field(default_factory=dict)
+    llm_args_schema: dict[str, Any] = Field(default_factory=dict)
+    endpoint: dict[str, Any] = Field(default_factory=dict)
+    code: str = ""
+    org_user_args: dict[str, Any] = Field(default_factory=dict)
     version: int
     tags: list[str] = Field(default_factory=list)
     avatar: str = ""
     files: list[SkillFileResponse] = Field(default_factory=list)
+    created_by: str = ""
+    stats: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 

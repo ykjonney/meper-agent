@@ -48,7 +48,7 @@ class HumanNodeExecutor(BaseNodeExecutor):
         # 上游节点的实际输出（如诊断结果、告警详情），而非固定的字面文案。
         engine = ExpressionEngine(variables)
         title = self._resolve_to_str(engine, raw_title)
-        description = self._resolve_to_str(engine, raw_description)
+        description = self._resolve_to_str(engine, raw_description, pretty_json=True)
 
         # 系统固定提供 approve/reject 选项，当 options 为空时使用默认值
         options = self.node_config.get("options") or ["approve", "reject"]
@@ -91,13 +91,16 @@ class HumanNodeExecutor(BaseNodeExecutor):
         )
 
     @staticmethod
-    def _resolve_to_str(engine: ExpressionEngine, raw: Any) -> str:
+    def _resolve_to_str(engine: ExpressionEngine, raw: Any, *, pretty_json: bool = False) -> str:
         """把模板值解析为字符串，供审批展示。
 
         - 非字符串原样返回（转 str）。
         - 字符串经 ExpressionEngine 解析变量引用；若解析出 dict/list（上游返回
           JSON 的常见情况），归一化为 JSON 文本，避免审批描述里出现 Python
           repr（单引号、True 大写）。
+        - ``pretty_json``（description 专用）：dict/list 序列化带 ``indent=2`，
+          多行 JSON 在前端 Markdown / pre-wrap 下均可读；title 保持单行紧凑
+          （单行截断展示，多行无意义）。
         """
         if not isinstance(raw, str):
             return str(raw)
@@ -109,5 +112,10 @@ class HumanNodeExecutor(BaseNodeExecutor):
         if isinstance(resolved, (dict, list)):
             import json
 
-            return json.dumps(resolved, ensure_ascii=False, default=str)
+            return json.dumps(
+                resolved,
+                ensure_ascii=False,
+                default=str,
+                indent=2 if pretty_json else None,
+            )
         return str(resolved)

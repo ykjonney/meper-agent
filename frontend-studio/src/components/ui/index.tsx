@@ -194,13 +194,16 @@ export function Select({
       top = rect.top - panelH - 4
     }
     top = Math.max(M, Math.min(top, window.innerHeight - panelH - M))
+    const width = Math.max(rect.width, 160)
     setPanelStyle({
       position: 'fixed',
       top,
-      left: rect.left,
+      // 左缘同样夹在视口内：贴右缘的窄触发器（w-fit ~70px）展开 min-width 160 的面板时
+      // 不溢出视口右边。
+      left: Math.max(M, Math.min(rect.left, window.innerWidth - width - M)),
       // 面板宽度跟随触发器，但设最小值：行内收缩型触发器（w-fit，如角色徽章
       // 编辑）宽度只有 ~70px，直接跟随会导致搜索框和选项文本不可读。
-      width: Math.max(rect.width, 160),
+      width,
       zIndex: 9999,
     })
   }, [open])
@@ -510,18 +513,15 @@ export function Modal({
   children,
 }: ModalProps) {
   if (!open) return null
+  // 点遮罩不关闭：只能手动关闭（✕/取消/确定），防误触丢表单内容
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onCancel}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        style={{ width }}
+        style={{ width, maxWidth: 'calc(100vw - 2rem)' }}
         className="bg-[#18181b] rounded-xl shadow-2xl max-h-[85vh] flex flex-col border border-[#27272a]"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#27272a]">
-          <span className="text-sm font-medium text-[#fafafa]">{title}</span>
+          <span className="text-sm font-medium text-[#fafafa] truncate min-w-0">{title}</span>
           <X className="w-4 h-4 text-[#71717a] cursor-pointer hover:text-[#fafafa]" onClick={onCancel} />
         </div>
         <div className="px-5 py-4 overflow-y-auto flex-1">{children}</div>
@@ -698,7 +698,7 @@ export function Tooltip({ title, children }: TooltipProps) {
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 210 }
             }
             className="px-2.5 py-1.5 rounded bg-[#18181b] border border-[#27272a] text-[#fafafa]
-              text-[11px] whitespace-pre-wrap max-w-xs shadow-lg leading-relaxed pointer-events-none"
+              text-[11px] whitespace-pre-wrap max-w-xs max-h-[70vh] overflow-hidden shadow-lg leading-relaxed pointer-events-none"
           >
             {title}
           </div>,
@@ -822,7 +822,15 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
         },
         onMouseLeave: scheduleClose,
       }
-    : { onClick: () => toggle(!isOpen) }
+    : {
+        onClick: (e: React.MouseEvent) => {
+          // 浮层经 portal 渲染，React 合成事件仍沿虚拟树冒泡到触发器——
+          // 真实 DOM 不在 triggerRef 内的点击（即浮层内部）不切换开合
+          const t = e.target as Node
+          if (triggerRef.current && !triggerRef.current.contains(t)) return
+          toggle(!isOpen)
+        },
+      }
 
   return (
     <div ref={triggerRef} className="relative inline-flex" {...triggerProps}>
@@ -836,7 +844,7 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
                 ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 200 }
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 200 }
             }
-            className="min-w-[220px] max-w-[360px] bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]"
+            className="min-w-[220px] max-w-[360px] max-h-[80vh] overflow-y-auto bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]"
             {...(isHover
               ? { onMouseEnter: clearCloseTimer, onMouseLeave: scheduleClose }
               : {})}
@@ -938,7 +946,7 @@ export function Popconfirm({
         {children}
       </span>
       {open && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 max-h-[70vh] overflow-y-auto bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]">
           <div className="px-3.5 py-3">
             <div className="text-xs font-medium text-[#fafafa]">{title}</div>
             {description && <div className="text-[11px] text-slate-400 mt-1">{description}</div>}

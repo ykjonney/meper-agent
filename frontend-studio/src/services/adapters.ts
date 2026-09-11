@@ -84,6 +84,10 @@ export function toStudioAgent(a: BackendAgent): Agent {
     status: agentStatusToDisplay(a.status),
     iconColor: DEFAULT_AGENT_ICON_COLOR,
     skills: [...skillsFromSkillIds, ...skillsFromMcp, ...skillsFromBuiltin, ...skillsFromWorkflows, ...skillsFromKb],
+    customTools: (a.custom_tools ?? []).map((b) => ({
+      tool_id: b.tool_id,
+      user_args: b.user_args ?? {},
+    })),
     lastActive: a.updated_at ? new Date(a.updated_at).toLocaleString() : '—',
     maxRetry: a.max_retry ?? 3,
     maxTokens: a.max_tokens ?? 0,
@@ -104,6 +108,7 @@ export function fromStudioAgent(a: Agent): {
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
+  custom_tools?: { tool_id: string; user_args: Record<string, unknown> }[]
   avatar?: string
   max_retry?: number
   max_tokens?: number
@@ -146,6 +151,10 @@ export function fromStudioAgent(a: Agent): {
     builtin_config,
     ...(workflow_ids.length ? { workflow_ids } : {}),
     ...(knowledge_base_ids.length ? { knowledge_base_ids } : {}),
+    custom_tools: (a.customTools ?? []).map((b) => ({
+      tool_id: b.tool_id,
+      user_args: b.user_args ?? {},
+    })),
     max_retry: a.maxRetry ?? 3,
     max_tokens: a.maxTokens ?? 0,
   }

@@ -187,6 +187,14 @@ class Settings(BaseSettings):
     KB_READ_MAX_BYTES: int = 16_384
     KB_MAX_FILE_SIZE: int = 2 * 1024 * 1024  # 2 MB per uploaded .md
 
+    # ── Wiki mode (llmwiki-style compiled wiki on tree KBs) ─────────────
+    # Batch read (glob pattern) total char budget + per-file sampling cap —
+    # lets the builder skim a whole directory in one tool call.
+    KB_WIKI_READ_BUDGET: int = 120_000
+    KB_WIKI_READ_SAMPLE: int = 4_000
+    # Max bytes a single kb_write may produce (page content safety cap).
+    KB_WIKI_WRITE_MAX_BYTES: int = 256 * 1024
+
     # ── Vector Knowledge Base (RAG) ──────────────────────────────────────
     # Embedding/reranker are configured directly via env vars (base_url +
     # model + api_key) — they are platform-global singletons, so they don't
@@ -302,6 +310,13 @@ class Settings(BaseSettings):
     # "bridge" = standard Docker bridge network (allows outbound internet)
     # "host" = use host network stack (least isolation)
     SANDBOX_NETWORK_MODE: str = "none"
+
+    # Network mode for governed-tool code execution (send-email etc.).
+    # Tools are reviewed & enabled by admin and functionally need outbound
+    # network (SMTP/HTTP), so they default to "bridge" — unlike the LLM bash
+    # sandbox which stays network-isolated. Process isolation still applies:
+    # tool code cannot read worker env (secrets/keys) or the host filesystem.
+    TOOL_SANDBOX_NETWORK_MODE: str = "bridge"
 
     # Container-internal mount points for sandbox containers.
     # These are the paths *inside* the sandbox container where workspace

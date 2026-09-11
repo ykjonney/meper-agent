@@ -42,11 +42,7 @@ export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
     { name: 'usage', label: 'Token 用量', type: 'object', description: '本次执行的 token 用量（{{node.usage.total_tokens}}）' },
   ],
   tool: [
-    { name: 'tool_name', label: '工具名称', type: 'string', description: '调用的工具名称' },
-    { name: 'tool_description', label: '工具描述', type: 'string', description: '工具的描述信息' },
-    { name: 'instructions', label: '工具指令', type: 'string', description: '工具的执行指令' },
-    { name: 'result', label: '执行结果', type: 'any', description: 'MCP 工具执行返回的结果（JSON 文本时可 {{node.result.0.text.field}} 钻取）' },
-    { name: 'tool_id', label: '工具 ID', type: 'string', description: '调用的工具 ID（MCP 工具）' },
+    { name: 'result', label: '执行结果', type: 'any', description: '工具执行返回（openapi 为响应内容、code 为返回值、MCP 为调用结果；声明了返回结构时可在下方直接点选字段；工具失败即工作流报错停止）' },
   ],
   gateway: [
     { name: 'selected_branch', label: '选中分支', type: 'string', description: '匹配到的条件分支' },
@@ -84,14 +80,13 @@ interface _ResponseFieldLike {
   fields?: _ResponseFieldLike[]
 }
 
-/** 把 response_schema 声明的字段递归平铺为 response.xxx 引用项。
- * 列表字段用示例下标 0（Jinja 数字下标语法，如 response.tags.0 / response.authors.0.name）。 */
-function agentDeclaredResponseFields(schema: unknown): NodeOutputField[] {
+/** 把字段声明 schema 递归平铺为 <prefix>.xxx 引用项（agent 用 response 前缀，
+ * 工具用 result 前缀）。列表字段用示例下标 0（Jinja 数字下标语法）。 */
+function declaredFieldsToOutputs(schema: unknown, prefix: string): NodeOutputField[] {
   if (!schema || typeof schema !== 'object') return []
   const s = schema as { type?: string; fields?: _ResponseFieldLike[] }
   if (s.type !== 'object' && s.type !== 'array') return []
-  // array：元素下标 0 作为示例（Jinja 数字下标语法）
-  const prefix = s.type === 'array' ? 'response.0' : 'response'
+  const effectivePrefix = s.type === 'array' ? `${prefix}.0` : prefix
   const toFieldType = (t?: string): NodeOutputField['type'] => {
     if (t === 'number' || t === 'boolean') return t
     if (t === 'object') return 'object'
@@ -114,9 +109,18 @@ function agentDeclaredResponseFields(schema: unknown): NodeOutputField[] {
       }
     }
   }
-  walk(s.fields, prefix)
+  walk(s.fields, effectivePrefix)
   return out
 }
+
+/** 工具节点的透传输出（存量 markdown/skill 来源——本节点不执行，
+ * 说明书交给下游 Agent 节点消费）。直调来源（openapi/code/mcp）只有 result。 */
+const TOOL_PASSTHROUGH_OUTPUTS: NodeOutputField[] = [
+  { name: 'tool_name', label: '工具名称', type: 'string', description: '透传的工具名称（供下游 Agent 引用）' },
+  { name: 'tool_description', label: '工具描述', type: 'string', description: '透传的工具描述（供下游 Agent 引用）' },
+  { name: 'instructions', label: '工具指令', type: 'string', description: '透传的工具使用说明（供下游 Agent 执行）' },
+  { name: 'params', label: '参数', type: 'object', description: '本节点配置的参数（随说明书透传）' },
+]
 
 /**
  * 获取指定节点类型的输出字段列表（静态表）
@@ -140,7 +144,19 @@ export function getEffectiveOutputVariables(node: WorkflowNode): VariableDefinit
   if (node.type === 'agent') {
     return [
       ...(NODE_OUTPUT_VARIABLES.agent ?? []),
-      ...agentDeclaredResponseFields((node.config as Record<string, unknown> | undefined)?.response_schema),
+      ...declaredFieldsToOutputs((node.config as Record<string, unknown> | undefined)?.response_schema, 'response'),
+    ]
+  }
+  // 工具节点按来源分流：直调（openapi/code/mcp）= result + success/error +
+  // 返回字段声明平铺（工具选择时快照进 config.tool_output_schema）；
+  // 透传（markdown/skill）输出说明书字段供下游 Agent 消费
+  if (node.type === 'tool') {
+    const cfg = (node.config as Record<string, unknown> | undefined) ?? {}
+    const toolSource = String(cfg.tool_source ?? '')
+    if (toolSource === 'markdown' || toolSource === 'skill') return TOOL_PASSTHROUGH_OUTPUTS
+    return [
+      ...(NODE_OUTPUT_VARIABLES.tool ?? []),
+      ...declaredFieldsToOutputs(cfg.tool_output_schema, 'result'),
     ]
   }
   const userDefined = node.config?.output_variables

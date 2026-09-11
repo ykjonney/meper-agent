@@ -8,6 +8,10 @@ interceptor 内部 get_user_token_context() 读取。
 - ``token_record_id``：mcp_token_credentials._id，兑换器查绑定的 key。
   外部路径（/ext/*）才 set；内部路径（平台 JWT 测试）不 set，interceptor
   自然降级用 connection 静态凭证。
+- ``external_required``：本次执行是否来自外部终端用户（fail-closed 守卫）。
+  为 True 时 MCP 调用必须以终端用户身份兑换凭证——身份或兑换器缺失
+  一律拒绝，绝不静默回退内部静态凭证（否则外部用户会借平台级凭证
+  跨权限访问数据）。由宿主在身份事实源（如任务文档）判定后设置。
 
 设计：token 仅在 ContextVar 生命周期内（单次请求）存在，不写入
 Redis、不写日志、不入库。未设置（内部路径/平台用户调用）时返回
@@ -24,6 +28,11 @@ _user_token_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 # 通用 token 记录 id（外部路径才 set，内部路径保持 None）
 _token_record_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "mcp_token_record_id", default=None
+)
+
+# 外部执行守卫标志（宿主判定"本次执行属于外部终端用户"后 set）
+_external_required_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "mcp_external_required", default=False
 )
 
 
@@ -59,6 +68,23 @@ def get_token_record_id_context() -> str | None:
     return _token_record_id_ctx.get()
 
 
+def set_external_required_context(
+    required: bool,
+) -> "contextvars.Token[bool]":
+    """声明本次执行是否来自外部终端用户（fail-closed 守卫）。返回 Token 用于 reset。"""
+    return _external_required_ctx.set(required)
+
+
+def reset_external_required_context(token: "contextvars.Token[bool]") -> None:
+    """恢复到 set 之前的状态（用 set 返回的 Token）。"""
+    _external_required_ctx.reset(token)
+
+
+def get_external_required_context() -> bool:
+    """读取外部执行守卫标志。未设置返回 False（内部路径）。"""
+    return _external_required_ctx.get()
+
+
 __all__ = [
     "set_user_token_context",
     "reset_user_token_context",
@@ -66,4 +92,7 @@ __all__ = [
     "set_token_record_id_context",
     "reset_token_record_id_context",
     "get_token_record_id_context",
+    "set_external_required_context",
+    "reset_external_required_context",
+    "get_external_required_context",
 ]

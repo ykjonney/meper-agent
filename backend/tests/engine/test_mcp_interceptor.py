@@ -53,14 +53,19 @@ class TestInterceptorInternalPath:
         assert result == "result"
         handler.assert_awaited_once_with(req)
 
-    async def test_no_resolver_passes_through(self) -> None:
-        """有 record_id 但无 resolver（未注入）→ 透传。"""
+    async def test_no_resolver_returns_error(self) -> None:
+        """有 record_id 但无 resolver（宿主漏配）→ isError 拒绝（fail-closed）。
+
+        旧行为是静默透传内部静态凭证（fail-open）——安全语义变更后，
+        身份已知的调用必须能兑换，兑换基础设施缺失直接拒绝。
+        """
         set_credential_resolver(None)
         token = set_token_record_id_context("mcptok_01")
         try:
             handler = AsyncMock(return_value="result")
             result = await _user_token_interceptor(_FakeRequest(), handler)
-            assert result == "result"
+            handler.assert_not_awaited()
+            assert getattr(result, "isError", False) is True
         finally:
             reset_token_record_id_context(token)
 

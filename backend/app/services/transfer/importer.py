@@ -384,7 +384,7 @@ async def _phase_tools(entries: list[dict], extract_dir: Path, ctx: _Ctx) -> Non
                 llm_args_schema=payload.get("llm_args_schema") or None,
                 endpoint=payload.get("endpoint") or None,
                 code=payload.get("code", ""),
-                prebuilt_name=payload.get("prebuilt_name", ""),
+                created_by=ctx.imported_by,
             )
             _map_created(ctx, kind="tool", payload=payload, new_id=doc["_id"], renamed_from=renamed_from)
         except Exception as exc:
@@ -468,20 +468,40 @@ async def _phase_kbs(entries: list[dict], extract_dir: Path, ctx: _Ctx) -> None:
                 description=payload.get("description", ""),
                 owner_user_id=ctx.imported_by,
                 type="tree",
+                builder_model_id=payload.get("builder_model_id", ""),
             )
             files_dir = extract_dir / "kbs" / old / "files"
             if files_dir.is_dir():
-                files = [
-                    (str(p.relative_to(files_dir)), p.read_bytes())
-                    for p in sorted(files_dir.rglob("*.md"))
-                ]
-                result = await KnowledgeBaseService._upload_tree(kb_doc["_id"], files)
+                # wiki/**/*.md 走 tree 上传（保留相对路径进 wiki/）；
+                # 其余（sources/** 二进制、旧包散 .md）一律作源进 sources/
+                # （登记 + 派发提取——.extracted 是派生缓存，导出时不带）。
+                page_files: list[tuple[str, bytes]] = []
+                source_files: list[tuple[str, bytes]] = []
+                for p in sorted(files_dir.rglob("*")):
+                    if not p.is_file():
+                        continue
+                    rel = str(p.relative_to(files_dir))
+                    if p.suffix.lower() == ".md" and rel.startswith("wiki/"):
+                        page_files.append((rel, p.read_bytes()))
+                    else:
+                        source_files.append((rel, p.read_bytes()))
+                result = await KnowledgeBaseService._upload_tree(kb_doc["_id"], page_files)
                 for err in result.get("errors") or []:
                     ctx.report.warning(
                         kind="knowledge_base", name=payload["name"],
                         field=err.get("filename", ""),
                         message=f"文件导入失败：{err.get('error', '')}",
                     )
+                if source_files:
+                    src_result = await KnowledgeBaseService._upload_wiki_sources(
+                        kb_doc["_id"], kb_doc, source_files, ctx.imported_by
+                    )
+                    for err in src_result.get("errors") or []:
+                        ctx.report.warning(
+                            kind="knowledge_base", name=payload["name"],
+                            field=err.get("filename", ""),
+                            message=f"源文件导入失败：{err.get('error', '')}",
+                        )
             _map_created(ctx, kind="knowledge_base", payload=payload, new_id=kb_doc["_id"], renamed_from=renamed_from)
         except Exception as exc:
             ctx.report.error(kind="knowledge_base", name=res.get("name", ""), message=str(exc))

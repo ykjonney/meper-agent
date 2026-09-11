@@ -106,7 +106,7 @@ async def _load_top_resource(ref: ResourceRef) -> tuple[str, dict]:
         source = docs[0].get("source", "")
         if source == "markdown":
             return "skill", docs[0]
-        if source in ("openapi", "code", "prebuilt"):
+        if source in ("openapi", "code"):
             return "tool", docs[0]
         raise ValidationError(
             code="TRANSFER_KIND_UNSUPPORTED",
@@ -392,7 +392,6 @@ def _tool_payload(doc: dict) -> dict:
         "llm_args_schema": doc.get("llm_args_schema") or {},
         "endpoint": doc.get("endpoint") or {},
         "code": doc.get("code", ""),
-        "prebuilt_name": doc.get("prebuilt_name", ""),
     }
 
 
@@ -403,6 +402,8 @@ def _kb_payload(doc: dict) -> dict:
         "name": doc["name"],
         "description": doc.get("description", ""),
         "type": "tree",
+        # tree 即 wiki：构建模型随包携带（导入侧重建骨架并分流文件）。
+        "builder_model_id": doc.get("builder_model_id", ""),
     }
 
 
@@ -496,6 +497,14 @@ async def export_package(
                 )
                 continue
             entries[f"kbs/{kid}/files/{f['path']}"] = content.encode("utf-8")
+        # sources/ 原始文件（二进制原样打包；sources/.extracted/ 是派生
+        # 缓存，不导——导入后重新提取）。导出前确保 wiki 布局（存量迁移）。
+        kb_fs.ensure_wiki_layout(kid)
+        for f in kb_fs.list_wiki_sources(kid):
+            src = kb_fs.get_kb_base_path(kid) / f["path"]
+            if not src.is_file():
+                continue
+            entries[f"kbs/{kid}/files/{f['path']}"] = src.read_bytes()
 
     # 5. Workflow
     for _wid, doc in closure["workflow"].items():

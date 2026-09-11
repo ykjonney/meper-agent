@@ -26,6 +26,8 @@ export interface Agent {
   statusText?: string;
   iconColor: string;
   skills: string[];
+  /** 自定义工具绑定（组织库已开启工具；凭证为工具级统一配置） */
+  customTools?: { tool_id: string; user_args: Record<string, unknown> }[];
   lastActive: string;
   /** Max retry count for execution (backend: 0-10, default 3). */
   maxRetry?: number;

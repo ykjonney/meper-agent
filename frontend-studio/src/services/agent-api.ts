@@ -14,6 +14,12 @@ import type { TokenUsage } from '../types'
 
 export type AgentStatus = 'draft' | 'published' | 'archived'
 
+export interface CustomToolBinding {
+  tool_id: string
+  /** 绑定参数（sensitive 字段后端存 enc: 加密形态；提交明文由后端加密） */
+  user_args: Record<string, unknown>
+}
+
 export interface Agent {
   id: string
   name: string
@@ -30,6 +36,8 @@ export interface Agent {
   builtin_config: string[]
   workflow_ids: string[]
   knowledge_base_ids: string[]
+  /** 自定义工具绑定（openapi/code 官方工具，携带 user_args） */
+  custom_tools: CustomToolBinding[]
   default_model: string
   /** Whether this Agent can be used by the realtime voice entry. */
   voice_enabled: boolean
@@ -73,6 +81,8 @@ export interface AgentUpdateInput {
   max_retry?: number
   /** Session token budget (0 = use global default). */
   max_tokens?: number
+  /** 自定义工具绑定（openapi/code 官方；sensitive 明文由后端加密存储） */
+  custom_tools?: CustomToolBinding[]
 }
 
 /** Model config update payload — kept for backward compat type exports */

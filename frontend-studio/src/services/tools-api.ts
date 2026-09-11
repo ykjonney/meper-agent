@@ -24,10 +24,21 @@ export interface Tool {
   source: string
   source_file: string
   mcp_connection_id: string
+  /** 自定义工具定义（openapi/code）——schema 与定义本体；org_user_args 为
+   * 工具级凭证（sensitive 字段 enc: 密文，非敏感明文），供凭证弹窗回显 */
+  user_args_schema?: Record<string, unknown>
+  llm_args_schema?: Record<string, unknown>
+  endpoint?: Record<string, unknown>
+  code?: string
+  org_user_args?: Record<string, unknown>
   version: number
   tags: string[]
+  /** 官方自定义工具启停（active|disabled；无字段=存量视为 active） */
+  status?: string
   avatar: string
   files: SkillFile[]
+  created_by?: string
+  stats?: { load_count?: number; up?: number; down?: number }
   created_at: string
   updated_at: string
 }
@@ -36,7 +47,7 @@ export interface ToolListParams {
   page?: number
   page_size?: number
   name?: string
-  /** Filter by source: markdown / mcp / builtin */
+  /** Filter by source: markdown / mcp / openapi / code */
   source?: string
   /** Filter by MCP connection ID */
   mcp_connection_id?: string
@@ -117,6 +128,30 @@ export const toolsApi = {
    */
   async get(toolId: string): Promise<Tool> {
     const res = await apiClient.get<Tool>(`/api/v1/tools/${encodeURIComponent(toolId)}`)
+    return res.data
+  },
+
+  /**
+   * Enable/disable an official custom tool (tool:write).
+   * 启用校验定义与凭证完整性；停用后 Agent 绑定/工作流/组织库统一跳过。
+   */
+  async setToolStatus(toolId: string, status: 'active' | 'disabled'): Promise<Tool> {
+    const res = await apiClient.post<Tool>(
+      `/api/v1/tools/${encodeURIComponent(toolId)}/status`,
+      { status },
+    )
+    return res.data
+  },
+
+  /**
+   * Configure org-level credentials for an official custom tool (tool:write).
+   * 工具级统一凭证：admin 配置一次，Agent 绑定/工作流直调共用。
+   */
+  async saveOrgArgs(toolId: string, userArgs: Record<string, unknown>): Promise<Tool> {
+    const res = await apiClient.put<Tool>(
+      `/api/v1/tools/${encodeURIComponent(toolId)}/args`,
+      { user_args: userArgs },
+    )
     return res.data
   },
 

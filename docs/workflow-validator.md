@@ -172,6 +172,7 @@ await engine.run_and_persist(task_id)
 | `MISSING_AGENT_ID` | ERROR | Agent 节点缺少 agent_id |
 | `MISSING_WORKFLOW_ID` | ERROR | Subflow 节点缺少 workflow_id |
 | `MISSING_TOOL_ID` | ERROR | Tool 节点缺少 tool_id |
+| `TOOL_SKILL_SOURCE` | WARNING | 前端校验：Tool 节点选了 markdown/skill 来源工具——仅透传说明，完整执行需下游 Agent 节点 |
 | `INVALID_INSUFFICIENT_BRANCH` | ERROR | agent 节点 insufficient_branch 指向不存在/自身的节点 |
 | `INVALID_RESPONSE_SCHEMA` | ERROR | agent 节点 response_schema 结构定义不合法（类型/字段名/枚举/嵌套超两层） |
 | `DANGLING_NEXT_TARGET` | ERROR | 路由出口（next_nodes / gateway conditions+default / parallel branches）指向不存在的节点（已被删除） |

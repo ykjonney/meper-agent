@@ -1,12 +1,14 @@
-"""MCP interceptor 测试 — 验证凭证兑换 / 透传分流逻辑（mcp-credential-broker 新模型）。
+"""MCP interceptor 测试 — 验证凭证兑换 / 透传分流 / fail-closed 守卫逻辑。
 
 不连真实 MCP server，直接构造 fake MCPToolCallRequest + fake handler，
-验证 interceptor 在两条路径下的行为:
-- 内部路径（无 token_record_id / 无 resolver）: 透传 request, 不改 headers,
+验证 interceptor 在三条路径下的行为:
+- 内部路径（无 token_record_id 且未声明外部）: 透传 request, 不改 headers,
   使用 connection 配置的静态凭证。
 - 外部路径（有 token_record_id + resolver）: 调 resolver 兑换该用户对该 MCP
   的绑定凭证并按 auth_type 覆盖 headers; 未绑定 / 兑换失败返回 isError 的
   CallToolResult（不抛异常, 让 adapter 走 ToolException 路径）。
+- fail-closed 守卫（external_required=True）: 身份或兑换器缺失 → isError
+  拒绝（绝不静默透传内部静态凭证——否则外部用户借平台级凭证跨权限访问）。
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ from agent_flow_harness.mcp.loader import (
     set_credential_resolver,
 )
 from agent_flow_harness.mcp.user_token_context import (
+    set_external_required_context,
     set_token_record_id_context,
 )
 
@@ -87,11 +90,14 @@ def _reset_env(monkeypatch):
             TextContent=_FakeTextContent,
         ),
     )
-    # 每个用例前后清理 token_record_id 与注入的 resolver，避免跨用例污染
+    # 每个用例前后清理 token_record_id / external_required 与注入的
+    # resolver，避免跨用例污染
     set_token_record_id_context(None)
+    set_external_required_context(False)
     set_credential_resolver(None)
     yield
     set_token_record_id_context(None)
+    set_external_required_context(False)
     set_credential_resolver(None)
 
 
@@ -114,20 +120,19 @@ class TestUserTokenInterceptor:
         # Authorization 没被改
         assert captured[0].headers == {"Authorization": "Bearer static-tok"}
 
-    async def test_internal_path_no_resolver_passes_through(self):
-        """有 token_record_id 但未注入 resolver → 也走内部路径透传。"""
+    async def test_identity_without_resolver_returns_error(self):
+        """有 token_record_id 但未注入 resolver（宿主漏配）→ 显式报错。
+
+        旧行为是静默透传内部静态凭证（fail-open）——安全语义变更后，
+        身份已知就必须能兑换，兑换基础设施缺失直接拒绝。
+        """
         set_token_record_id_context("platform-user-1")
-        captured: list = []
+        handler = AsyncMock(return_value={"ok": True})
 
-        async def handler(req):
-            captured.append(req)
-            return {"ok": True}
+        result = await _user_token_interceptor(_FakeRequest(), handler)
 
-        req = _FakeRequest(headers={"Authorization": "Bearer static-tok"})
-        await _user_token_interceptor(req, handler)
-
-        assert captured[0] is req
-        assert captured[0].headers == {"Authorization": "Bearer static-tok"}
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
 
     async def test_external_path_overrides_authorization(self):
         """外部路径 → 兑换凭证按 auth_type 覆盖 Authorization。"""
@@ -267,3 +272,76 @@ class TestUserTokenInterceptor:
         await _user_token_interceptor(_FakeRequest(), handler)
 
         handler.assert_awaited_once()
+
+
+class TestFailClosedGuard:
+    """external_required=True（外部终端用户执行）的 fail-closed 守卫。
+
+    身份或兑换器缺失 → isError 拒绝（不抛异常、不调 handler），
+    绝不静默回退内部静态凭证。
+    """
+
+    async def test_external_no_resolver_rejected(self):
+        """外部执行 + 兑换器缺失 → isError，文案明确不可重试。"""
+        set_external_required_context(True)
+        set_token_record_id_context("platform-user-1")
+        # 不注入 resolver
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        assert "凭证兑换服务不可用" in text
+        assert "无法通过重试解决" in text
+
+    async def test_external_missing_identity_rejected(self):
+        """外部执行 + 身份缺失（token 丢失的旧数据）→ isError。
+
+        这是安全语义的核心：绝不静默降级为内部静态凭证。
+        """
+        set_external_required_context(True)
+        set_token_record_id_context(None)
+        set_credential_resolver(
+            _FakeResolver({"auth_type": "bearer", "token": "whatever"})
+        )
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        assert "终端用户身份缺失" in text
+        assert "拒绝" in text
+
+    async def test_external_with_identity_and_resolver_exchanges(self):
+        """外部执行 + 身份/兑换器齐备 → 正常走兑换（fail-closed 不误伤）。"""
+        set_external_required_context(True)
+        set_token_record_id_context("platform-user-1")
+        set_credential_resolver(
+            _FakeResolver({"auth_type": "bearer", "token": "user-token-1"})
+        )
+        captured: list = []
+
+        async def handler(req):
+            captured.append(req)
+            return {"ok": True}
+
+        req = _FakeRequest(headers={"Authorization": "Bearer static-tok"})
+        result = await _user_token_interceptor(req, handler)
+
+        assert result == {"ok": True}
+        assert captured[0].headers == {"Authorization": "Bearer user-token-1"}
+
+    async def test_external_rejection_does_not_raise(self):
+        """fail-closed 拒绝路径不抛异常（isError CallToolResult）——
+        保持 REACT 循环的错误反馈路径，宿主进程不崩。"""
+        set_external_required_context(True)
+        set_token_record_id_context(None)
+        handler = AsyncMock()
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)  # 不应 raise
+
+        assert getattr(result, "isError", False) is True

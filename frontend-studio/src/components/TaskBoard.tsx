@@ -207,8 +207,10 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
   const intervene = useMutation({
     mutationFn: (vars: { taskId: string; action: string; version: number; comment?: CommentValue }) =>
       tasksApi.intervene(vars.taskId, { action: vars.action, version: vars.version, comment: vars.comment }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: taskKeys.lists() })
+      // 已打开的详情页立即刷新，不等 WS task_status 事件
+      qc.invalidateQueries({ queryKey: taskKeys.detail(vars.taskId) })
     },
     onError: (e) => setActionError(`操作失败：${getErrorMessage(e)}`),
   })

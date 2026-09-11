@@ -131,20 +131,20 @@ export function AgentSpace({
               >
                 <div className="p-5 space-y-4">
                   <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="w-12 h-12 bg-[#121214] rounded-xl flex items-center justify-center text-2.5xl border border-[#27272a] shadow-inner select-none overflow-hidden">
                         <AvatarRender value={agent.avatar} className="w-full h-full" textClassName="text-2.5xl" />
                       </div>
-                      <div className="space-y-0.5">
-                        <h4 className="text-normal font-bold text-white tracking-tight flex items-center gap-1.5 font-sans">
-                          {agent.name}
+                      <div className="space-y-0.5 min-w-0">
+                        <h4 className="text-normal font-bold text-white tracking-tight flex items-center gap-1.5 font-sans min-w-0">
+                          <span className="truncate">{agent.name}</span>
                           <span className={`w-2 h-2 rounded-full ${
                             agent.status === 'online' ? 'bg-emerald-500'
                               : agent.status === 'offline' ? 'bg-slate-600'
                               : 'bg-amber-500'
                           }`} />
                         </h4>
-                        <span className="text-[10px] text-[#71717a] font-mono leading-none block">ID: {agent.id}</span>
+                        <span className="text-[10px] text-[#71717a] font-mono leading-none block truncate">ID: {agent.id}</span>
                       </div>
                     </div>
 

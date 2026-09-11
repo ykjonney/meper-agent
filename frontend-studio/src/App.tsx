@@ -4,7 +4,7 @@ import {
   Sun, Moon, MessageSquare, ListTodo, Sparkles, Shield,
   Wrench, Plug, UserCog, LogOut, ChevronDown,
   PanelLeftClose, PanelLeftOpen, Clock, Mic, SlidersHorizontal,
-  Link2, ArrowLeftRight,
+  Link2, ArrowLeftRight, Store,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
 import { useQuery, useQueries } from '@tanstack/react-query';
@@ -31,6 +31,7 @@ import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { WorkflowSpace } from './components/WorkflowSpace';
 import { UserSkillsPage } from './components/UserSkillsPage';
 import { BuiltinToolsPage } from './components/BuiltinToolsPage';
+import { ToolMarketPage } from './components/ToolMarketPage';
 import { McpManagePage } from './components/McpManagePage';
 import { SkillDetailPage } from './components/SkillDetailPage';
 import { KnowledgeBasePage } from './components/KnowledgeBasePage';
@@ -79,6 +80,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'triggers', label: '定时任务', icon: Clock, permission: 'trigger:read' },
   { id: 'tools', label: '内置工具', icon: Wrench, permission: 'tool:read' },
   { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
+  // 工具市场：所有登录用户可见（创建/安装/发布同技能市场模式）
+  { id: 'tool-market', label: '工具库', icon: Store },
   { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'knowledge', label: '知识库', icon: BookOpen, permission: 'knowledge:read' },
   // 外部授权：所有登录用户可见；应用管理操作按 application:write 权限在卡片上显示。
@@ -548,6 +551,8 @@ export default function App() {
           {activeTab === 'tools' && <BuiltinToolsPage />}
 
           {activeTab === 'mcp' && <McpManagePage />}
+
+          {activeTab === 'tool-market' && <ToolMarketPage theme={theme} />}
 
           {activeTab === 'skills' && (
             openSkill ? (

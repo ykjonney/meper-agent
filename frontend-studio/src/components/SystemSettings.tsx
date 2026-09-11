@@ -687,12 +687,8 @@ function EditKeyModal({ keyItem, onClose }: { keyItem: ApiKey; onClose: () => vo
   };
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <form
-        onClick={(e) => e.stopPropagation()}
         onSubmit={handleSave}
         className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl flex flex-col"
       >

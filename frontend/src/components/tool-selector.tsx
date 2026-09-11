@@ -565,8 +565,7 @@ function CustomToolSelector({
     queryFn: () =>
       toolsApi.list({ page: 1, page_size: 100, source: 'openapi' }).then(async (r1) => {
         const r2 = await toolsApi.list({ page: 1, page_size: 100, source: 'code' })
-        const r3 = await toolsApi.list({ page: 1, page_size: 100, source: 'prebuilt' })
-        return [...r1.items, ...r2.items, ...r3.items]
+        return [...r1.items, ...r2.items]
       }),
   })
 
@@ -582,7 +581,6 @@ function CustomToolSelector({
   const SOURCE_TAGS: Record<string, { color: string; label: string }> = {
     openapi: { color: 'blue', label: 'API' },
     code: { color: 'green', label: 'Code' },
-    prebuilt: { color: 'purple', label: 'Prebuilt' },
   }
 
   // 已绑定的 tool_id → availableTools 中的 tool 定义(取 user_args_schema)

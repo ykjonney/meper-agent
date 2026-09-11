@@ -19,6 +19,7 @@ import structlog
 
 from agent_flow_harness.mcp.errors import McpCredentialError
 from agent_flow_harness.mcp.user_token_context import (
+    get_external_required_context,
     get_token_record_id_context,
 )
 
@@ -235,31 +236,63 @@ async def _user_token_interceptor(
     request: Any,
     handler: Callable[[Any], Awaitable[Any]],
 ) -> Any:
-    """按 MCP 兑换凭证（外部路径）或透传（内部路径）。
+    """按 MCP 兑换凭证（外部路径）或透传（内部路径），fail-closed 守卫。
 
-    - 内部路径（token_record_id 为空）：透传，用 connection 静态凭证。
+    - 内部路径（无身份且未声明外部）：透传，用 connection 静态 auth_config。
     - 外部路径（token_record_id 有值）：兑换绑定凭证注入；未绑定/出错
       时返回 isError 的 CallToolResult（不抛异常），让 MCP adapter 走
       ToolException → tool_wrapper → ToolMessage(status=error) → on_tool_end，
       前端能按 tool_call_id 正确配对（不卡在"执行中"）。
+    - fail-closed 守卫（external_required 为 True）：身份或兑换器缺失时
+      **拒绝执行**而非静默降级内部静态凭证——外部终端用户触发的调用若
+      回退平台级凭证，会跨权限访问到不该该用户访问的数据。所有拒绝
+      分支同样返回 isError 结果（不抛异常，不中断宿主进程）。
 
     未绑定 / 凭证失效（McpCredentialError 子类）：错误文本首行嵌机器可读
-    JSON 标记（前端兜底渲染授权卡片用），文案引导 LLM 调
-    request_app_authorization 而非向用户索要凭证。UNBOUND=未授权，
-    INVALID=已授权但凭证失效（密码/用户名被修改），两者都走授权卡更新。
+    JSON 标记（前端兜底渲染授权卡片用），文案同时覆盖两种语境——chat
+    语境引导 LLM 调 request_app_authorization；工作流语境（无人值守，
+    无该工具）引导用户去客户端完成授权。UNBOUND=未授权，
+    INVALID=已授权但凭证失效（密码/用户名被修改），两者都走授权更新。
     """
     platform_user_id = get_token_record_id_context()
+    external_required = get_external_required_context()
 
-    # ① 内部路径：不介入，透传到 handler，用 connection 静态 auth_config
-    if not platform_user_id or _resolver is None:
+    # ① fail-closed 守卫：外部执行的凭证兑换缺基础设施/缺身份 → 拒绝。
+    #    绝不静默透传（否则外部用户借平台静态凭证跨权限访问数据）。
+    if external_required and _resolver is None:
+        logger.warning("mcp_fail_closed", reason="resolver_missing", server_name="")
+        return _make_error_result(
+            "MCP 凭证兑换服务不可用，已拒绝以内部凭证执行该工具调用"
+            "（外部用户身份的调用不允许回退平台静态凭证）。"
+            "此错误无法通过重试解决，请联系管理员。"
+        )
+    if external_required and not platform_user_id:
+        server_name_missing = getattr(request, "server_name", "") or ""
+        logger.warning(
+            "mcp_fail_closed", reason="identity_missing", server_name=server_name_missing
+        )
+        return _make_error_result(
+            "终端用户身份缺失，已拒绝以内部凭证执行该工具调用"
+            "（外部触发的执行必须以该用户身份兑换凭证）。"
+            "该错误无法通过重试解决，请重新发起任务；若持续出现请联系管理员。"
+        )
+    # ② 防御：有身份但兑换器未注入（宿主漏配）→ 显式报错而非静默降级
+    if platform_user_id and _resolver is None:
+        logger.warning("mcp_fail_closed", reason="resolver_missing_no_guard")
+        return _make_error_result(
+            "MCP 凭证兑换服务不可用（解析器未注入），已拒绝执行。请联系管理员。"
+        )
+    # ③ 内部路径：不介入，透传到 handler，用 connection 静态 auth_config
+    if not platform_user_id:
         return await handler(request)
 
-    # ② 外部路径：兑换该用户绑定的凭证
+    # ④ 外部路径：兑换该用户绑定的凭证
     server_name = getattr(request, "server_name", "") or ""
     try:
         cred = await _resolver.resolve(platform_user_id, server_name)
     except McpCredentialError as exc:
-        # 结构化凭证错误 → 机器可读标记 + 引导 LLM 走授权工具（禁止索要凭证）
+        # 结构化凭证错误 → 机器可读标记 + 引导授权（chat 调工具 / 工作流引导
+        # 用户去客户端），两种语境都禁止向用户索要凭证
         import json as _json
 
         marker = _json.dumps({
@@ -271,14 +304,16 @@ async def _user_token_interceptor(
             hint = (
                 f"用户对应用「{exc.app_name}」的授权凭证已失效"
                 f"（可能修改过密码或用户名{f'：{exc.detail}' if exc.detail else ''}）。"
-                "请调用 request_app_authorization 工具（app_id/app_name 按上方"
-                "JSON 标记填写）请用户更新授权凭证；禁止向用户索要账号或密码。"
+                "请引导用户更新授权凭证：若当前环境提供 request_app_authorization "
+                "工具请调用它（app_id/app_name 按上方 JSON 标记填写）；"
+                "否则请用户在客户端完成应用授权后重试。禁止向用户索要账号或密码。"
             )
         else:
             hint = (
                 f"用户尚未授权应用「{exc.app_name}」，无法调用服务 {server_name}。"
-                "请调用 request_app_authorization 工具（app_id/app_name 按上方"
-                "JSON 标记填写）请求用户完成授权；禁止向用户索要该应用的账号或密码。"
+                "请引导用户完成应用授权：若当前环境提供 request_app_authorization "
+                "工具请调用它（app_id/app_name 按上方 JSON 标记填写）；"
+                "否则请用户在客户端完成应用授权后重试。禁止向用户索要该应用的账号或密码。"
             )
         return _make_error_result(f"{marker}\n{hint}")
     except Exception as exc:

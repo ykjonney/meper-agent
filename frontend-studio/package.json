@@ -22,6 +22,7 @@
     "express": "^4.21.2",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.546.0",
+    "mermaid": "^11.17.2",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-easy-crop": "^6.2.3",

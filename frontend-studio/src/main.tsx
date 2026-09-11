@@ -24,6 +24,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// 全局兜底：#root 是 app-shell（height:100% + overflow:hidden），永远不该被滚动。
+// 但 overflow:hidden 只挡用户滚动不挡程序化滚动——正文里逃逸的 absolute 元素会把
+// #root 撑出可滚动溢出，scrollIntoView 等 API 就能把整个页面顶起（下方留白）。
+// 任何来源的 #root 滚动一律归零。
+document.getElementById('root')?.addEventListener('scroll', function () {
+  if (this.scrollTop !== 0) this.scrollTop = 0;
+});
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

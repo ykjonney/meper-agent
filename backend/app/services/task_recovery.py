@@ -221,6 +221,9 @@ async def _mark_orphan_running_failed(
         {
             "$set": {
                 "status": TaskStatus.FAILED.value,
+                # 终态清空 checkpoint：残留的 paused_at_node 会让前端把
+                # 暂停过的 human 节点误显示为「审批中」。
+                "checkpoint": None,
                 "error": {
                     "node_id": node_id,
                     "node_type": node_type,

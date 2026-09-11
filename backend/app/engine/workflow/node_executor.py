@@ -430,6 +430,10 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # 内部触发（studio 测试）为空 → resolve_harness_context 不 set
         # token_record_id → interceptor 降级用静态凭证。
         user_token = sys_vars.get("user_token", "") or None
+        # 外部来源标记（engine 按任务文档判定）：即使 token 丢失（旧数据），
+        # agent 节点也要求 MCP 凭证按终端用户身份兑换——身份缺失时
+        # fail-closed 拒绝，绝不静默回退连接静态凭证。
+        require_user_credentials = bool(sys_vars.get("external_user"))
         if not task_id or not user_id:
             missing = []
             if not task_id:
@@ -642,6 +646,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 workspace=task_workspace,
                                 cancel_checker=_cancel_checker,
                                 user_token=user_token,
+                                require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
                             ),
                             timeout=timeout_ms / 1000,
@@ -668,6 +673,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 workspace=task_workspace,
                                 cancel_checker=_cancel_checker,
                                 user_token=user_token,
+                                require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
                             ),
                             timeout=timeout_ms / 1000,
@@ -1221,9 +1227,15 @@ class ToolNodeExecutor(BaseNodeExecutor):
         {
             "tool_id": "tool_xxx",
             "params": { "key": "{{ node.field }}" },  # resolved at runtime
+            "user_args": { "token": "enc:..." },  # openapi/code 绑定参数（sensitive 为 enc: 加密形态）
             "timeout_ms": 30000,
             "retry_policy": { "max_retries": 3, "backoff_ms": 1000 }
         }
+
+    按工具来源三分：
+    - ``mcp``: 走 MCP 客户端（凭证注入 + 缓存加载）
+    - ``openapi`` / ``code``: ToolBuilder 构建后直调（无 LLM 参与）
+    - 其余（markdown/skill）: 仅透传 instructions，完整执行由下游 Agent 节点处理
     """
 
     async def execute(self, variables: dict[str, Any]) -> NodeResult:
@@ -1239,17 +1251,52 @@ class ToolNodeExecutor(BaseNodeExecutor):
         resolved_params = engine.resolve_dict(raw_params) if isinstance(raw_params, dict) else raw_params
 
         try:
-            # Fetch tool from MongoDB
-            from app.db.mongodb import get_database
+            # Fetch tool doc — 组织治理模型：官方（tools 表 active，含按 name
+            # 引用）与用户工具（uto_ published+enabled）统一走 resolve_org_tool，
+            # 凭证取工具级统一配置（org_user_args）
+            tool_doc: dict[str, Any] | None
+            org_args: dict[str, Any] = {}
+            if tool_id.startswith("uto_"):
+                # 组织库工具：resolve_org_tool 已完成治理校验（published+enabled）
+                # 并返回解密后的工具级凭证
+                from app.services.user_tool_service import UserToolService
 
-            db = get_database()
-            tool_doc = await db["tools"].find_one({"$or": [{"_id": tool_id}, {"name": tool_id}]})
+                resolved = await UserToolService.resolve_org_tool(tool_id)
+                if resolved is None:
+                    return NodeResult(
+                        success=False,
+                        output={},
+                        error_message=f"Tool {tool_id} 不可用（未开启或已停用）",
+                    )
+                tool_doc, org_args = resolved
+                await UserToolService.record_load(tool_id)
+            else:
+                from app.db.mongodb import get_database
+
+                db = get_database()
+                tool_doc = await db["tools"].find_one({"$or": [{"_id": tool_id}, {"name": tool_id}]})
             if tool_doc is None:
                 return NodeResult(
                     success=False,
                     output={},
                     error_message=f"Tool {tool_id} 不存在",
                 )
+            # 官方自定义工具停用检查 + 工具级凭证解密（存量无 status 视为 active；
+            # uto_ 已在上方 resolve_org_tool 完成校验与解密，不进此块）
+            if not tool_id.startswith("uto_") and tool_doc.get("source") in ("openapi", "code"):
+                from app.engine.harness_integration.context import decrypt_user_args
+                from app.services.tool_service import ToolService
+                from app.services.user_tool_service import UserToolService
+
+                if not ToolService.is_tool_active(tool_doc):
+                    return NodeResult(
+                        success=False,
+                        output={},
+                        error_message=f"官方工具 {tool_doc.get('name', tool_id)} 已停用",
+                    )
+                org_args = decrypt_user_args(tool_doc, tool_doc.get("org_user_args") or {})
+                # 官方工具调用计数（uto_ 分支已在 resolve 处记录）
+                await UserToolService.record_load(tool_doc["_id"])
 
             # Execute based on tool source type
             source = tool_doc.get("source", "markdown")
@@ -1257,18 +1304,20 @@ class ToolNodeExecutor(BaseNodeExecutor):
             if source == "mcp":
                 # MCP tool — invoke via MCP client
                 return await self._execute_mcp_tool(tool_doc, resolved_params, variables)
-            else:
-                # Markdown/Skill tool — return instructions as context
-                return NodeResult(
-                    success=True,
-                    output={
-                        "tool_name": tool_doc.get("name", ""),
-                        "tool_description": tool_doc.get("description", ""),
-                        "instructions": tool_doc.get("instructions", ""),
-                        "params": resolved_params,
-                        "note": "工具的完整执行由 Agent 推理循环处理",
-                    },
-                )
+            if source in ("openapi", "code"):
+                # OpenAPI / Code tool — build and invoke directly (no LLM)
+                return await self._execute_custom_tool(tool_doc, resolved_params, org_args=org_args)
+            # Markdown/Skill tool — return instructions as context
+            return NodeResult(
+                success=True,
+                output={
+                    "tool_name": tool_doc.get("name", ""),
+                    "tool_description": tool_doc.get("description", ""),
+                    "instructions": tool_doc.get("instructions", ""),
+                    "params": resolved_params,
+                    "note": "Skill 类工具需由下游 Agent 节点执行，本节点仅透传说明",
+                },
+            )
         except Exception as exc:
             logger.error("node_tool_failed", node_id=self.node_id, error=str(exc))
             return NodeResult(
@@ -1276,6 +1325,84 @@ class ToolNodeExecutor(BaseNodeExecutor):
                 output={},
                 error_message=f"Tool 调用失败: {exc}",
             )
+
+    async def _execute_custom_tool(
+        self,
+        tool_doc: dict[str, Any],
+        params: dict[str, Any],
+        org_args: dict[str, Any] | None = None,
+    ) -> NodeResult:
+        """Execute an openapi/code tool built via ToolBuilder.
+
+        凭证取工具级统一配置（org_args，治理模型——admin 维护）；存量节点
+        配置了 user_args 时兼容覆盖。code 工具走 harness sandbox（worker
+        无沙盒时 build_tool 内部回退本地 exec）。
+        """
+        from app.engine.harness_integration.context import decrypt_user_args
+        from app.engine.tool.tool_builder import build_tool
+
+        # 凭证：工具级统一配置（org_args，已解密）；存量节点配置了 user_args
+        # 时兼容覆盖（enc: 形态在此解密）
+        config_args = self.node_config.get("user_args") or {}
+        user_args = decrypt_user_args(tool_doc, config_args) if config_args else (org_args or {})
+        try:
+            tool = await build_tool(tool_doc, user_args=user_args)
+        except Exception as exc:
+            logger.error("custom_tool_build_failed", node_id=self.node_id, error=str(exc))
+            return NodeResult(
+                success=False,
+                output={},
+                error_message=f"工具构建失败: {exc}",
+            )
+        if tool is None:
+            return NodeResult(
+                success=False,
+                output={},
+                error_message=f"工具 {tool_doc.get('name', '')} 构建失败（source={tool_doc.get('source', '')}）",
+            )
+        return await self._invoke_with_retry(tool, params, tool_doc["_id"], label="工具")
+
+    async def _invoke_with_retry(
+        self,
+        tool: Any,
+        params: dict[str, Any],
+        tool_id: str,
+        *,
+        label: str = "工具",
+    ) -> NodeResult:
+        """Invoke ``tool.ainvoke(params)`` with timeout protection and retry.
+
+        输出契约：``{"result": <工具返回>, "tool_id": <doc _id>}``。
+        失败（含重试耗尽/工具不可用）即节点失败——工作流报错停止，
+        状态经任务时间线呈现，不进下游变量。
+        """
+        timeout_ms = self.node_config.get("timeout_ms", 30000)
+        timeout_s = timeout_ms / 1000
+        retry_policy = self.node_config.get("retry_policy", {})
+        max_retries = retry_policy.get("max_retries", 0)
+        backoff_ms = retry_policy.get("backoff_ms", 1000)
+
+        last_error: str | None = None
+        for attempt in range(1 + max_retries):
+            try:
+                result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
+                return NodeResult(success=True, output={"result": result, "tool_id": tool_id})
+            except TimeoutError:
+                last_error = f"{label}执行超时 ({timeout_ms}ms)"
+                logger.warning("tool_execution_timeout", node_id=self.node_id, attempt=attempt + 1)
+            except Exception as exc:
+                last_error = f"{label}执行失败: {exc}"
+                logger.error("tool_execution_failed", node_id=self.node_id, error=str(exc), attempt=attempt + 1)
+
+            if attempt < max_retries:
+                logger.info("tool_retry", node_id=self.node_id, attempt=attempt + 1, max_retries=max_retries)
+                await asyncio.sleep(backoff_ms / 1000)
+
+        return NodeResult(
+            success=False,
+            output={},
+            error_message=last_error or f"{label}执行失败",
+        )
 
     async def _execute_mcp_tool(
         self,
@@ -1293,7 +1420,9 @@ class ToolNodeExecutor(BaseNodeExecutor):
             # 注入终端用户身份 ContextVar（若外部触发），让 MCP 调用走凭证兑换。
             # 使用 set/reset 配对，确保不污染后续节点。
             from agent_flow_harness.mcp.user_token_context import (
+                reset_external_required_context,
                 reset_token_record_id_context,
+                set_external_required_context,
                 set_token_record_id_context,
             )
 
@@ -1302,9 +1431,15 @@ class ToolNodeExecutor(BaseNodeExecutor):
             sys_vars = (variables or {}).get("system", {}) or {}
             ext_user_id = sys_vars.get("user_id", "")
             ext_user_token = sys_vars.get("user_token", "") or None
+            require_external = bool(sys_vars.get("external_user")) or bool(ext_user_token)
             tri_token = None
+            ext_token = None
             if ext_user_token and ext_user_id:
                 tri_token = set_token_record_id_context(ext_user_id)
+            if require_external:
+                # fail-closed 守卫：外部触发的 MCP 工具节点禁止静默回退
+                # 内部静态凭证（身份/兑换器缺失时由 interceptor 拒绝）
+                ext_token = set_external_required_context(True)
 
             # Get connection ID from tool doc
             conn_id = tool_doc.get("mcp_connection_id", "")
@@ -1330,34 +1465,8 @@ class ToolNodeExecutor(BaseNodeExecutor):
 
             tool = matching[0]
 
-            # Retry and timeout configuration
-            timeout_ms = self.node_config.get("timeout_ms", 30000)
-            timeout_s = timeout_ms / 1000
-            retry_policy = self.node_config.get("retry_policy", {})
-            max_retries = retry_policy.get("max_retries", 0)
-            backoff_ms = retry_policy.get("backoff_ms", 1000)
-
-            last_error: str | None = None
-            for attempt in range(1 + max_retries):
-                try:
-                    result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
-                    return NodeResult(success=True, output={"result": result, "tool_id": tool_doc["_id"]})
-                except TimeoutError:
-                    last_error = f"MCP 工具执行超时 ({timeout_ms}ms)"
-                    logger.warning("mcp_tool_timeout", node_id=self.node_id, attempt=attempt + 1)
-                except Exception as exc:
-                    last_error = f"MCP 工具执行失败: {exc}"
-                    logger.error("mcp_tool_execution_failed", node_id=self.node_id, error=str(exc), attempt=attempt + 1)
-
-                if attempt < max_retries:
-                    logger.info("tool_retry", node_id=self.node_id, attempt=attempt + 1, max_retries=max_retries)
-                    await asyncio.sleep(backoff_ms / 1000)
-
-            return NodeResult(
-                success=False,
-                output={},
-                error_message=last_error or "MCP 工具执行失败",
-            )
+            # 超时 + 重试（与 openapi/code 直调共用 _invoke_with_retry）
+            return await self._invoke_with_retry(tool, params, tool_doc["_id"], label="MCP 工具")
 
         except Exception as exc:
             logger.error("mcp_tool_setup_failed", error=str(exc))
@@ -1370,6 +1479,8 @@ class ToolNodeExecutor(BaseNodeExecutor):
             # reset ContextVar（仅当之前 set 过）
             if tri_token is not None:
                 reset_token_record_id_context(tri_token)
+            if ext_token is not None:
+                reset_external_required_context(ext_token)
 
 
 # ── Gateway ──
@@ -1713,6 +1824,14 @@ class SubflowNodeExecutor(BaseNodeExecutor):
                 call_chain=parent_call_chain + [self.node_id],
             )
             child_doc = child_task.model_dump(by_alias=True)
+
+            # 外部来源的父任务：子任务继承终端用户身份（ext_user_token），
+            # 子工作流的 Agent/MCP 节点才能以该用户身份兑换凭证。
+            # execute_task 的 _is_external_task 会据此判定外部来源
+            # （fail-closed），无需复制 ext_origin 等其余字段。
+            parent_user_token = (sys_vars.get("user_token", "") or "").strip()
+            if parent_user_token:
+                child_doc["ext_user_token"] = parent_user_token
 
             # Persist the child task so it is visible in the task list, can be
             # queried/cancelled, and so execute_task's internal transition_task

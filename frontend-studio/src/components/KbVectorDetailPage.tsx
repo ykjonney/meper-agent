@@ -328,13 +328,9 @@ export function KbVectorDetailPage({
 
       {/* ── Chunks modal ── */}
       {chunksDoc && (
-        <div
-          className="fixed inset-0 flex items-center justify-center p-4 z-50"
-          onClick={() => setChunksDoc(null)}
-        >
+        <div className="fixed inset-0 flex items-center justify-center p-4 z-50">
           <div
             className="w-full max-w-2xl max-h-[80vh] flex flex-col bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-[#27272a] flex items-center justify-between bg-[#121214]/60">
               <div className="min-w-0">

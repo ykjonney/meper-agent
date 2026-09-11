@@ -32,10 +32,9 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
   const timeline: TimelineEvent[] = task.timeline ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center " onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="bg-[#18181b] rounded-xl shadow-2xl w-[640px] max-h-[80vh] flex flex-col border border-[#27272a]"
-        onClick={(e) => e.stopPropagation()}
+        className="bg-[#18181b] rounded-xl shadow-2xl w-[640px] max-w-[calc(100vw-2rem)] max-h-[80vh] flex flex-col border border-[#27272a]"
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#27272a]">
           <div className="flex items-center gap-2">
@@ -94,7 +93,7 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                     <span className="text-[#1E5EFF] font-mono">{evt.event_type}</span>
                     {evt.actor && <span className="text-[#71717a]"> · {evt.actor}</span>}
                     {evt.data && Object.keys(evt.data).length > 0 && (
-                      <pre className="text-[10px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono">
+                      <pre className="text-[10px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
                         {JSON.stringify(evt.data)}
                       </pre>
                     )}

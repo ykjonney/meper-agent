@@ -10,15 +10,21 @@ loader 的 interceptor 会读取并在调用 MCP 时覆盖 Authorization header�
 """
 from agent_flow_harness.mcp.loader import McpConnectionConfig, McpToolLoader
 from agent_flow_harness.mcp.user_token_context import (
+    get_external_required_context,
     get_user_token_context,
+    reset_external_required_context,
     reset_user_token_context,
+    set_external_required_context,
     set_user_token_context,
 )
 
 __all__ = [
     "McpConnectionConfig",
     "McpToolLoader",
+    "get_external_required_context",
     "get_user_token_context",
+    "reset_external_required_context",
     "reset_user_token_context",
+    "set_external_required_context",
     "set_user_token_context",
 ]

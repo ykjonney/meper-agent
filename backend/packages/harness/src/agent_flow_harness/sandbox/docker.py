@@ -133,22 +133,33 @@ class DockerSandbox(Sandbox):
 
     # ── 命令执行 ──────────────────────────────────────────────────────
 
-    def execute_command(self, command: str, *, timeout: int | None = None) -> SandboxResult:
-        """执行命令：Docker（enabled）；本机 subprocess 仅在显式允许时降级。"""
+    def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: int | None = None,
+        env: dict[str, str] | None = None,
+    ) -> SandboxResult:
+        """执行命令：Docker（enabled）；本机 subprocess 仅在显式允许时降级。
+
+        env 为额外注入的环境变量（凭证等），容器/子进程内可见，宿主进程不受影响。
+        """
         effective_timeout = timeout if timeout is not None else self._timeout
 
         if not self._config.enabled:
             return self._fallback_or_refuse(
                 command, effective_timeout,
                 reason="sandbox disabled (enabled=False)",
+                env=env,
             )
 
         try:
-            return self._execute_docker(command, effective_timeout)
+            return self._execute_docker(command, effective_timeout, env)
         except _DockerUnavailableError as exc:
             return self._fallback_or_refuse(
                 command, effective_timeout,
                 reason=f"docker unavailable ({exc})",
+                env=env,
             )
         except Exception as exc:
             return SandboxResult(
@@ -159,6 +170,7 @@ class DockerSandbox(Sandbox):
 
     def _fallback_or_refuse(
         self, command: str, timeout: int, *, reason: str,
+        env: dict[str, str] | None = None,
     ) -> SandboxResult:
         """Fail-closed 降级闸。
 
@@ -182,9 +194,11 @@ class DockerSandbox(Sandbox):
             command_preview=command[:200],
             hint="LLM-generated command executing on host without isolation",
         )
-        return self._execute_subprocess(command, timeout)
+        return self._execute_subprocess(command, timeout, env=env)
 
-    def _execute_docker(self, command: str, timeout: int) -> SandboxResult:
+    def _execute_docker(
+        self, command: str, timeout: int, env: dict[str, str] | None = None
+    ) -> SandboxResult:
         """Docker 容器内执行（从 backend SandboxExecutor 提取）。"""
         try:
             import docker  # type: ignore[import-untyped]
@@ -207,7 +221,11 @@ class DockerSandbox(Sandbox):
                 "mode": mode,
             }
 
-        env = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}
+        env = {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONUNBUFFERED": "1",
+            **(env or {}),
+        }
         start = time.monotonic()
         timed_out = False
 
@@ -268,8 +286,11 @@ class DockerSandbox(Sandbox):
             timed_out=timed_out,
         )
 
-    def _execute_subprocess(self, command: str, timeout: int) -> SandboxResult:
-        """subprocess fallback（Docker 不可用时）。"""
+    def _execute_subprocess(
+        self, command: str, timeout: int, *, env: dict[str, str] | None = None
+    ) -> SandboxResult:
+        """subprocess fallback（Docker 不可用时）。env 合并注入子进程，
+        不污染宿主进程环境。"""
         tmp_dir = self._mounts.get("tmp", self._work_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -280,6 +301,7 @@ class DockerSandbox(Sandbox):
                 cwd=str(tmp_dir),
                 capture_output=True,
                 timeout=timeout,
+                env={**os.environ, **(env or {})},
             )
             duration = time.monotonic() - start
             return SandboxResult(

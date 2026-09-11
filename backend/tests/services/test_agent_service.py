@@ -148,9 +148,9 @@ class TestUpdateAgentNameConflict:
             },
         }
         with patch(
-            "app.services.tool_service.ToolService.get_tools_by_ids",
+            "app.services.tool_service.ToolService.get_tool",
             new_callable=AsyncMock,
-            return_value=[fake_tool_doc],
+            return_value=fake_tool_doc,
         ):
             await AgentService.update_agent(
                 agent_id="agent_01HTEST",
@@ -177,9 +177,9 @@ class TestUpdateAgentNameConflict:
             "user_args_schema": {"properties": {"token": {"type": "string", "sensitive": True}}},
         }
         with patch(
-            "app.services.tool_service.ToolService.get_tools_by_ids",
+            "app.services.tool_service.ToolService.get_tool",
             new_callable=AsyncMock,
-            return_value=[fake_tool_doc],
+            return_value=fake_tool_doc,
         ):
             await AgentService.update_agent(
                 agent_id="agent_01HTEST",

@@ -410,11 +410,10 @@ function PreviewModal({ item, theme, onClose }: {
   const box = theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200 text-slate-800';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-8" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
       <div className="absolute inset-0 bg-black/50" />
       <div
         className={`relative w-full max-w-2xl max-h-[80vh] rounded-xl border flex flex-col ${box}`}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
           <span className="text-sm font-semibold truncate max-w-md" title={item.name}>{item.name}</span>
@@ -750,8 +749,8 @@ function SkillEditModal({ theme, target, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className={`relative w-full max-w-2xl max-h-[85vh] rounded-xl border flex flex-col ${box}`} onClick={(e) => e.stopPropagation()}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div className={`relative w-full max-w-2xl max-h-[85vh] rounded-xl border flex flex-col ${box}`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
           <span className="text-sm font-semibold truncate max-w-md" title={target.name}>{`编辑：${target.name}`}</span>
           <button onClick={onClose} className="border-0 bg-transparent cursor-pointer text-sm opacity-70">✕</button>

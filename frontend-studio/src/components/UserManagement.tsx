@@ -638,7 +638,7 @@ export function UserManagement() {
       {/* CREATE USER DIALOG MODAL */}
       {isAdding && (
         <div id="modal_create_user" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-md bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl relative">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl relative">
             <div className="p-4 border-b border-[#27272a] flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-[#fafafa] flex items-center gap-1.5">
                 <Plus className="w-4 h-4 text-emerald-400" />
@@ -718,7 +718,7 @@ export function UserManagement() {
       {/* RESET PASSWORD MODAL（admin 重置成员密码，POST /users/{id}/reset-password） */}
       {resetPwdTarget && (
         <div id="modal_reset_password" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-md bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl relative">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl relative">
             <div className="p-4 border-b border-[#27272a] flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-[#fafafa] flex items-center gap-1.5">
                 <KeyRound className="w-4 h-4 text-amber-400" />
@@ -809,7 +809,7 @@ export function UserManagement() {
       {/* ROLE CREATE/EDIT DIALOG MODAL */}
       {roleModalMode !== null && (
         <div id="modal_create_role" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-lg bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl relative">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl relative">
             <div className="p-4 border-b border-[#27272a] flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-[#fafafa] flex items-center gap-1.5">
                 {roleModalMode === 'create' ? (

@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 
 import { EChartBlock } from './EChartBlock';
+import { MermaidBlock } from './MermaidBlock';
 
 /**
  * Streaming-aware Markdown renderer for chat bubbles.
@@ -38,12 +39,15 @@ export const Markdown = memo(function Markdown({ content }: MarkdownProps) {
           a: ({ node, ...props }) => (
             <a {...props} target={props.href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer" />
           ),
-          // ```echarts / ```chart fenced block → chart (EChartBlock handles
-          // streaming-partial and malformed options internally).
+          // ```echarts / ```chart → chart; ```mermaid → diagram (wiki pages
+          // mandate a visual element per the wiki guide).
           code: ({ className, children, ...props }) => {
             const language = /language-([^\s]+)/.exec(className ?? '')?.[1];
             if (language === 'echarts' || language === 'chart') {
               return <EChartBlock option={String(children).replace(/\n$/, '')} />;
+            }
+            if (language === 'mermaid') {
+              return <MermaidBlock code={String(children).replace(/\n$/, '')} />;
             }
             return (
               <code className={className} {...props}>
@@ -51,9 +55,10 @@ export const Markdown = memo(function Markdown({ content }: MarkdownProps) {
               </code>
             );
           },
-          // Unwrap <pre> around chart blocks (EChartBlock brings its own container).
+          // Unwrap <pre> around chart/diagram blocks (they bring their own container).
           pre: ({ children, ...props }) =>
-            isValidElement(children) && children.type === EChartBlock ? (
+            isValidElement(children) &&
+            (children.type === EChartBlock || children.type === MermaidBlock) ? (
               children
             ) : (
               <pre {...props}>{children}</pre>

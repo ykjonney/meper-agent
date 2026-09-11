@@ -236,6 +236,7 @@ class WorkflowEngine:
         # can access task_id / user_id / workflow_id via variables['system'].
         # This replaces the old per-entry-point constructor injection via
         # BaseNodeExecutor(task_id=..., user_id=...).
+        external_user = self._is_external_task(task_doc)
         self._pool = VariablePool(
             initial={
                 "input": task_doc.get("input", {}),
@@ -246,6 +247,10 @@ class WorkflowEngine:
                     # 终端用户通用 token（外部触发时透传，供 Agent 节点调
                     # MCP 时做凭证兑换；内部触发为空 → 用静态凭证）。
                     "user_token": task_doc.get("ext_user_token", ""),
+                    # 外部来源标记：Agent 节点据此要求 MCP 凭证必须按终端
+                    # 用户身份兑换（fail-closed），身份缺失时拒绝执行而非
+                    # 静默降级为连接静态凭证（防跨权限访问）。
+                    "external_user": external_user,
                 },
             }
         )
@@ -482,6 +487,13 @@ class WorkflowEngine:
         variable_snapshot["system"].setdefault("task_id", task_id)
         variable_snapshot["system"].setdefault("user_id", task_doc.get("created_by", ""))
         variable_snapshot["system"].setdefault("workflow_id", workflow_id)
+        # 旧 checkpoint（引入 user_token 前）恢复时从任务文档回补，
+        # 避免 human 审批数小时后续跑时丢终端用户身份
+        variable_snapshot["system"].setdefault(
+            "user_token", task_doc.get("ext_user_token", "")
+        )
+        # 外部判定是安全语义：按当前任务文档重算覆盖，不信任快照
+        variable_snapshot["system"]["external_user"] = self._is_external_task(task_doc)
         self._pool = VariablePool(initial=variable_snapshot)
 
         logger.info(
@@ -593,6 +605,12 @@ class WorkflowEngine:
                         "error_code": "WORKFLOW_RESUME_ERROR",
                     },
                 )
+                # 终态清空 checkpoint：paused_at_node 已是过期信号（审批已决），
+                # 残留会让前端把暂停节点误显示为「审批中」。
+                await db["tasks"].update_one(
+                    {"_id": task_id},
+                    {"$set": {"checkpoint": None, "updated_at": utc_now()}},
+                )
             except Exception as transition_exc:
                 logger.error(
                     "resume_checkpoint_failed_transition_failed",
@@ -601,6 +619,21 @@ class WorkflowEngine:
                     original_error=str(exc),
                 )
             return self._pool.get_all() if self._pool else {}
+
+    @staticmethod
+    def _is_external_task(task_doc: dict) -> bool:
+        """判定任务是否来自外部终端用户（MCP 凭证 fail-closed 的依据）。
+
+        三种外部来源：
+        - ext invoke 直接触发（``created_by_type == "api_key"``）
+        - 外部 chat 内 agent 调 dispatch_workflow（``ext_origin == "external"``）
+        - 任务文档携带终端用户 token（``ext_user_token``，含 subflow 继承）
+        """
+        return bool(
+            task_doc.get("ext_user_token")
+            or task_doc.get("ext_origin") == "external"
+            or task_doc.get("created_by_type") == "api_key"
+        )
 
     def _get_downstream_nodes(self, node_id: str) -> list[str]:
         """Get downstream node IDs of a given node.

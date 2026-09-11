@@ -1,7 +1,7 @@
 /**
  * Tools page — platform tools + custom tool market.
  *
- * Tab 1: 平台工具 (built-in + prebuilt, read-only)
+ * Tab 1: 平台工具 (built-in, read-only)
  * Tab 2: 自定义工具 (user-created OpenAPI/Code tools, CRUD)
  */
 import { useState } from 'react'
@@ -46,7 +46,7 @@ export default function ToolsPage() {
 }
 
 // ===========================================================================
-// Tab 1: Platform Tools (Built-in + Prebuilt)
+// Tab 1: Platform Tools (Built-in)
 // ===========================================================================
 
 function PlatformToolsTab() {
@@ -61,11 +61,6 @@ function PlatformToolsTab() {
   const { data: appTools, isLoading: appToolsLoading } = useQuery({
     queryKey: toolKeys.appTools(),
     queryFn: () => toolsApi.listAppTools(),
-  })
-
-  const { data: prebuilts, isLoading: prebuiltsLoading } = useQuery({
-    queryKey: toolKeys.prebuilts(),
-    queryFn: () => toolsApi.listPrebuilt(),
   })
 
   const matches = (tool: { name: string; description: string }) => {
@@ -123,25 +118,6 @@ function PlatformToolsTab() {
           </div>
         )}
       </div>
-
-      {/* Prebuilt tools section */}
-      <div>
-        <h3 className="text-sm font-semibold text-[#0F172A] mb-3 flex items-center gap-2">
-          <SafetyOutlined className="text-[#2563EB]" /> 预构建工具
-        </h3>
-        {prebuiltsLoading ? (
-          <div className="flex justify-center py-8"><Spin /></div>
-        ) : (prebuilts ?? []).length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span>暂无预构建工具<br />平台后续会注册 Wikipedia、Web Search 等预构建工具</span>}
-            className="py-8"
-          />
-        ) : (
-          <div className="grid grid-cols-3 gap-4">
-            {(prebuilts ?? []).map((tool, i) => <PrebuiltToolCard key={i} tool={tool} />)}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -185,38 +161,6 @@ function BuiltinToolCard({ tool }: { tool: BuiltinTool }) {
   )
 }
 
-function PrebuiltToolCard({ tool }: { tool: Record<string, unknown> }) {
-  const name = tool.name as string || ''
-  const description = tool.description as string || ''
-  const schema = tool.config_schema as Record<string, unknown> | undefined
-  const configProps = (schema?.properties as Record<string, unknown>) ?? {}
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-sm transition-all">
-      <div className="flex items-start gap-3 mb-3">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center text-base shrink-0"
-          style={{ background: '#EFF6FF', color: '#2563EB' }}>
-          <SafetyOutlined />
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[#0F172A]">{name}</div>
-          <div className="text-xs text-[#64748B] line-clamp-2">{description}</div>
-        </div>
-      </div>
-      {Object.keys(configProps).length > 0 && (
-        <div className="pt-3 border-t border-gray-50">
-          <span className="text-[11px] text-[#94A3B8]">配置项:</span>
-          <div className="flex flex-wrap gap-1.5 mt-1">
-            {Object.keys(configProps).map(k => (
-              <Tag key={k} className="!m-0 !px-2 !py-0.5 !text-[11px] !rounded"
-                style={{ color: '#2563EB', background: '#EFF6FF', borderColor: 'transparent' }}>{k}</Tag>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ===========================================================================
 // Tab 2: Custom Tools (User-created CRUD)
 // ===========================================================================
@@ -224,7 +168,6 @@ function PrebuiltToolCard({ tool }: { tool: Record<string, unknown> }) {
 const SOURCE_TAGS: Record<string, { color: string; label: string; icon: typeof GlobalOutlined }> = {
   openapi: { color: 'blue', label: 'API', icon: GlobalOutlined },
   code: { color: 'green', label: 'Code', icon: CodeOutlined },
-  prebuilt: { color: 'purple', label: 'Prebuilt', icon: ToolOutlined },
 }
 
 function CustomToolsTab() {

@@ -308,8 +308,9 @@ const VariableChipEditor = forwardRef<
     'scrollbar-custom ' +
     className
 
+  // 多行模式封顶 + 内部滚动：长 prompt / 整段 JSON 不再把配置面板无限撑高（更长的内容走「放大」弹窗）
   const sizeStyle: CSSProperties = multiline
-    ? { minHeight: `calc(${minRows} * 1.625em + 0.75rem)` }
+    ? { minHeight: `calc(${minRows} * 1.625em + 0.75rem)`, maxHeight: '24rem', overflowY: 'auto' }
     : { minHeight: '2rem', whiteSpace: 'nowrap', overflowX: 'auto' }
 
   return (

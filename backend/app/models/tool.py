@@ -39,14 +39,14 @@ class Tool(BaseModel):
     instructions: str = Field(default="", description="Markdown body / usage notes")
     source: str = Field(
         default="markdown",
-        description="Origin: markdown / mcp / openapi / code / prebuilt",
+        description="Origin: markdown / mcp / openapi / code",
     )
     source_file: str = Field(default="", description="Original filename")
     mcp_connection_id: str = Field(
         default="",
         description="关联的 MCP 连接 ID（仅 source=mcp 时有效）",
     )
-    # ── Custom tool fields (source=openapi / code / prebuilt) ──────────
+    # ── Custom tool fields (source=openapi / code) ──────────
     # 用户参数：Agent 绑定时填入的参数（含敏感字段如 token）
     user_args_schema: dict[str, Any] = Field(
         default_factory=dict,
@@ -55,6 +55,12 @@ class Tool(BaseModel):
             "字段标记 sensitive=true 的加密存储。"
             "模板用 {{user.xxx}} 引用。不暴露给 LLM。"
         ),
+    )
+    # 工具级统一凭证（ToB 治理）：admin 配置一次，全使用点（Agent 绑定/
+    # 工作流节点）共用；sensitive 字段 enc: 加密存储
+    org_user_args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="工具级统一凭证（按 user_args_schema 配置，sensitive 加密）",
     )
     # LLM 参数：运行时 LLM 调用时动态填入
     llm_args_schema: dict[str, Any] = Field(
@@ -69,12 +75,12 @@ class Tool(BaseModel):
         default="",
         description="用户自定义 Python 代码（source=code 时）",
     )
-    prebuilt_name: str = Field(
-        default="",
-        description="预构建工具名称（source=prebuilt 时）",
-    )
     version: int = Field(default=1, ge=1)
     tags: list[str] = Field(default_factory=list)
+    # 官方自定义工具启停（仅 openapi/code 消费；MCP discover 镜像不受此字段约束）。
+    # 创建默认 disabled——管理员校验定义完整后手动启用；停用全局生效
+    #（Agent 绑定/工作流节点/用户池统一跳过）。存量文档无此字段视为 active。
+    status: str = Field(default="disabled", description="active | disabled（官方自定义工具）")
     avatar: str = Field(
         default="",
         description="头像：图片 URL 路径(/api/v1/skill-avatars/{id}.png)或空",

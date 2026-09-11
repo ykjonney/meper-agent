@@ -189,6 +189,7 @@ async def invoke(
     legacy_records: list[dict] | None = None,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
+    require_user_credentials: bool = False,
     execution_context: str = "chat",
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
@@ -197,6 +198,9 @@ async def invoke(
         cancel_checker: 可选的异步取消检查器。传入后 compress_node 每轮
             REACT 迭代会检查它，返回 True 时 interrupt() 优雅挂起 agent。
         user_token: 可选,外部终端用户 token(回调验证模式),透传给 MCP server。
+        require_user_credentials: 任务级外部标记（engine._is_external_task）。
+            为 True 时即使 user_token 缺失也强制 MCP 凭证按终端用户身份
+            兑换（fail-closed 拒绝而非静默降级内部静态凭证）。
         execution_context: "chat"(默认)或 "workflow"(工作流 agent 节点,
             无人值守——剥离交互式/任务编排工具,注入 abort_workflow)。
     """
@@ -205,7 +209,9 @@ async def invoke(
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, workspace=workspace,
-        user_token=user_token, execution_context=execution_context,
+        user_token=user_token,
+        require_user_credentials=require_user_credentials,
+        execution_context=execution_context,
     )
     clock.attach(hctx)
     try:
@@ -259,6 +265,7 @@ async def resume_agent(
     workspace: Any | None = None,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
+    require_user_credentials: bool = False,
     execution_context: str = "chat",
 ) -> dict:
     """恢复被 interrupt() 挂起的 agent（非流式，供工作流恢复使用）。
@@ -273,7 +280,9 @@ async def resume_agent(
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, workspace=workspace,
-        user_token=user_token, execution_context=execution_context,
+        user_token=user_token,
+        require_user_credentials=require_user_credentials,
+        execution_context=execution_context,
     )
     clock.attach(hctx)
     try:
