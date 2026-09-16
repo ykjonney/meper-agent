@@ -60,6 +60,7 @@ export function SkillDetailPage({
       toast.success('Skill 已删除');
       onBack();
     },
+    onError: (e) => toast.error(getErrorMessage(e, '删除失败')),
   });
 
   const handleDelete = async () => {

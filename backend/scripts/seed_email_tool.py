@@ -22,7 +22,7 @@ from loguru import logger
 
 TOOL_NAME = "send-email"
 
-DESCRIPTION = "通过组织 SMTP 邮箱发送邮件（支持多个收件人，逗号分隔；正文纯文本）"
+DESCRIPTION = "通过组织 SMTP 邮箱发送邮件（支持多个收件人，逗号分隔；纯文本正文；支持附件）"
 
 # 凭证默认值按邮件配置表单落地；密码只从环境变量读取，不落盘。
 CREDENTIALS = {
@@ -67,20 +67,32 @@ LLM_ARGS_SCHEMA = {
         "to": {"type": "string", "description": "收件人邮箱，多个用英文逗号分隔"},
         "subject": {"type": "string", "description": "邮件主题"},
         "body": {"type": "string", "description": "邮件正文（纯文本）"},
+        "attachments": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "附件文件列表，每项必须是字符串：file_id（用户上传/上游节点"
+                "产出的文件引用，自动解析为可读路径）或工作区路径（input/xxx）；"
+                "不要传对象，无附件不传"
+            ),
+        },
     },
     "required": ["to", "subject", "body"],
 }
 
 # 凭证经 USER_ 前缀环境变量注入（无沙箱 fallback 与沙箱路径语义一致）。
+# 附件参数（attachments）经 file_id 自动解析暂存为 input/ 路径后传入。
 CODE = '''
 import os
 import smtplib
 from email.header import Header
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 
-def run(to: str, subject: str, body: str) -> str:
-    """通过配置的 SMTP 账号发送邮件。"""
+def run(to: str, subject: str, body: str, attachments: list = None) -> str:
+    """通过配置的 SMTP 账号发送邮件（支持附件）。"""
     host = os.environ.get("USER_smtp_host", "")
     port = int(os.environ.get("USER_smtp_port", "587") or 587)
     username = os.environ.get("USER_username", "")
@@ -88,10 +100,32 @@ def run(to: str, subject: str, body: str) -> str:
     from_addr = os.environ.get("USER_from_addr") or username
 
     recipients = [a.strip() for a in to.split(",") if a.strip()]
-    msg = MIMEText(body, "plain", "utf-8")
+    files = [p for p in (attachments or []) if p and p.strip()]
+
+    missing = [p for p in files if not os.path.isfile(p)]
+    if missing:
+        raise FileNotFoundError(
+            "附件不存在：%s（请传文件的 file_id，或 input/、output/ 开头的工作区路径）"
+            % ", ".join(missing)
+        )
+
+    msg = MIMEMultipart()
     msg["Subject"] = Header(subject, "utf-8")
     msg["From"] = from_addr
     msg["To"] = ",".join(recipients)
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    for path in files:
+        with open(path, "rb") as f:
+            part = MIMEApplication(f.read())
+        # 三元组 (charset, language, value) → RFC 2231 编码，中文文件名
+        # 在客户端正确显示
+        part.add_header(
+            "Content-Disposition",
+            "attachment",
+            filename=("utf-8", "", os.path.basename(path)),
+        )
+        msg.attach(part)
 
     # 465 → SMTP_SSL；587 → STARTTLS；其余端口按服务器明文握手
     if port == 465:
@@ -107,7 +141,10 @@ def run(to: str, subject: str, body: str) -> str:
         server.sendmail(from_addr, recipients, msg.as_string())
     finally:
         server.quit()
-    return "邮件已发送：%s → %s（主题：%s）" % (from_addr, ",".join(recipients), subject)
+    n = len(files)
+    return "邮件已发送：%s → %s（主题：%s，附件 %d 个）" % (
+        from_addr, ",".join(recipients), subject, n,
+    )
 '''
 
 

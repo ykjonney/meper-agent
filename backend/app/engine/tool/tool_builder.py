@@ -75,8 +75,9 @@ def _render_value(v: Any, context: dict[str, Any]) -> Any:
 def _json_schema_to_pydantic(name: str, schema: dict[str, Any]) -> type[BaseModel]:
     """Convert a simple JSON Schema to a Pydantic model.
 
-    Supports basic types: string, integer, number, boolean.
-    Falls back to ``str`` for unknown types.
+    Supports basic types: string, integer, number, boolean, array (多附件
+    等 list 参数场景，元素不细分校验). Falls back to ``str`` for unknown
+    types.
     """
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
@@ -87,6 +88,7 @@ def _json_schema_to_pydantic(name: str, schema: dict[str, Any]) -> type[BaseMode
         "integer": int,
         "number": float,
         "boolean": bool,
+        "array": list,
     }
 
     for prop_name, prop_schema in properties.items():
@@ -250,9 +252,21 @@ async def _build_openapi_tool(
 
 def _entry_script(code: str, func_name: str) -> str:
     """Wrap user code into a runnable script: call entry function with JSON
-    args (argv[1]) and print the result (non-str results as JSON)."""
+    args (argv[1]) and print the result (non-str results as JSON).
+
+    工作区根探测：容器内工作区挂载于 /workspace（cwd 为 /workspace/tmp），
+    本地降级时 cwd 为 {root}/tmp——chdir 到工作区根后，用户代码统一用
+    相对路径（input/xxx 读、output/xxx 写）。无挂载（无工作区）时探测不
+    命中，cwd 保持 tmp，行为与旧版一致。
+    """
     return f"""
-import json, sys
+import json, os, sys
+
+# 工作区根探测（容器 /workspace → 本地 cwd/..），统一相对路径访问 input/output
+for _root in ("/workspace", os.path.join(os.getcwd(), "..")):
+    if os.path.isdir(os.path.join(_root, "input")) or os.path.isdir(os.path.join(_root, "output")):
+        os.chdir(_root)
+        break
 
 # --- User code ---
 {code}
@@ -274,12 +288,15 @@ _tool_sandbox: DockerSandbox | None = None
 
 
 def _get_tool_sandbox() -> DockerSandbox:
-    """治理工具专用沙箱（进程级缓存）。
+    """治理工具专用沙箱（进程级缓存，无挂载）。
 
     与 LLM bash 沙箱（SANDBOX_NETWORK_MODE=none）的区别：治理工具经
     admin 审查+开启，功能上需要出网（SMTP/HTTP），默认 bridge 网络；
     进程隔离不变——工具代码读不到 worker 环境变量（密钥/凭证）与
     宿主文件系统。代码以 base64 管道传入，无需挂载。
+
+    仅用于无工作区场景（工具预览等）；执行上下文有工作区时改用
+    :func:`_get_workspace_tool_sandbox`（挂载 input/output/tmp）。
     """
     global _tool_sandbox
     if _tool_sandbox is None:
@@ -292,6 +309,7 @@ def _get_tool_sandbox() -> DockerSandbox:
         )
 
         from app.core.config import settings
+        from app.engine.tool.workspace import sandbox_bind_source_mapper
 
         _tool_sandbox = DockerSandbox(
             sandbox_id="tool-code",
@@ -306,10 +324,170 @@ def _get_tool_sandbox() -> DockerSandbox:
                 timeout=settings.SANDBOX_TIMEOUT,
                 max_output_bytes=settings.SANDBOX_MAX_OUTPUT_BYTES,
                 network_mode=settings.TOOL_SANDBOX_NETWORK_MODE,
+                bind_source_mapper=sandbox_bind_source_mapper(),
             ),
             timeout=settings.SANDBOX_TIMEOUT,
         )
     return _tool_sandbox
+
+
+def _get_workspace_tool_sandbox(workspace: Any) -> DockerSandbox:
+    """挂载当前工作区的治理工具沙箱（文件读写通道）。
+
+    mounts 与 LLM bash 沙箱同约定：input 只读、output/tmp 可写（ro/rw
+    由 DockerSandbox 按 input 名约定处理），容器内挂到 /workspace/{name}；
+    网络仍为 TOOL_SANDBOX_NETWORK_MODE（治理工具需出网）。每次现建——
+    init 仅 mkdir + 路径解析，docker client 到执行时才创建，无缓存必要。
+
+    预建三个目录：既是 chdir 探测依据，也避免 Docker 自动以 root 创建
+    缺失的 bind mount 源目录（属主错位导致容器内不可写）。
+    """
+    from agent_flow_harness.sandbox.docker import (
+        DockerSandbox,
+        DockerSandboxConfig,
+    )
+
+    from app.core.config import settings
+    from app.engine.tool.workspace import sandbox_bind_source_mapper
+
+    for d in (workspace.input_dir, workspace.output_dir, workspace.tmp_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    return DockerSandbox(
+        sandbox_id="tool-code-ws",
+        work_dir=workspace.tmp_dir,
+        mounts={
+            "input": workspace.input_dir,
+            "output": workspace.output_dir,
+            "tmp": workspace.tmp_dir,
+        },
+        config=DockerSandboxConfig(
+            image=settings.SANDBOX_IMAGE,
+            enabled=settings.SANDBOX_ENABLED,
+            allow_local_fallback=settings.SANDBOX_FALLBACK == "local",
+            mem_limit=settings.SANDBOX_MEM_LIMIT,
+            cpu_quota=settings.SANDBOX_CPU_QUOTA,
+            timeout=settings.SANDBOX_TIMEOUT,
+            max_output_bytes=settings.SANDBOX_MAX_OUTPUT_BYTES,
+            network_mode=settings.TOOL_SANDBOX_NETWORK_MODE,
+            # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
+            bind_source_mapper=sandbox_bind_source_mapper(),
+        ),
+        timeout=settings.SANDBOX_TIMEOUT,
+    )
+
+
+# ---------------------------------------------------------------------------
+# CodeTool 文件通道：file_id 解析暂存 + output/ 产物报告
+# ---------------------------------------------------------------------------
+
+_FILE_ID_RE = re.compile(r"^file_[0-9A-Za-z]+$")
+
+_FILE_CONVENTION_NOTE = (
+    "文件支持：参数值可直接传 file_id（自动解析为 input/ 下可读路径）"
+    "或工作区相对路径（input/ 只读，output/ 可写）；需产出文件时写入 "
+    "output/ 目录，产物会自动注册供下载与下游节点引用。"
+)
+
+
+async def _resolve_file_args(kwargs: dict[str, Any], workspace: Any) -> dict[str, Any]:
+    """file_id 参数值 → input/ 暂存路径。
+
+    扫描顶层与 list 内的字符串参数值：命中 file_library（且属于当前
+    用户）的 file_id 暂存到 ``input/_staged/{file_id}/{原名}`` 并把参数
+    值替换为该工作区相对路径——LLM 传 file_id，用户代码直接 open()。
+    未命中（非 file_id / 查无此文件）原样传递；非本人文件拒绝解析
+    （防越权读他人 file_library）。重复出现的 file_id 复用同一暂存路径。
+    """
+    from app.services.file_service import FileService
+    from app.services.file_storage import LocalFileStorage
+
+    file_service = FileService(LocalFileStorage())
+    staged: dict[str, str] = {}
+
+    async def _resolve(value: Any) -> Any:
+        if isinstance(value, list):
+            return [await _resolve(v) for v in value]
+        if isinstance(value, dict):
+            # 工作流 {{node.files}} 整体渲染出的结构化引用（元素为
+            # {file_id, name, ...}）——取 file_id 归一化后按普通 id 解析；
+            # 无 file_id 的 dict 原样穿透（调用方自有语义）
+            fid = value.get("file_id") or value.get("id")
+            if isinstance(fid, str) and _FILE_ID_RE.match(fid):
+                return await _resolve(fid)
+            return value
+        if not (isinstance(value, str) and _FILE_ID_RE.match(value)):
+            return value
+        if value in staged:
+            return staged[value]
+        try:
+            fref = await file_service.get(value)
+        except Exception:
+            fref = None
+        if fref is None or fref.owner_user_id != workspace.user_id:
+            return value
+        try:
+            loaded = await file_service.load_content(value)
+        except Exception:
+            return value
+        if loaded is None:
+            return value
+        staged[value] = _stage_library_file(fref, loaded[1], workspace)
+        logger.info(
+            "code_tool_file_staged", file_id=value, name=fref.name, size=fref.size
+        )
+        return staged[value]
+
+    return {k: await _resolve(v) for k, v in kwargs.items()}
+
+
+def _stage_library_file(fref: Any, data: bytes, workspace: Any) -> str:
+    """暂存 file_library 文件到 input/，返回工作区相对路径。
+
+    幂等：目标已存在同名同大小直接复用；先写临时文件再 rename，避免
+    并发调用读到半写文件。文件名取原名的 basename（防路径注入）。
+    """
+    from pathlib import Path
+
+    safe_name = Path(fref.name).name or fref.id
+    dest_dir = workspace.input_dir / "_staged" / fref.id
+    dest = dest_dir / safe_name
+    if dest.exists() and dest.stat().st_size == len(data):
+        return f"input/_staged/{fref.id}/{safe_name}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{safe_name}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(dest)
+    return f"input/_staged/{fref.id}/{safe_name}"
+
+
+def _snapshot_output(output_dir: Any) -> dict[str, tuple[float, int]]:
+    """记录 output/ 现有文件 {相对路径: (mtime, size)}，供事后识别本次产物。"""
+    if not output_dir.exists():
+        return {}
+    snapshot: dict[str, tuple[float, int]] = {}
+    for p in output_dir.rglob("*"):
+        if p.is_file():
+            st = p.stat()
+            snapshot[str(p.relative_to(output_dir))] = (st.st_mtime, st.st_size)
+    return snapshot
+
+
+def _append_output_files_report(
+    output: str, output_dir: Any, snapshot: dict[str, tuple[float, int]]
+) -> str:
+    """把本次新增/变更的 output/ 产物清单附加到结果文本。
+
+    workflow 场景 Agent/工具节点会另行扫描 output/ 注册 file_library，
+    chat 场景会话文件列表直接列 output/ 目录——此处清单是给 LLM 的
+    产物路径提示（可继续引用/转述给用户）。
+    """
+    current = _snapshot_output(output_dir)
+    fresh = [rel for rel, (mt, _) in current.items() if snapshot.get(rel, (0.0, 0))[0] != mt]
+    if not fresh:
+        return output
+    lines = [f"- output/{rel} ({current[rel][1] / 1024:.1f} KB)" for rel in sorted(fresh)]
+    return f"{output}\n\n[output_files]\n" + "\n".join(lines)
 
 
 async def _build_code_tool(
@@ -323,9 +501,21 @@ async def _build_code_tool(
     - LLM args 以 JSON argv 传给入口函数；
     - 同步执行放线程池，不阻塞 event loop（env 走子进程/容器注入，
       并发安全）。
+
+    文件通道（TOOL_SANDBOX_MOUNT_WORKSPACE 开启且有工作区时）：
+    - 挂载当前工作区（chat 会话 / workflow 任务，由 resolve_harness_
+      context 在工具调用时刻设置的 contextvar 提供）——input 只读、
+      output/tmp 可写，用户代码统一相对路径访问；
+    - 参数中的 file_id 自动解析暂存为 input/ 路径（见 _resolve_file_args）；
+    - 执行后扫描 output/ 新增文件附加产物清单（见 _append_output_files_report）。
     """
+    from app.core.config import settings
+
     code = tool_doc.get("code", "")
     llm_args_schema = tool_doc.get("llm_args_schema", {})
+
+    if settings.TOOL_SANDBOX_MOUNT_WORKSPACE:
+        description = f"{description}\n{_FILE_CONVENTION_NOTE}".strip()
 
     args_model = _json_schema_to_pydantic(name, llm_args_schema)
 
@@ -334,7 +524,17 @@ async def _build_code_tool(
         import base64
         import shlex
 
-        from app.core.config import settings
+        workspace = None
+        if settings.TOOL_SANDBOX_MOUNT_WORKSPACE:
+            from app.engine.agent.builtin_tools import _get_workspace
+
+            workspace = _get_workspace()
+
+        if workspace is not None:
+            kwargs = await _resolve_file_args(kwargs, workspace)
+            sandbox = _get_workspace_tool_sandbox(workspace)
+        else:
+            sandbox = _get_tool_sandbox()
 
         user_env: dict[str, str] = {}
         for k, v in user_args.items():
@@ -345,8 +545,10 @@ async def _build_code_tool(
         payload = json.dumps(kwargs, ensure_ascii=False, default=str)
         command = f"echo {b64} | base64 -d | python3 - {shlex.quote(payload)}"
 
+        output_snapshot = _snapshot_output(workspace.output_dir) if workspace else {}
+
         result = await asyncio.to_thread(
-            _get_tool_sandbox().execute_command,
+            sandbox.execute_command,
             command,
             timeout=settings.SANDBOX_TIMEOUT,
             env=user_env,
@@ -355,6 +557,8 @@ async def _build_code_tool(
         if result.exit_code != 0:
             err = (result.stderr or "").strip() or f"exit_code={result.exit_code}"
             return f"Error: {err[-2000:]}"
+        if workspace is not None:
+            output = _append_output_files_report(output, workspace.output_dir, output_snapshot)
         return output
 
     return StructuredTool.from_function(

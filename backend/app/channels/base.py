@@ -88,12 +88,3 @@ class Channel(ABC):
         Raises TransientChannelError on retryable failures, PermanentChannelError
         (e.g. InvalidCredentialsError / SendFailedError) otherwise.
         """
-
-    def normalize_event(
-        self, event: dict, config: ChannelConfig
-    ) -> InboundMessage:
-        """Optional: parse a long-connection (WebSocket) event into InboundMessage.
-        HTTP-callback adapters don't need to implement this."""
-        raise NotImplementedError(
-            f"{self.provider} does not implement long-connection mode"
-        )

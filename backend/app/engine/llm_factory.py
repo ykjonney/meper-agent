@@ -18,6 +18,8 @@ Resolution strategies:
 """
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 
 # ---------------------------------------------------------------------------
@@ -99,6 +101,44 @@ async def _resolve_model_doc(model_ref: str) -> dict | None:
             error=str(exc),
         )
         return None
+
+
+async def resolve_chat_model(model_id: str = "", *, temperature: float = 0.2):
+    """服务层直接调 LLM 的统一解析入口（工具生成/测试等非 agent 链路）。
+
+    - ``model_`` 前缀 → 查模型表构建客户端；查无此模型抛 ``ValueError``
+      （不静默回退——调用方应向用户报错）
+    - 空 / 其他 → 平台默认客户端（``get_llm_client`` 兜底）
+    """
+    if model_id.startswith("model_"):
+        model_doc = await _resolve_model_doc(model_id)
+        if model_doc is None:
+            raise ValueError(f"模型不存在：{model_id}")
+        from agent_flow_harness import build_client_from_doc
+
+        return build_client_from_doc(model_doc, {"temperature": temperature})
+    return await get_llm_client()
+
+
+def content_text(resp: Any) -> str:
+    """LangChain AIMessage → 纯文本。
+
+    结构化 content（列表块）只取 ``type == "text"`` 的块——thinking /
+    signature 等内部推理块对用户不可见，绝不能 ``str(块)`` 裸拼
+    （会出现 ``{'signature': ...}`` 这类 dict 原文）。
+    """
+    content = getattr(resp, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for p in content:
+            if isinstance(p, str):
+                parts.append(p)
+            elif isinstance(p, dict) and p.get("type") == "text" and p.get("text"):
+                parts.append(str(p["text"]))
+        return "".join(parts)
+    return str(content)
 
 
 # ---------------------------------------------------------------------------

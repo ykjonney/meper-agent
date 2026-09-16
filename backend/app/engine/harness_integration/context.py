@@ -341,7 +341,13 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
     （uto_ published+enabled）统一经 ``UserToolService.resolve_org_tool``
     解析——凭证用**工具级统一配置**（org_user_args，admin 维护）；
     存量绑定上的 binding.user_args 非空时兼容覆盖（旧数据）。
-    停用/未开启/不存在收集到 errors 不中断其他工具。
+    停用/未开启/不存在**静默跳过**（仅记日志，不发给前端——绑定可用性
+    以运行时为准，删除工具时会级联清理绑定，避免每轮聊天弹错）；
+    构建失败仍收集到 errors（真异常需暴露）。
+
+    官方工具走**批量查询**（绑定通常多个，逐个查代价高）——治理口径与
+    单工具入口 ``UserToolService.resolve_runnable_tool``（工作流直调/
+    试跑共用）一致，此处是它的批量变体。
     """
     custom_tools = agent.get("custom_tools") or []
     if not custom_tools:
@@ -371,16 +377,17 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
         if tool_id.startswith("uto_"):
             resolved = await UserToolService.resolve_org_tool(tool_id)
             if resolved is None:
-                errors.append({"tool_name": f"custom:{tool_id}", "error": "工具不可用（未开启或已停用）"})
+                # 未开启/停用/不存在（含历史悬空绑定）——静默跳过
+                logger.warning("custom_tool_unavailable", tool_id=tool_id)
                 continue
             doc, org_args = resolved
         else:
             found = docs_by_id.get(tool_id)
             if found is None:
-                errors.append({"tool_name": f"custom:{tool_id}", "error": "自定义工具不存在"})
+                logger.warning("custom_tool_missing", tool_id=tool_id)
                 continue
             if not ToolService.is_tool_active(found):
-                errors.append({"tool_name": found.get("name", tool_id), "error": "官方工具已停用"})
+                logger.warning("custom_tool_inactive", tool_id=tool_id)
                 continue
             doc = found
             org_args = decrypt_user_args(found, found.get("org_user_args") or {})
@@ -553,6 +560,8 @@ async def resolve_harness_context(
     }
 
     # 6. sandbox:用 backend 配置构造 harness DockerSandbox
+    from app.engine.tool.workspace import sandbox_bind_source_mapper
+
     sandbox_config = DockerSandboxConfig(
         image=settings.SANDBOX_IMAGE,
         enabled=settings.SANDBOX_ENABLED,
@@ -564,6 +573,8 @@ async def resolve_harness_context(
         network_mode=settings.SANDBOX_NETWORK_MODE,
         container_workspace_dir=settings.SANDBOX_CONTAINER_WORKSPACE_DIR,
         container_skills_dir=settings.SANDBOX_CONTAINER_SKILLS_DIR,
+        # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
+        bind_source_mapper=sandbox_bind_source_mapper(),
     )
 
     # 7. workspace

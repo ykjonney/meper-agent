@@ -79,6 +79,33 @@ class SessionService:
         return await SessionService._collection().find_one({"_id": session_id})
 
     @staticmethod
+    async def get_latest_session(
+        user_id: str,
+        agent_id: str,
+        *,
+        updated_since: str | None = None,
+        created_since: str | None = None,
+    ) -> dict | None:
+        """Most recently active session for a user-agent pair.
+
+        ``updated_at`` is bumped on every message / token accumulation, so
+        sorting on it yields the conversation the user is still in. IM
+        channels use this (with ``updated_since`` as an idle window and
+        ``created_since`` as a max-session-age bound) to continue
+        conversations instead of starting a session per message.
+
+        Returns None when no session exists (or none within the windows).
+        """
+        query: dict = {"user_id": user_id, "agent_id": agent_id}
+        if updated_since is not None:
+            query["updated_at"] = {"$gte": updated_since}
+        if created_since is not None:
+            query["created_at"] = {"$gte": created_since}
+        return await SessionService._collection().find_one(
+            query, sort=[("updated_at", -1)],
+        )
+
+    @staticmethod
     async def list_sessions(
         user_id: str,
         agent_id: str | None = None,

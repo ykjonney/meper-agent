@@ -517,6 +517,24 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
     onSuccess: invalidate,
     onError: (e) => toast.error(getErrorMessage(e, '删除失败')),
   });
+  // admin：删除官方技能（tools 表，官方墙 id 即 tool id；被 Agent 引用时后端 409 并带回名单）
+  const deleteOfficialM = useMutation({
+    mutationFn: (v: { id: string; name: string }) => toolsApi.remove(v.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['usk-official-list'] });
+      void qc.invalidateQueries({ queryKey: ['usk-marketplace'] });
+    },
+    onError: (e) => toast.error(getErrorMessage(e, '删除失败')),
+  });
+  const handleDeleteOfficial = async (m: { id: string; name: string }) => {
+    const ok = await confirmDialog({
+      title: `删除官方技能「${m.name}」？`,
+      description: '该技能的文件将被清除。若被 Agent 引用将拒绝删除。',
+      okText: '删除',
+      danger: true,
+    });
+    if (ok) deleteOfficialM.mutate(m);
+  };
   const uninstallMineM = useMutation({
     mutationFn: (id: string) => userSkillsApi.uninstall(id),
     onSuccess: invalidate,
@@ -598,12 +616,19 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                   </div>
                 </div>
                 <p className={`text-xs line-clamp-2 ${textMuted}`}>{m.description}</p>
-                <div className="pt-2 border-t border-inherit">
+                <div className="flex items-center justify-between pt-2 border-t border-inherit">
                   <button
                     onClick={() => onOpenOfficial?.(m.id, m.name)}
                     className="flex items-center gap-1 text-xs border-0 bg-transparent text-blue-400 cursor-pointer"
                   >
                     编辑（官方详情）
+                  </button>
+                  <button
+                    onClick={() => handleDeleteOfficial({ id: m.id, name: m.name })}
+                    className="flex items-center gap-0.5 text-xs border-0 bg-transparent text-rose-400 cursor-pointer"
+                    title="删除该官方技能（若被 Agent 引用将拒绝删除）"
+                  >
+                    <Trash2 size={12} /> 删除
                   </button>
                 </div>
               </div>

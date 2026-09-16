@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pymongo.errors import DuplicateKeyError
 
@@ -42,8 +42,14 @@ from app.models.channel import (
 )
 from app.schemas.execution import ExecutionRequest
 from app.services.agent_execution_service import AgentExecutionService
+from app.services.session_service import SessionService
 
 logger = logging.getLogger(__name__)
+
+# IM 侧手动开新会话的指令（精确匹配，剥离首尾空白后）。命中后不进 agent，
+# 直接创建新 session 并回复确认——下一次消息自然续在新会话上。
+_SESSION_RESET_COMMANDS = ("#新话题", "/new", "/reset")
+_SESSION_RESET_REPLY = "已开启新话题，请直接说出你的问题～"
 
 
 class ChannelService:
@@ -122,6 +128,15 @@ class ChannelService:
             logger.warning("channel %s missing or disabled", inbound.channel_id)
             return
 
+        # 会话重置指令：不进 agent，开新 session 并直接确认（消费掉指令本身）。
+        if _match_reset_command(inbound.text) is not None:
+            user_id = f"channel:{config.id}:{inbound.platform_chat_id}"
+            await SessionService.create_session(
+                user_id=user_id, agent_id=config.agent_id, title="新话题",
+            )
+            await ChannelService._send_reply(inbound, config, _SESSION_RESET_REPLY)
+            return
+
         try:
             reply_text = await ChannelService._invoke_agent(inbound, config)
             await ChannelService._send_reply(inbound, config, reply_text)
@@ -154,15 +169,78 @@ class ChannelService:
 
     @staticmethod
     async def _invoke_agent(inbound: InboundMessage, config: ChannelConfig) -> str:
-        """Encode identity into user_id, call AgentExecutionService.invoke."""
+        """Encode identity into user_id, resolve a continuable session, invoke.
+
+        会话延续（对齐行业惯例，见 docs/channel-long-connection-guide.md）：
+        身份域 channel:{ch}:{chat} 内复用最近活跃 session——单聊连续多轮、
+        群聊全群共享一条流。三个轮换边界：空闲超过
+        CHANNEL_SESSION_IDLE_RESET_MINUTES、会话活满 CHANNEL_SESSION_MAX_AGE_HOURS
+        （防止持续活跃的聊天无限累积）、token 预算耗尽（自动开新会话重试本轮）。
+        复用的 session_id 传入 ExecutionRequest，与 Web 端多轮对话走完全相同
+        的链路（checkpointer thread、token 预算、llm_summary 压缩随之自动生效）。
+        """
         user_id = f"channel:{config.id}:{inbound.platform_chat_id}"
-        body = ExecutionRequest(input=inbound.text)
-        response = await AgentExecutionService.invoke(
-            agent_id=config.agent_id,
-            body=body,
-            user_id=user_id,
+        session_id = await ChannelService._find_continuable_session(
+            user_id, config.agent_id
         )
+        from app.core.errors import SessionBudgetExceededError
+
+        try:
+            response = await AgentExecutionService.invoke(
+                agent_id=config.agent_id,
+                body=ExecutionRequest(input=inbound.text, session_id=session_id),
+                user_id=user_id,
+            )
+        except SessionBudgetExceededError:
+            # 预算耗尽的那条 session 已无法承载新消息（且刚被写入 updated_at，
+            # 后续查找仍会命中）→ 立刻开新 session 承接本轮与后续消息。
+            fresh = await SessionService.create_session(
+                user_id=user_id, agent_id=config.agent_id,
+                title=inbound.text[:200],
+            )
+            logger.info(
+                "channel_session_budget_rollover user=%s old=%s new=%s",
+                user_id, session_id, fresh["_id"],
+            )
+            response = await AgentExecutionService.invoke(
+                agent_id=config.agent_id,
+                body=ExecutionRequest(
+                    input=inbound.text, session_id=str(fresh["_id"]),
+                ),
+                user_id=user_id,
+            )
         return response.output
+
+    @staticmethod
+    async def _find_continuable_session(user_id: str, agent_id: str) -> str | None:
+        """Latest active session for this channel identity, None → start new.
+
+        ``updated_at`` is bumped on every message/token write, so "latest"
+        tracks the conversation the chat is actually in; the idle window
+        (updated_since) rolls quiet chats, the max-age bound (created_since)
+        rolls continuously-active ones so a single session can't accumulate
+        messages/tokens forever.
+        """
+        idle_minutes = settings.CHANNEL_SESSION_IDLE_RESET_MINUTES
+        max_age_hours = settings.CHANNEL_SESSION_MAX_AGE_HOURS
+        updated_since = (
+            (datetime.now(UTC) - timedelta(minutes=idle_minutes)).isoformat()
+            if idle_minutes > 0 else None
+        )
+        created_since = (
+            (datetime.now(UTC) - timedelta(hours=max_age_hours)).isoformat()
+            if max_age_hours > 0 else None
+        )
+        doc = await SessionService.get_latest_session(
+            user_id, agent_id,
+            updated_since=updated_since, created_since=created_since,
+        )
+        if doc is not None:
+            logger.info(
+                "channel_session_reused user=%s session=%s", user_id, doc["_id"],
+            )
+            return str(doc["_id"])
+        return None
 
     @staticmethod
     async def _send_reply(
@@ -406,6 +484,19 @@ async def _call_send(
     if inspect.isawaitable(result):
         return await result
     return result
+
+
+def _match_reset_command(text: str) -> str | None:
+    """Return the matched reset command if ``text`` is exactly one (None else).
+
+    Exact-match only — a message *containing* "#新话题" mid-sentence still
+    goes to the agent.
+    """
+    stripped = text.strip()
+    for cmd in _SESSION_RESET_COMMANDS:
+        if stripped == cmd:
+            return cmd
+    return None
 
 
 def _extract_send_context(inbound: InboundMessage) -> dict:

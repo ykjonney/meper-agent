@@ -35,7 +35,7 @@ dev-local:
 	(cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log) & \
 	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd backend && uv run celery -A app.workers.celery_app beat --loglevel=info) & \
-	(cd frontend && npm run dev) & \
+ 	(cd frontend && npm run dev) & \
 	(cd frontend-studio && npm run dev) & \
 	(cd frontend-client && npm run dev) & \
 	wait

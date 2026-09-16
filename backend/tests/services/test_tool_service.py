@@ -158,6 +158,7 @@ class TestDeleteTool:
         mock_agents_cursor = MagicMock()
         mock_agents_cursor.to_list = AsyncMock(return_value=[])
         mock_agents.find.return_value = mock_agents_cursor
+        mock_agents.update_many = AsyncMock()
 
         mock_db = {"tools": mock_col, "agents": mock_agents}
         with (
@@ -171,6 +172,11 @@ class TestDeleteTool:
         assert result is True
         # Disk cleanup should be called
         mock_del_dir.assert_called_once_with("test")
+        # custom_tools 绑定级联清理
+        mock_agents.update_many.assert_called_once_with(
+            {"custom_tools.tool_id": "tool_1"},
+            {"$pull": {"custom_tools": {"tool_id": "tool_1"}}},
+        )
 
     @pytest.mark.asyncio
     async def test_delete_not_found(self) -> None:

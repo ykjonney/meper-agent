@@ -65,6 +65,8 @@ export interface ToolDefinitionPayload {
   llm_args_schema?: Record<string, unknown>
   endpoint?: Record<string, unknown>
   code?: string
+  /** 返回字段声明——下游 {{node.result.字段}} 精确引用 */
+  output_schema?: Record<string, unknown>
   tags?: string[]
 }
 
@@ -81,9 +83,79 @@ export interface EnabledToolItem {
   output_schema?: Record<string, unknown>
 }
 
+/** AI 生成的工具定义草稿（不落库，回填创建表单后走正常治理链） */
+export interface GeneratedToolDraft {
+  name: string
+  description: string
+  source: string
+  llm_args_schema?: Record<string, unknown>
+  user_args_schema?: Record<string, unknown>
+  endpoint?: Record<string, unknown>
+  code?: string
+  output_schema?: Record<string, unknown>
+  tags?: string[]
+}
+
+/** 生成对话消息（无状态多轮——每次携带完整历史） */
+export interface GenerateChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** 生成对话的一轮响应：文本说明 + 草稿（AI 澄清提问时为 null） */
+export interface GenerateChatResponse {
+  reply: string
+  draft: GeneratedToolDraft | null
+}
+
+/** 试跑一次的响应（code 的 Error: 文本同样判失败） */
+export interface TestRunResponse {
+  ok: boolean
+  result?: string | Record<string, unknown> | unknown[] | null
+  error?: string | null
+}
+
+/** AI 生成的测试用例 */
+export interface ToolTestCase {
+  name: string
+  description: string
+  params: Record<string, unknown>
+}
+
 /* ─── API methods ─── */
 
 export const userToolsApi = {
+  /** AI 多轮对话生成工具定义草稿（规则约束 + 本地校验；不落库） */
+  generate(body: { messages: GenerateChatMessage[]; source?: string; model_id?: string }) {
+    return apiClient
+      .post<GenerateChatResponse>('/api/v1/user-tools/generate', body)
+      .then((r) => r.data)
+  },
+
+  /** 试跑一次工具定义（不落库、不要求过审；试跑凭证即填即用） */
+  testRun(body: {
+    definition: ToolDefinitionPayload
+    params: Record<string, unknown>
+    user_args?: Record<string, unknown>
+  }) {
+    return apiClient
+      .post<TestRunResponse>('/api/v1/user-tools/test-run', body)
+      .then((r) => r.data)
+  },
+
+  /** AI 按工具定义生成测试用例（仅 params；凭证由用户试跑时另填） */
+  testCases(body: { definition: ToolDefinitionPayload; model_id?: string }) {
+    return apiClient
+      .post<{ cases: ToolTestCase[] }>('/api/v1/user-tools/test-cases', body)
+      .then((r) => r.data)
+  },
+
+  /** 试跑已保存的工具（工具节点调试）：凭证默认用组织配置，可临时覆盖 */
+  testRunById(toolId: string, body: { params: Record<string, unknown>; user_args?: Record<string, unknown> }) {
+    return apiClient
+      .post<TestRunResponse>(`/api/v1/user-tools/${toolId}/test-run`, body)
+      .then((r) => r.data)
+  },
   /** 可用工具全集（Agent 绑定 / 工作流节点候选） */
   listEnabled() {
     return apiClient.get<EnabledToolItem[]>('/api/v1/user-tools/enabled').then((r) => r.data)

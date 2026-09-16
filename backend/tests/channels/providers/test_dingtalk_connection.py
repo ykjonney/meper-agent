@@ -1,6 +1,7 @@
 """DingtalkConnectionClient + send-with-session-webhook unit tests."""
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -49,6 +50,84 @@ class TestConnectMissingCredentials:
         client = DingtalkConnectionClient(config)
         with pytest.raises(InvalidCredentialsError):
             await client.connect()
+
+
+class TestSdkHandlerContract:
+    """Regression guard for the SDK handler contract (startup + dispatch).
+
+    The stream client calls ``handler.pre_start()`` on every registered
+    handler at startup, and dispatches inbound messages via
+    ``handler.raw_process()`` (stream.py: 'ack = await handler.raw_process(msg)'),
+    which wraps our ``process()`` and builds the AckMessage envelope. The
+    original duck-typed handler implemented only ``process`` and crashed on
+    each SDK entry point in turn — AttributeError 'pre_start' at connect
+    time (endless connection_failed retry loop), then AttributeError
+    'raw_process' on the first inbound message. The handler now subclasses
+    CallbackHandler; these tests pin the contract to the SDK's real paths.
+    """
+
+    def test_handler_subclasses_sdk_callback_handler(self):
+        import dingtalk_stream
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+            _DingtalkMessageHandler,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        handler = _DingtalkMessageHandler(client)
+        assert isinstance(handler, dingtalk_stream.CallbackHandler)
+
+    def test_handler_survives_sdk_pre_start(self):
+        import dingtalk_stream
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+            _DingtalkMessageHandler,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        handler = _DingtalkMessageHandler(client)
+
+        # Wire the handler exactly like DingtalkConnectionClient.connect()
+        # does, then run the SDK's own pre_start over the registered map —
+        # the exact code path that crashed before the fix. Must not raise.
+        sdk_client = dingtalk_stream.DingTalkStreamClient(
+            dingtalk_stream.Credential("test_key", "test_secret")
+        )
+        sdk_client.register_callback_handler(handler.TOPIC, handler)
+        sdk_client.pre_start()
+
+    async def test_handler_survives_sdk_message_dispatch(self):
+        """raw_process is the SDK's inbound entry point — must return a
+        well-formed AckMessage, not AttributeError. Exercises the exact
+        dispatch path that dropped the first real inbound message."""
+        import dingtalk_stream
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+            _DingtalkMessageHandler,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        handler = _DingtalkMessageHandler(client)
+
+        callback = MagicMock()
+        callback.data = {
+            "msgtype": "text",
+            "text": {"content": "你好"},
+            "conversationId": "cid001",
+            "senderStaffId": "staff123",
+            "messageId": "msg001",
+        }
+        callback.headers.message_id = "hdr_msg_1"
+
+        with patch(
+            "app.channels.providers.dingtalk.connection.dispatch_inbound",
+            new=AsyncMock(return_value="inb_dt1"),
+        ) as mock_dispatch:
+            ack = await handler.raw_process(callback)
+
+        assert isinstance(ack, dingtalk_stream.AckMessage)
+        assert ack.code == dingtalk_stream.AckMessage.STATUS_OK
+        mock_dispatch.assert_awaited_once()
 
 
 class TestHandlerProcess:
@@ -256,3 +335,93 @@ class TestExtractSendContext:
             timestamp=datetime.now(UTC),
         )
         assert _extract_send_context(inbound) == {}
+
+
+class _StubbornSDKClient:
+    """Mimics the real SDK's start(): blocks on recv, swallows CancelledError,
+    then reconnects via open_connection() — the exact behavior that used to
+    make manager task.cancel() (and thus uvicorn reload) hang forever."""
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.reconnect_calls = 0
+        self.exited = False
+        self.websocket = MagicMock()
+
+        async def _close() -> None:
+            self.closed = True
+
+        self.websocket.close = _close
+
+    def register_callback_handler(self, topic, handler) -> None:  # noqa: ANN001
+        pass
+
+    def open_connection(self):  # noqa: ANN201
+        self.reconnect_calls += 1
+        return {"endpoint": "wss://stub", "ticket": "t"}
+
+    async def start(self):  # noqa: ANN201
+        try:
+            while True:
+                try:
+                    # "recv loop": blocks until the websocket is closed
+                    while not self.closed:
+                        await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    pass  # the real SDK swallows this and reconnects
+                self.open_connection()
+                # Reconnect setup — the real SDK awaits websockets.connect()
+                # here; a second cancel lands on this await and is NOT
+                # re-caught by the inner except, so start() exits.
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            self.exited = True
+            raise
+
+
+class TestForcedShutdown:
+    """Regression: dingtalk SDK start() swallows cancellation and reconnects,
+    so stopping a channel hung graceful shutdown (zombie workers on every
+    uvicorn reload). Cancellation must close the websocket and re-cancel the
+    SDK task so start() actually returns."""
+
+    async def test_cancellation_shuts_down_stubborn_sdk(self):
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        stub = _StubbornSDKClient()
+        with patch.object(
+            DingtalkConnectionClient, "_get_credential",
+            MagicMock(return_value="k"),
+        ), patch("dingtalk_stream.Credential"), patch(
+            "dingtalk_stream.DingTalkStreamClient", return_value=stub,
+        ):
+            task = asyncio.create_task(client.connect())
+            await asyncio.sleep(0.05)  # let connect() reach the shielded await
+            task.cancel()
+            # asyncio.wait (NOT wait_for — awaiting a just-cancelled task
+            # inside wait_for deadlocks on py3.12's asyncio.timeout). Before
+            # the fix this stayed pending: the cancellation was forwarded
+            # into the SDK task, which swallowed it and reconnected forever.
+            done, pending = await asyncio.wait({task}, timeout=5)
+            assert not pending, "cancellation must complete promptly"
+
+        await asyncio.sleep(0.1)  # grace for the SDK task to wind down
+        assert stub.closed is True  # websocket actually closed
+        assert stub.exited is True  # SDK loop actually exited
+
+    async def test_disconnect_poisons_reconnect_and_closes_ws(self):
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        stub = _StubbornSDKClient()
+        client._sdk_client = stub
+
+        await client.disconnect()
+
+        assert stub.closed is True  # websocket closed, not just state cleared
+        assert client._sdk_client is None

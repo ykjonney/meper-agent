@@ -159,3 +159,65 @@ def test_ws_edit_input_rejected(tmp_path):
     assert sb.read_file("/workspace/input/spec.md") == "spec\n"
     with pytest.raises(PermissionError, match="read-only input"):
         sb.edit_file("input/spec.md", "spec", "modified")
+
+
+# ── bind_source_mapper：容器视角 → daemon 宿主视角的 volumes 源换算 ──
+
+
+def _make_mapped_sandbox(root, mapper) -> DockerSandbox:
+    return DockerSandbox(
+        sandbox_id="mapped",
+        work_dir=root / "tmp",
+        mounts={
+            "tmp": root / "tmp",
+            "input": root / "input",
+            "output": root / "output",
+        },
+        config=DockerSandboxConfig(enabled=False, bind_source_mapper=mapper),
+        timeout=10,
+    )
+
+
+def test_build_volumes_without_mapper_keeps_source(tmp_path):
+    """无 mapper（本地开发，两路径相同）：volumes 源 = 进程视角绝对路径。"""
+    root = tmp_path / "ws"
+    for sub in ("input", "output", "tmp"):
+        (root / sub).mkdir(parents=True)
+    sb = _make_mapped_sandbox(root, mapper=None)
+    volumes = sb._build_volumes()
+    assert str((root / "input").resolve()) in volumes
+    assert volumes[str((root / "input").resolve())] == {
+        "bind": "/workspace/input",
+        "mode": "ro",
+    }
+    assert volumes[str((root / "output").resolve())]["mode"] == "rw"
+
+
+def test_build_volumes_applies_mapper(tmp_path):
+    """mapper 换算 volumes 源前缀；挂载点/权限约定不变。
+
+    backend 容器化部署：进程视角 /data/workspaces → daemon 宿主视角
+    /host/workspaces，未换算则 daemon 自动建 root 空目录、文件链路断裂。
+    """
+    root = tmp_path / "ws"
+    for sub in ("input", "output", "tmp"):
+        (root / sub).mkdir(parents=True)
+    prefix = str(tmp_path.resolve())
+
+    def mapper(path: str) -> str:
+        if path.startswith(prefix):
+            return "/host" + path[len(prefix):]
+        return path
+
+    sb = _make_mapped_sandbox(root, mapper=mapper)
+    volumes = sb._build_volumes()
+
+    assert set(volumes) == {
+        f"/host{str((root / sub).resolve())[len(prefix):]}"
+        for sub in ("input", "output", "tmp")
+    }
+    assert volumes[f"/host{str((root / 'input').resolve())[len(prefix):]}"] == {
+        "bind": "/workspace/input",
+        "mode": "ro",
+    }
+    assert volumes[f"/host{str((root / 'tmp').resolve())[len(prefix):]}"]["mode"] == "rw"

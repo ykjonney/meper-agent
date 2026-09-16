@@ -394,3 +394,91 @@ async def test_openapi_params_table_signature_from_schema():
     assert set(llm["properties"]) == {"city"}
     assert set(user["properties"]) == {"api_key"}
     assert user["properties"]["api_key"]["sensitive"] is True
+
+
+# ── 6. 种子 send-email 工具：附件支持 ─────────────────────────────────
+
+
+def _load_seed_email_module():
+    """加载 scripts/seed_email_tool.py 常量（顶层仅读环境变量，安全）。"""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "seed_email_tool.py"
+    spec = importlib.util.spec_from_file_location("seed_email_tool_for_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_seed_email_mime_with_attachment(tmp_path, monkeypatch):
+    """附件完整链路（进程内 exec + SMTP 桩）：multipart 结构、附件字节、
+    中文文件名 RFC 2231 编码、返回文案带附件数。"""
+    import smtplib
+
+    mod = _load_seed_email_module()
+    ns: dict = {}
+    exec(mod.CODE, ns)  # noqa: S102 - 测试目标即这段治理工具代码
+
+    att = tmp_path / "周报.xlsx"
+    att.write_bytes(b"fake-xlsx-bytes")
+    sent: dict = {}
+
+    class _FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, username, password):
+            pass
+
+        def sendmail(self, from_addr, recipients, data):
+            sent.update(data=data, from_addr=from_addr, recipients=recipients)
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    monkeypatch.setenv("USER_smtp_host", "smtp.test")
+    monkeypatch.setenv("USER_username", "bot@test.com")
+    monkeypatch.setenv("USER_password", "pwd")
+
+    result = ns["run"]("a@x.com, b@x.com", "主题", "正文", attachments=[str(att)])
+
+    assert "附件 1 个" in result
+    assert sent["recipients"] == ["a@x.com", "b@x.com"]
+    mime_text = sent["data"]
+    assert "multipart/mixed" in mime_text
+    assert "fake-xlsx-bytes" not in mime_text  # 附件是 base64 编码进 MIME 的
+    assert "application/octet-stream" in mime_text
+    assert "filename*=utf-8''" in mime_text  # 中文文件名 RFC 2231 编码
+
+
+async def test_seed_email_missing_attachment_friendly_error():
+    """附件不存在 → SMTP 之前抛错，错误信息带纠正提示（LLM 可自纠重试）。
+    走真实本地降级执行（无网络依赖：错误发生在 SMTP 连接前）。"""
+    mod = _load_seed_email_module()
+    tool = await build_tool(
+        {
+            "name": "send-email",
+            "description": mod.DESCRIPTION,
+            "source": "code",
+            "code": mod.CODE,
+            "llm_args_schema": mod.LLM_ARGS_SCHEMA,
+        },
+        user_args={},
+    )
+    assert tool is not None
+
+    result = await tool.ainvoke({
+        "to": "a@x.com", "subject": "s", "body": "b",
+        "attachments": ["input/不存在.xlsx"],
+    })
+    assert result.startswith("Error:")
+    assert "附件不存在" in result
+    assert "file_id" in result  # 错误提示包含正确的传参引导

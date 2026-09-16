@@ -703,6 +703,12 @@ class ToolService:
 
         result = await col.delete_one({"_id": tool_id})
         if result.deleted_count > 0:
+            # 级联清理 custom_tools 绑定（skill_ids/tool_ids 走上方禁删守卫，
+            # custom_tools 走级联——与组织工具 UserToolService.delete_tool 一致）
+            await get_database()["agents"].update_many(
+                {"custom_tools.tool_id": tool_id},
+                {"$pull": {"custom_tools": {"tool_id": tool_id}}},
+            )
             # MCP 镜像删除 → 失效运行时工具缓存（mcp_tool_cache 纯 DB 构造，
             # 镜像没了该连接工具即不可用）。update_tool 仅改 tags、不影响
             # 构造，无需失效。

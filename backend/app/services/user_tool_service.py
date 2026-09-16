@@ -29,6 +29,7 @@ from app.models.user_tool import (
     TOOL_CODE_MAX_BYTES,
     TOOL_NAME_PATTERN,
 )
+from app.services.tool_output_schema import derive_output_schema
 
 _NAME_RE = re.compile(TOOL_NAME_PATTERN)
 
@@ -236,6 +237,9 @@ class UserToolService:
         UserToolService._validate_source(source)
         if source == "code" and (code or "").strip():
             UserToolService._validate_code(code)
+        if source == "code" and code.strip() and not (output_schema or {}).get("fields"):
+            # 返回结构未手工声明——按代码静态推导（字段级声明留给人工覆盖）
+            output_schema = derive_output_schema(code, name) or (output_schema or {})
         if source == "openapi":
             # 参数表是唯一事实源——schema（运行参数 + 凭证）按参数表生成
             params = UserToolService._validate_openapi_params(endpoint or {})
@@ -275,6 +279,15 @@ class UserToolService:
         return doc
 
     @staticmethod
+    def _cred_signature(schema: dict | None) -> str:
+        """凭证签名：参数名 + 敏感标记（忽略 description/type 等无关漂移）。"""
+        props = (schema or {}).get("properties") or {}
+        return ",".join(
+            f"{k}:{'s' if (v or {}).get('sensitive') else 'p'}"
+            for k, v in sorted(props.items())
+        )
+
+    @staticmethod
     async def update_tool(
         user_id: str,
         tool_id: str,
@@ -309,6 +322,9 @@ class UserToolService:
             sets["endpoint"] = endpoint
         if llm_args_schema is not None:
             sets["llm_args_schema"] = llm_args_schema
+        if user_args_schema is not None:
+            # code 工具的凭证参数定义（openapi 分支随后按参数表重算覆盖）
+            sets["user_args_schema"] = user_args_schema
         if doc.get("source") == "openapi":
             # 参数表是唯一事实源——schema 一律按参数表重算，不接受外部提交
             effective_ep = endpoint if endpoint is not None else (doc.get("endpoint") or {})
@@ -324,14 +340,43 @@ class UserToolService:
             sets["code"] = code
         if output_schema is not None:
             sets["output_schema"] = output_schema
+        if doc.get("source") == "code":
+            # 返回结构未手工声明（含保持旧值场景）——按（新/旧）代码静态推导；
+            # 用户清空 fields 即回到自动推导，手工声明非空优先
+            eff_code = code if code is not None else (doc.get("code") or "")
+            eff_schema = output_schema if output_schema is not None else (doc.get("output_schema") or {})
+            if eff_code.strip() and not eff_schema.get("fields"):
+                derived = derive_output_schema(eff_code, sets.get("name", doc.get("name", "")))
+                if derived:
+                    sets["output_schema"] = derived
         if tags is not None:
             sets["tags"] = tags
 
-        if doc.get("status") in ("published", "submitted"):
-            sets["status"] = "private"
+        # ── 治理回退的分级豁免（消费者不断供）──
+        # 功能性字段（执行语义）变更：code / endpoint / 两 schema / name；
+        # 非功能性（仅 description / tags / output_schema）变更不回退。
+        functional_changed = any(
+            k in sets for k in ("code", "endpoint", "llm_args_schema", "user_args_schema", "name")
+        )
+        # 凭证签名（参数名 + 敏感标记）变化——admin 热修复也必须停用（缺凭证跑不了）
+        cred_changed = UserToolService._cred_signature(
+            sets.get("user_args_schema") if "user_args_schema" in sets
+            else (doc.get("user_args_schema") or {})
+        ) != UserToolService._cred_signature(doc.get("user_args_schema") or {})
         if doc.get("enabled"):
-            sets["enabled"] = False
-            sets["org_user_args"] = {}  # schema 可能变——凭证需重配
+            if cred_changed:
+                sets["enabled"] = False
+                sets["org_user_args"] = {}
+            elif functional_changed and not is_admin:
+                # owner 改执行语义 → 下线重审；admin 即审查者，热修复保持在线
+                # （与 seed 脚本语义一致）
+                sets["enabled"] = False
+        if (
+            functional_changed
+            and not is_admin
+            and doc.get("status") in ("published", "submitted")
+        ):
+            sets["status"] = "private"
 
         await UserToolService._col().update_one(
             {"_id": tool_id},
@@ -349,6 +394,12 @@ class UserToolService:
             raise UserToolError(f"Tool '{tool_id}' not found or not yours.")
         await UserToolService._col().delete_one({"_id": tool_id})
         await UserToolService._vote_col().delete_many({"tool_id": tool_id})
+        # 级联清理所有 Agent 的 custom_tools 绑定——避免悬空绑定在聊天时
+        # 反复触发工具解析失败（不可用工具运行时静默跳过，删除则彻底移除）
+        await get_database()["agents"].update_many(
+            {"custom_tools.tool_id": tool_id},
+            {"$pull": {"custom_tools": {"tool_id": tool_id}}},
+        )
         logger.info("user_tool_deleted", user_id=user_id, tool_id=tool_id, name=doc.get("name"))
 
     # ------------------------------------------------------------------
@@ -537,6 +588,31 @@ class UserToolService:
         if doc is None:
             return None
         if doc.get("status") != "published" or not doc.get("enabled"):
+            return None
+        return doc, decrypt_user_args(doc, doc.get("org_user_args") or {})
+
+    @staticmethod
+    async def resolve_runnable_tool(tool_id: str) -> tuple[dict, dict] | None:
+        """执行口径的单工具解析（工作流直调 / 试跑共用——治理规则单一事实源）。
+
+        与 resolve_org_tool 的差异：官方工具支持按 **name** 匹配（工具节点
+        配置里 tool_id 可填工具名）。不可用/不存在统一返回 None，调用方按
+        自身语境给错误文案。
+        """
+        from app.engine.harness_integration.context import decrypt_user_args
+
+        if tool_id.startswith("uto_"):
+            return await UserToolService.resolve_org_tool(tool_id)
+
+        # 函数内延迟导入 get_database——顶层 from-import 会绕过测试的
+        # 模块属性 mock（见 8fb16f7），且此处需按 name 或 _id 双匹配
+        from app.db.mongodb import get_database
+        from app.services.tool_service import ToolService
+
+        doc = await get_database()["tools"].find_one(
+            {"$or": [{"_id": tool_id}, {"name": tool_id}]}
+        )
+        if doc is None or not ToolService.is_tool_active(doc):
             return None
         return doc, decrypt_user_args(doc, doc.get("org_user_args") or {})
 

@@ -99,3 +99,43 @@ def test_cleanup_removes_expired_session_workspaces(workspaces_root: Path) -> No
     assert not session_ws.root.exists()
     assert result["workspaces_removed"] == 1
     assert result["bytes_freed"] > 0
+
+
+# ---------------------------------------------------------------------------
+# sandbox_bind_source_mapper — 容器视角 → daemon 宿主视角换算
+# ---------------------------------------------------------------------------
+
+
+def test_bind_source_mapper_same_paths_returns_none(monkeypatch, tmp_path) -> None:
+    """本地开发：CONTAINER_DIR derive 自 HOST_DIR（同路径）→ 免换算。"""
+    from app.core.config import settings
+    from app.engine.tool.workspace import sandbox_bind_source_mapper
+
+    same = str(tmp_path / "ws")
+    monkeypatch.setattr(settings, "WORKSPACES_CONTAINER_DIR", same)
+    monkeypatch.setattr(settings, "WORKSPACES_HOST_DIR", same)
+    assert sandbox_bind_source_mapper() is None
+
+
+def test_bind_source_mapper_translates_prefix(monkeypatch, tmp_path) -> None:
+    """容器化部署：CONTAINER 前缀 → HOST 前缀；前缀外路径原样返回。"""
+    from app.core.config import settings
+    from app.engine.tool.workspace import sandbox_bind_source_mapper
+
+    container = str(tmp_path / "data" / "workspaces")
+    host = str(tmp_path / "opt" / "agent-flow" / "ws")
+    monkeypatch.setattr(settings, "WORKSPACES_CONTAINER_DIR", container)
+    monkeypatch.setattr(settings, "WORKSPACES_HOST_DIR", host)
+
+    mapper = sandbox_bind_source_mapper()
+    assert mapper is not None
+    # 工作区子路径：前缀换算
+    assert mapper(f"{container}/usr_A/tasks/task_9/input") == (
+        f"{host}/usr_A/tasks/task_9/input"
+    )
+    # 根本身
+    assert mapper(container) == host
+    # 前缀外路径（如 /tmp 临时目录）：原样
+    assert mapper("/tmp/agentflow-tool-sandbox/tmp") == "/tmp/agentflow-tool-sandbox/tmp"
+    # 相似前缀不误伤（/data/workspaces2 不属于 /data/workspaces）
+    assert mapper(f"{container}2/other") == f"{container}2/other"

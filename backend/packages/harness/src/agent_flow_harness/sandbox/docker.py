@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import structlog
@@ -62,6 +63,7 @@ class DockerSandboxConfig:
         container_workspace_dir: str = "/workspace",
         container_skills_dir: str = "/skills",
         allow_local_fallback: bool = False,
+        bind_source_mapper: Callable[[str], str] | None = None,
     ) -> None:
         self.image = image
         self.enabled = enabled
@@ -75,6 +77,12 @@ class DockerSandboxConfig:
         # Fail-closed 降级闸：False（默认）时沙箱不可用即拒绝执行；
         # True 时降级本机 subprocess（仅限开发环境），每次降级打 ERROR。
         self.allow_local_fallback = allow_local_fallback
+        # Bind mount 源路径换算（backend 进程视角 → docker daemon 宿主视角）。
+        # backend 容器化部署时进程看到 /data/workspaces，但沙箱容器由宿主
+        # daemon 创建，volumes 源必须是 daemon 可见的宿主路径。仅作用于
+        # docker run 的 volumes 源；read/write 等宿主侧文件操作仍用进程
+        # 视角路径。默认 None = 同路径（本地开发）。
+        self.bind_source_mapper = bind_source_mapper
 
 
 class _DockerUnavailableError(Exception):
@@ -196,6 +204,25 @@ class DockerSandbox(Sandbox):
         )
         return self._execute_subprocess(command, timeout, env=env)
 
+    def _build_volumes(self) -> dict[str, dict[str, str]]:
+        """构建 docker run 的 volumes 映射（bind mount 源 → 容器挂载点）。
+
+        input 名约定 ro、其余 rw；源路径经 bind_source_mapper（若配置）
+        从 backend 进程视角换算为 daemon 宿主视角。
+        """
+        ws_dir = self._config.container_workspace_dir
+        volumes: dict[str, dict[str, str]] = {}
+        for name, host_path in self._mounts.items():
+            mode = "ro" if name == "input" else "rw"
+            source = str(Path(host_path).resolve())
+            if self._config.bind_source_mapper:
+                source = self._config.bind_source_mapper(source)
+            volumes[source] = {
+                "bind": f"{ws_dir}/{name}",
+                "mode": mode,
+            }
+        return volumes
+
     def _execute_docker(
         self, command: str, timeout: int, env: dict[str, str] | None = None
     ) -> SandboxResult:
@@ -211,15 +238,7 @@ class DockerSandbox(Sandbox):
         except Exception as exc:
             raise _DockerUnavailableError(str(exc)) from exc
 
-        # 构建 volume mounts
-        ws_dir = self._config.container_workspace_dir
-        volumes = {}
-        for name, host_path in self._mounts.items():
-            mode = "ro" if name == "input" else "rw"
-            volumes[str(Path(host_path).resolve())] = {
-                "bind": f"{ws_dir}/{name}",
-                "mode": mode,
-            }
+        volumes = self._build_volumes()
 
         env = {
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -235,7 +254,7 @@ class DockerSandbox(Sandbox):
                 command=["bash", "-c", command],
                 volumes=volumes,
                 environment=env,
-                working_dir=f"{ws_dir}/tmp",
+                working_dir=f"{self._config.container_workspace_dir}/tmp",
                 user="sandbox",
                 network_mode=self._config.network_mode,
                 read_only=True,

@@ -109,3 +109,103 @@ class TestParseLarkEvent:
             f'"content":"{{}}"}}}}}}'
         )
         assert parse_lark_event(body, _make_config()) is None
+
+
+def _make_message_event(
+    text: str,
+    *,
+    chat_type: str | None = None,
+    mentions: list | None = None,
+) -> str:
+    """Build an im.message.receive_v1 v2 envelope JSON (webhook-shaped)."""
+    import json as _json
+
+    message: dict = {
+        "message_id": "om_g1",
+        "chat_id": "oc_chat1",
+        "message_type": "text",
+        "content": _json.dumps({"text": text}, ensure_ascii=False),
+    }
+    if chat_type is not None:
+        message["chat_type"] = chat_type
+    if mentions is not None:
+        message["mentions"] = mentions
+    envelope = {
+        "schema": "2.0",
+        "header": {"event_type": "im.message.receive_v1", "token": _VERIFY_TOKEN},
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_sender"}},
+            "message": message,
+        },
+    }
+    return _json.dumps(envelope, ensure_ascii=False)
+
+
+_BOT_MENTION = [{"key": "@_user_1", "id": {"open_id": "ou_bot"}, "name": "bot"}]
+
+
+class TestGroupMentionGate:
+    """群聊仅在被 @（首 token 是 mentions 内的占位符）时响应，并清洗占位符。"""
+
+    def test_group_message_with_leading_mention_parsed_and_cleaned(self):
+        body = _make_message_event(
+            "@_user_1 你好", chat_type="group", mentions=_BOT_MENTION,
+        )
+        msg = parse_lark_event(body, _make_config())
+        assert msg is not None
+        assert msg.text == "你好"
+        assert msg.platform_chat_id == "oc_chat1"
+
+    def test_group_message_without_mentions_skipped(self):
+        body = _make_message_event("大家好", chat_type="group", mentions=[])
+        assert parse_lark_event(body, _make_config()) is None
+
+    def test_group_message_no_mentions_field_skipped(self):
+        body = _make_message_event("大家好", chat_type="group")
+        assert parse_lark_event(body, _make_config()) is None
+
+    def test_group_mention_not_in_mentions_list_skipped(self):
+        """首 token 占位符不在 mentions 数组里 → 不是有效 @，跳过。"""
+        body = _make_message_event(
+            "@_user_9 你好", chat_type="group",
+            mentions=[{"key": "@_user_1", "id": {"open_id": "ou_bot"}}],
+        )
+        assert parse_lark_event(body, _make_config()) is None
+
+    def test_group_mention_only_message_skipped(self):
+        """只有 @ 没有正文 → 清洗后为空，跳过。"""
+        body = _make_message_event(
+            "@_user_1", chat_type="group", mentions=_BOT_MENTION,
+        )
+        assert parse_lark_event(body, _make_config()) is None
+
+    def test_group_mid_text_mention_stripped(self):
+        """正文中段的 @ 占位符也清洗掉。"""
+        body = _make_message_event(
+            "@_user_1 帮我提醒 @_user_2 开会",
+            chat_type="group",
+            mentions=_BOT_MENTION + [{"key": "@_user_2", "id": {"open_id": "ou_9"}}],
+        )
+        msg = parse_lark_event(body, _make_config())
+        assert msg is not None
+        assert msg.text == "帮我提醒 开会"
+
+    def test_p2p_message_passes_without_mention(self):
+        body = _make_message_event("你好", chat_type="p2p")
+        msg = parse_lark_event(body, _make_config())
+        assert msg is not None
+        assert msg.text == "你好"
+
+    def test_gate_disabled_processes_all_group_messages(self):
+        """CHANNEL_LARK_GROUP_MENTION_ONLY=False → 回到旧行为（群消息全处理）。"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        body = _make_message_event("大家好", chat_type="group", mentions=[])
+        with patch(
+            "app.channels.providers.lark.verify.settings",
+            new=SimpleNamespace(CHANNEL_LARK_GROUP_MENTION_ONLY=False),
+        ):
+            msg = parse_lark_event(body, _make_config())
+        assert msg is not None
+        assert msg.text == "大家好"

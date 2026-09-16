@@ -237,3 +237,185 @@ async def test_user_tool_unavailable(monkeypatch):
     assert not result.success
     assert "不可用" in result.error_message
 
+
+# ── code 工具文件通道：workspace 注入 + 产物注册进 files ──────────────
+
+
+class _FileWritingTool(_FakeTool):
+    """模拟 code 工具在沙箱内写产物——从 workspace contextvar 拿到
+    output/ 目录落一个文件（真实链路：DockerSandbox bind mount 落宿主）。"""
+
+    def __init__(self, filename: str, content: str):
+        super().__init__(result="done")
+        self.filename = filename
+        self.content = content
+
+    async def ainvoke(self, params):
+        from app.engine.agent.builtin_tools import _get_workspace
+
+        ws = _get_workspace()
+        assert ws is not None, "workspace contextvar 必须在 ainvoke 期间可用"
+        ws.output_dir.mkdir(parents=True, exist_ok=True)
+        (ws.output_dir / self.filename).write_text(self.content)
+        return self.result
+
+
+def _patch_file_service(monkeypatch, registered: list) -> None:
+    """Mock FileService：已注册 sha 查询为空 + create 返回 fake FileRef。"""
+    from app.services.file_service import FileService
+
+    class _Cursor:
+        async def to_list(self, length=None):
+            return []
+
+    coll = type("Coll", (), {"find": staticmethod(lambda q, p=None: _Cursor())})()
+    monkeypatch.setattr(FileService, "_file_refs", lambda self: coll)
+
+    async def fake_create(self, data, filename, mime_type, owner_user_id, origin_kind, origin_id):
+        fref = type(
+            "F",
+            (),
+            {
+                "id": f"file_{filename}", "name": filename, "size": len(data),
+                "mime_type": mime_type, "storage_key": f"{owner_user_id}/files/f",
+            },
+        )()
+        registered.append(fref)
+        return fref
+
+    monkeypatch.setattr(FileService, "create", fake_create)
+
+
+async def test_code_tool_registers_output_files(monkeypatch, tmp_path):
+    """code 工具 + 任务上下文：workspace 注入 → 产物写 output/ → 注册
+    file_library → 输出契约扩为 {result, tool_id, files}。"""
+    monkeypatch.setattr(
+        "app.engine.tool.workspace.settings.WORKSPACES_CONTAINER_DIR", str(tmp_path)
+    )
+    doc = {"_id": "tool_f1", "name": "gen-report", "source": "code", "code": "def run(): pass"}
+    _patch_db(monkeypatch, doc)
+    monkeypatch.setattr(
+        "app.engine.tool.tool_builder.build_tool",
+        AsyncMock(return_value=_FileWritingTool("report.xlsx", "fake-xlsx")),
+    )
+    registered: list = []
+    _patch_file_service(monkeypatch, registered)
+
+    variables = {"system": {"user_id": "user_9", "task_id": "task_9"}}
+    result = await _make({"tool_id": "tool_f1", "params": {}}).execute(variables)
+
+    assert result.success
+    out = result.output
+    assert out["result"] == "done"
+    assert out["tool_id"] == "tool_f1"
+    assert len(out["files"]) == 1
+    assert out["files"][0]["file_id"] == "file_report.xlsx"
+    assert out["files"][0]["name"] == "report.xlsx"
+    assert len(registered) == 1
+
+    # 工作区真实落盘（沙箱 bind mount 语义）
+    assert (tmp_path / "user_9" / "tasks" / "task_9" / "output" / "report.xlsx").exists()
+
+    # contextvar 已在节点结束时 reset（不污染后续节点）
+    from app.engine.agent.builtin_tools import _get_workspace
+    assert _get_workspace() is None
+
+
+async def test_code_tool_old_output_files_not_registered(monkeypatch, tmp_path):
+    """mtime 早于节点开始的旧产物不重复注册（同任务重跑场景）。"""
+    import os
+    import time as _time
+
+    monkeypatch.setattr(
+        "app.engine.tool.workspace.settings.WORKSPACES_CONTAINER_DIR", str(tmp_path)
+    )
+    old_dir = tmp_path / "user_8" / "tasks" / "task_8" / "output"
+    old_dir.mkdir(parents=True)
+    old_file = old_dir / "old.txt"
+    old_file.write_text("old")
+    past = _time.time() - 3600
+    os.utime(old_file, (past, past))
+
+    doc = {"_id": "tool_f2", "name": "gen", "source": "code", "code": "def run(): pass"}
+    _patch_db(monkeypatch, doc)
+    monkeypatch.setattr(
+        "app.engine.tool.tool_builder.build_tool",
+        AsyncMock(return_value=_FileWritingTool("new.txt", "new")),
+    )
+    registered: list = []
+    _patch_file_service(monkeypatch, registered)
+
+    result = await _make({"tool_id": "tool_f2", "params": {}}).execute(
+        {"system": {"user_id": "user_8", "task_id": "task_8"}}
+    )
+
+    assert result.success
+    assert [f.name for f in registered] == ["new.txt"]  # 只注册新文件
+    assert len(result.output["files"]) == 1
+
+
+async def test_code_tool_without_task_context_no_files(monkeypatch):
+    """无 system.task_id/user_id（工具预览等）：不建 workspace、输出契约
+    保持 {result, tool_id}（不带空 files 字段）。"""
+    doc = {"_id": "tool_f3", "name": "plain", "source": "code", "code": "def run(): pass"}
+    _patch_db(monkeypatch, doc)
+    monkeypatch.setattr(
+        "app.engine.tool.tool_builder.build_tool",
+        AsyncMock(return_value=_FakeTool(result="42")),
+    )
+    result = await _make({"tool_id": "tool_f3", "params": {}}).execute({})
+
+    assert result.success
+    assert result.output == {"result": "42", "tool_id": "tool_f3"}
+    assert "files" not in result.output
+
+
+# ── code 工具错误文本判定：直调路径失败变红（agent 路径不受影响） ────
+
+
+async def test_code_tool_error_result_fails_node(monkeypatch):
+    """code 工具返回 "Error: ..." 文本（沙箱执行失败，如用户代码异常）→
+    直调节点必须失败（红色），不能绿色完成。"""
+    doc = {"_id": "tool_e1", "name": "bad", "source": "code", "code": "def run(): pass"}
+    _patch_db(monkeypatch, doc)
+    fake = _FakeTool(
+        result="Error: Traceback (most recent call last):\n"
+        "AttributeError: 'dict' object has no attribute 'strip'"
+    )
+    monkeypatch.setattr("app.engine.tool.tool_builder.build_tool", AsyncMock(return_value=fake))
+
+    result = await _make({"tool_id": "tool_e1"}).execute({})
+
+    assert not result.success
+    assert "执行失败" in result.error_message
+    assert "AttributeError" in result.error_message
+
+
+async def test_code_tool_error_result_retries(monkeypatch):
+    """Error 文本走重试循环：max_retries=1 → 共调用 2 次后失败。"""
+    doc = {"_id": "tool_e2", "name": "flaky", "source": "code", "code": "def run(): pass"}
+    _patch_db(monkeypatch, doc)
+    fake = _FakeTool(result="Error: transient sandbox failure")
+    monkeypatch.setattr("app.engine.tool.tool_builder.build_tool", AsyncMock(return_value=fake))
+
+    result = await _make(
+        {"tool_id": "tool_e2", "retry_policy": {"max_retries": 1, "backoff_ms": 1}}
+    ).execute({})
+
+    assert not result.success
+    assert fake.calls == 2  # 初次 + 1 次重试
+
+
+async def test_openapi_error_like_result_still_success(monkeypatch):
+    """openapi 工具返回恰好以 Error: 开头的响应原文不误伤——错误文本
+    判定仅对 code 源启用（openapi 的 Error: 可能是接口正常返回文本）。"""
+    doc = {"_id": "tool_e3", "name": "api", "source": "openapi", "endpoint": {"url": "https://x"}}
+    _patch_db(monkeypatch, doc)
+    fake = _FakeTool(result="Error: invalid input（接口原文）")
+    monkeypatch.setattr("app.engine.tool.tool_builder.build_tool", AsyncMock(return_value=fake))
+
+    result = await _make({"tool_id": "tool_e3"}).execute({})
+
+    assert result.success
+    assert result.output["result"].startswith("Error:")
+

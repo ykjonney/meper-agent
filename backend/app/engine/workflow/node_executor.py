@@ -10,6 +10,7 @@ import asyncio
 import json
 import operator as _operator
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,6 +51,125 @@ class BaseNodeExecutor(ABC):
             NodeResult with success/failure and output data.
         """
         ...
+
+    async def _register_task_output_files(
+        self,
+        task_workspace: Any,
+        node_start_ts: float,
+        *,
+        task_id: str,
+        user_id: str,
+        register_all: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Register files newly created in the task workspace to file_library.
+
+        Story 4-15: After the graph finishes, we walk
+        ``task_workspace.output_dir`` and register every file with an
+        mtime > ``node_start_ts`` to ``file_library`` as
+        ``origin_kind='workflow_run'`` / ``origin_id=task_id``. Files
+        already registered with the same ``sha256`` for this task are
+        skipped (deduplication).
+
+        Shared by AgentNodeExecutor (built-in write/bash artifacts) and
+        ToolNodeExecutor (code-tool artifacts written to output/).
+
+        Returns:
+            A list of dicts with ``file_id``, ``name``, ``size``,
+            ``mime_type``, ``storage_key`` — the canonical output shape
+            downstream nodes consume via ``{{ node.files[i].file_id }}``.
+        """
+        if not task_workspace.output_dir.exists():
+            return []
+
+        # Local import to avoid top-level cycle (file_service depends on
+        # db, which loads settings — safe at runtime, not at import time).
+        from app.models.file_library import FileConsumerKind
+        from app.services.file_service import FileService
+        from app.services.file_storage import LocalFileStorage
+
+        file_service = FileService(LocalFileStorage())
+
+        # Pre-fetch known sha256s for this task to avoid registering the
+        # same file twice (e.g. on node retry).
+        existing_cursor = file_service._file_refs().find(
+            {
+                "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
+                "origin_id": task_id,
+            },
+            {"sha256": 1, "_id": 0},
+        )
+        existing_docs = await existing_cursor.to_list(length=None)
+        seen_sha256: set[str] = {doc["sha256"] for doc in existing_docs if doc.get("sha256")}
+
+        registered: list[dict[str, Any]] = []
+        import hashlib
+        import mimetypes
+
+        for path in sorted(task_workspace.output_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                # File was removed between rglob and stat — skip.
+                continue
+            if not register_all and stat.st_mtime < node_start_ts:
+                # Pre-existing file from an earlier run; do not re-register.
+                # 恢复场景(register_all=True)跳过此过滤——agent 在上次执行
+                # （被取消前）已写入的文件 mtime 早于本次恢复时间。
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                logger.warning(
+                    "node_read_output_failed",
+                    node_id=self.node_id,
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+
+            sha256 = hashlib.sha256(data).hexdigest()
+            if sha256 in seen_sha256:
+                continue
+
+            mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            try:
+                fref = await file_service.create(
+                    data=data,
+                    filename=path.name,
+                    mime_type=mime_type,
+                    owner_user_id=user_id,
+                    origin_kind=FileConsumerKind.WORKFLOW_RUN,
+                    origin_id=task_id,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface but don't crash node
+                logger.error(
+                    "node_register_file_failed",
+                    node_id=self.node_id,
+                    path=str(path),
+                    error=str(exc),
+                )
+                continue
+
+            seen_sha256.add(sha256)
+            registered.append({
+                "file_id": fref.id,
+                "name": fref.name,
+                "size": fref.size,
+                "mime_type": fref.mime_type,
+                "storage_key": fref.storage_key,
+            })
+            logger.info(
+                "node_file_registered",
+                node_id=self.node_id,
+                task_id=task_id,
+                file_id=fref.id,
+                name=fref.name,
+                size=fref.size,
+            )
+
+        return registered
 
 
 # ── Start ──
@@ -1046,122 +1166,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
         return merged
 
-    async def _register_task_output_files(
-        self,
-        task_workspace: Any,
-        node_start_ts: float,
-        *,
-        task_id: str,
-        user_id: str,
-        register_all: bool = False,
-    ) -> list[dict[str, Any]]:
-        """Register files newly created in the task workspace to file_library.
-
-        Story 4-15: After the Agent graph finishes, we walk
-        ``task_workspace.output_dir`` and register every file with an
-        mtime > ``node_start_ts`` to ``file_library`` as
-        ``origin_kind='workflow_run'`` / ``origin_id=task_id``. Files
-        already registered with the same ``sha256`` for this task are
-        skipped (deduplication).
-
-        Returns:
-            A list of dicts with ``file_id``, ``name``, ``size``,
-            ``mime_type``, ``storage_key`` — the canonical output shape
-            downstream nodes consume via ``{{ agent_node.files[i].file_id }}``.
-        """
-        if not task_workspace.output_dir.exists():
-            return []
-
-        # Local import to avoid top-level cycle (file_service depends on
-        # db, which loads settings — safe at runtime, not at import time).
-        from app.models.file_library import FileConsumerKind
-        from app.services.file_service import FileService
-        from app.services.file_storage import LocalFileStorage
-
-        file_service = FileService(LocalFileStorage())
-
-        # Pre-fetch known sha256s for this task to avoid registering the
-        # same file twice (e.g. on node retry).
-        existing_cursor = file_service._file_refs().find(
-            {
-                "origin_kind": FileConsumerKind.WORKFLOW_RUN.value,
-                "origin_id": task_id,
-            },
-            {"sha256": 1, "_id": 0},
-        )
-        existing_docs = await existing_cursor.to_list(length=None)
-        seen_sha256: set[str] = {doc["sha256"] for doc in existing_docs if doc.get("sha256")}
-
-        registered: list[dict[str, Any]] = []
-        import hashlib
-        import mimetypes
-
-        for path in sorted(task_workspace.output_dir.rglob("*")):
-            if not path.is_file():
-                continue
-            try:
-                stat = path.stat()
-            except FileNotFoundError:
-                # File was removed between rglob and stat — skip.
-                continue
-            if not register_all and stat.st_mtime < node_start_ts:
-                # Pre-existing file from an earlier run; do not re-register.
-                # 恢复场景(register_all=True)跳过此过滤——agent 在上次执行
-                # （被取消前）已写入的文件 mtime 早于本次恢复时间。
-                continue
-            try:
-                data = path.read_bytes()
-            except OSError as exc:
-                logger.warning(
-                    "agent_node_read_output_failed",
-                    node_id=self.node_id,
-                    path=str(path),
-                    error=str(exc),
-                )
-                continue
-
-            sha256 = hashlib.sha256(data).hexdigest()
-            if sha256 in seen_sha256:
-                continue
-
-            mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            try:
-                fref = await file_service.create(
-                    data=data,
-                    filename=path.name,
-                    mime_type=mime_type,
-                    owner_user_id=user_id,
-                    origin_kind=FileConsumerKind.WORKFLOW_RUN,
-                    origin_id=task_id,
-                )
-            except Exception as exc:  # noqa: BLE001 — surface but don't crash node
-                logger.error(
-                    "agent_node_register_file_failed",
-                    node_id=self.node_id,
-                    path=str(path),
-                    error=str(exc),
-                )
-                continue
-
-            seen_sha256.add(sha256)
-            registered.append({
-                "file_id": fref.id,
-                "name": fref.name,
-                "size": fref.size,
-                "mime_type": fref.mime_type,
-                "storage_key": fref.storage_key,
-            })
-            logger.info(
-                "agent_node_file_registered",
-                node_id=self.node_id,
-                task_id=task_id,
-                file_id=fref.id,
-                name=fref.name,
-                size=fref.size,
-            )
-
-        return registered
-
     def _extract_files_from_messages(self, messages: list) -> list[dict[str, Any]]:
         """Scan LangGraph messages for tool-emitted file references.
 
@@ -1251,52 +1255,21 @@ class ToolNodeExecutor(BaseNodeExecutor):
         resolved_params = engine.resolve_dict(raw_params) if isinstance(raw_params, dict) else raw_params
 
         try:
-            # Fetch tool doc — 组织治理模型：官方（tools 表 active，含按 name
-            # 引用）与用户工具（uto_ published+enabled）统一走 resolve_org_tool，
-            # 凭证取工具级统一配置（org_user_args）
-            tool_doc: dict[str, Any] | None
-            org_args: dict[str, Any] = {}
-            if tool_id.startswith("uto_"):
-                # 组织库工具：resolve_org_tool 已完成治理校验（published+enabled）
-                # 并返回解密后的工具级凭证
-                from app.services.user_tool_service import UserToolService
+            # 治理解析单一口径：UserToolService.resolve_runnable_tool
+            # （uto_ published+enabled / 官方 active 按 _id 或 name 匹配，
+            # 凭证解密一并完成）
+            from app.services.user_tool_service import UserToolService
 
-                resolved = await UserToolService.resolve_org_tool(tool_id)
-                if resolved is None:
-                    return NodeResult(
-                        success=False,
-                        output={},
-                        error_message=f"Tool {tool_id} 不可用（未开启或已停用）",
-                    )
-                tool_doc, org_args = resolved
-                await UserToolService.record_load(tool_id)
-            else:
-                from app.db.mongodb import get_database
-
-                db = get_database()
-                tool_doc = await db["tools"].find_one({"$or": [{"_id": tool_id}, {"name": tool_id}]})
-            if tool_doc is None:
+            resolved = await UserToolService.resolve_runnable_tool(tool_id)
+            if resolved is None:
                 return NodeResult(
                     success=False,
                     output={},
-                    error_message=f"Tool {tool_id} 不存在",
+                    error_message=f"Tool {tool_id} 不可用或不存在（未开启/停用/未过审）",
                 )
-            # 官方自定义工具停用检查 + 工具级凭证解密（存量无 status 视为 active；
-            # uto_ 已在上方 resolve_org_tool 完成校验与解密，不进此块）
-            if not tool_id.startswith("uto_") and tool_doc.get("source") in ("openapi", "code"):
-                from app.engine.harness_integration.context import decrypt_user_args
-                from app.services.tool_service import ToolService
-                from app.services.user_tool_service import UserToolService
-
-                if not ToolService.is_tool_active(tool_doc):
-                    return NodeResult(
-                        success=False,
-                        output={},
-                        error_message=f"官方工具 {tool_doc.get('name', tool_id)} 已停用",
-                    )
-                org_args = decrypt_user_args(tool_doc, tool_doc.get("org_user_args") or {})
-                # 官方工具调用计数（uto_ 分支已在 resolve 处记录）
-                await UserToolService.record_load(tool_doc["_id"])
+            tool_doc, org_args = resolved
+            # 调用计数（uto_ 与官方统一按 _id 记）
+            await UserToolService.record_load(tool_doc["_id"])
 
             # Execute based on tool source type
             source = tool_doc.get("source", "markdown")
@@ -1306,7 +1279,9 @@ class ToolNodeExecutor(BaseNodeExecutor):
                 return await self._execute_mcp_tool(tool_doc, resolved_params, variables)
             if source in ("openapi", "code"):
                 # OpenAPI / Code tool — build and invoke directly (no LLM)
-                return await self._execute_custom_tool(tool_doc, resolved_params, org_args=org_args)
+                return await self._execute_custom_tool(
+                    tool_doc, resolved_params, org_args=org_args, variables=variables
+                )
             # Markdown/Skill tool — return instructions as context
             return NodeResult(
                 success=True,
@@ -1331,12 +1306,18 @@ class ToolNodeExecutor(BaseNodeExecutor):
         tool_doc: dict[str, Any],
         params: dict[str, Any],
         org_args: dict[str, Any] | None = None,
+        variables: dict[str, Any] | None = None,
     ) -> NodeResult:
         """Execute an openapi/code tool built via ToolBuilder.
 
         凭证取工具级统一配置（org_args，治理模型——admin 维护）；存量节点
         配置了 user_args 时兼容覆盖。code 工具走 harness sandbox（worker
         无沙盒时 build_tool 内部回退本地 exec）。
+
+        code 工具文件通道：以 task workspace 为当前工作区（set_workspace_
+        context 包住 ainvoke，工具代码内相对路径 input/ 读、output/ 写、
+        file_id 参数自动解析），产物落 output/ 后注册 file_library，输出
+        契约扩为 ``{result, tool_id, files}``——下游 ``{{node.files[i].file_id}}``。
         """
         from app.engine.harness_integration.context import decrypt_user_args
         from app.engine.tool.tool_builder import build_tool
@@ -1360,7 +1341,45 @@ class ToolNodeExecutor(BaseNodeExecutor):
                 output={},
                 error_message=f"工具 {tool_doc.get('name', '')} 构建失败（source={tool_doc.get('source', '')}）",
             )
-        return await self._invoke_with_retry(tool, params, tool_doc["_id"], label="工具")
+
+        # ── code 工具工作区（文件读写通道）──
+        # 身份取自 system 变量（同 _execute_mcp_tool 模式）；工具预览等
+        # 无任务上下文的调用不设工作区，code 工具退回无挂载沙箱（纯计算）。
+        ws_token = None
+        task_workspace = None
+        task_id = user_id = ""
+        if tool_doc.get("source") == "code":
+            sys_vars = (variables or {}).get("system", {}) or {}
+            user_id = sys_vars.get("user_id", "")
+            task_id = sys_vars.get("task_id", "")
+            if user_id and task_id:
+                from app.engine.agent.builtin_tools import (
+                    reset_workspace_context,
+                    set_workspace_context,
+                )
+                from app.engine.tool.workspace import WorkspaceManager
+
+                task_workspace = WorkspaceManager.create_task_workspace(user_id, task_id)
+                ws_token = set_workspace_context(task_workspace)
+
+        node_start_ts = time.time()
+        try:
+            result = await self._invoke_with_retry(
+                tool, params, tool_doc["_id"], label="工具",
+                # code 工具沙箱执行失败以 "Error:" 文本返回（agent 路径供
+                # LLM 自纠重试）；直调无 LLM，须判失败让节点变红
+                fail_on_error_result=tool_doc.get("source") == "code",
+            )
+            if task_workspace is not None and result.success:
+                registered = await self._register_task_output_files(
+                    task_workspace, node_start_ts, task_id=task_id, user_id=user_id
+                )
+                if registered:
+                    result.output["files"] = registered
+            return result
+        finally:
+            if ws_token is not None:
+                reset_workspace_context(ws_token)
 
     async def _invoke_with_retry(
         self,
@@ -1369,10 +1388,15 @@ class ToolNodeExecutor(BaseNodeExecutor):
         tool_id: str,
         *,
         label: str = "工具",
+        fail_on_error_result: bool = False,
     ) -> NodeResult:
         """Invoke ``tool.ainvoke(params)`` with timeout protection and retry.
 
-        输出契约：``{"result": <工具返回>, "tool_id": <doc _id>}``。
+        输出契约：``{"result": <工具返回>, "tool_id": <doc _id>}``；code 工具
+        产出文件时由调用方（_execute_custom_tool）追加 ``files`` 字段。
+        ``fail_on_error_result=True``（code 工具直调）时，以 ``"Error:"``
+        开头的返回文本视为执行失败——进重试循环，耗尽即节点失败；agent
+        路径不启用（错误文本返回给 LLM 自纠重试是有意设计）。
         失败（含重试耗尽/工具不可用）即节点失败——工作流报错停止，
         状态经任务时间线呈现，不进下游变量。
         """
@@ -1386,7 +1410,20 @@ class ToolNodeExecutor(BaseNodeExecutor):
         for attempt in range(1 + max_retries):
             try:
                 result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
-                return NodeResult(success=True, output={"result": result, "tool_id": tool_id})
+                if (
+                    fail_on_error_result
+                    and isinstance(result, str)
+                    and result.startswith("Error:")
+                ):
+                    last_error = f"{label}执行失败: {result[:500]}"
+                    logger.warning(
+                        "tool_error_result",
+                        node_id=self.node_id,
+                        attempt=attempt + 1,
+                        preview=result[:200],
+                    )
+                else:
+                    return NodeResult(success=True, output={"result": result, "tool_id": tool_id})
             except TimeoutError:
                 last_error = f"{label}执行超时 ({timeout_ms}ms)"
                 logger.warning("tool_execution_timeout", node_id=self.node_id, attempt=attempt + 1)

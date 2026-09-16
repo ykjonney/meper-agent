@@ -5,15 +5,18 @@ connection). Unlike lark, the dingtalk SDK is natively async, so no thread
 bridge is needed — the SDK runs on the same asyncio loop.
 
 Event flow on receipt:
-  ChatbotHandler.process() → build webhook-style JSON body →
-  ``dispatch_inbound`` (parses, dedups, persists, enqueues Celery) →
-  the same pipeline as HTTP webhook mode.
+  SDK dispatch → CallbackHandler.raw_process() → our process() override →
+  build webhook-style JSON body → ``dispatch_inbound`` (parses, dedups,
+  persists, enqueues Celery) → the same pipeline as HTTP webhook mode.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+
+import dingtalk_stream
 
 from app.channels.connections.base import ConnectionClient
 from app.channels.connections.dispatch import dispatch_inbound
@@ -50,8 +53,6 @@ class DingtalkConnectionClient(ConnectionClient):
     def __init__(self, config: ChannelConfig) -> None:
         super().__init__(config)
         self._sdk_client = None
-        self._handler: _DingtalkMessageHandler | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = False
 
     @property
@@ -59,36 +60,85 @@ class DingtalkConnectionClient(ConnectionClient):
         return self._connected
 
     async def connect(self) -> None:
-        import dingtalk_stream
-
         client_id = self._get_credential("app_key")
         client_secret = self._get_credential("app_secret")
 
-        self._loop = asyncio.get_running_loop()
         credential = dingtalk_stream.Credential(client_id, client_secret)
         self._sdk_client = dingtalk_stream.DingTalkStreamClient(credential)
-        self._handler = _DingtalkMessageHandler(self)
+        # The SDK client keeps the handler reference itself; ours would be
+        # write-only, so we don't store one.
         self._sdk_client.register_callback_handler(
-            _DingtalkMessageHandler.TOPIC, self._handler,
+            _DingtalkMessageHandler.TOPIC, _DingtalkMessageHandler(self),
         )
 
         self._connected = True
+        # Run the SDK loop as a separate task and SHIELD it: start() swallows
+        # CancelledError (treats it as a network error and reconnects), and a
+        # plain ``await sdk_task`` would forward our cancellation INTO the SDK
+        # task — which then reconnects forever and this coroutine never wakes
+        # (the exact mechanism that hung uvicorn's graceful shutdown). With
+        # the shield, cancellation lands HERE and we can force the SDK exit.
+        sdk_task = asyncio.create_task(self._sdk_client.start())
         try:
-            # SDK's start() is async and blocks until disconnected. We're
-            # already on the asyncio loop, so await directly.
-            await self._sdk_client.start()
+            await asyncio.shield(sdk_task)
         except asyncio.CancelledError:
+            # Bounded force-shutdown; shield the cleanup task too so a
+            # re-cancel can't abort it midway (it finishes detached).
+            cleanup = asyncio.create_task(self._shutdown_sdk(sdk_task))
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(cleanup)
             raise
         finally:
             self._connected = False
 
+    async def _shutdown_sdk(self, sdk_task: asyncio.Task) -> None:
+        """Force the SDK's reconnect loop to die (bounded, exception-safe).
+
+        start() swallows one CancelledError per loop iteration, but its
+        except-branches themselves ``await asyncio.sleep(...)`` — a second
+        cancel lands inside that sleep, is NOT re-caught, and propagates
+        out of start(). Close the websocket first so the recv side also
+        unblocks. Only CancelledError is used on purpose: BaseExceptions
+        (e.g. a KeyboardInterrupt poison) escape the task and kill the
+        whole event loop.
+
+        TODO(upgrade): the SDK's main branch (unreleased as of 0.24.3,
+        the latest PyPI version) adds an official ``await client.stop()``
+        built on an asyncio.Event stop signal — exactly this behavior,
+        cooperatively. Once a release ships it, replace this method with
+        ``await self._sdk_client.stop()`` and drop the re-cancel loop.
+        """
+        client = self._sdk_client
+        ws = getattr(client, "websocket", None) if client is not None else None
+        if ws is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(ws.close(), timeout=3)
+        for _ in range(3):
+            if sdk_task.done():
+                break
+            sdk_task.cancel()
+            await asyncio.wait({sdk_task}, timeout=1)
+        if sdk_task.done() and not sdk_task.cancelled():
+            # Retrieve & discard so "exception was never retrieved" doesn't
+            # fire at GC; the SDK already logged it.
+            with contextlib.suppress(BaseException):
+                sdk_task.exception()  # type: ignore[arg-type]
+
     async def disconnect(self) -> None:
-        """Best-effort disconnect. The dingtalk SDK doesn't expose a clean
-        shutdown; cancellation of the manager task (which cancels connect's
-        await) is the actual signal. We just clear state here."""
+        """Close the live websocket and drop the SDK client.
+
+        The task-level force-shutdown happens in connect()'s cancellation
+        path; this covers the already-exited cases (belt and suspenders).
+        """
         self._connected = False
+        client = self._sdk_client
+        if client is None:
+            return
+        ws = getattr(client, "websocket", None)
+        if ws is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(ws.close(), timeout=3)
         self._sdk_client = None
-        self._handler = None
 
     # ── Credential access ──
 
@@ -99,21 +149,26 @@ class DingtalkConnectionClient(ConnectionClient):
         return decrypt_secret(encrypted)
 
 
-class _DingtalkMessageHandler:
-    """Custom handler (duck-typed, NOT subclassing ChatbotHandler to avoid
-    SDK __init__ requirements). The dingtalk SDK calls ``process`` on
-    registered handler objects; we just need the method + TOPIC attribute.
+class _DingtalkMessageHandler(dingtalk_stream.CallbackHandler):
+    """Chatbot message handler for the dingtalk Stream SDK.
 
-    Using a plain class avoids the SDK's ChatbotHandler constructor side
-    effects and lets us capture the parent client cleanly.
+    MUST subclass the SDK's ``CallbackHandler``: the stream client calls
+    ``handler.pre_start()`` on every registered handler at startup and
+    dispatches inbound messages via ``handler.raw_process()`` (which wraps
+    our ``process()`` and builds the AckMessage envelope). A previous
+    duck-typed version implementing only ``process`` crashed on each SDK
+    entry point in turn — ``pre_start`` at connect time, ``raw_process``
+    on the first inbound message. Inheriting the base class provides the
+    full contract once and for all; only ``process`` is overridden.
     """
 
     TOPIC = "/v1.0/im/bot/messages/get"
 
     def __init__(self, owner: DingtalkConnectionClient) -> None:
-        self.owner = owner
+        super().__init__()
         # SDK attaches dingtalk_client to handlers after registration
-        self.dingtalk_client = None
+        # (CallbackHandler.__init__ sets it to None first).
+        self.owner = owner
 
     async def process(self, callback):  # type: ignore[no-untyped-def]
         """SDK callback for each incoming chatbot message.
@@ -122,8 +177,6 @@ class _DingtalkMessageHandler:
         carries the inbound JSON. We forward it through dispatch_inbound
         using the same parser as webhook mode (parse_dingtalk_event).
         """
-        import dingtalk_stream
-
         try:
             body = self._extract_body(callback)
         except Exception as exc:

@@ -53,6 +53,8 @@ async def voice_realtime(websocket: WebSocket, token: str = "", ticket: str = ""
         principal = await consume_ticket(ticket)
         user_id = resolve_user_id(principal) if principal else None
     if user_id is None:
+        # 静默 4401 会让排查变成猜谜——记一条（不含任何凭据材料）。
+        logger.warning("voice_ws_auth_failed", mode="jwt" if token else "ticket")
         await websocket.accept()
         await websocket.close(code=4401, reason="Authentication failed")
         return
@@ -61,6 +63,9 @@ async def voice_realtime(websocket: WebSocket, token: str = "", ticket: str = ""
     try:
         cfg = await get_runtime_config()
     except Exception as e:
+        # 错误内容只发给了客户端；服务端也要留痕，否则日志里只有无信息的
+        # connection open/closed（典型场景：语音未配置）。
+        logger.warning("voice_ws_config_error", error=str(e))
         await websocket.send_text(
             json.dumps({"type": "error", "content": str(e)}, ensure_ascii=False)
         )

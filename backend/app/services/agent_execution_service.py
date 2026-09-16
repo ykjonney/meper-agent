@@ -125,15 +125,25 @@ class AgentExecutionService:
                 ),
             )
 
+        # Guard Block（如 TokenBudgetGuard）不抛异常——LangGraph 分支静默终止，
+        # state["error"] 携带原因、messages 为空。静默返回空输出对调用方是坏
+        # 信号：映射为类型化异常（IM 渠道据此自动轮换会话，Web 端得到明确报错）。
+        state_error = result.get("error")
+        if isinstance(state_error, str) and "Token budget exceeded" in state_error:
+            from app.core.errors import SessionBudgetExceededError
+
+            raise SessionBudgetExceededError(message=state_error)
+
         # Extract output + persist agent message
         output_text = extract_final_answer(result.get("messages", []))
         timeline = messages_to_timeline_entries(
             result.get("messages", []), enable_thinking=body.enable_thinking,
         )
-        await MessageService.add_message(
-            session_id=session_id, role="agent", timeline_entries=timeline,
-            request_id=request_id,
-        )
+        if _should_persist_messages(user_id):
+            await MessageService.add_message(
+                session_id=session_id, role="agent", timeline_entries=timeline,
+                request_id=request_id,
+            )
 
         return ExecutionResponse(
             output=output_text,
@@ -575,6 +585,22 @@ def _finalize_cancelled_timeline(timeline: list[dict]) -> list[dict]:
     return entries
 
 
+def _should_persist_messages(user_id: str) -> bool:
+    """IM 渠道会话默认不落 messages 明细。
+
+    渠道的多轮上下文由 checkpointer thread 承载（压缩在 state 上工作），
+    messages 明细对渠道没有消费方（Web 端历史视图只服务真实用户），
+    纯属存储累积。开 CHANNEL_PERSIST_MESSAGES 可为审计打开。
+    """
+    from app.core.config import settings
+
+    if settings.CHANNEL_PERSIST_MESSAGES:
+        return True
+    from app.engine.user_skills.tools import is_channel_user
+
+    return not is_channel_user(user_id)
+
+
 async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) -> str:
     """Resolve or create a session, then persist the user message."""
     session_id = body.session_id or ""
@@ -585,11 +611,16 @@ async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) 
             user_id=user_id, agent_id=agent_id, title=title_source[:200],
         )
         session_id = session_doc["_id"]
-    await MessageService.add_message(
-        session_id=session_id, role="user",
-        content=body.input, file_ids=body.file_ids or None,
-        display_text=body.display_text or "",
-    )
+    if _should_persist_messages(user_id):
+        await MessageService.add_message(
+            session_id=session_id, role="user",
+            content=body.input, file_ids=body.file_ids or None,
+            display_text=body.display_text or "",
+        )
+    else:
+        # 渠道会话不落明细，但必须推进 updated_at——它是会话延续空闲窗口
+        # 的时钟（原本由 add_message 推进；update_session 空 fields 即只推时间）。
+        await SessionService.update_session(session_id, {})
     return session_id
 
 

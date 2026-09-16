@@ -21,12 +21,40 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
 
 from app.core.config import settings
+
+
+def sandbox_bind_source_mapper() -> Callable[[str], str] | None:
+    """容器视角路径 → docker daemon 宿主视角路径（bind mount 源换算）。
+
+    backend 容器化部署时进程看到 WORKSPACES_CONTAINER_DIR（如
+    /data/workspaces），但沙箱容器由宿主 daemon 经 docker.sock 创建，
+    volumes 源必须是 daemon 可见的宿主路径（WORKSPACES_HOST_DIR，即
+    backend 自身卷挂载的宿主侧）——否则 daemon 会自动创建 root 属主
+    的空目录，沙箱文件读写静默失效。
+
+    本地开发两路径相同（CONTAINER_DIR=None 时 derive 自 HOST_DIR）→
+    返回 None 免换算。仅用于 docker run 的 volumes 源；read/write 等
+    backend 进程侧文件操作仍用进程视角路径。
+    """
+    container = Path(settings.WORKSPACES_CONTAINER_DIR).resolve()
+    host = Path(settings.WORKSPACES_HOST_DIR).resolve()
+    if container == host:
+        return None
+    prefix = str(container)
+
+    def _map(path: str) -> str:
+        if path == prefix or path.startswith(prefix + os.sep):
+            return str(host) + path[len(prefix):]
+        return path  # 工作区根以外的路径（如临时目录）不换算
+
+    return _map
 
 
 @dataclass(frozen=True)

@@ -318,6 +318,13 @@ class Settings(BaseSettings):
     # tool code cannot read worker env (secrets/keys) or the host filesystem.
     TOOL_SANDBOX_NETWORK_MODE: str = "bridge"
 
+    # Mount the current workspace (input ro / output & tmp rw) into the
+    # governed-tool code sandbox so code tools can read uploaded/upstream
+    # files and write artifacts to output/ (auto-registered as node files).
+    # Governance kill-switch: set False to revert to the no-mount sandbox
+    # (code tools compute-only, stdout-only results).
+    TOOL_SANDBOX_MOUNT_WORKSPACE: bool = True
+
     # Container-internal mount points for sandbox containers.
     # These are the paths *inside* the sandbox container where workspace
     # and skill directories are mounted.
@@ -358,6 +365,27 @@ class Settings(BaseSettings):
     CHANNEL_WECOM_LONG_CONNECTION_ENABLED: bool = False  # no SDK yet
     CHANNEL_CONNECTION_RECONNECT_INTERVAL: int = 10  # seconds between retries
     CHANNEL_CONNECTION_STARTUP_DELAY: float = 2.0  # startup grace before first connect
+
+    # ── Channels / IM 会话延续 ──
+    # channel:{ch}:{chat} 身份域内复用最近活跃 session（单聊连续多轮、群聊
+    # 全群共享一条流，对齐行业惯例）。空闲超过该分钟数后开新会话；
+    # 0 = 永不因空闲重置。重置指令（#新话题 / /new / /reset）随时可手动开新。
+    CHANNEL_SESSION_IDLE_RESET_MINUTES: int = 24 * 60
+
+    # 会话最大寿命（小时）：活满后下一条消息自动开新会话（按天滚动），
+    # 防止持续活跃的聊天把单条会话无限累积（messages/token 只增不减）。
+    # 0 = 不限寿命（仅受空闲重置与预算轮换约束）。
+    CHANNEL_SESSION_MAX_AGE_HOURS: int = 24
+
+    # IM 渠道会话是否落 messages 明细。默认 False：渠道上下文由 checkpointer
+    # 承载（多轮压缩在 state 上工作），messages 明细没有消费方、纯占存储。
+    # 需要后台审计 IM 聊天记录时打开。
+    CHANNEL_PERSIST_MESSAGES: bool = False
+
+    # 飞书群聊仅在被 @ 时响应（首 token 是 @ 占位符才处理，并清洗占位符）。
+    # 钉钉平台侧天然只推送被 @ 的群消息，无需此开关。
+    CHANNEL_LARK_GROUP_MENTION_ONLY: bool = True
+
     # Long-connection mode executes inbound messages directly in the FastAPI
     # process (no Celery). These tune that in-process execution:
     #   - EXECUTION_MAX_RETRIES: retry count for TransientChannelError

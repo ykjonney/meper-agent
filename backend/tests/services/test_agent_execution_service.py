@@ -304,3 +304,74 @@ def test_compose_phase_timing_missing_values_default_zero():
     assert f["llm_ms"] == 0
     assert f["tool_ms"] == 0
     assert f["graph_overhead_ms"] == 50
+
+
+class TestChannelMessagePersistence:
+    """IM 渠道会话默认不落 messages 明细（上下文由 checkpointer 承载），
+    但 updated_at 必须照常推进——它是会话延续空闲窗口的时钟。"""
+
+    async def test_channel_user_skips_messages_but_bumps_updated_at(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.schemas.execution import ExecutionRequest
+        from app.services import agent_execution_service as aes
+
+        body = ExecutionRequest(input="你好")
+        created = {"_id": "session_ch1"}
+
+        with patch.object(
+            aes.SessionService, "create_session",
+            new=AsyncMock(return_value=created),
+        ) as mock_create, patch.object(
+            aes.SessionService, "update_session", new=AsyncMock(),
+        ) as mock_update, patch.object(
+            aes.MessageService, "add_message", new=AsyncMock(),
+        ) as mock_add:
+            session_id = await aes._resolve_session("agent_1", body, "channel:ch_1:cid_1")
+
+        assert session_id == "session_ch1"
+        mock_create.assert_awaited_once()
+        mock_add.assert_not_awaited()          # 不落明细
+        mock_update.assert_awaited_once()      # 但推进 updated_at
+        assert mock_update.call_args.args[1] == {}
+
+    async def test_web_user_persists_messages_as_before(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.schemas.execution import ExecutionRequest
+        from app.services import agent_execution_service as aes
+
+        body = ExecutionRequest(input="你好", session_id="session_web1")
+
+        with patch.object(
+            aes.SessionService, "update_session", new=AsyncMock(),
+        ) as mock_update, patch.object(
+            aes.MessageService, "add_message", new=AsyncMock(),
+        ) as mock_add:
+            session_id = await aes._resolve_session("agent_1", body, "user_01J")
+
+        assert session_id == "session_web1"
+        mock_add.assert_awaited_once()         # Web 用户照常落明细
+        mock_update.assert_not_awaited()
+
+    async def test_channel_user_persists_when_flag_enabled(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        from app.schemas.execution import ExecutionRequest
+        from app.services import agent_execution_service as aes
+
+        body = ExecutionRequest(input="你好", session_id="session_ch2")
+
+        with patch(
+            "app.core.config.settings",
+            new=SimpleNamespace(CHANNEL_PERSIST_MESSAGES=True),
+        ), patch.object(
+            aes.SessionService, "update_session", new=AsyncMock(),
+        ) as mock_update, patch.object(
+            aes.MessageService, "add_message", new=AsyncMock(),
+        ) as mock_add:
+            await aes._resolve_session("agent_1", body, "channel:ch_1:cid_1")
+
+        mock_add.assert_awaited_once()         # 开关打开 → 审计模式落明细
+        mock_update.assert_not_awaited()

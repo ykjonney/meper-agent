@@ -12,8 +12,10 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 
+from app.core.config import settings
 from app.core.crypto import decrypt_secret
 from app.models.channel import ChannelConfig
 
@@ -21,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 URL_CHALLENGE_MARKER = "__url_challenge__"
 _TIMESTAMP_TOLERANCE_SECONDS = 3600
+
+# Feishu renders @entities inside text as "@_user_N" placeholders, each with
+# a matching ``key`` entry in the message's ``mentions`` array.
+_MENTION_PLACEHOLDER_RE = re.compile(r"@_user_\d+")
 
 
 class LarkVerificationError(Exception):
@@ -159,6 +165,26 @@ def parse_lark_event(body: str, config: ChannelConfig):
     except json.JSONDecodeError:
         return None
     text = (content.get("text") or "").strip()
+    if not text:
+        return None
+
+    # Group chats: only respond when addressed — the message must START with
+    # an @-mention placeholder that exists in ``mentions`` (p2p always passes;
+    # DingTalk gates this platform-side already). 群内 @别人（非开头@机器人）
+    # 的消息不响应，避免机器人对群里所有对话刷屏。
+    if msg_obj.get("chat_type") == "group" and settings.CHANNEL_LARK_GROUP_MENTION_ONLY:
+        mention_keys = {
+            m.get("key") for m in (msg_obj.get("mentions") or [])
+            if isinstance(m, dict)
+        }
+        anchor = _MENTION_PLACEHOLDER_RE.match(text)
+        if anchor is None or anchor.group(0) not in mention_keys:
+            return None
+        text = text[anchor.end():]
+
+    # Strip remaining @-mention placeholders (mid-text mentions) so the agent
+    # sees clean text instead of "@_user_2".
+    text = " ".join(_MENTION_PLACEHOLDER_RE.sub(" ", text).split())
     if not text:
         return None
 

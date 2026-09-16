@@ -4,9 +4,13 @@
  * - 工具选择为左右 Tab 选择器：「工具库」（组织治理 openapi/code，
  *   listEnabled 单一来源）与「MCP 工具」（按连接折叠分组，默认收起）；
  *   技能（markdown/skill）不是工具——不进候选，由 Agent 节点绑定使用
- * - Params 按所选工具的 llm_args_schema 结构化渲染（参数名/说明/必填，
- *   值支持 {{ node.field }} 引用上游输出）；schema 缺失时回退 JSON 文本域
+ * - Params 按所选工具的参数 schema 结构化渲染（工具库取 llm_args_schema，
+ *   MCP 工具取 input_schema——MCP server 声明，同构 JSON Schema；参数名/
+ *   说明/必填，值支持 {{ node.field }} 引用上游输出）；schema 缺失时回退
+ *   JSON 文本域
  * - JSON 回退域非法时不写回 config（防脏数据）
+ * - 工具库（openapi/code）支持「测试」：按节点配置参数试跑已保存工具，
+ *   凭证走组织配置（与生产直调同语义）
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -18,12 +22,107 @@ import { mcpApi, mcpKeys } from '../../../services/mcp-api'
 import VariableSelector from '../VariableSelector'
 import HelpHint from '../HelpHint'
 import type { WorkflowNode } from '../../../services/workflows-api'
+import { getErrorMessage } from '../../../lib/api-client'
 
 interface Props {
   config: Record<string, unknown>
   onChange: (c: Record<string, unknown>) => void
   currentNodeId: string
   allNodes: WorkflowNode[]
+}
+
+/** 已保存工具试跑（工具节点调试）：按节点参数试跑一次，凭证用组织配置。
+ * 含 {{ }} 模板的参数需改为具体值才能有效测试。 */
+function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClose }: {
+  toolId: string
+  toolName: string
+  initialParams: Record<string, unknown>
+  paramKeys: string[]
+  onClose: () => void
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const k of paramKeys) {
+      const v = initialParams?.[k]
+      init[k] = typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v)
+    }
+    return init
+  })
+  const [busy, setBusy] = useState(false)
+  const [out, setOut] = useState<{ ok: boolean; result?: unknown; error?: string | null } | null>(null)
+
+  const hasTemplate = Object.values(values).some((v) => v.includes('{{'))
+
+  const run = async () => {
+    setBusy(true)
+    setOut(null)
+    const params: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(values)) {
+      if (v === '') continue
+      try { params[k] = JSON.parse(v) } catch { params[k] = v } // 数字/布尔还原，其余按字符串
+    }
+    try {
+      setOut(await userToolsApi.testRunById(toolId, { params }))
+    } catch (e) {
+      setOut({ ok: false, error: getErrorMessage(e, '试跑失败') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600 font-mono'
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" onClick={busy ? undefined : onClose}>
+      <div className="w-full max-w-md rounded-2xl border border-[#27272a] bg-[#18181b] text-[#fafafa] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-[#27272a]">
+          <div>
+            <h3 className="text-sm font-bold">测试工具：{toolName}</h3>
+            <p className="text-[11px] mt-0.5 text-[#71717a]">
+              试跑已保存的工具，凭证使用组织配置；不影响工作流与治理状态
+            </p>
+          </div>
+          <button onClick={onClose} className="cursor-pointer hover:opacity-70 text-[#a1a1aa]">✕</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {paramKeys.length === 0 && (
+            <p className="text-xs text-[#71717a]">该工具无运行参数，直接运行即可。</p>
+          )}
+          {paramKeys.map((key) => (
+            <div key={key} className="flex items-center gap-2">
+              <label className="w-24 shrink-0 text-xs text-slate-400 truncate" title={key}>{key}</label>
+              <input
+                value={values[key] ?? ''}
+                onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                placeholder="测试值"
+                className={`flex-1 ${inputCls}`}
+              />
+            </div>
+          ))}
+          {hasTemplate && (
+            <p className="text-[11px] text-amber-500 leading-relaxed">
+              参数中含 {'{{ }}'} 模板变量——测试时请改为具体值（模板引用仅在运行时由上游节点解析）
+            </p>
+          )}
+          <button onClick={() => void run()} disabled={busy}
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white cursor-pointer transition disabled:opacity-50">
+            {busy ? '运行中…' : '运行'}
+          </button>
+          {out && (
+            <div className={`rounded-lg border p-2.5 text-[11px] font-mono whitespace-pre-wrap break-words ${
+              out.ok
+                ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
+                : 'border-red-500/30 bg-red-500/5 text-red-300'
+            }`}>
+              {out.ok
+                ? (typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2))
+                : out.error}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /** JSON 文本域：合法时提交 config，非法时保留草稿并标错（不写脏数据） */
@@ -244,6 +343,7 @@ function ToolPicker({
 }
 
 export default function ToolNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
+  const [testOpen, setTestOpen] = useState(false)
   // 候选：工具库（openapi/code 官方 active + 组织库已开启，listEnabled 单一来源）
   // + tools 表的 mcp（技能 markdown/skill 不是工具，不进候选——由 Agent 节点使用）
   const { data: toolsData, isLoading } = useQuery({
@@ -278,13 +378,18 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
     }))
   })()
 
-  const selected: EnabledToolItem | undefined = enabledTools.find((t) => t.id === config.tool_id)
-  const schemaProps = (((selected?.llm_args_schema ?? {}) as Record<string, unknown>)
-    .properties ?? {}) as Record<string, { type?: string; description?: string }>
-  const schemaRequired = new Set(
-    (((selected?.llm_args_schema ?? {}) as Record<string, unknown>).required as string[]) ?? [],
-  )
+  // 选中工具的参数 schema：工具库取 llm_args_schema，MCP 工具取
+  // input_schema（MCP server 声明，同构 JSON Schema）——两者统一渲染参数区
+  const selectedLib: EnabledToolItem | undefined = enabledTools.find((t) => t.id === config.tool_id)
+  const selectedMcp: Tool | undefined = mcpTools.find((t) => t.id === config.tool_id)
+  const selectedSchema: Record<string, unknown> =
+    ((selectedLib?.llm_args_schema ?? undefined) as Record<string, unknown> | undefined)
+    ?? (selectedMcp?.input_schema as Record<string, unknown> | undefined)
+    ?? {}
+  const schemaProps = (selectedSchema.properties ?? {}) as Record<string, { type?: string; description?: string }>
+  const schemaRequired = new Set((selectedSchema.required as string[]) ?? [])
   const paramKeys = Object.keys(schemaProps)
+  const hasSelection = !!(selectedLib || selectedMcp)
   const params = (config.params as Record<string, unknown>) ?? {}
 
   const findToolName = (id: string) =>
@@ -328,6 +433,26 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
         />
       </div>
 
+      {/* 工具库（openapi/code）可试跑：按节点参数试跑已保存工具（凭证走组织配置） */}
+      {hasSelection && selectedLib && (
+        <div className="flex justify-end">
+          <button onClick={() => setTestOpen(true)}
+            title="按节点配置的参数试跑该工具（凭证使用组织配置，不影响工作流）"
+            className="px-2.5 py-1 rounded text-[11px] font-medium border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 cursor-pointer transition">
+            测试工具
+          </button>
+        </div>
+      )}
+      {testOpen && selectedLib && (
+        <SavedToolTestModal
+          toolId={selectedLib.id}
+          toolName={selectedLib.name}
+          initialParams={(config.params as Record<string, unknown>) ?? {}}
+          paramKeys={paramKeys}
+          onClose={() => setTestOpen(false)}
+        />
+      )}
+
       {paramKeys.length > 0 ? (
         <div>
           <label className="flex items-center gap-1 text-xs text-slate-400 mb-1">
@@ -356,7 +481,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
           </div>
         </div>
       ) : (
-        selected && (
+        hasSelection && (
           <JsonField
             label="Params (JSON，支持模板变量)"
             helpText="该工具未定义运行参数——如需传额外字段可在此填写，值支持 {{ node.field }} 模板变量"

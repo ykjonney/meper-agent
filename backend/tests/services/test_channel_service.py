@@ -23,6 +23,7 @@ from app.models.channel import (
 )
 from app.schemas.execution import ExecutionResponse
 from app.services.channel_service import ChannelService
+from app.services.session_service import SessionService
 
 
 def _make_inbound(msg_id: str = "msg_1") -> InboundMessage:
@@ -131,6 +132,8 @@ class TestExecute:
         ), patch.object(
             ChannelService, "get_config", new=AsyncMock(return_value=config)
         ), patch.object(
+            ChannelService, "_find_continuable_session", new=AsyncMock(return_value=None)
+        ), patch.object(
             ChannelService, "_reset_failure_counter", new=AsyncMock()
         ):
             await ChannelService.execute(inbound)
@@ -148,6 +151,8 @@ class TestExecute:
             new=AsyncMock(side_effect=InvalidCredentialsError("bad creds")),
         ), patch.object(
             ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch.object(
+            ChannelService, "_find_continuable_session", new=AsyncMock(return_value=None)
         ), patch.object(
             ChannelService, "handle_error", new=AsyncMock()
         ) as mock_handler:
@@ -169,6 +174,8 @@ class TestExecute:
         ), patch.object(
             ChannelService, "get_config", new=AsyncMock(return_value=config)
         ), patch.object(
+            ChannelService, "_find_continuable_session", new=AsyncMock(return_value=None)
+        ), patch.object(
             ChannelService, "handle_error", new=AsyncMock()
         ), pytest.raises(LLMRateLimitError):
             await ChannelService.execute(inbound)
@@ -189,6 +196,8 @@ class TestExecute:
             new=AsyncMock(side_effect=InvalidCredentialsError("bad creds")),
         ), patch.object(
             ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch.object(
+            ChannelService, "_find_continuable_session", new=AsyncMock(return_value=None)
         ), patch.object(
             ChannelService, "get_event_log", new=AsyncMock(return_value=real_log)
         ) as mock_get_log, patch.object(
@@ -283,3 +292,162 @@ class TestHandleError:
                 event_log, config, AgentRuntimeError(),
             )
         mock_bump.assert_not_awaited()
+
+
+class TestSessionContinuity:
+    """IM 会话延续：channel:{ch}:{chat} 域内复用最近活跃 session。"""
+
+    def setup_method(self):
+        MOCK_SENT_MESSAGES.clear()
+
+    @pytest.mark.asyncio
+    async def test_reuses_latest_active_session(self):
+        inbound = _make_inbound()
+        config = _make_config()
+        fake_response = ExecutionResponse(
+            output="ok", execution_path="react", request_id="req_1",
+            agent_id="agent_01J", session_id="session_old", step_count=1,
+        )
+        invoke_mock = AsyncMock(return_value=fake_response)
+        with patch(
+            "app.services.channel_service.AgentExecutionService.invoke",
+            new=invoke_mock,
+        ), patch.object(
+            ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch.object(
+            ChannelService, "_find_continuable_session",
+            new=AsyncMock(return_value="session_old"),
+        ):
+            await ChannelService.execute(inbound)
+
+        body = invoke_mock.call_args.kwargs["body"]
+        assert body.session_id == "session_old"
+
+    @pytest.mark.asyncio
+    async def test_no_recent_session_starts_new(self):
+        inbound = _make_inbound()
+        config = _make_config()
+        fake_response = ExecutionResponse(
+            output="ok", execution_path="react", request_id="req_1",
+            agent_id="agent_01J", session_id="session_new", step_count=1,
+        )
+        invoke_mock = AsyncMock(return_value=fake_response)
+        with patch(
+            "app.services.channel_service.AgentExecutionService.invoke",
+            new=invoke_mock,
+        ), patch.object(
+            ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch.object(
+            ChannelService, "_find_continuable_session",
+            new=AsyncMock(return_value=None),
+        ):
+            await ChannelService.execute(inbound)
+
+        assert invoke_mock.call_args.kwargs["body"].session_id is None
+
+    @pytest.mark.asyncio
+    async def test_idle_window_computed_from_settings(self):
+        """idle > 0 → 查询带 updated_since 窗口；返回的 session id 透传。"""
+        from types import SimpleNamespace
+
+        get_latest = AsyncMock(return_value={"_id": "sess_recent"})
+        with patch(
+            "app.services.channel_service.settings",
+            new=SimpleNamespace(
+                CHANNEL_SESSION_IDLE_RESET_MINUTES=60,
+                CHANNEL_SESSION_MAX_AGE_HOURS=0,
+            ),
+        ), patch.object(
+            SessionService, "get_latest_session", new=get_latest,
+        ):
+            found = await ChannelService._find_continuable_session("u1", "a1")
+
+        assert found == "sess_recent"
+        assert get_latest.call_args.kwargs["updated_since"] is not None
+
+    @pytest.mark.asyncio
+    async def test_idle_disabled_queries_without_window(self):
+        """idle = 0 → 永不因空闲重置，查询不带时间窗。"""
+        from types import SimpleNamespace
+
+        get_latest = AsyncMock(return_value={"_id": "sess_any"})
+        with patch(
+            "app.services.channel_service.settings",
+            new=SimpleNamespace(
+                CHANNEL_SESSION_IDLE_RESET_MINUTES=0,
+                CHANNEL_SESSION_MAX_AGE_HOURS=0,
+            ),
+        ), patch.object(
+            SessionService, "get_latest_session", new=get_latest,
+        ):
+            found = await ChannelService._find_continuable_session("u1", "a1")
+
+        assert found == "sess_any"
+        assert get_latest.call_args.kwargs["updated_since"] is None
+
+
+class TestResetCommand:
+    """重置指令：精确命中 → 开新 session + 确认回复，不进 agent。"""
+
+    def setup_method(self):
+        MOCK_SENT_MESSAGES.clear()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cmd", ["#新话题", "/new", "/reset", "  #新话题  "])
+    async def test_reset_command_skips_agent_and_creates_session(self, cmd):
+        inbound = _make_inbound()
+        inbound.text = cmd
+        config = _make_config()
+
+        invoke_mock = AsyncMock()
+        create_mock = AsyncMock(return_value={"_id": "session_new"})
+        with patch(
+            "app.services.channel_service.AgentExecutionService.invoke",
+            new=invoke_mock,
+        ), patch.object(
+            ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch(
+            "app.services.channel_service.SessionService.create_session",
+            new=create_mock,
+        ):
+            await ChannelService.execute(inbound)
+
+        invoke_mock.assert_not_awaited()
+        create_mock.assert_awaited_once()
+        assert create_mock.call_args.kwargs["user_id"] == (
+            f"channel:{config.id}:chat_1"
+        )
+        assert create_mock.call_args.kwargs["agent_id"] == "agent_01J"
+        # 确认回复发出（MOCK provider 落到 MOCK_SENT_MESSAGES）
+        assert len(MOCK_SENT_MESSAGES) == 1
+        assert MOCK_SENT_MESSAGES[0]["text"] == "已开启新话题，请直接说出你的问题～"
+
+    @pytest.mark.asyncio
+    async def test_text_containing_command_still_goes_to_agent(self):
+        """命令作为句子一部分不是重置指令，仍走 agent。"""
+        inbound = _make_inbound()
+        inbound.text = "帮我看看#新话题这个功能"
+        config = _make_config()
+
+        fake_response = ExecutionResponse(
+            output="ok", execution_path="react", request_id="req_1",
+            agent_id="agent_01J", session_id="session_x", step_count=1,
+        )
+        invoke_mock = AsyncMock(return_value=fake_response)
+        create_mock = AsyncMock()
+        with patch(
+            "app.services.channel_service.AgentExecutionService.invoke",
+            new=invoke_mock,
+        ), patch.object(
+            ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch.object(
+            ChannelService, "_find_continuable_session",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.channel_service.SessionService.create_session",
+            new=create_mock,
+        ):
+            await ChannelService.execute(inbound)
+
+        invoke_mock.assert_awaited_once()
+        create_mock.assert_not_awaited()

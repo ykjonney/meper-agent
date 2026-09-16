@@ -5,10 +5,13 @@ ToB 治理流程锁定：
 - 状态机：submit → admin approve(published) → admin enable（三重校验）
 - 开启校验：published + 定义完整 + org 凭证完整
 - 工具级凭证：admin 配置（sensitive enc:），resolve_org_tool 解析返回明文
-- 不可用（未开启/停用/未过审）→ 解析 None
+- 不可用（未开启/停用/未过审）→ 解析 None，Agent 绑定装配静默跳过（聊天不弹错）
+- 删除工具（uto_/官方）→ 级联清理 Agent custom_tools 绑定
 - 官方工具同语义（is_tool_active + org_user_args + 启用校验含凭证）
 """
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 from app.services.user_tool_service import UserToolError, UserToolService
@@ -22,7 +25,6 @@ def _match(doc: dict, query: dict) -> bool:
     import re
 
     for key, cond in query.items():
-        value = doc.get(key)
         if key == "$or":
             if not any(_match(doc, sub) for sub in cond):
                 return False
@@ -31,6 +33,19 @@ def _match(doc: dict, query: dict) -> bool:
             if not all(_match(doc, sub) for sub in cond):
                 return False
             continue
+        if "." in key:
+            # 点路径（如 custom_tools.tool_id）：数组字段任一元素命中即真
+            head, _, rest = key.partition(".")
+            container = doc.get(head)
+            if isinstance(container, list):
+                if not any(
+                    isinstance(el, dict) and _match(el, {rest: cond}) for el in container
+                ):
+                    return False
+                continue
+            value = _get_path(doc, key)
+        else:
+            value = doc.get(key)
         if isinstance(cond, dict):
             if "$in" in cond and value not in cond["$in"]:
                 return False
@@ -61,6 +76,10 @@ def _apply_update(doc: dict, update: dict) -> None:
                 _set_path(doc, k, cur + v)
         elif op == "$setOnInsert":
             pass
+        elif op == "$pull":
+            for k, cond in payload.items():
+                arr = _get_path(doc, k) or []
+                _set_path(doc, k, [el for el in arr if not _match(el, cond)])
 
 
 def _set_path(doc: dict, path: str, value) -> None:
@@ -119,10 +138,17 @@ class FakeCol:
                 merged.setdefault(k, v)
             self.docs.append(merged)
 
-    async def delete_one(self, query: dict) -> None:
+    async def delete_one(self, query: dict) -> SimpleNamespace:
+        removed = [d for d in self.docs if _match(d, query)]
         self.docs = [d for d in self.docs if not _match(d, query)]
+        return SimpleNamespace(deleted_count=len(removed))
 
     delete_many = delete_one
+
+    async def update_many(self, query: dict, update: dict) -> None:
+        for d in self.docs:
+            if _match(d, query):
+                _apply_update(d, update)
 
     async def count_documents(self, query: dict) -> int:
         return sum(1 for d in self.docs if _match(d, query))
@@ -404,15 +430,40 @@ async def test_resolve_org_tool_unavailable_states(db):
 
 
 async def test_update_published_resets_governance(db):
-    """已发布工具编辑 → 回 private 且 enabled=False、凭证清空（需重新走流程）。"""
+    """已发布工具编辑 → 回 private 且 enabled=False；**仅改代码保留凭证**
+    （凭证签名未变不重配），凭证参数变了才清空。"""
     tool_id = await _published_tool(db, name="upd-t")
     await UserToolService.save_org_args("admin1", tool_id, {"a": "1"})
     await UserToolService.enable_tool("admin1", tool_id, True)
+
+    # 仅改代码 → 治理回退但组织凭证保留（无需重配）
     await UserToolService.update_tool("u1", tool_id, code="def run(): return 2")
     fresh = await UserToolService.get_tool(tool_id)
     assert fresh["status"] == "private"
     assert fresh["enabled"] is False
-    assert fresh["org_user_args"] == {}
+    assert fresh["org_user_args"] != {}  # 凭证还在
+
+    # 凭证参数签名变了（schema 引入凭证参数）→ 清空（键失配，防半套凭证混用）
+    tool_id2 = await _published_tool(db, name="upd-t2")
+    await UserToolService.update_tool(
+        "u1", tool_id2,
+        user_args_schema={"type": "object", "properties": {
+            "a": {"type": "string"}, "b": {"type": "string", "sensitive": True},
+        }},
+    )  # 未开启的工具编辑不触发清空分支——先配凭证并开启再改签名
+    await UserToolService.submit_for_review("u1", tool_id2)
+    await UserToolService.review_tool(tool_id2, "approve", "admin1")
+    await UserToolService.save_org_args("admin1", tool_id2, {"a": "1", "b": "enc-x"})
+    await UserToolService.enable_tool("admin1", tool_id2, True)
+    await UserToolService.update_tool(
+        "u1", tool_id2,
+        user_args_schema={"type": "object", "properties": {
+            "a": {"type": "string"}, "c": {"type": "string", "sensitive": True},
+        }},
+    )
+    fresh2 = await UserToolService.get_tool(tool_id2)
+    assert fresh2["enabled"] is False
+    assert fresh2["org_user_args"] == {}
 
 
 async def test_update_delete_admin_override(db):
@@ -422,6 +473,39 @@ async def test_update_delete_admin_override(db):
     assert (await UserToolService.get_tool(tool_id))["description"] == "改"
     await UserToolService.delete_tool("admin9", tool_id, is_admin=True)
     assert await UserToolService.get_tool(tool_id) is None
+
+
+async def test_delete_tool_cleans_agent_bindings(db):
+    """删除 uto_ 工具 → 级联清理所有 Agent 的 custom_tools 绑定（其余绑定保留）。"""
+    tool_id = await _published_tool(db, owner="u1", name="del-cascade")
+    await db["agents"].insert_one({
+        "_id": "agt_cascade",
+        "name": "AgentCascade",
+        "custom_tools": [
+            {"tool_id": tool_id, "user_args": {}},
+            {"tool_id": "uto_keep", "user_args": {}},
+        ],
+    })
+    await UserToolService.delete_tool("u1", tool_id)
+    agent = await db["agents"].find_one({"_id": "agt_cascade"})
+    assert [b["tool_id"] for b in agent["custom_tools"]] == ["uto_keep"]
+
+
+async def test_delete_official_tool_cleans_agent_bindings(db):
+    """官方工具删除 → custom_tools 级联清理（skill_ids/tool_ids 仍走禁删守卫）。"""
+    from app.services.tool_service import ToolService
+
+    doc = await ToolService.create_custom_tool(
+        name="off-del", description="", source="code", code="def run(): pass", created_by="admin",
+    )
+    await db["agents"].insert_one({
+        "_id": "agt_off_del",
+        "name": "AgentOffDel",
+        "custom_tools": [{"tool_id": doc["_id"], "user_args": {}}],
+    })
+    await ToolService.delete_tool(doc["_id"])
+    agent = await db["agents"].find_one({"_id": "agt_off_del"})
+    assert agent["custom_tools"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +574,8 @@ async def test_resolve_custom_tools_with_enabled_uto(monkeypatch, db):
 
 
 async def test_resolve_custom_tools_skips_unenabled_uto(monkeypatch, db):
-    """绑定未开启的 uto_ → 明确报错（不静默）。"""
+    """绑定未开启的 uto_ → 静默跳过（不注入、不报错——可用性以运行时为准，
+    工具删除时另有级联清理绑定）。"""
     from app.engine.harness_integration.context import _resolve_custom_tools
 
     tool_id = await _published_tool(db, name="unenabled-t")  # published 未开启
@@ -498,7 +583,7 @@ async def test_resolve_custom_tools_skips_unenabled_uto(monkeypatch, db):
         "custom_tools": [{"tool_id": tool_id, "user_args": {}}],
     })
     assert tools == []
-    assert any("不可用" in e["error"] for e in errors)
+    assert errors == []
 
 
 async def test_resolve_custom_tools_skips_disabled_official(monkeypatch, db):
@@ -513,7 +598,7 @@ async def test_resolve_custom_tools_skips_disabled_official(monkeypatch, db):
         "custom_tools": [{"tool_id": doc["_id"], "user_args": {}}],
     })
     assert tools == []
-    assert any("停用" in e["error"] for e in errors)
+    assert errors == []  # 已停用 → 静默跳过
 
 
 # ---------------------------------------------------------------------------
@@ -580,3 +665,63 @@ async def test_marketplace_includes_own_drafts(db):
     assert other["_id"] not in ids  # 他人草稿不可见
     item = next(i for i in items if i["id"] == mine["_id"])
     assert item["is_own"] is True
+
+
+# ── 治理回退分级豁免（消费者不断供） ─────────────────────────────────
+
+
+async def test_nonfunctional_edit_keeps_governance(db):
+    """仅改 description/tags（无执行语义）→ 不回退、不停用、凭证保留。"""
+    tool_id = await _published_tool(db, name="nf-t")
+    await UserToolService.save_org_args("admin1", tool_id, {"a": "1"})
+    await UserToolService.enable_tool("admin1", tool_id, True)
+
+    await UserToolService.update_tool("u1", tool_id, description="更好的描述", tags=["x"])
+
+    fresh = await UserToolService.get_tool(tool_id)
+    assert fresh["status"] == "published"
+    assert fresh["enabled"] is True
+    assert fresh["description"] == "更好的描述"
+    assert fresh["org_user_args"] != {}
+
+
+async def test_admin_hotfix_keeps_enabled(db):
+    """admin 改代码（热修复）→ 保持 published+enabled（admin 即审查者，
+    与 seed 脚本语义一致），凭证保留。"""
+    tool_id = await _published_tool(db, name="hf-t")
+    await UserToolService.save_org_args("admin1", tool_id, {"a": "1"})
+    await UserToolService.enable_tool("admin1", tool_id, True)
+
+    await UserToolService.update_tool(
+        "admin1", tool_id, code="def run(): return 42", is_admin=True
+    )
+
+    fresh = await UserToolService.get_tool(tool_id)
+    assert fresh["status"] == "published"
+    assert fresh["enabled"] is True
+    assert fresh["org_user_args"] != {}
+    assert "return 42" in fresh["code"]
+
+
+async def test_admin_hotfix_with_cred_change_still_disables(db):
+    """admin 热修复但凭证签名变了 → 仍停用 + 清凭证（缺凭证跑不了）。"""
+    tool_id = await _published_tool(db, name="hf-c")
+    await UserToolService.update_tool(
+        "u1", tool_id,
+        user_args_schema={"type": "object", "properties": {"a": {"type": "string"}}},
+    )
+    await UserToolService.submit_for_review("u1", tool_id)
+    await UserToolService.review_tool(tool_id, "approve", "admin1")
+    await UserToolService.save_org_args("admin1", tool_id, {"a": "1"})
+    await UserToolService.enable_tool("admin1", tool_id, True)
+
+    await UserToolService.update_tool(
+        "admin1", tool_id,
+        code="def run(): return 1",
+        user_args_schema={"type": "object", "properties": {"b": {"type": "string"}}},
+        is_admin=True,
+    )
+
+    fresh = await UserToolService.get_tool(tool_id)
+    assert fresh["enabled"] is False
+    assert fresh["org_user_args"] == {}

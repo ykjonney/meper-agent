@@ -69,6 +69,43 @@ class VoteRequest(BaseModel):
     value: int = Field(..., description="1 = 👍 | -1 = 👎")
 
 
+class ToolGenerateMessage(BaseModel):
+    """对话消息（生成是无状态多轮——历史随请求携带）。"""
+
+    role: str = Field(..., description="user | assistant")
+    content: str = Field(..., max_length=8000)
+
+
+class ToolGenerateRequest(BaseModel):
+    """AI 多轮对话生成工具定义草稿（不落库，回填表单后走正常创建/治理链）。"""
+
+    messages: list[ToolGenerateMessage] = Field(..., min_length=1, max_length=40)
+    source: str = Field(default="", description='指定 "code"/"openapi"；空 = AI 按需求判断')
+    model_id: str = Field(default="", description="生成模型（model_ 前缀；空 = 平台默认）")
+
+
+class ToolTestRunRequest(BaseModel):
+    """试跑一次工具定义（不落库、不要求 published/enabled）。"""
+
+    definition: dict = Field(..., description="{name, source, code, endpoint, llm_args_schema}")
+    params: dict = Field(default_factory=dict, description="运行参数（对应 llm_args_schema）")
+    user_args: dict = Field(default_factory=dict, description="试跑凭证（ad hoc，不持久化）")
+
+
+class ToolTestCaseRequest(BaseModel):
+    """AI 按工具定义生成测试用例。"""
+
+    definition: dict = Field(...)
+    model_id: str = Field(default="")
+
+
+class SavedToolTestRequest(BaseModel):
+    """试跑已保存的工具（工具节点调试）：参数 + 可选凭证覆盖。"""
+
+    params: dict = Field(default_factory=dict)
+    user_args: dict = Field(default_factory=dict, description="临时覆盖组织凭证（不持久化）")
+
+
 class ReviewRequest(BaseModel):
     action: str = Field(..., description="approve | reject")
     reason: str = Field(default="", description="驳回理由（展示给作者）")
@@ -133,6 +170,83 @@ async def create_my_tool(
         ))
     except UserToolError as exc:
         raise ValidationError(code="USER_TOOL_INVALID", message=exc.message) from exc
+
+
+@router.post("/generate")
+async def generate_tool_draft(
+    body: ToolGenerateRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> dict:
+    """AI 多轮对话生成工具定义草稿（tool:write，与创建同权限）。
+
+    无状态多轮——前端每次携带完整对话历史；本轮返回 {"reply": 文本说明,
+    "draft": 草稿 | None}（AI 澄清提问时无草稿）。草稿不落库，回填创建
+    表单后走既有治理链；生成侧本地校验（JSON 形态 + code 依赖白名单），
+    不过自动带反馈重试一轮。
+    """
+    from app.services.tool_generator import ToolGeneratorService
+
+    if body.messages[-1].role != "user":
+        raise ValidationError(code="TOOL_GENERATE_INVALID", message="末条消息必须是用户消息")
+    try:
+        return await ToolGeneratorService.generate(
+            [{"role": m.role, "content": m.content} for m in body.messages],
+            source_hint=body.source.strip(),
+            model_id=body.model_id.strip(),
+        )
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_GENERATE_FAILED", message=exc.message) from exc
+
+
+@router.post("/test-run")
+async def test_run_tool(
+    body: ToolTestRunRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> dict:
+    """试跑一次工具定义（tool:write——与创建同权限，治理链的验证环节）。
+
+    不落库、不要求 published/enabled；code 走既有沙箱隔离（60s 超时）；
+    试跑凭证即填即用不持久化。
+    """
+    from app.services.tool_tester import run_once as test_run_once
+
+    try:
+        return await test_run_once(body.definition, body.params, body.user_args)
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_TEST_FAILED", message=exc.message) from exc
+
+
+@router.post("/test-cases")
+async def generate_test_cases(
+    body: ToolTestCaseRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> dict:
+    """AI 按工具定义生成测试用例（仅 params；凭证由用户在试跑时另填）。"""
+    from app.services.tool_tester import generate_cases
+
+    try:
+        return await generate_cases(body.definition, body.model_id.strip())
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_TEST_FAILED", message=exc.message) from exc
+
+
+@router.post("/{tool_id}/test-run")
+async def test_run_saved_tool(
+    tool_id: str,
+    body: SavedToolTestRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> dict:
+    """试跑已保存的工具（工具节点调试用，tool:write）。
+
+    定义按 id 从库加载（uto_ 要求 published+enabled，与生产直调同治理口径）；
+    凭证默认用工具级组织配置，user_args 可临时覆盖（不持久化）。
+    """
+    from app.services.tool_tester import run_saved_once
+
+    try:
+        return await run_saved_once(tool_id, body.params, body.user_args)
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_TEST_FAILED", message=exc.message) from exc
 
 
 @router.get("/{tool_id}")
