@@ -70,6 +70,13 @@ export function toStudioAgent(a: BackendAgent): Agent {
       label: it.label ?? '',
       prompt: it.prompt ?? '',
     })),
+    recommendedGroups: (a.recommended_groups ?? []).map((g) => ({
+      title: g.title ?? '',
+      items: (g.items ?? []).map((it) => ({
+        label: it.label ?? '',
+        prompt: it.prompt ?? '',
+      })),
+    })),
     model: a.default_model || 'gemini-3.5-flash',
     voiceEnabled: a.voice_enabled ?? false,
     temperature: DEFAULT_AGENT_TEMPERATURE,
@@ -100,6 +107,7 @@ export function fromStudioAgent(a: Agent): {
   description?: string
   welcome_message?: string
   recommended_items?: { label: string; prompt: string }[]
+  recommended_groups?: { title: string; items: { label: string; prompt: string }[] }[]
   prompt_slots?: Record<string, string>
   default_model?: string
   voice_enabled?: boolean
@@ -134,6 +142,13 @@ export function fromStudioAgent(a: Agent): {
     recommended_items: (a.recommendedItems ?? []).map((it) => ({
       label: it.label,
       prompt: it.prompt ?? '',
+    })),
+    recommended_groups: (a.recommendedGroups ?? []).map((g) => ({
+      title: g.title,
+      items: (g.items ?? []).map((it) => ({
+        label: it.label,
+        prompt: it.prompt ?? '',
+      })),
     })),
     // Backend slot_renderer requires role + task; system is kept for legacy compat.
     prompt_slots: {

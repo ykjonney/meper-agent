@@ -5,7 +5,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.agent import AgentStatus, RecommendedItem
+from app.models.agent import AgentStatus, RecommendedGroup, RecommendedItem
 from app.utils.sanitize import sanitize_dict, sanitize_text
 
 
@@ -120,6 +120,11 @@ class AgentUpdate(BaseModel):
         max_length=200,
         description="首屏推荐问题/操作快捷项（≤200 条）",
     )
+    recommended_groups: list[RecommendedGroup] = Field(
+        default_factory=list,
+        max_length=20,
+        description="首屏推荐项分类分组（≤20 组，每组 ≤50 条，与独立项共存）",
+    )
     prompt_slots: dict[str, str] = Field(
         default_factory=dict,
         description=(
@@ -193,6 +198,17 @@ class AgentUpdate(BaseModel):
             item.prompt = sanitize_text(item.prompt)
         return v
 
+    @field_validator("recommended_groups", mode="after")
+    @classmethod
+    def _sanitize_recommended_groups(cls, v: list[RecommendedGroup]) -> list[RecommendedGroup]:
+        """逐组清洗分组 title 及组内条目 label / prompt 的 XSS 载荷。"""
+        for group in v:
+            group.title = sanitize_text(group.title)
+            for item in group.items:
+                item.label = sanitize_text(item.label)
+                item.prompt = sanitize_text(item.prompt)
+        return v
+
     @field_validator("prompt_slots", mode="after")
     @classmethod
     def _validate_prompt_slots(cls, v: dict[str, str]) -> dict[str, str]:
@@ -209,6 +225,7 @@ class AgentResponse(BaseModel):
     avatar: str = Field(default="")
     welcome_message: str = Field(default="")
     recommended_items: list[RecommendedItem] = Field(default_factory=list)
+    recommended_groups: list[RecommendedGroup] = Field(default_factory=list)
     prompt_slots: dict[str, str] = Field(default_factory=dict)
     skill_ids: list[str]
     mcp_connection_ids: list[str]

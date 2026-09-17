@@ -123,8 +123,17 @@ async def compress_history_with_llm(
     prompt = _SUMMARY_PROMPT.format(history=history_text)
 
     try:
+        # config 必须显式传 callbacks=[]：本函数跑在 asyncio.create_task 里，
+        # create_task 拷贝的 contextvar 会隐式继承主图 astream_events 的回调，
+        # 摘要 LLM 的 on_chat_model_* 事件就会冒泡进聊天 SSE 流（前端表现为
+        # 游离 text/thinking 事件插进对话中间）。空 callbacks 覆盖继承，
+        # tags 再给适配器 stream_events_to_app_events 作第二道过滤防线。
         resp = await asyncio.wait_for(
-            llm.ainvoke([HumanMessage(content=prompt)]), timeout=timeout,
+            llm.ainvoke(
+                [HumanMessage(content=prompt)],
+                config={"callbacks": [], "tags": ["llm_summary"]},
+            ),
+            timeout=timeout,
         )
         summary_text = str(resp.content).strip()
         if not summary_text:

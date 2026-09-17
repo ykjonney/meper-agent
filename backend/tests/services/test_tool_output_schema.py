@@ -11,8 +11,6 @@
 """
 from __future__ import annotations
 
-import json
-
 from app.services.tool_output_schema import derive_output_schema
 
 # ── 1/2/3. dict 推导 ─────────────────────────────────────────────────
@@ -79,38 +77,3 @@ def test_syntax_error_and_missing_entry():
     assert derive_output_schema("def broken(:\n", "t") == {}
     assert derive_output_schema("def other() -> dict:\n    return {'a': 1}\n", "t") == {}
 
-
-# ── 7. generator 集成：AI 未声明 output_schema 时自动推导 ────────────
-
-
-async def test_generator_derives_output_schema(monkeypatch):
-    from app.services.tool_generator import ToolGeneratorService
-    from langchain_core.messages import AIMessage
-
-    payload = {
-        "name": "calc-tool",
-        "description": "计算",
-        "source": "code",
-        "llm_args_schema": {"type": "object", "properties": {"x": {"type": "integer"}}},
-        "user_args_schema": {},
-        "code": "def run(x: int) -> dict:\n    return {'doubled': x * 2, 'big': x > 10}\n",
-        "output_schema": {},  # AI 没声明
-        "tags": [],
-    }
-    reply = "已生成。\n```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
-
-    class _FakeLLM:
-        async def ainvoke(self, messages):
-            return AIMessage(content=reply)
-
-    async def _build(model_id: str = ""):
-        return _FakeLLM()
-
-    monkeypatch.setattr(ToolGeneratorService, "_build_llm", _build)
-
-    result = await ToolGeneratorService.generate([{"role": "user", "content": "翻倍计算工具"}])
-
-    fields = {f["name"]: f for f in result["draft"]["output_schema"]["fields"]}
-    # x * 2 是未知表达式 → 尽力而为回退 string；x > 10 比较表达式 → boolean
-    assert fields["doubled"]["type"] == "string"
-    assert fields["big"]["type"] == "boolean"

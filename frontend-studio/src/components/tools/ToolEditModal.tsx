@@ -1,14 +1,15 @@
-/** 工具创建/编辑弹窗（四步表单）——从 ToolMarketPage 拆出，行为不变。
+/** 工具创建/编辑弹窗（四步表单）——从 ToolMarketPage 拆出。
  * 含表单子组件：CodeHelpPanel / ParamsTableEditor / OutputFieldsTree /
- * ParamListEditor / FormSection。AI 修改与保存后 AI 测试在此集成。 */
+ * ParamListEditor / FormSection。试跑（草稿定义直接测）与 AI 修改在此集成；
+ * 关闭即自动保存草稿（未开启前可随时改/删），无独立保存按钮。 */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { ChevronDown, Play, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { getErrorMessage } from '../../lib/api-client'
+import { useAuthStore } from '../../stores/auth-store'
 import { toast } from '../ui/toast'
-import { confirmDialog } from '../ui/confirm'
 import {
   userToolsApi,
-  type UserToolDetail, type GeneratedToolDraft, type ToolDefinitionPayload,
+  type UserToolDetail, type ToolDefinitionPayload,
 } from '../../services/user-tools-api'
 import {
   SOURCE_META, CODE_EXAMPLE, OPENAPI_EXAMPLE, OPENAPI_EXAMPLE_OUTPUT,
@@ -87,10 +88,11 @@ function ParamsTableEditor({ rows, onChange, inputCls, selectCls }: {
             <input type="checkbox" checked={r.credential} onChange={(e) => update(i, { credential: e.target.checked })}
               className="w-3.5 h-3.5 accent-amber-500 cursor-pointer" />
           </label>
-          <label className="flex items-center justify-center cursor-pointer" title={r.credential ? '凭证必须配置后才能开启工具' : '调用时该参数必须提供'}>
-            <input type="checkbox" checked={r.required} disabled={r.credential}
+          <label className="flex items-center justify-center cursor-pointer" title={r.credential ? '凭证参数强制必填（必须配置后才能开启工具）' : '调用时该参数必须提供'}>
+            {/* 凭证行必填被强制——禁用时如实显示为勾选，避免「没勾必填却必须填」的误导 */}
+            <input type="checkbox" checked={r.credential || r.required} disabled={r.credential}
               onChange={(e) => update(i, { required: e.target.checked })}
-              className="w-3.5 h-3.5 accent-blue-600 cursor-pointer disabled:opacity-30" />
+              className="w-3.5 h-3.5 accent-blue-600 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed" />
           </label>
           <button onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
             className="p-1 rounded text-red-400/70 hover:text-red-400 cursor-pointer justify-self-center" title="删除此参数">
@@ -236,15 +238,16 @@ function FormSection({ step, title, hint, dark, children }: {
   );
 }
 
-export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
+export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave }: {
   theme: 'dark' | 'light';
   initial?: UserToolDetail;
-  /** AI 生成草稿——挂载时一次性回填表单（用户检查/修改后正常保存） */
-  draft?: GeneratedToolDraft | null;
   onClose: () => void;
   onSaved: () => void;
+  /** AI 修改经工坊（save_tool=update）保存后回调——只刷新列表不关表单 */
+  onExternalSave?: () => void;
 }) {
   const isEdit = !!initial;
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'admin';
 
   // ── ① 基本信息 ──
   const [name, setName] = useState(initial?.name ?? '');
@@ -273,30 +276,9 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [testDef, setTestDef] = useState<ToolDefinitionPayload | null>(null);
-  /** 保存后询问进入的测试——测试对话框关闭时统一收尾关闭整个表单 */
-  const [postSaveTest, setPostSaveTest] = useState(false);
   const credFields = source === 'code'
     ? userFields.filter((f) => f.key.trim()).map((f) => ({ key: f.key, sensitive: f.sensitive }))
     : apiParams.filter((r) => r.credential && r.name.trim()).map((r) => ({ key: r.name, sensitive: true }));
-
-  // AI 修改的对话种子：以「已保存的工具定义」为首条 assistant 消息
-  const aiSeed = useMemo(() => {
-    if (!initial) return null;
-    return {
-      content: '已载入当前保存的工具定义（见下方草稿卡）。请直接告诉我想怎么修改。',
-      draft: {
-        name: initial.name,
-        description: initial.description,
-        source: initial.source,
-        llm_args_schema: initial.llm_args_schema,
-        user_args_schema: initial.user_args_schema,
-        endpoint: initial.endpoint,
-        code: initial.code,
-        output_schema: initial.output_schema,
-        tags: initial.tags,
-      } as GeneratedToolDraft,
-    };
-  }, [initial]);
 
   /** 一键填入「天气查询」完整示例（基本信息 + 调用方式 + 运行参数 + 凭证参数） */
   const applyExample = () => {
@@ -322,40 +304,6 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
     }
     toast.success('已填入示例，按需修改');
   };
-
-  /** AI 生成草稿回填四步表单——用户检查/修改后正常保存（治理链不变） */
-  const applyDraft = (d: GeneratedToolDraft) => {
-    setName(d.name ?? '');
-    setDescription(d.description ?? '');
-    // 编辑态 source 不可改（按钮 disabled），按当前 source 归一填法
-    const nextSource =
-      !isEdit && (d.source === 'code' || d.source === 'openapi') ? d.source : source;
-    if (nextSource !== source) setSource(nextSource);
-
-    const outSchema = (d.output_schema ?? {}) as { fields?: OutputField[] };
-    setOutputFields(Array.isArray(outSchema.fields) ? outSchema.fields : []);
-
-    if (nextSource === 'openapi') {
-      const dep = (d.endpoint ?? {}) as { method?: string; url?: string; params?: ApiParam[] };
-      setMethod((dep.method ?? 'GET').toUpperCase());
-      setUrl(dep.url ?? '');
-      setApiParams(Array.isArray(dep.params) ? dep.params : []);
-      setCode('');
-      setLlmFields([]);
-      setUserFields([]);
-    } else {
-      setCode(d.code ?? '');
-      setLlmFields(schemaToFields(d.llm_args_schema));
-      setUserFields(schemaToFields(d.user_args_schema));
-    }
-    toast.success('AI 已生成草稿——请检查参数与代码，按需修改后保存');
-  };
-
-  // AI 生成草稿：表单挂载时一次性回填（弹窗条件渲染，每次打开重新初始化）
-  useEffect(() => {
-    if (draft) applyDraft(draft);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const dark = theme === 'dark';
   // 控件基础样式（无 w-full——flex 行内按 w-full 抢占空间会把兄弟元素挤成 0 宽）
@@ -408,43 +356,60 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
     };
   };
 
-  const handleSave = async () => {
-    if (!name.trim()) { toast.error('请先给工具起个名字'); return; }
-    if (source === 'openapi' && !url.trim()) { toast.error('请填写要调用的接口地址（URL）'); return; }
-    if (source === 'code' && !code.trim()) { toast.error('请填写工具的 Python 代码'); return; }
+  /** 首次渲染（= 已保存状态或空表单）的定义快照——关闭时比对，
+   * 未变化跳过 API（避免打开看看就关空增 version/updated_at）。
+   * AI 草稿回填/AI 修改在此之后发生，不会被误判为「未变化」。 */
+  const baseline = useMemo(() => JSON.stringify(buildDefinition()), []);
+
+  /** 保存/试跑共用的前端校验——返回错误文案（null = 通过） */
+  const validateForm = (): string | null => {
+    if (!name.trim()) return '请先给工具起个名字';
+    if (source === 'openapi' && !url.trim()) return '请填写要调用的接口地址（URL）';
+    if (source === 'code' && !code.trim()) return '请填写工具的 Python 代码';
     // 参数名校验（openapi 参数表 / code 的③④参数表共用规则）
     const fieldGroups: ReadonlyArray<readonly [string, Array<{ key?: string; name?: string }>]> = source === 'code'
       ? [['运行参数', llmFields], ['凭证参数', userFields]]
       : [['参数表', apiParams.map((r) => ({ key: r.name }))]];
     for (const [label, fields] of fieldGroups) {
       for (const f of fields) {
-        if (!String(f.key ?? '').trim()) { toast.error(`${label}里有未命名的参数，请填写参数名或删除该行`); return; }
+        if (!String(f.key ?? '').trim()) return `${label}里有未命名的参数，请填写参数名或删除该行`;
         if (!PARAM_KEY_RE.test(String(f.key).trim())) {
-          toast.error(`${label}「${f.key}」的参数名只能用字母、数字、下划线，且不能以数字开头`);
-          return;
+          return `${label}「${f.key}」的参数名只能用字母、数字、下划线，且不能以数字开头`;
         }
       }
     }
+    return null;
+  };
 
+  /** 试跑：以当前表单定义为快照直接测（不落库、不要求发布），关闭测试
+   * 对话框后表单原样保留——改问题 → 再试跑 → 满意后关闭自动保存 */
+  const handleTest = () => {
+    const err = validateForm();
+    if (err) { toast.error(err); return; }
+    setTestDef(buildDefinition());
+  };
+
+  /** 关闭即保存：
+   * - 编辑 + 定义未变化 → 跳过 API 直接关闭
+   * - 表单无效 → 新建空表单静默放弃；有内容的创建/编辑提示后放弃（不落库）
+   * - 有效 → create/update 后收尾（失败留在表单里修） */
+  const handleDone = async () => {
+    if (busy) return;
+    const def = buildDefinition();
+    if (isEdit && JSON.stringify(def) === baseline) { onClose(); return; }
+    const err = validateForm();
+    const emptyCreate = !isEdit && !name.trim() && !url.trim() && !code.trim() && !description.trim();
+    if (err) {
+      if (!emptyCreate) toast.error(`未保存——${err}`);
+      onClose();
+      return;
+    }
     setBusy(true);
     try {
-      const body = buildDefinition();
-      if (isEdit) await userToolsApi.update(initial!.id, body);
-      else await userToolsApi.create(body);
-      // 保存成功 → 询问是否立即 AI 测试（方案 A：轻量二元确认，
-      // 跳过即按原路收尾；测试对话框关闭时统一 onSaved）
-      const wantTest = await confirmDialog({
-        title: '保存成功',
-        description: '是否立即进行 AI 测试？生成用例并试跑验证后，再提交发布更有把握。',
-        okText: '开始测试',
-        cancelText: '跳过',
-      });
-      if (wantTest) {
-        setPostSaveTest(true);
-        setTestDef(buildDefinition());
-      } else {
-        onSaved();
-      }
+      if (isEdit) await userToolsApi.update(initial!.id, def);
+      else await userToolsApi.create(def);
+      toast.success('已保存');
+      onSaved();
     } catch (e) {
       toast.error(getErrorMessage(e, isEdit ? '保存失败' : '创建失败'));
     } finally {
@@ -453,7 +418,8 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={busy ? undefined : onClose}>
+    /* 点遮罩不关闭（防误触丢表单，与其余 ui Modal 行为一致）：只能经 头部✕/底部取消/保存 关闭 */
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className={`w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden ${
           dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
         }`}
@@ -478,10 +444,12 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
               )}
             </h3>
             <p className={`text-[11px] mt-0.5 ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>
-              创建后提交发布，经管理员审查、开启后才能被 Agent 与工作流使用。
+              {isAdmin && !isEdit
+                ? '管理员创建即发布（免审）；配置凭证并开启后即可被 Agent 与工作流使用。'
+                : '创建后提交发布，经管理员审查、开启后才能被 Agent 与工作流使用。'}
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
+          <button onClick={busy ? undefined : handleDone} className={`cursor-pointer hover:opacity-70 ${busy ? 'opacity-50' : ''} ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
         </div>
 
         {/* 内容区滚动 */}
@@ -591,43 +559,51 @@ export function ToolEditModal({ theme, initial, draft, onClose, onSaved }: {
         )}
         </div>
 
-        {/* 底部按钮固定 */}
-        <div className={`flex justify-end gap-2 shrink-0 px-6 py-4 border-t ${
+        {/* 底部按钮固定——关闭即保存草稿，试跑随时可用 */}
+        <div className={`flex items-center justify-between shrink-0 px-6 py-4 border-t ${
           dark ? 'border-[#27272a]' : 'border-slate-200'
         }`}>
-          <button onClick={onClose} disabled={busy}
-            className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${dark ? 'text-[#a1a1aa] hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>取消</button>
-          <button onClick={handleSave} disabled={busy}
-            className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50">
-            {busy ? '保存中…' : isEdit ? '保存' : '创建'}
-          </button>
+          <span className={`text-[11px] ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>
+            关闭时自动保存草稿，可随时回来修改
+          </span>
+          <div className="flex gap-2">
+            <button onClick={handleTest} disabled={busy}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border cursor-pointer disabled:opacity-50 ${
+                dark
+                  ? 'border-[#3f3f46] text-[#d4d4d8] hover:border-blue-500/60 hover:text-blue-400'
+                  : 'border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600'
+              }`}>
+              <Play size={13} />试跑
+            </button>
+            <button onClick={handleDone} disabled={busy}
+              className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50">
+              {busy ? '保存中…' : '完成'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* AI 修改：以已保存定义为起点的对话式修订，应用后回填本表单 */}
+      {/* AI 修改：工坊 agent（后端注入已保存定义），测试/保存全自动；
+          「应用到表单」回填本表单手动精修 */}
       {aiOpen && (
         <AiGenerateDialog
           dark={dark}
-          seed={aiSeed}
-          applyLabel="应用修改"
+          mode="edit"
+          toolId={initial!.id}
+          toolInfo={{ name: initial!.name, source: initial!.source, description: initial!.description }}
+          onSavedTool={onExternalSave}
           onClose={() => setAiOpen(false)}
-          onApply={(d) => { applyDraft(d); setAiOpen(false); }}
         />
       )}
 
-      {/* AI 测试：保存后询问进入（或后续入口）；关闭时若为保存后测试则统一收尾 */}
+      {/* 试跑：以打开时的表单定义为快照运行（不落库）；关闭后回到表单
+          继续修改/再测，最终由「完成」统一保存 */}
       {testDef && (
         <TestToolDialog
           dark={dark}
           definition={testDef}
           credFields={credFields}
-          onClose={() => {
-            setTestDef(null);
-            if (postSaveTest) {
-              setPostSaveTest(false);
-              onSaved();
-            }
-          }}
+          onClose={() => setTestDef(null)}
         />
       )}
     </div>

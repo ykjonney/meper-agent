@@ -1,5 +1,6 @@
 import {
   DeleteOutlined,
+  DisconnectOutlined,
   LogoutOutlined,
   MessageOutlined,
   MoonOutlined,
@@ -24,7 +25,11 @@ interface ConversationSidebarProps {
   onDeleteSession: (session: ChatSession) => void
   creating: boolean
   loading: boolean
-  onLogout: () => void
+  /** 退出登录（jwt 模式：清 token 回登录页）。不传则不渲染。 */
+  onLogout?: () => void
+  /** 撤销授权（apikey 模式：解绑当前应用，回首绑门页可绑定其他账户）。
+   * 不传则不渲染。 */
+  onRevokeAuth?: () => void
 }
 
 function sessionLabel(session: ChatSession): string {
@@ -153,12 +158,23 @@ export function ConversationSidebar(props: ConversationSidebarProps) {
           onClick={toggleTheme}
           aria-label="切换主题"
         />
-        <Button
-          type="text"
-          icon={<LogoutOutlined />}
-          onClick={props.onLogout}
-          aria-label="退出登录"
-        />
+        {props.onLogout ? (
+          <Button
+            type="text"
+            icon={<LogoutOutlined />}
+            onClick={props.onLogout}
+            aria-label="退出登录"
+          />
+        ) : null}
+        {props.onRevokeAuth ? (
+          <Button
+            type="text"
+            icon={<DisconnectOutlined />}
+            onClick={props.onRevokeAuth}
+            aria-label="撤销授权"
+            title="撤销当前应用授权，可重新绑定其他账户"
+          />
+        ) : null}
       </div>
     </aside>
   )

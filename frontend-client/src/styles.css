@@ -1197,10 +1197,11 @@ textarea {
   padding: 0 2px;
 }
 
-/* 折叠态：单行展示，放不下的按钮收纳进行尾「⋯」（点击在容器内展开） */
+/* 折叠态：单行展示，放不下的按钮收纳进行尾「⋯」（点击在容器内展开）。
+   横向 clip（单行兜底裁剪）、纵向 visible——分组云团气泡要悬浮到容器上方 */
 .composer-quick-actions[data-collapsed] {
   flex-wrap: nowrap;
-  overflow: hidden;
+  overflow: clip visible;
 }
 
 /* 隐藏量尺行：按真实按钮宽度测量单行可容纳数量 */
@@ -1249,6 +1250,89 @@ textarea {
 .composer-quick-actions .quick-action:hover:not(:disabled) {
   border-color: var(--client-accent);
   background: var(--client-accent-soft);
+}
+
+/* 分组按钮：组名 + 小箭头，展开态高亮 */
+.composer-quick-actions .quick-action-group > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-quick-actions .quick-action-group .quick-action-group-caret {
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.composer-quick-actions .quick-action-group.active {
+  border-color: var(--client-accent);
+  background: var(--client-accent-soft);
+}
+
+.composer-quick-actions .quick-action-group.active .quick-action-group-caret {
+  transform: rotate(180deg);
+}
+
+/* 分组云团气泡：大圆角卡片悬浮在操作条上方（绝对定位不挤压布局），
+   内容只有组内问题条目——分组名无需重复（就是从该分组打开的）。
+   宽度固定（不随内容浮动）：所有分组同宽、每行容纳数一致，wrap 排列统一。
+   条目过多时限高纵向滚动（不越过视口，操作条与上下文始终可见）。 */
+.composer-quick-actions .quick-action-group-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: min(380px, calc(100vw - 48px));
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--client-accent) 32%, transparent) transparent;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--client-accent) 24%, var(--client-border));
+  border-radius: 18px;
+  background: var(--client-surface);
+  box-shadow:
+    0 18px 40px rgb(20 35 50 / 14%),
+    0 4px 12px rgb(20 35 50 / 8%);
+  animation: quick-action-cloud-in 0.18s ease;
+}
+
+/* Chromium 细滚动条（Firefox 走上面的 scrollbar-width/color） */
+.composer-quick-actions .quick-action-group-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.composer-quick-actions .quick-action-group-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.composer-quick-actions .quick-action-group-panel::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--client-accent) 30%, var(--client-border));
+}
+
+@keyframes quick-action-cloud-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 云团内条目：胶囊 wrap 平铺（与主行快捷按钮同形态）。
+   气泡宽度固定，每行容纳数一致——排列统一不再随内容浮动。 */
+.composer-quick-actions .quick-action-group-panel-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-quick-actions .quick-action-group-panel-empty {
+  font-size: 12px;
+  color: var(--client-text-muted);
+  padding: 2px 0;
 }
 
 .hidden-file-input {
@@ -1607,6 +1691,13 @@ textarea {
 
   .composer-quick-actions .quick-action {
     height: 30px;
+  }
+
+  /* 窄屏：云团气泡拉满操作条宽度（覆盖内联 left 定位），尾巴居左即可 */
+  .composer-quick-actions .quick-action-group-panel {
+    left: 0 !important;
+    right: 0;
+    max-width: none;
   }
 
   .composer-note {

@@ -214,8 +214,8 @@ async def test_openapi_email_tool_renders_request(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
-        async def post(self, url, headers=None, params=None, json=None):
-            captured.update({"url": url, "headers": headers, "json": json})
+        async def request(self, method, url, headers=None, params=None, json=None):
+            captured.update({"method": method, "url": url, "headers": headers, "json": json})
             return _FakeResp({"id": "evt-123", "message": "queued"})
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=30.0: FakeClient())
@@ -275,7 +275,7 @@ async def test_openapi_response_path_array_index(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
-        async def get(self, url, headers=None, params=None):
+        async def request(self, method, url, headers=None, params=None, json=None):
             return _FakeResp({"data": {"items": [{"name": "first"}, {"name": "second"}]}})
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=30.0: FakeClient())
@@ -341,8 +341,11 @@ async def test_openapi_params_table_assembles_request(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
-        async def post(self, url, headers=None, params=None, json=None):
-            captured.update({"url": url, "headers": headers, "params": params, "json": json})
+        async def request(self, method, url, headers=None, params=None, json=None):
+            captured.update({
+                "method": method, "url": url, "headers": headers,
+                "params": params, "json": json,
+            })
             return _FakeResp({"ok": True})
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=30.0: FakeClient())
@@ -482,3 +485,101 @@ async def test_seed_email_missing_attachment_friendly_error():
     assert result.startswith("Error:")
     assert "附件不存在" in result
     assert "file_id" in result  # 错误提示包含正确的传参引导
+
+
+async def test_openapi_get_with_body_params_sent(monkeypatch):
+    """回归：GET + body 位置参数必须随请求发送——原 if/elif 分派中
+    GET/DELETE 分支丢弃 body（参数表允许任意 method 配 body）。"""
+    captured: dict = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def request(self, method, url, headers=None, params=None, json=None):
+            captured.update({"method": method, "url": url, "params": params, "json": json})
+            return _FakeResp({"hits": {"total": 1}})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=30.0: FakeClient())
+
+    tool = await build_tool(
+        {
+            "name": "es-search",
+            "description": "ES 搜索（GET + body 形态）",
+            "source": "openapi",
+            "endpoint": {
+                "method": "GET",
+                "url": "https://es.example.com/_search",
+                "params": [
+                    {"name": "index", "in": "query", "required": True, "credential": False},
+                    {"name": "query", "in": "body", "required": True, "credential": False},
+                ],
+            },
+            "llm_args_schema": {
+                "type": "object",
+                "properties": {"index": {"type": "string"}, "query": {"type": "string"}},
+                "required": ["index", "query"],
+            },
+        },
+        user_args={},
+    )
+    assert tool is not None
+    result = await tool.ainvoke({"index": "logs", "query": "error"})
+
+    assert captured["method"] == "GET"
+    assert captured["params"] == {"index": "logs"}
+    assert captured["json"] == {"query": "error"}  # body 不再被丢弃
+    assert result  # 有响应
+
+
+async def test_openapi_optional_header_param_omittable(monkeypatch):
+    """非必填（未勾 required）的参数运行时真可选：不传 → 请求正常发出、
+    该项不出现在 header；传了才带上（llm_args_schema.required 不含它，
+    pydantic 层 Optional）。"""
+    captured: dict = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def request(self, method, url, headers=None, params=None, json=None):
+            captured.update({"headers": headers, "params": params})
+            return _FakeResp({"ok": True})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=30.0: FakeClient())
+
+    tool = await build_tool(
+        {
+            "name": "opt-header",
+            "description": "",
+            "source": "openapi",
+            "endpoint": {
+                "method": "GET",
+                "url": "https://api.example.com/v1/x",
+                "params": [
+                    {"name": "city", "in": "query", "required": True, "credential": False},
+                    {"name": "X-Trace-Id", "in": "header", "required": False, "credential": False},
+                ],
+            },
+            "llm_args_schema": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}, "X-Trace-Id": {"type": "string"}},
+                "required": ["city"],  # 仅 city 必填
+            },
+        },
+        user_args={},
+    )
+    assert tool is not None
+    # 不传可选 header —— 不报错、header 不出现
+    await tool.ainvoke({"city": "Beijing"})
+    assert "X-Trace-Id" not in (captured["headers"] or {})
+    assert captured["params"] == {"city": "Beijing"}
+    # 传了才带上
+    await tool.ainvoke({"city": "Beijing", "X-Trace-Id": "t-1"})
+    assert captured["headers"]["X-Trace-Id"] == "t-1"

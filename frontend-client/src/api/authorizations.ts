@@ -53,6 +53,15 @@ export function authorizeApp(
   })
 }
 
+/** 撤销某应用的授权（解绑凭证 + 删身份映射）。撤销后下次请求回到
+ * 首绑门页，可重新授权或绑定其他账户。 */
+export function revokeAppAuthorization(appId: string): Promise<MyAuthorizations> {
+  const path = AUTH_MODE === 'apikey'
+    ? `/v1/ext/my-app-authorizations/${encodeURIComponent(appId)}`
+    : `/v1/my-app-authorizations/${encodeURIComponent(appId)}`
+  return apiRequest<MyAuthorizations>(path, { method: 'DELETE' })
+}
+
 /** MCP 工具错误标记：UNBOUND=未授权；INVALID=已授权但凭证失效（密码/用户名被修改）。 */
 export type McpCredentialErrorKind = 'UNBOUND' | 'INVALID'
 

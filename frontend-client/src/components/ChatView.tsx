@@ -846,9 +846,10 @@ export function ChatView({
                 }}
               />
             ) : null}
-            {agent.recommendedItems && agent.recommendedItems.length > 0 ? (
+            {(agent.recommendedItems?.length ?? 0) > 0 || (agent.recommendedGroups?.length ?? 0) > 0 ? (
               <QuickActionsBar
-                items={agent.recommendedItems}
+                items={agent.recommendedItems ?? []}
+                groups={agent.recommendedGroups}
                 disabled={running || Boolean(hitl)}
                 onSelect={(item) =>
                   submit(

@@ -18,6 +18,11 @@ export interface RecommendedItem {
   prompt?: string | null
 }
 
+export interface RecommendedGroup {
+  title: string
+  items: RecommendedItem[]
+}
+
 export interface AgentSummary {
   id: string
   name: string
@@ -29,6 +34,8 @@ export interface AgentSummary {
   welcomeMessage?: string
   /** 终端用户首屏推荐问题/操作快捷项 */
   recommendedItems?: RecommendedItem[]
+  /** 终端用户首屏推荐项分类分组（与独立项共存） */
+  recommendedGroups?: RecommendedGroup[]
   /** 该 Agent 是否开启实时语音对话（仅 apikey/ext 列表返回） */
   voiceEnabled?: boolean
 }
@@ -50,6 +57,7 @@ export interface AgentRecord {
   status: string
   welcome_message?: string | null
   recommended_items?: RecommendedItem[]
+  recommended_groups?: RecommendedGroup[]
   voice_enabled?: boolean
 }
 

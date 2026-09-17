@@ -643,6 +643,7 @@ async def _phase_agents(entries: list[dict], extract_dir: Path, ctx: _Ctx) -> No
                 max_tokens=payload.get("max_tokens", 0),
                 welcome_message=payload.get("welcome_message", ""),
                 recommended_items=payload.get("recommended_items") or [],
+                recommended_groups=payload.get("recommended_groups") or [],
                 avatar="",
                 user_skills_enabled=bool(payload.get("user_skills_enabled", True)),
             )

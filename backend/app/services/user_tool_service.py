@@ -231,8 +231,13 @@ class UserToolService:
         code: str = "",
         output_schema: dict | None = None,
         tags: list[str] | None = None,
+        is_admin: bool = False,
     ) -> dict:
-        """创建工具（private）。组织内名称唯一——Agent 绑定/节点选择无歧义。"""
+        """创建工具。组织内名称唯一——Agent 绑定/节点选择无歧义。
+
+        admin 创建即 published（自己审自己没有意义）；其余 private 走
+        submit → review 治理链。开启（enabled）仍需显式操作（三重校验）。
+        """
         name = UserToolService._validate_name(name)
         UserToolService._validate_source(source)
         if source == "code" and (code or "").strip():
@@ -261,7 +266,8 @@ class UserToolService:
             "endpoint": endpoint or {},
             "code": code or "",
             "output_schema": output_schema or {},
-            "status": "private",
+            # admin 免审自审：published_at/approved_by 按自审记录
+            "status": "published" if is_admin else "private",
             "enabled": False,
             "org_user_args": {},
             "derived_from": None,
@@ -270,8 +276,8 @@ class UserToolService:
             "tags": tags or [],
             "created_at": now,
             "updated_at": now,
-            "published_at": None,
-            "approved_by": None,
+            "published_at": now if is_admin else None,
+            "approved_by": user_id if is_admin else None,
         }
         await UserToolService._col().insert_one(doc)
         logger.info("user_tool_created", user_id=user_id, name=name, tool_id=tool_id, source=source)
@@ -392,6 +398,28 @@ class UserToolService:
         doc = await UserToolService.get_tool(tool_id)
         if doc is None or (doc.get("owner_user_id") != user_id and not is_admin):
             raise UserToolError(f"Tool '{tool_id}' not found or not yours.")
+        # 引用检查：已发布工作流的工具节点引用了此工具时禁止删除——与
+        # Agent 删除同口径（AGENT_IN_USE）；草稿工作流不拦截（先删后改草稿）
+        from app.core.errors import ConflictError
+
+        referencing_wfs = await get_database()["workflows"].find(
+            {
+                "status": "published",
+                "nodes": {"$elemMatch": {"type": "tool", "config.tool_id": tool_id}},
+            },
+            {"name": 1},
+        ).to_list(length=100)
+        if referencing_wfs:
+            wf_names = [w.get("name", w.get("_id", "")) for w in referencing_wfs]
+            raise ConflictError(
+                code="USER_TOOL_IN_USE",
+                message=(
+                    f"工具「{doc.get('name')}」正在被以下已发布工作流引用，"
+                    f"无法删除：{', '.join(wf_names)}。请先在工作流中移除该工具节点"
+                    "或将工作流下架。"
+                ),
+                details={"workflow_names": wf_names},
+            )
         await UserToolService._col().delete_one({"_id": tool_id})
         await UserToolService._vote_col().delete_many({"tool_id": tool_id})
         # 级联清理所有 Agent 的 custom_tools 绑定——避免悬空绑定在聊天时
@@ -421,10 +449,11 @@ class UserToolService:
         )
 
     @staticmethod
-    async def can_view(user_id: str, doc: dict) -> bool:
+    async def can_view(user_id: str, doc: dict, *, is_admin: bool = False) -> bool:
         """可见性：owner/admin 看全部；published 任何人可预览（目录）。"""
         return (
-            doc.get("owner_user_id") == user_id
+            is_admin
+            or doc.get("owner_user_id") == user_id
             or doc.get("status") == "published"
         )
 
@@ -504,8 +533,10 @@ class UserToolService:
         return missing
 
     @staticmethod
-    async def save_org_args(admin_id: str, tool_id: str, user_args: dict) -> None:
-        """admin 配置工具级统一凭证（sensitive 加密；全使用点共用）。
+    async def save_org_args(
+        user_id: str, tool_id: str, user_args: dict, *, is_admin: bool = False
+    ) -> None:
+        """配置工具级统一凭证（owner 或 admin；sensitive 加密；全使用点共用）。
 
         合并语义：提交中缺失的字段保留旧值——前端不回显 sensitive 明文，
         未改动的敏感字段不会出现在提交体里，旧密文必须原样保留。
@@ -513,13 +544,15 @@ class UserToolService:
         doc = await UserToolService.get_tool(tool_id)
         if doc is None:
             raise UserToolError(f"Tool '{tool_id}' not found.")
+        if doc.get("owner_user_id") != user_id and not is_admin:
+            raise UserToolError(f"Tool '{tool_id}' not found or not yours.")
         merged = {**(doc.get("org_user_args") or {}), **(user_args or {})}
         encrypted = await UserToolService.encrypt_user_args(tool_id, merged)
         await UserToolService._col().update_one(
             {"_id": tool_id},
             {"$set": {"org_user_args": encrypted, "updated_at": utc_now().isoformat()}},
         )
-        logger.info("user_tool_org_args_saved", by=admin_id, tool_id=tool_id)
+        logger.info("user_tool_org_args_saved", by=user_id, tool_id=tool_id)
 
     @staticmethod
     async def enable_tool(admin_id: str, tool_id: str, enabled: bool) -> dict:
@@ -750,49 +783,8 @@ class UserToolService:
         return officials + users_list
 
     # ------------------------------------------------------------------
-    # fork / 收录 / 投票
+    # 投票
     # ------------------------------------------------------------------
-
-    @staticmethod
-    async def fork(user_id: str, tool_id: str) -> dict:
-        """复制已发布工具为自己的草稿（derived_from 溯源，可改后再走治理流程）。"""
-        doc = await UserToolService.get_tool(tool_id)
-        if doc is None:
-            raise UserToolError(f"Tool '{tool_id}' not found.")
-        if doc.get("owner_user_id") == user_id:
-            raise UserToolError("This is already your own tool.")
-        if doc.get("status") != "published":
-            raise UserToolError(f"Tool '{tool_id}' is not published.")
-
-        base_name = doc["name"]
-        candidates = [base_name] + [f"{base_name}-fork{i}" for i in range(1, 50)]
-        name: str | None = None
-        for candidate in candidates:
-            if not await UserToolService.find_by_name(candidate):
-                name = candidate
-                break
-        if name is None:
-            raise UserToolError("Could not derive a free name; please rename after forking.")
-
-        created = await UserToolService.create_tool(
-            user_id,
-            name=name,
-            description=doc.get("description", ""),
-            source=doc.get("source", "openapi"),
-            user_args_schema=doc.get("user_args_schema") or {},
-            llm_args_schema=doc.get("llm_args_schema") or {},
-            endpoint=doc.get("endpoint") or {},
-            code=doc.get("code", ""),
-            tags=list(doc.get("tags") or []),
-        )
-        await UserToolService._col().update_one(
-            {"_id": created["_id"]},
-            {"$set": {"derived_from": tool_id, "derived_from_name": base_name}},
-        )
-        created["derived_from"] = tool_id
-        created["derived_from_name"] = base_name
-        created["forked_as"] = name
-        return created
 
     @staticmethod
     async def vote(user_id: str, tool_id: str, value: int) -> dict:

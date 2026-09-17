@@ -85,7 +85,7 @@ async def test_run_once_openapi(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
-        async def get(self, url, headers=None, params=None):
+        async def request(self, method, url, headers=None, params=None, json=None):
             return _FakeResp()
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=None: _FakeClient())

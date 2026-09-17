@@ -278,6 +278,57 @@ async def test_full_conversation_sequence():
 
 
 # ---------------------------------------------------------------------------
+# Suppressed tags (后台摘要 / 子代理嵌套事件不进 SSE)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_suppressed_tag_llm_summary_drops_text_event():
+    """带 llm_summary tag 的 on_chat_model_end（后台压缩摘要 LLM）不外发。
+
+    回归：摘要任务经 create_task 拷贝 contextvar 冒泡进 astream_events，
+    游离 text 事件会干扰前端轮内定位（最终回答错位到对话中间）。
+    """
+    events = [{
+        "event": "on_chat_model_end",
+        "tags": ["llm_summary"],
+        "data": {"output": _AIMessage(content="1. 用户的核心意图与需求：……")},
+    }]
+    emitted = await _run(events)
+    assert emitted == []
+
+
+@pytest.mark.asyncio
+async def test_suppressed_tag_subagent_drops_nested_llm_and_tool_events():
+    """带 subagent tag 的 delegate 嵌套子图事件（LLM 文本/思考/工具）不外发。"""
+    output = _AIMessage(
+        content="子代理回答",
+        additional_kwargs={"reasoning_content": "子代理思考"},
+    )
+    events = [
+        {"event": "on_chat_model_end", "tags": ["subagent"], "data": {"output": output}},
+        {"event": "on_chat_model_stream", "tags": ["subagent"],
+         "data": {"chunk": _Chunk(content="子代理增量")}},
+        {"event": "on_tool_end", "tags": ["subagent"], "name": "kb_search",
+         "data": {"output": _ToolMessage(content="子代理工具结果")}},
+    ]
+    emitted = await _run(events, enable_thinking=True)
+    assert emitted == []
+
+
+@pytest.mark.asyncio
+async def test_unrelated_tags_still_emitted():
+    """非抑制 tag（或无 tag）的主链事件不受过滤影响。"""
+    events = [
+        {"event": "on_chat_model_end", "tags": ["main"], "data": {"output": _AIMessage(content="主链回答")}},
+        {"event": "on_chat_model_end", "data": {"output": _AIMessage(content="无tag回答")}},
+    ]
+    emitted = await _run(events)
+    texts = [e for e in emitted if e["type"] == "text"]
+    assert {e["content"] for e in texts} == {"主链回答", "无tag回答"}
+
+
+# ---------------------------------------------------------------------------
 # Interrupt detection (ask_clarification)
 # ---------------------------------------------------------------------------
 

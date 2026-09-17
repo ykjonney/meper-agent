@@ -728,7 +728,31 @@ class UserService:
             except Exception as exc:
                 logger.warning("user_credentials_cleanup_partial", user_id=user_id, error=str(exc))
 
-            # 9. Workspace 物理目录（最后删，确保前面的文件操作已完成）
+            # 9. 外部身份映射 + MCP 凭证绑定 + session 缓存
+            # 不清理会留孤儿映射：ext 鉴权按 external_identities 反查
+            # platform_user_id，用户已删仍放行（client 端继续可用）。
+            try:
+                from app.services.user_mcp_credential_service import (
+                    clear_user_session_cache,
+                )
+
+                ext_id_count = await db["external_identities"].delete_many(
+                    {"platform_user_id": user_id}
+                )
+                await db["user_mcp_credentials"].delete_many(
+                    {"platform_user_id": user_id}
+                )
+                await clear_user_session_cache(user_id)
+                if ext_id_count:
+                    logger.info(
+                        "user_external_identities_deleted",
+                        user_id=user_id,
+                        count=ext_id_count,
+                    )
+            except Exception as exc:
+                logger.warning("user_external_identity_cleanup_partial", user_id=user_id, error=str(exc))
+
+            # 10. Workspace 物理目录（最后删，确保前面的文件操作已完成）
             try:
                 from app.engine.tool.workspace import WorkspaceManager
 

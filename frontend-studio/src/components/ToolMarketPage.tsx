@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-query';
 import {
   Wrench, ThumbsUp, ThumbsDown, Trash2, Plus,
-  Send, Pencil, Eye, Crown, Copy, KeyRound, Sparkles,
+  Send, Pencil, Eye, Crown, KeyRound, Sparkles,
 } from 'lucide-react';
 import { getErrorMessage } from '../lib/api-client';
 import { usePermission } from '../hooks/use-permission';
@@ -20,7 +20,7 @@ import { confirmDialog } from './ui/confirm';
 import { toolsApi, toolKeys } from '../services/tools-api';
 import {
   userToolsApi, userToolKeys,
-  type ToolMarketItem, type UserToolDetail, type GeneratedToolDraft,
+  type ToolMarketItem, type UserToolDetail,
 } from '../services/user-tools-api';
 import { ToolEditModal } from './tools/ToolEditModal';
 import { AiGenerateDialog } from './tools/AiGenerateDialog';
@@ -59,7 +59,6 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
   const [editing, setEditing] = useState<UserToolDetail | null>(null);
   const [creating, setCreating] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
-  const [genDraft, setGenDraft] = useState<GeneratedToolDraft | null>(null);
   const role = useAuthStore((s) => s.user?.role);
   const isAdmin = role === 'admin';
   const canCreate = usePermission('tool:write');
@@ -113,11 +112,6 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
       toast.success(v.status === 'active' ? '已启用——Agent 绑定与工作流可用' : '已停用');
     },
     onError: (e) => toast.error(getErrorMessage(e, '操作失败')),
-  });
-  const forkM = useMutation({
-    mutationFn: (id: string) => userToolsApi.fork(id),
-    onSuccess: () => { invalidate(); toast.success('已复制为草稿'); },
-    onError: (e) => toast.error(getErrorMessage(e, '复制失败')),
   });
   const voteM = useMutation({
     mutationFn: (v: { id: string; value: 1 | -1 }) => userToolsApi.vote(v.id, v.value),
@@ -204,7 +198,6 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
               ? officialStatusM.mutate({ id: it.id, status: v ? 'active' : 'disabled' })
               : enableM.mutate({ id: it.id, name: it.name, enabled: v }))}
             onConfigArgs={() => setArgsTool({ id: it.id, name: it.name })}
-            onFork={() => forkM.mutate(it.id)}
             onVote={(v) => voteM.mutate({ id: it.id, value: v })}
             onEdit={() => handleEdit(it)}
             onSubmit={() => submitM.mutate(it.id)}
@@ -233,28 +226,27 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
       {genOpen && (
         <AiGenerateDialog
           dark={theme === 'dark'}
+          mode="create"
+          // save_tool 落库后刷新列表（agent 迭代可多次触发）
+          onSavedTool={() => invalidate()}
           onClose={() => setGenOpen(false)}
-          onApply={(d) => {
-            setGenOpen(false);
-            setGenDraft(d);
-            setCreating(true); // 打开创建表单，草稿挂载时自动回填
-          }}
         />
       )}
       {(creating || editing) && (
         <ToolEditModal
           theme={theme}
           initial={editing ?? undefined}
-          draft={genDraft}
-          onClose={() => { setCreating(false); setEditing(null); setGenDraft(null); }}
-          onSaved={() => { invalidate(); setCreating(false); setEditing(null); setGenDraft(null); }}
+          // AI 修改经工坊保存（save_tool=update）后刷新列表，不关表单
+          onExternalSave={() => invalidate()}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { invalidate(); setCreating(false); setEditing(null); }}
         />
       )}
     </div>
   );
 }
 
-function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onConfigArgs, onFork, onVote, onEdit, onSubmit, onDelete }: {
+function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onConfigArgs, onVote, onEdit, onSubmit, onDelete }: {
   item: ToolMarketItem;
   theme: 'dark' | 'light';
   isAdmin: boolean;
@@ -262,7 +254,6 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
   onPreview: () => void;
   onEnable: (v: boolean) => void;
   onConfigArgs: () => void;
-  onFork: () => void;
   onVote: (v: 1 | -1) => void;
   onEdit: () => void;
   onSubmit: () => void;
@@ -339,8 +330,12 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
       {isPending ? (
         <div className="space-y-2 pt-1 border-t border-current/10">
           <div className="text-[11px] text-amber-500">待审核{isAdmin ? '' : '（等待管理员处理）'}</div>
-          {isOwn && (
+          {(isOwn || isAdmin) && (
             <div className="flex items-center gap-1 text-xs">
+              <button onClick={onPreview}
+                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
+                <Eye size={12} />详情
+              </button>
               <button onClick={onEdit}
                 className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
                 <Pencil size={12} />编辑
@@ -379,17 +374,28 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
           )}
         </div>
       ) : isDraft ? (
-        /* 草稿：owner 就地管理（提交发布 / 编辑 / 删除） */
+        /* 草稿：owner 就地管理（提交发布 / 编辑 / 删除）；admin 可编辑/删除（帮忙治理） */
         <div className="flex items-center gap-1 pt-1 border-t border-current/10 text-xs">
-          {isOwn && (
+          {(isOwn || isAdmin) && (
             <>
-              <button onClick={onSubmit}
-                className="flex items-center gap-1 px-2 py-1 rounded text-blue-400 hover:text-blue-300 cursor-pointer">
-                <Send size={12} />提交发布
+              <button onClick={onPreview}
+                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
+                <Eye size={12} />详情
               </button>
+              {isOwn && (
+                <button onClick={onSubmit}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-blue-400 hover:text-blue-300 cursor-pointer">
+                  <Send size={12} />提交发布
+                </button>
+              )}
               <button onClick={onEdit}
                 className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
                 <Pencil size={12} />编辑
+              </button>
+              <button onClick={onConfigArgs}
+                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}
+                title="配置工具级统一凭证（所有使用点共用）——提交前配好，过审后管理员可直接开启">
+                <KeyRound size={12} />凭证
               </button>
               <div className="flex-1" />
               <button onClick={onDelete}
@@ -405,17 +411,15 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}>
             <Eye size={13} />详情
           </button>
-          {isAdmin && (
-            <>
-              <ToolToggle enabled={item.enabled} onChange={onEnable} />
-              <button onClick={onConfigArgs}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}
-                title="配置工具级统一凭证（所有使用点共用）">
-                <KeyRound size={13} />凭证
-              </button>
-            </>
+          {isAdmin && <ToolToggle enabled={item.enabled} onChange={onEnable} />}
+          {(isOfficial ? isAdmin : isOwn || isAdmin) && (
+            <button onClick={onConfigArgs}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}
+              title="配置工具级统一凭证（所有使用点共用）">
+              <KeyRound size={13} />凭证
+            </button>
           )}
-          {isOwn && !isOfficial && (
+          {(isOwn || isAdmin) && !isOfficial && (
             <>
               <button onClick={onEdit}
                 className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}>
@@ -426,12 +430,6 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
                 <Trash2 size={12} />删除
               </button>
             </>
-          )}
-          {!isOfficial && canCreate && !item.is_own && (
-            <button onClick={onFork}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}>
-              <Copy size={13} />复制
-            </button>
           )}
           <div className="flex-1" />
           <button onClick={() => onVote(1)}
@@ -640,7 +638,8 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
   }`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={onClose}>
+    /* 点遮罩不关闭（防误触丢已填配置，与其余 ui Modal 行为一致） */
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className={`w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
           dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
         }`}

@@ -73,7 +73,8 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
   const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600 font-mono'
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" onClick={busy ? undefined : onClose}>
+    /* 点遮罩不关闭（防误触丢已填参数，与其余 ui Modal 行为一致） */
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-2xl border border-[#27272a] bg-[#18181b] text-[#fafafa] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-[#27272a]">
           <div>

@@ -7,6 +7,8 @@ export interface Agent {
   welcomeMessage?: string;
   /** 终端用户首屏推荐问题/操作 — 后端 recommended_items */
   recommendedItems?: { label: string; prompt: string }[];
+  /** 终端用户首屏推荐项分类分组（与独立项共存）— 后端 recommended_groups */
+  recommendedGroups?: { title: string; items: { label: string; prompt: string }[] }[];
   model: string;
   /** Agent-level capability switch; global voice credentials are checked separately. */
   voiceEnabled: boolean;

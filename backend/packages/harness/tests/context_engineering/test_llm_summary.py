@@ -160,7 +160,7 @@ async def test_compress_history_with_llm_mock() -> None:
     )
 
     class _MockLLM:
-        async def ainvoke(self, messages, _config=None):
+        async def ainvoke(self, messages, config=None):
             return AIMessage(content="这是LLM生成的语义摘要")
 
     cache = SummaryCache()
@@ -174,6 +174,35 @@ async def test_compress_history_with_llm_mock() -> None:
     assert result.covered_ids == ["m1", "m2"]
     # running 标记清除。
     assert not cache.is_running("test_session")
+
+
+@pytest.mark.asyncio
+async def test_compress_history_with_llm_isolates_callbacks() -> None:
+    """摘要 ainvoke 必须显式传 callbacks=[] + llm_summary tag。
+
+    后台任务经 create_task 拷贝 contextvar，会隐式继承主图 astream_events
+    的回调，摘要 LLM 的 on_chat_model_* 事件冒泡进聊天 SSE 流（前端表现为
+    游离 text/thinking 事件插进对话中间）。空 callbacks 覆盖继承、tag 供
+    适配器二次过滤。
+    """
+    from agent_flow_harness.context_engineering.llm_summary import (
+        compress_history_with_llm,
+    )
+
+    captured: dict = {}
+
+    class _MockLLM:
+        async def ainvoke(self, messages, config=None):
+            captured["config"] = config
+            return AIMessage(content="摘要")
+
+    cache = SummaryCache()
+    outer = [HumanMessage(content="问题1", id="m1")]
+    await compress_history_with_llm(_MockLLM(), outer, "s", cache)
+
+    config = captured.get("config") or {}
+    assert config.get("callbacks") == []  # 阻断 contextvar 回调继承
+    assert "llm_summary" in (config.get("tags") or [])  # 适配器过滤标记
 
 
 # ---------------------------------------------------------------------------

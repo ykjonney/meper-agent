@@ -209,16 +209,12 @@ async def _build_openapi_tool(
             timeout = float(user_args.get("timeout", 30)) if "timeout" in user_args else 30.0
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            if method == "GET":
-                resp = await client.get(url, headers=headers, params=params)
-            elif method == "POST":
-                resp = await client.post(url, headers=headers, params=params, json=body or None)
-            elif method == "PUT":
-                resp = await client.put(url, headers=headers, params=params, json=body or None)
-            elif method == "DELETE":
-                resp = await client.delete(url, headers=headers, params=params)
-            else:
-                resp = await client.request(method, url, headers=headers, params=params, json=body or None)
+            # 统一分派：body（JSON）对任意 method 透传——GET/DELETE + body
+            # （Elasticsearch 等搜索 API 常见形态）不再被静默丢弃；
+            # 无 body 时 json=None 不产生 Content-Type
+            resp = await client.request(
+                method, url, headers=headers, params=params, json=body or None
+            )
 
         # Extract response path if configured
         response_path = endpoint.get("response_path", "")

@@ -49,6 +49,13 @@ OnEventCallback = "Callable[[AppEvent], Awaitable[None]]"
 _LLM_ERROR_KINDS = ("on_llm_error", "on_chat_model_error")
 _TOOL_ERROR_KINDS = ("on_tool_error",)
 
+# 抑制 tag：带这些 tag 的事件不属于主对话链路，不得进入 SSE / timeline——
+# - "llm_summary"：后台压缩摘要的 LLM 调用（llm_summary.compress_history_with_llm
+#   已同时传 callbacks=[] 隔离，此处是第二道防线）；
+# - "subagent"：delegate_to_subagent 嵌套子图（其 LLM/工具事件冒泡进来会成为
+#   游离 text/thinking 与无法配对的 tool_result）。
+_SUPPRESSED_EVENT_TAGS = frozenset({"llm_summary", "subagent"})
+
 # run_id → tool_call_id 映射（on_tool_start 时记录，on_tool_error 时查回）。
 # 每次 stream 开始时清空（见函数体开头的 _run_id_to_tool_call_id.clear()）。
 _run_id_to_tool_call_id: dict[str, str] = {}
@@ -189,6 +196,10 @@ async def stream_events_to_app_events(
     async for event in astream_iter:
         kind = event.get("event")
         data = event.get("data") or {}
+
+        # 非主链事件（后台摘要 / 子代理嵌套图）直接丢弃，不翻译不外发。
+        if _SUPPRESSED_EVENT_TAGS.intersection(event.get("tags") or ()):
+            continue
 
         if kind == "on_chat_model_stream":
             chunk = data.get("chunk")

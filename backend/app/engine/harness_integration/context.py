@@ -334,6 +334,33 @@ async def _resolve_mcp_tools(agent: dict) -> tuple[list, list[dict]]:
     return all_tools, errors
 
 
+def _disabled_tool_stub(name: str):
+    """停用工具占位桩——与原工具同名，调用即抛 ToolException。
+
+    老会话的历史里有该工具的成功调用记录，模型会据此继续发起调用；
+    若工具直接从工具集消失（静默跳过），模型只能收到「工具不存在」
+    的报错并基于历史反复重试（多次无意义调用）。占位桩让第一次调用
+    就得到确定性答案：已停用、未执行、不要重试、告知用户。
+    抛 ToolException 而非返回文本：harness tool_wrapper 会转成
+    status="error" 的 ToolMessage——前端工具卡渲染为错误（红色），
+    模型同样能看到完整提示文案。
+    """
+    from langchain_core.tools import StructuredTool, ToolException
+
+    async def _stub(**_kwargs) -> str:
+        raise ToolException(
+            f"工具「{name}」当前不可用（已被停用或未开启），本次调用未执行任何操作。"
+            "请勿重试调用该工具，直接告知用户此功能暂不可用。"
+        )
+
+    return StructuredTool.from_function(
+        _stub,
+        name=name,
+        description="该工具已被停用，不可用；调用只会返回错误提示",
+        coroutine=_stub,
+    )
+
+
 async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
     """解析 Agent 静态绑定的自定义工具（openapi/code，组织治理模型）。
 
@@ -341,9 +368,9 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
     （uto_ published+enabled）统一经 ``UserToolService.resolve_org_tool``
     解析——凭证用**工具级统一配置**（org_user_args，admin 维护）；
     存量绑定上的 binding.user_args 非空时兼容覆盖（旧数据）。
-    停用/未开启/不存在**静默跳过**（仅记日志，不发给前端——绑定可用性
-    以运行时为准，删除工具时会级联清理绑定，避免每轮聊天弹错）；
-    构建失败仍收集到 errors（真异常需暴露）。
+    停用/未开启：注入**同名占位桩**（防老会话基于历史反复重试无意义
+    调用，模型第一次调用即得明确答复）；已删除（含历史悬空绑定）静默
+    跳过；构建失败仍收集到 errors（真异常需暴露）。
 
     官方工具走**批量查询**（绑定通常多个，逐个查代价高）——治理口径与
     单工具入口 ``UserToolService.resolve_runnable_tool``（工作流直调/
@@ -377,8 +404,11 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
         if tool_id.startswith("uto_"):
             resolved = await UserToolService.resolve_org_tool(tool_id)
             if resolved is None:
-                # 未开启/停用/不存在（含历史悬空绑定）——静默跳过
+                # 未开启/停用 → 同名占位桩；已删除（无 doc 取不到名）静默跳过
                 logger.warning("custom_tool_unavailable", tool_id=tool_id)
+                doc = await UserToolService.get_tool(tool_id)
+                if doc is not None and doc.get("name"):
+                    all_tools.append(_disabled_tool_stub(doc["name"]))
                 continue
             doc, org_args = resolved
         else:
@@ -388,6 +418,8 @@ async def _resolve_custom_tools(agent: dict) -> tuple[list, list[dict]]:
                 continue
             if not ToolService.is_tool_active(found):
                 logger.warning("custom_tool_inactive", tool_id=tool_id)
+                if found.get("name"):
+                    all_tools.append(_disabled_tool_stub(found["name"]))
                 continue
             doc = found
             org_args = decrypt_user_args(found, found.get("org_user_args") or {})

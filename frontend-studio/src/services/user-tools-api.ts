@@ -5,7 +5,9 @@
  * 流程：tool:write 创建 → submit → admin 审查 → admin 配置凭证 → admin 开启
  * → 「已开启」的工具才能被 Agent 绑定 / 工作流节点直调（凭证工具级统一）。
  */
+import { ENV } from '../config/env'
 import { apiClient } from '../lib/api-client'
+import { useAuthStore } from '../stores/auth-store'
 
 /* ─── Types ─── */
 
@@ -83,7 +85,7 @@ export interface EnabledToolItem {
   output_schema?: Record<string, unknown>
 }
 
-/** AI 生成的工具定义草稿（不落库，回填创建表单后走正常治理链） */
+/** AI 生成的工具定义草稿（工坊 agent 的 submit_definition 产物 / 表单精修回填） */
 export interface GeneratedToolDraft {
   name: string
   description: string
@@ -94,18 +96,6 @@ export interface GeneratedToolDraft {
   code?: string
   output_schema?: Record<string, unknown>
   tags?: string[]
-}
-
-/** 生成对话消息（无状态多轮——每次携带完整历史） */
-export interface GenerateChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-/** 生成对话的一轮响应：文本说明 + 草稿（AI 澄清提问时为 null） */
-export interface GenerateChatResponse {
-  reply: string
-  draft: GeneratedToolDraft | null
 }
 
 /** 试跑一次的响应（code 的 Error: 文本同样判失败） */
@@ -125,13 +115,6 @@ export interface ToolTestCase {
 /* ─── API methods ─── */
 
 export const userToolsApi = {
-  /** AI 多轮对话生成工具定义草稿（规则约束 + 本地校验；不落库） */
-  generate(body: { messages: GenerateChatMessage[]; source?: string; model_id?: string }) {
-    return apiClient
-      .post<GenerateChatResponse>('/api/v1/user-tools/generate', body)
-      .then((r) => r.data)
-  },
-
   /** 试跑一次工具定义（不落库、不要求过审；试跑凭证即填即用） */
   testRun(body: {
     definition: ToolDefinitionPayload
@@ -189,10 +172,6 @@ export const userToolsApi = {
     return apiClient.post(`/api/v1/user-tools/${toolId}/submit`).then((r) => r.data)
   },
 
-  fork(toolId: string) {
-    return apiClient.post(`/api/v1/user-tools/${toolId}/fork`).then((r) => r.data)
-  },
-
   vote(toolId: string, value: 1 | -1) {
     return apiClient.post(`/api/v1/user-tools/${toolId}/vote`, { value }).then((r) => r.data)
   },
@@ -234,4 +213,60 @@ export const userToolKeys = {
   detail: (id: string) => [...userToolKeys.all, 'detail', id] as const,
   marketplace: (q: string) => [...userToolKeys.all, 'marketplace', q] as const,
   review: (status: string) => [...userToolKeys.all, 'review', status] as const,
+}
+
+/* ─── 工具工坊 agent（tool-forge，SSE 流式）─── */
+
+export interface ForgeStreamBody {
+  message: string
+  model_id?: string
+  /** create=新建（save_tool=create）| edit=修改已有（已保存定义注入对话，save=update） */
+  mode?: 'create' | 'edit'
+  tool_id?: string
+  /** 续接既有工坊会话 */
+  forge_id?: string
+}
+
+/** 工坊 done 帧——附当前草稿与保存态（比 agent 的 done 帧多 draft/saved_tool_id） */
+export interface ForgeDoneEvent {
+  done: true
+  forge_id: string
+  draft: GeneratedToolDraft | null
+  saved_tool_id: string
+}
+
+/** 原生 fetch 发起工坊 SSE（流式不走 axios 拦截器，鉴权手动带 Bearer） */
+async function forgeFetch(path: string, body: Record<string, unknown>): Promise<Response> {
+  const token = useAuthStore.getState().accessToken
+  const res = await fetch(`${ENV.API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let msg = `请求失败（${res.status}）`
+    try {
+      const j = (await res.json()) as { error?: { message?: string } }
+      msg = j?.error?.message ?? msg
+    } catch { /* 非 JSON 错误体——用默认文案 */ }
+    throw new Error(msg)
+  }
+  return res
+}
+
+export const forgeApi = {
+  /** 发起/续接一轮工坊对话（SSE） */
+  stream(body: ForgeStreamBody) {
+    return forgeFetch('/api/v1/user-tools/forge/stream', body as unknown as Record<string, unknown>)
+  },
+  /** 恢复被 ask_clarification 暂停的会话（凭证表单/文本答复） */
+  resume(forgeId: string, answer: Record<string, unknown> | string) {
+    return forgeFetch(
+      `/api/v1/user-tools/forge/${encodeURIComponent(forgeId)}/resume`,
+      { answer },
+    )
+  },
 }

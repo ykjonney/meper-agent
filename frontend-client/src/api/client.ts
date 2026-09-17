@@ -47,15 +47,6 @@ export async function fetchUserInfo(): Promise<string> {
   return data.name || '用户'
 }
 
-/** apikey 模式退出：清 token + 通知 widget 清 cookie + 关闭。 */
-export function apikeyLogout(): void {
-  setUserToken(null)
-  // 通知 widget（父页）执行退出（清 cookie + 关闭面板）
-  if (inIframe()) {
-    window.parent.postMessage({ type: 'agentflow:logout' }, '*')
-  }
-}
-
 /** apikey 模式 401 时的错误码回调（由 main.tsx 注册，写入 auth store）。 */
 let onAuthError: ((code: string) => void) | null = null
 export function setAuthErrorHandler(handler: ((code: string) => void) | null) {
@@ -232,7 +223,12 @@ let resolveEmbedReady: (() => void) | null = null
 export function applyEmbedConfig(apiKey: string, userToken?: string | null): void {
   if (apiKey) setEmbedApiKey(apiKey)
   setAuthMode('apikey')
-  if (userToken) setUserToken(userToken)
+  if (userToken) {
+    setUserToken(userToken)
+    // 新 token 注入 → 清旧错误态（如退出/过期后停留的错误页），
+    // 让 canEnterApp = hasUserToken && !authError 重新放行
+    useAuthStore.getState().setAuthError(null)
+  }
   if (resolveEmbedReady) {
     const resolve = resolveEmbedReady
     resolveEmbedReady = null

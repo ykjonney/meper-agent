@@ -27,6 +27,7 @@ function toLocalAgent(item: AgentRecord): AgentSummary {
     accessSource: 'company_owned',
     welcomeMessage: item.welcome_message ?? '',
     recommendedItems: item.recommended_items,
+    recommendedGroups: item.recommended_groups,
     voiceEnabled: item.voice_enabled === true,
   }
 }

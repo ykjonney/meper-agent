@@ -90,6 +90,10 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
         config = build_config(
             _DELEGATE_AGENT_DOC, llm, tools=tools, recursion_limit=spec.max_turns,
         )
+        # 打 subagent tag：嵌套子图的 LLM/工具事件会经 contextvar 回调冒泡进
+        # 父图 astream_events，app 层适配器 stream_events_to_app_events 按此
+        # tag 过滤（游离 text/thinking 与无法配对的 tool_result 不进父对话流）。
+        config["tags"] = [*config.get("tags", []), "subagent"]
         result_state = await graph.ainvoke(state, config=config)  # type: ignore[call-overload]
         final_messages = result_state.get("messages", [])
         return extract_final_text(final_messages)

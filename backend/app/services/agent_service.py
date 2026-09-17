@@ -75,6 +75,7 @@ class AgentService:
         max_tokens: int = 0,
         welcome_message: str = "",
         recommended_items: list[dict] | None = None,
+        recommended_groups: list[dict] | None = None,
         avatar: str = "",
         user_skills_enabled: bool = True,
     ) -> dict:
@@ -144,6 +145,7 @@ class AgentService:
             "max_tokens": agent.max_tokens,
             "welcome_message": welcome_message,
             "recommended_items": recommended_items or [],
+            "recommended_groups": recommended_groups or [],
             "avatar": avatar,
             "user_skills_enabled": agent.user_skills_enabled,
             "status": agent.status.value,
@@ -239,6 +241,7 @@ class AgentService:
         max_tokens: int = 0,
         welcome_message: str = "",
         recommended_items: list[dict] | None = None,
+        recommended_groups: list[dict] | None = None,
         avatar: str = "",
     ) -> dict | None:
         """Update an existing Agent's configuration.
@@ -309,6 +312,7 @@ class AgentService:
             "max_tokens": max_tokens,
             "welcome_message": welcome_message,
             "recommended_items": recommended_items or [],
+            "recommended_groups": recommended_groups or [],
             "avatar": avatar,
             "updated_at": now_iso,
         }
@@ -573,4 +577,5 @@ class AgentService:
             max_tokens=source.get("max_tokens", 0),
             welcome_message=source.get("welcome_message", ""),
             recommended_items=source.get("recommended_items", []),
+            recommended_groups=source.get("recommended_groups", []),
         )

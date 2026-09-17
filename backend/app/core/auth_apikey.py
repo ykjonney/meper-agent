@@ -219,6 +219,22 @@ async def authenticate_api_key(
     # ⑥ 设身份（platform_user_id 替代 mcptok_ id；relaxed 模式未绑定时
     # user_id 留空，ext_username 供授权端点锁定绑定表单）
     if identity is not None:
+        # 回查平台用户（防孤儿映射）：delete_user 若漏清/清理失败，
+        # external_identities 仍指向已删用户——不回查则鉴权照常放行，
+        # client 端以悬空身份继续使用。禁用同样拦截（对齐 JWT 链路
+        # ACCOUNT_DISABLED 语义）。复用 EXT_USER_NOT_BOUND：client 端
+        # 已有 not_bound 引导路径（回首绑门页重新授权），前端零改动。
+        from app.models.user import UserStatus
+        from app.services.user_service import UserService
+
+        platform_user = await UserService.get_user_by_id(
+            identity["platform_user_id"]
+        )
+        if platform_user is None or platform_user.get("status") != UserStatus.ACTIVE.value:
+            raise UnauthorizedError(
+                code="EXT_USER_NOT_BOUND",
+                message="绑定的平台用户不存在或已禁用，请重新完成授权",
+            )
         principal.user_id = identity["platform_user_id"]
         principal.token_record_id = identity["platform_user_id"]
     principal.user_token = user_token

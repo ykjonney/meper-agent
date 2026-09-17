@@ -663,6 +663,7 @@ export function WorkflowTaskCard({
       <Modal
         title="取消任务"
         open={cancelModal}
+        maskClosable={false}
         onOk={submitCancel}
         onCancel={() => {
           setCancelModal(false)
@@ -686,6 +687,7 @@ export function WorkflowTaskCard({
       <Modal
         title="退回重跑"
         open={rewindOpen}
+        maskClosable={false}
         onOk={submitRewind}
         onCancel={() => {
           setRewindOpen(false)

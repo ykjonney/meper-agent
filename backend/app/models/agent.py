@@ -23,6 +23,15 @@ class RecommendedItem(BaseModel):
     prompt: str = Field(default="", max_length=500, description="实际发送内容；留空则用 label")
 
 
+class RecommendedGroup(BaseModel):
+    """推荐项分类分组：与独立推荐项（recommended_items）共存。"""
+
+    title: str = Field(..., min_length=1, max_length=50, description="分组名称")
+    items: list[RecommendedItem] = Field(
+        default_factory=list, max_length=50, description="组内推荐项（≤50 条）"
+    )
+
+
 class Agent(BaseModel):
     """MongoDB agent document model.
 
@@ -52,6 +61,9 @@ class Agent(BaseModel):
     )
     recommended_items: list[RecommendedItem] = Field(
         default_factory=list, max_length=200, description="首屏推荐问题/操作快捷项（≤200 条）"
+    )
+    recommended_groups: list[RecommendedGroup] = Field(
+        default_factory=list, max_length=20, description="首屏推荐项分类分组（≤20 组，与独立项共存）"
     )
     prompt_slots: dict[str, str] = Field(default_factory=dict)
     # --- Deprecated: kept for backward compat ---

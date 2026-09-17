@@ -201,6 +201,28 @@ class TestGetApiKeyPrincipal:
         }
         return Request(scope)
 
+    _ACTIVE_PLATFORM_USER = {"_id": "user_platform_01", "status": "active"}
+    _UNSET = object()
+
+    def _mock_platform_user(
+        self,
+        monkeypatch,
+        *,
+        user_doc: dict | None = _UNSET,  # type: ignore[assignment]
+    ):
+        """Mock 平台用户回查（⑥ 步防孤儿映射）——不 mock 会真连 Mongo。
+
+        默认返回 active 用户；显式传 user_doc=None 模拟「已删除」
+        （get_user_by_id 返回 None）。
+        """
+        from app.services.user_service import UserService
+
+        if user_doc is self._UNSET:
+            user_doc = self._ACTIVE_PLATFORM_USER
+        monkeypatch.setattr(
+            UserService, "get_user_by_id", AsyncMock(return_value=user_doc)
+        )
+
     async def test_resolves_user_id_from_token_record(self, monkeypatch, api_key_doc):
         """introspection 通过 + external_identities 命中 → user_id = platform_user_id。"""
         from app.services.api_key_service import ApiKeyService
@@ -226,6 +248,7 @@ class TestGetApiKeyPrincipal:
             "find_by_sub",
             AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
         )
+        self._mock_platform_user(monkeypatch)
         request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
 
         principal = await get_api_key_principal(
@@ -260,6 +283,7 @@ class TestGetApiKeyPrincipal:
         )
         find_mock = AsyncMock(return_value={"platform_user_id": "user_platform_01"})
         monkeypatch.setattr(ExternalIdentityService, "find_by_sub", find_mock)
+        self._mock_platform_user(monkeypatch)
 
         request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
         principal = await get_api_key_principal(
@@ -294,6 +318,7 @@ class TestGetApiKeyPrincipal:
         )
         find_mock = AsyncMock(return_value={"platform_user_id": "user_platform_01"})
         monkeypatch.setattr(ExternalIdentityService, "find_by_sub", find_mock)
+        self._mock_platform_user(monkeypatch)
 
         request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
         principal = await get_api_key_principal(
@@ -342,3 +367,74 @@ class TestGetApiKeyPrincipal:
         with pytest.raises(UnauthorizedError) as exc:
             await get_api_key_principal(request, authorization="Bearer af_live_test")
         assert exc.value.code == "EXT_USER_TOKEN_INVALID"
+
+    async def test_deleted_platform_user_raises(self, monkeypatch, api_key_doc):
+        """孤儿映射：identity 命中但平台用户已删 → 401 EXT_USER_NOT_BOUND。
+
+        delete_user 漏清/清理失败时 external_identities 仍指向已删用户，
+        不回查则鉴权照常放行、client 端以悬空身份继续使用。
+        """
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        monkeypatch.setattr(
+            ExternalIdentityService,
+            "find_by_sub",
+            AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
+        )
+        self._mock_platform_user(monkeypatch, user_doc=None)
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+
+        with pytest.raises(UnauthorizedError) as exc:
+            await get_api_key_principal(request, authorization="Bearer af_live_test")
+        assert exc.value.code == "EXT_USER_NOT_BOUND"
+
+    async def test_disabled_platform_user_raises(self, monkeypatch, api_key_doc):
+        """平台用户已禁用 → 401 EXT_USER_NOT_BOUND（对齐 JWT 链路语义）。"""
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        monkeypatch.setattr(
+            ExternalIdentityService,
+            "find_by_sub",
+            AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
+        )
+        self._mock_platform_user(
+            monkeypatch,
+            user_doc={"_id": "user_platform_01", "status": "disabled"},
+        )
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+
+        with pytest.raises(UnauthorizedError) as exc:
+            await get_api_key_principal(request, authorization="Bearer af_live_test")
+        assert exc.value.code == "EXT_USER_NOT_BOUND"

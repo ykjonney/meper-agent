@@ -160,7 +160,12 @@ class TestDeleteTool:
         mock_agents.find.return_value = mock_agents_cursor
         mock_agents.update_many = AsyncMock()
 
-        mock_db = {"tools": mock_col, "agents": mock_agents}
+        mock_workflows = MagicMock()
+        wf_cursor = MagicMock()
+        wf_cursor.to_list = AsyncMock(return_value=[])
+        mock_workflows.find.return_value = wf_cursor
+
+        mock_db = {"tools": mock_col, "agents": mock_agents, "workflows": mock_workflows}
         with (
             patch("app.services.tool_service.ToolService._collection", return_value=mock_col),
             patch("app.services.tool_service.get_database", return_value=mock_db),

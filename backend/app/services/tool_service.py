@@ -701,6 +701,32 @@ class ToolService:
                 details={"agent_names": agent_names},
             )
 
+        # Check published workflow references（工具节点 config.tool_id 可存
+        # id 或 name——resolve_runnable_tool 对官方工具支持按名匹配，双匹配）
+        referencing_wfs = await get_database()["workflows"].find(
+            {
+                "status": "published",
+                "nodes": {
+                    "$elemMatch": {
+                        "type": "tool",
+                        "config.tool_id": {"$in": [tool_id, existing_doc.get("name", "")]},
+                    }
+                },
+            },
+            {"name": 1},
+        ).to_list(length=100)
+        if referencing_wfs:
+            wf_names = [w.get("name", w.get("_id", "")) for w in referencing_wfs]
+            raise ConflictError(
+                code="TOOL_IN_USE",
+                message=(
+                    f"工具 '{existing_doc.get('name')}' 正在被以下已发布工作流引用，"
+                    f"无法删除：{', '.join(wf_names)}。请先在工作流中移除该工具节点"
+                    "或将工作流下架。"
+                ),
+                details={"workflow_names": wf_names},
+            )
+
         result = await col.delete_one({"_id": tool_id})
         if result.deleted_count > 0:
             # 级联清理 custom_tools 绑定（skill_ids/tool_ids 走上方禁删守卫，

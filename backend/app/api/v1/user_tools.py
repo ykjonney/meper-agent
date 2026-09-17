@@ -8,16 +8,21 @@
 - GET  /user-tools/marketplace 组织工具库目录（浏览 + 治理状态；无安装语义）
 - POST /user-tools             创建（tool:write）
 - GET/PUT/DELETE /user-tools/{id}   详情 / 编辑（owner|admin）/ 删除
+- POST /user-tools/forge/stream     工具工坊 agent（SSE：生成→测试→保存闭环）
+- POST /user-tools/forge/{id}/resume 恢复工坊 interrupt（凭证/澄清答复）
+- POST /user-tools/test-run    试跑草稿定义（不落库）
+- POST /user-tools/test-cases  AI 生成测试用例
+- POST /user-tools/{id}/test-run 试跑已保存工具（工具节点调试）
 - POST /user-tools/{id}/submit 提交发布审查（owner）
 - GET/POST /user-tools/admin/review   管理员审核台
-- PUT  /user-tools/{id}/args   配置工具级凭证（admin）
+- PUT  /user-tools/{id}/args   配置工具级凭证（owner|admin）
 - POST /user-tools/{id}/enable 开启/停用（admin，三重校验）
-- POST /user-tools/{id}/fork   复制已发布工具为自己的草稿
 - POST /user-tools/{id}/vote   目录投票（组织内反馈信号）
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.errors import NotFoundError, ValidationError
@@ -69,21 +74,6 @@ class VoteRequest(BaseModel):
     value: int = Field(..., description="1 = 👍 | -1 = 👎")
 
 
-class ToolGenerateMessage(BaseModel):
-    """对话消息（生成是无状态多轮——历史随请求携带）。"""
-
-    role: str = Field(..., description="user | assistant")
-    content: str = Field(..., max_length=8000)
-
-
-class ToolGenerateRequest(BaseModel):
-    """AI 多轮对话生成工具定义草稿（不落库，回填表单后走正常创建/治理链）。"""
-
-    messages: list[ToolGenerateMessage] = Field(..., min_length=1, max_length=40)
-    source: str = Field(default="", description='指定 "code"/"openapi"；空 = AI 按需求判断')
-    model_id: str = Field(default="", description="生成模型（model_ 前缀；空 = 平台默认）")
-
-
 class ToolTestRunRequest(BaseModel):
     """试跑一次工具定义（不落库、不要求 published/enabled）。"""
 
@@ -97,6 +87,22 @@ class ToolTestCaseRequest(BaseModel):
 
     definition: dict = Field(...)
     model_id: str = Field(default="")
+
+
+class ForgeStreamRequest(BaseModel):
+    """工具工坊 agent 对话（SSE）——新会话或续接。"""
+
+    message: str = Field(default="", max_length=8000)
+    model_id: str = Field(default="", description="生成模型（model_ 前缀；空 = 平台默认）")
+    mode: str = Field(default="create", description="create（新建，save=create）| edit（修改，save=update）")
+    tool_id: str = Field(default="", description="edit 模式：要修改的工具 id（已保存定义注入对话）")
+    forge_id: str = Field(default="", description="续接既有工坊会话")
+
+
+class ForgeResumeRequest(BaseModel):
+    """恢复被 ask_clarification 暂停的工坊会话。"""
+
+    answer: dict | str = Field(..., description="凭证表单答复（dict）或文本答复")
 
 
 class SavedToolTestRequest(BaseModel):
@@ -154,7 +160,10 @@ async def create_my_tool(
     body: ToolDefinition,
     current_user: UserResponse = Depends(require_permission("tool:write")),
 ) -> dict:
-    """创建工具（tool:write——ToB 治理：有权限的人才能创建）。"""
+    """创建工具（tool:write——ToB 治理：有权限的人才能创建）。
+
+    admin 创建即 published（免自审）；开启仍需配凭证后显式操作。
+    """
     try:
         return _to_item(await UserToolService.create_tool(
             current_user.id,
@@ -167,35 +176,10 @@ async def create_my_tool(
             code=body.code,
             output_schema=body.output_schema,
             tags=body.tags,
+            is_admin=current_user.role == "admin",
         ))
     except UserToolError as exc:
         raise ValidationError(code="USER_TOOL_INVALID", message=exc.message) from exc
-
-
-@router.post("/generate")
-async def generate_tool_draft(
-    body: ToolGenerateRequest,
-    current_user: UserResponse = Depends(require_permission("tool:write")),
-) -> dict:
-    """AI 多轮对话生成工具定义草稿（tool:write，与创建同权限）。
-
-    无状态多轮——前端每次携带完整对话历史；本轮返回 {"reply": 文本说明,
-    "draft": 草稿 | None}（AI 澄清提问时无草稿）。草稿不落库，回填创建
-    表单后走既有治理链；生成侧本地校验（JSON 形态 + code 依赖白名单），
-    不过自动带反馈重试一轮。
-    """
-    from app.services.tool_generator import ToolGeneratorService
-
-    if body.messages[-1].role != "user":
-        raise ValidationError(code="TOOL_GENERATE_INVALID", message="末条消息必须是用户消息")
-    try:
-        return await ToolGeneratorService.generate(
-            [{"role": m.role, "content": m.content} for m in body.messages],
-            source_hint=body.source.strip(),
-            model_id=body.model_id.strip(),
-        )
-    except UserToolError as exc:
-        raise ValidationError(code="TOOL_GENERATE_FAILED", message=exc.message) from exc
 
 
 @router.post("/test-run")
@@ -230,6 +214,80 @@ async def generate_test_cases(
         raise ValidationError(code="TOOL_TEST_FAILED", message=exc.message) from exc
 
 
+@router.post("/forge/stream")
+async def forge_stream(
+    body: ForgeStreamRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> StreamingResponse:
+    """工具工坊 agent（SSE）——LLM 自主「生成 → 测试 → 修正 → 保存」闭环。
+
+    会话进程内（InMemorySaver）：forge_id 续接；进程重启即失效（重新开始）。
+    新会话经 ``X-Forge-Id`` 响应头返回 forge_id；done 帧附草稿/保存态。
+    """
+    from app.services.tool_forge_service import ToolForgeService
+
+    try:
+        event_queue, forge_id = await ToolForgeService.stream(
+            current_user.id,
+            message=body.message,
+            model_id=body.model_id.strip(),
+            mode=body.mode.strip() or "create",
+            tool_id=body.tool_id.strip(),
+            forge_id=body.forge_id.strip(),
+            is_admin=current_user.role == "admin",
+        )
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_FORGE_INVALID", message=exc.message) from exc
+
+    async def _event_stream():
+        try:
+            while True:
+                item = await event_queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            # 断连 ≠ 取消：后台任务继续执行完（与 agents stream 同语义）
+            pass
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Forge-Id": forge_id},
+    )
+
+
+@router.post("/forge/{forge_id}/resume")
+async def forge_resume(
+    forge_id: str,
+    body: ForgeResumeRequest,
+    current_user: UserResponse = Depends(require_permission("tool:write")),
+) -> StreamingResponse:
+    """恢复工坊会话的 interrupt（ask_clarification 凭证/澄清答复）。"""
+    from app.services.tool_forge_service import ToolForgeService
+
+    try:
+        event_queue = await ToolForgeService.resume(forge_id, body.answer)
+    except UserToolError as exc:
+        raise ValidationError(code="TOOL_FORGE_INVALID", message=exc.message) from exc
+
+    async def _event_stream():
+        try:
+            while True:
+                item = await event_queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            pass
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Forge-Id": forge_id},
+    )
+
+
 @router.post("/{tool_id}/test-run")
 async def test_run_saved_tool(
     tool_id: str,
@@ -255,12 +313,14 @@ async def get_tool_detail(
     current_user: UserResponse = Depends(get_current_user),
 ) -> dict:
     doc = await UserToolService.get_tool(tool_id)
-    if doc is None or not await UserToolService.can_view(current_user.id, doc):
+    if doc is None or not await UserToolService.can_view(
+        current_user.id, doc, is_admin=current_user.role == "admin"
+    ):
         raise NotFoundError(code="USER_TOOL_NOT_FOUND", message=f"Tool {tool_id} 不存在")
     item = _to_item(doc)
-    # admin 凭证弹窗回显：sensitive 字段为 enc: 密文（不可反推），非敏感为明文；
-    # 列表/目录等其余出口仍统一剔除。
-    if current_user.role == "admin":
+    # 凭证弹窗回显（owner/admin 可配置凭证，均可回显）：sensitive 字段为
+    # enc: 密文（不可反推），非敏感为明文；列表/目录等其余出口仍统一剔除。
+    if current_user.role == "admin" or doc.get("owner_user_id") == current_user.id:
         item["org_user_args"] = doc.get("org_user_args") or {}
     return item
 
@@ -270,10 +330,12 @@ async def update_my_tool(
     tool_id: str,
     body: ToolUpdateRequest,
     current_user: UserResponse = Depends(require_permission("tool:write")),
-    admin_check: UserResponse = Depends(require_any_role("admin")),
 ) -> dict:
     """编辑（owner 或 admin；已发布的编辑回 private 且需重新开启）。"""
-    is_admin = admin_check is not None
+    # 不能用 Depends(require_any_role("admin")) 探测 admin——它对非 admin
+    # 直接抛 403，owner 本人会被拦在 handler 外。角色在 handler 内判定，
+    # owner 校验交给 update_tool（is_admin 覆盖）。
+    is_admin = current_user.role == "admin"
     try:
         return _to_item(await UserToolService.update_tool(
             current_user.id,
@@ -296,9 +358,8 @@ async def update_my_tool(
 async def delete_my_tool(
     tool_id: str,
     current_user: UserResponse = Depends(require_permission("tool:write")),
-    admin_check: UserResponse = Depends(require_any_role("admin")),
 ) -> dict:
-    is_admin = admin_check is not None
+    is_admin = current_user.role == "admin"
     try:
         await UserToolService.delete_tool(current_user.id, tool_id, is_admin=is_admin)
         return {"ok": True}
@@ -333,11 +394,14 @@ async def review_tool(
 async def save_org_args(
     tool_id: str,
     body: ToolArgsRequest,
-    admin: UserResponse = Depends(require_any_role("admin")),
+    current_user: UserResponse = Depends(require_permission("tool:write")),
 ) -> dict:
-    """配置工具级统一凭证（admin；sensitive 加密，全使用点共用）。"""
+    """配置工具级统一凭证（owner 或 admin；sensitive 加密，全使用点共用）。"""
     try:
-        await UserToolService.save_org_args(admin.id, tool_id, body.user_args)
+        await UserToolService.save_org_args(
+            current_user.id, tool_id, body.user_args,
+            is_admin=current_user.role == "admin",
+        )
         return {"ok": True}
     except UserToolError as exc:
         raise ValidationError(code="USER_TOOL_INVALID", message=exc.message) from exc
@@ -354,18 +418,6 @@ async def enable_tool(
         return _to_item(await UserToolService.enable_tool(admin.id, tool_id, body.enabled))
     except UserToolError as exc:
         raise ValidationError(code="USER_TOOL_ARGS_INCOMPLETE", message=exc.message) from exc
-
-
-@router.post("/{tool_id}/fork")
-async def fork_tool(
-    tool_id: str,
-    current_user: UserResponse = Depends(require_permission("tool:write")),
-) -> dict:
-    """复制为我的草稿（derived_from 溯源）。"""
-    try:
-        return _to_item(await UserToolService.fork(current_user.id, tool_id))
-    except UserToolError as exc:
-        raise ValidationError(code="USER_TOOL_INVALID", message=exc.message) from exc
 
 
 @router.post("/{tool_id}/vote")

@@ -66,6 +66,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         avatar=doc.get("avatar", ""),
         welcome_message=doc.get("welcome_message", ""),
         recommended_items=doc.get("recommended_items", []),
+        recommended_groups=doc.get("recommended_groups", []),
         prompt_slots=doc.get("prompt_slots", {}),
         skill_ids=resolve_skill_ids(doc),
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
@@ -192,6 +193,7 @@ async def update_agent(
         max_tokens=body.max_tokens,
         welcome_message=body.welcome_message,
         recommended_items=[item.model_dump() for item in body.recommended_items],
+        recommended_groups=[group.model_dump() for group in body.recommended_groups],
         avatar=body.avatar,
     )
     if doc is None:

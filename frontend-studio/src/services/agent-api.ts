@@ -27,6 +27,7 @@ export interface Agent {
   avatar: string
   welcome_message: string
   recommended_items: { label: string; prompt: string }[]
+  recommended_groups: { title: string; items: { label: string; prompt: string }[] }[]
   prompt_slots: Record<string, string>
   /** Skill tool IDs (source=markdown) */
   skill_ids: string[]
@@ -65,6 +66,8 @@ export interface AgentUpdateInput {
   welcome_message?: string
   /** 终端用户首屏推荐问题/操作 */
   recommended_items?: { label: string; prompt: string }[]
+  /** 终端用户首屏推荐项分类分组（与独立项共存） */
+  recommended_groups?: { title: string; items: { label: string; prompt: string }[] }[]
   /** 提示词卡槽内容 */
   prompt_slots?: Record<string, string>
   /** Skill tool IDs (source=markdown) */

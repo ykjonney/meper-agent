@@ -35,6 +35,16 @@ class MockMongoCursor:
         return self._items[:length]
 
 
+class EmptyAsyncCursor:
+    """Async cursor mock yielding nothing (for `async for` over find())."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
 @pytest.fixture
 def mock_collection():
     """Mock the async MongoDB users collection."""
@@ -304,6 +314,56 @@ class TestDeleteUser:
             current_user_id="user_01HADMIN",
         )
         assert result is False
+
+    async def test_delete_user_cleans_external_identity(
+        self, mock_collection
+    ) -> None:
+        """删除用户须清 external_identities / user_mcp_credentials / session 缓存。
+
+        否则留孤儿映射：ext 鉴权按 external_identities 反查
+        platform_user_id，用户已删仍放行（client 端继续可用）。
+        """
+        mock_collection.find_one.return_value = _make_user_doc()
+        mock_collection.delete_one.return_value = MagicMock(deleted_count=1)
+
+        ext_col = MagicMock()
+        ext_col.delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
+        cred_col = MagicMock()
+        cred_col.delete_many = AsyncMock(return_value=MagicMock(deleted_count=1))
+        # sessions.find 返回空异步游标——不触发 SessionService.delete_session
+        sessions_col = MagicMock()
+        sessions_col.find = MagicMock(return_value=EmptyAsyncCursor())
+        cols = {
+            "external_identities": ext_col,
+            "user_mcp_credentials": cred_col,
+            "sessions": sessions_col,
+        }
+        db = MagicMock()
+        db.__getitem__.side_effect = lambda name: cols.get(
+            name, MagicMock(find=MagicMock(return_value=EmptyAsyncCursor()),
+                            delete_many=AsyncMock())
+        )
+
+        with (
+            patch("app.services.user_service.get_database", return_value=db),
+            patch(
+                "app.services.user_mcp_credential_service.clear_user_session_cache",
+                new_callable=AsyncMock,
+            ) as mock_clear_cache,
+        ):
+            result = await UserService.delete_user(
+                user_id="user_01HDEV",
+                current_user_id="user_01HADMIN",
+            )
+
+        assert result is True
+        ext_col.delete_many.assert_called_once_with(
+            {"platform_user_id": "user_01HDEV"}
+        )
+        cred_col.delete_many.assert_called_once_with(
+            {"platform_user_id": "user_01HDEV"}
+        )
+        mock_clear_cache.assert_called_once_with("user_01HDEV")
 
 
 class TestResetPassword:

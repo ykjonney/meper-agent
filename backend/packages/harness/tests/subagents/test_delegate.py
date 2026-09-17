@@ -141,6 +141,39 @@ async def test_delegate_returns_subagent_final_text(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delegate_tags_subagent_config(monkeypatch):
+    """子图 config 必须带 subagent tag：嵌套事件冒泡进父图 astream_events 时，
+    app 层适配器按此 tag 过滤（游离 text/thinking / 无法配对的 tool_result）。"""
+    ctx = _setup_context_with_mock_subagent()
+    captured: dict = {}
+
+    async def _fake_ainvoke(state, config=None):
+        captured["config"] = config
+        return {"messages": [AIMessage(content="ok")]}
+
+    fake_graph = MagicMock()
+    fake_graph.ainvoke = _fake_ainvoke
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        lambda agent_doc, **kw: fake_graph,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config",
+        lambda *a, **kw: {"configurable": {}, "tags": ["keep"]},
+    )
+    token = set_subagent_context(ctx)
+    try:
+        await delegate_to_subagent.ainvoke(
+            {"subagent_name": "coder", "task": "compute"}
+        )
+        tags = captured["config"].get("tags")
+        assert "subagent" in tags  # 注入过滤标记
+        assert "keep" in tags       # 原有 tag 不丢失
+    finally:
+        reset_subagent_context(token)
+
+
+@pytest.mark.asyncio
 async def test_delegate_unknown_subagent_returns_error_string():
     """AC10: 未知子 Agent → 返回错误字符串，不 raise。"""
     ctx = MagicMock()

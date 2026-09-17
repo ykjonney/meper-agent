@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { applyEmbedConfig, setUserToken } from '../api/client'
+import { useAuthStore } from '../store/auth'
 
 const CONFIG_TYPE = 'agentflow:config'
 const TOKEN_TYPE = 'agentflow:user_token'
@@ -57,6 +58,8 @@ export function useParentToken(): void {
         // 终端 token 敏感：白名单未配置或非白名单 origin → 拒绝
         if (allowed.length === 0 || !allowed.includes(event.origin)) return
         setUserToken(data.token)
+        // 新 token 注入 → 清旧错误态（退出/过期后停留的错误页才能恢复）
+        useAuthStore.getState().setAuthError(null)
       }
     }
 

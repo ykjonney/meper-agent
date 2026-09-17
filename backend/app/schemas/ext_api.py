@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.agent import RecommendedItem
+from app.models.agent import RecommendedGroup, RecommendedItem
 from app.schemas.file_library import FileRefResponse
 
 
@@ -28,6 +28,9 @@ class ExtAgentResponse(BaseModel):
     welcome_message: str = Field(default="", description="终端用户首屏欢迎词（Markdown）")
     recommended_items: list[RecommendedItem] = Field(
         default_factory=list, description="终端用户首屏推荐问题/操作快捷项"
+    )
+    recommended_groups: list[RecommendedGroup] = Field(
+        default_factory=list, description="终端用户首屏推荐项分类分组（与独立项共存）"
     )
     voice_enabled: bool = Field(
         default=False, description="该 Agent 是否开启实时语音对话"

@@ -8,7 +8,8 @@ import {
   listSessions,
 } from './api/chat'
 import { logout } from './api/auth'
-import { AUTH_MODE, apikeyLogout, fetchUserInfo } from './api/client'
+import { fetchAuthBootstrap, revokeAppAuthorization } from './api/authorizations'
+import { AUTH_MODE, fetchUserInfo } from './api/client'
 import { useAuthStore } from './store/auth'
 import { ChatView } from './components/ChatView'
 import { ConversationSidebar } from './components/ConversationSidebar'
@@ -143,6 +144,33 @@ export function ClientApp() {
     })
   }
 
+  /** apikey 模式「撤销授权」：解绑当前应用（删身份映射 + 凭证绑定），
+   * 之后切回首绑门页——用户可重新授权或绑定其他账户。 */
+  const confirmRevokeAuth = () => {
+    modal.confirm({
+      title: '撤销授权？',
+      content:
+        '撤销后将解除当前账号与该应用的授权关系，需重新完成授权才能继续使用（可绑定其他账户）。',
+      okText: '撤销授权',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      async onOk() {
+        try {
+          const boot = await fetchAuthBootstrap()
+          await revokeAppAuthorization(boot.app.id)
+          useAuthStore.getState().setExtUserName('')
+          // 置未绑定态 → main.tsx 切换到首绑门页（原地切换，无需重载 iframe）
+          useAuthStore.getState().setAuthError('EXT_USER_NOT_BOUND')
+        } catch (error) {
+          void message.error(
+            error instanceof Error ? error.message : '撤销授权失败，请稍后重试',
+          )
+          throw error
+        }
+      },
+    })
+  }
+
   const sidebarProps = {
     agents,
     selectedAgentId,
@@ -160,13 +188,10 @@ export function ClientApp() {
     onDeleteSession: confirmDeleteSession,
     creating,
     loading: sessionsLoading,
-    onLogout: () => {
-      if (AUTH_MODE === 'apikey') {
-        apikeyLogout()
-      } else {
-        void logout()
-      }
-    },
+    // 退出仅 jwt 模式（清 token 回登录页）；apikey 模式为「撤销授权」
+    // （解绑当前应用，切回首绑门页可绑定其他账户）
+    onLogout: AUTH_MODE === 'jwt' ? () => void logout() : undefined,
+    onRevokeAuth: AUTH_MODE === 'apikey' ? confirmRevokeAuth : undefined,
   }
 
   return (

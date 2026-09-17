@@ -228,7 +228,9 @@
     if (data.type === 'agentflow:request_config') sendConfig();
     // client 内的关闭按钮（header 关闭，嵌入模式显示）请求收起面板
     if (data.type === 'agentflow:close') close();
-    // client 退出登录时通知 widget 清 cookie + 关闭
+    // client 退出登录：只收起面板 + 重置 client 状态，不删接入方 cookie
+    // （cookie 归宿主管，删除会把宿主登录态带掉；宿主可监听
+    // agent-flow-chat:logout 事件自行决定是否登出）
     if (data.type === 'agentflow:logout') onLogout();
     // client 验证 token 失败（无效/过期/未绑定）→ client 内部已显示错误页
     // widget 不再删 cookie 和关闭——让用户看到 client 里的具体错误提示
@@ -249,19 +251,23 @@
   }
 
   function onLogout() {
-    deleteCookie(state.config.tokenCookie);
-    var underscored = state.config.tokenCookie.replace(/-/g, '_');
-    if (underscored !== state.config.tokenCookie) deleteCookie(underscored);
+    // 不删接入方 cookie：tokenCookie 是宿主系统的登录凭证（widget 只读取，
+    // 见文件头注释），删除会把宿主登录态一并带掉、用户被迫重登宿主。
+    // 需要「退出即登出宿主」的接入方，可监听 agent-flow-chat:logout 事件
+    // 自行清理凭证/跳转登录页。
     state.userName = '';
     state.loadedToken = '';
-    state.open = false;
-    // 强制重载 iframe
+    // 强制重载 iframe（下次打开时 client 以全新状态初始化）
     if (state.iframeLoaded) {
       state.iframeLoaded = false;
       state.loading.classList.remove('afc-loaded');
       state.iframe.src = 'about:blank';
     }
+    // 注意勿提前置 state.open=false：close() 开头有 if(!state.open) return，
+    // 预置会让它提前返回、afc-open 不移除——面板卡在展开态且 iframe 已被
+    // 置空，表现为白屏（且 launcher 隐藏、点外部也关不掉）。
     close();
+    emit('logout');
   }
 
   /* ═══ 开关 ═══ */
