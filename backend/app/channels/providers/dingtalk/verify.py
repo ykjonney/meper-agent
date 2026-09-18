@@ -78,11 +78,27 @@ def parse_dingtalk_event(body: str, config: ChannelConfig):
     if not text:
         return None
 
+    # Stream 模式的真实载荷字段是 msgId（webhook 明文回调是 messageId）。
+    # 此前只读 messageId → 流消息的 message_id 恒为空串 → 去重键
+    # (channel_id, "") 使每个渠道只有第一条消息能通过，其余全部被
+    # 幂等去重静默丢弃——即"机器人只回第一条"的根因。
+    message_id = payload.get("messageId") or payload.get("msgId") or ""
+    if not message_id:
+        # 没有消息 ID 就无法安全幂等去重——落库空串会让去重键退化为
+        # (channel_id, "")，重新制造"只回第一条"陷阱。跳过并告警。
+        logger.warning(
+            "dingtalk_message_missing_id msgtype=%s text=%.30s — skip (no dedup key)",
+            payload.get("msgtype"), text,
+        )
+        return None
+
     return InboundMessage(
         channel_id=config.id,
         platform_chat_id=payload.get("conversationId", ""),
         platform_user_id=payload.get("senderStaffId", ""),
-        message_id=payload.get("messageId", ""),
+        platform_user_name=payload.get("senderNick"),
+        chat_type=payload.get("conversationType", ""),
+        message_id=message_id,
         text=text,
         raw=payload,
         timestamp=datetime.now(UTC),

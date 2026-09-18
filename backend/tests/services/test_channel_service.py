@@ -451,3 +451,56 @@ class TestResetCommand:
 
         invoke_mock.assert_awaited_once()
         create_mock.assert_not_awaited()
+
+
+class TestGroupSenderPrefix:
+    """群聊消息送入 agent 前加 [昵称] 前缀（共享会话流 + 用户可感知）。"""
+
+    def _make_inbound_group(self, text: str, chat_type: str, name: str | None):
+
+        inbound = _make_inbound()
+        inbound.text = text
+        inbound.chat_type = chat_type
+        inbound.platform_user_name = name
+        return inbound
+
+    @pytest.mark.asyncio
+    async def test_group_message_gets_sender_prefix(self):
+        from app.services.channel_service import _agent_input
+
+        inbound = self._make_inbound_group("帮我订会议室", "2", "张三")
+        assert _agent_input(inbound) == "[张三] 帮我订会议室"
+
+    @pytest.mark.asyncio
+    async def test_single_chat_no_prefix(self):
+        from app.services.channel_service import _agent_input
+
+        inbound = self._make_inbound_group("帮我订会议室", "1", "张三")
+        assert _agent_input(inbound) == "帮我订会议室"
+
+    @pytest.mark.asyncio
+    async def test_group_without_name_falls_back_to_raw(self):
+        from app.services.channel_service import _agent_input
+
+        inbound = self._make_inbound_group("帮我订会议室", "group", None)
+        assert _agent_input(inbound) == "帮我订会议室"
+
+    @pytest.mark.asyncio
+    async def test_group_reset_command_still_exact_matched(self):
+        """群聊发 #新话题：重置匹配用原始 text，不受前缀影响。"""
+        inbound = self._make_inbound_group("#新话题", "2", "张三")
+        config = _make_config()
+        invoke_mock = AsyncMock()
+
+        with patch(
+            "app.services.channel_service.AgentExecutionService.invoke",
+            new=invoke_mock,
+        ), patch.object(
+            ChannelService, "get_config", new=AsyncMock(return_value=config)
+        ), patch(
+            "app.services.channel_service.SessionService.create_session",
+            new=AsyncMock(return_value={"_id": "s_new"}),
+        ):
+            await ChannelService.execute(inbound)
+
+        invoke_mock.assert_not_awaited()  # 重置生效，未进 agent

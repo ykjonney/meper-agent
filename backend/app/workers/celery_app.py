@@ -53,6 +53,12 @@ celery_app.conf.update(
             # Run daily at 03:00 UTC
             "schedule": crontab(hour=3, minute=0),
         },
+        # 渠道旧会话按保留期级联清理（session+checkpointer+workspace）。
+        "cleanup-channel-sessions": {
+            "task": "app.workers.tasks.maintenance.cleanup_channel_sessions",
+            # Run daily at 04:00 UTC（错开 03:00 的 workspace 清理）
+            "schedule": crontab(hour=4, minute=0),
+        },
         # 扫描已超时的 waiting_human 任务并执行 timeout_action。
         # 取代了原先进程内的 asyncio monitor —— 后者在 Celery worker 的事件
         # 循环停止驱动后无法触发，导致超时不生效。频率即超时精度（30s）。

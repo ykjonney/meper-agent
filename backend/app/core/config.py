@@ -382,6 +382,11 @@ class Settings(BaseSettings):
     # 需要后台审计 IM 聊天记录时打开。
     CHANNEL_PERSIST_MESSAGES: bool = False
 
+    # 渠道旧会话保留天数：轮换后的旧会话（session+checkpointer+workspace）
+    # 永不再读，仅保留此天数供排障回溯，超期由每日定时任务级联清理。
+    # 0 = 永不清理（Web 会话不受此策略影响，仅用户手动删）。
+    CHANNEL_SESSION_RETENTION_DAYS: int = 7
+
     # 飞书群聊仅在被 @ 时响应（首 token 是 @ 占位符才处理，并清洗占位符）。
     # 钉钉平台侧天然只推送被 @ 的群消息，无需此开关。
     CHANNEL_LARK_GROUP_MENTION_ONLY: bool = True

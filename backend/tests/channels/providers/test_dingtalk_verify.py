@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import hmac
+import json
 import time
 
 import pytest
@@ -84,3 +85,63 @@ class TestParseDingtalkEvent:
         body = '{"encrypt":"some_base64_data"}'
         with pytest.raises(DingtalkVerificationError, match="encrypt"):
             parse_dingtalk_event(body, _make_config())
+
+
+class TestStreamMsgIdField:
+    """Regression: Stream 模式载荷的字段是 msgId（非 webhook 的 messageId）。
+    此前只读 messageId → message_id 恒空串 → 去重键 (channel_id, "") 使
+    每渠道只有第一条消息通过、其余被幂等去重静默丢弃（"只回第一条"）。"""
+
+    def test_stream_msgid_extracted(self):
+        from app.channels.providers.dingtalk.verify import parse_dingtalk_event
+
+        cfg = ChannelConfig(
+            name="t", provider=ChannelProvider.DINGTALK,
+            agent_id="a", owner_user_id="u",
+            webhook_secret="x" * 16,
+        )
+        body = json.dumps({
+            "msgtype": "text",
+            "text": {"content": "测试"},
+            "conversationId": "cid_1",
+            "senderStaffId": "staff_1",
+            "msgId": "msgtLCdEToVbLJ2AMoFMe4TQg==",   # Stream 真实字段
+        })
+        inbound = parse_dingtalk_event(body, cfg)
+        assert inbound is not None
+        assert inbound.message_id == "msgtLCdEToVbLJ2AMoFMe4TQg=="
+
+    def test_distinct_stream_messages_no_longer_collide_on_empty_id(self):
+        """两条不同的流消息必须得到不同的 message_id（修复前均为空串）。"""
+        from app.channels.providers.dingtalk.verify import parse_dingtalk_event
+
+        cfg = ChannelConfig(
+            name="t", provider=ChannelProvider.DINGTALK,
+            agent_id="a", owner_user_id="u",
+            webhook_secret="x" * 16,
+        )
+        ids = set()
+        for i in range(2):
+            body = json.dumps({
+                "msgtype": "text", "text": {"content": f"m{i}"},
+                "conversationId": "cid_1", "senderStaffId": "s",
+                "msgId": f"msg_{i}",
+            })
+            inbound = parse_dingtalk_event(body, cfg)
+            ids.add(inbound.message_id)
+        assert len(ids) == 2
+
+    def test_missing_id_skips_instead_of_poisoning_dedup(self):
+        """两个 ID 字段都缺 → 跳过（返回 None），绝不让空串污染去重键。"""
+        from app.channels.providers.dingtalk.verify import parse_dingtalk_event
+
+        cfg = ChannelConfig(
+            name="t", provider=ChannelProvider.DINGTALK,
+            agent_id="a", owner_user_id="u",
+            webhook_secret="x" * 16,
+        )
+        body = json.dumps({
+            "msgtype": "text", "text": {"content": "无ID消息"},
+            "conversationId": "cid_1", "senderStaffId": "s",
+        })
+        assert parse_dingtalk_event(body, cfg) is None

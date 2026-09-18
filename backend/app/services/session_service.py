@@ -79,6 +79,34 @@ class SessionService:
         return await SessionService._collection().find_one({"_id": session_id})
 
     @staticmethod
+    async def cleanup_channel_sessions(
+        retention_days: int, batch_limit: int = 100,
+    ) -> int:
+        """Cascade-delete channel sessions idle for longer than the retention.
+
+        渠道会话轮换后旧 thread 永不再读（复用查找只选最新活跃），仅保留
+        N 天供排障回溯。级联范围与 delete_session 一致：session 文档 +
+        messages 明细 + checkpointer thread + workspace。只碰 channel:
+        前缀身份，Web 会话不受影响。返回本轮删除数（分批，每日跑）。
+        """
+        from datetime import timedelta
+
+        from app.models.base import utc_now
+
+        cutoff = (utc_now() - timedelta(days=retention_days)).isoformat()
+        cursor = SessionService._collection().find(
+            {
+                "user_id": {"$regex": "^channel:"},
+                "updated_at": {"$lt": cutoff},
+            },
+            {"_id": 1},
+        ).limit(batch_limit)
+        session_ids = [doc["_id"] async for doc in cursor]
+        for sid in session_ids:
+            await SessionService.delete_session(sid)
+        return len(session_ids)
+
+    @staticmethod
     async def get_latest_session(
         user_id: str,
         agent_id: str,

@@ -375,3 +375,40 @@ class TestChannelMessagePersistence:
 
         mock_add.assert_awaited_once()         # 开关打开 → 审计模式落明细
         mock_update.assert_not_awaited()
+
+
+class TestChannelSessionCleanup:
+    """渠道旧会话按保留期级联清理（只碰 channel: 前缀，Web 会话不动）。"""
+
+    async def test_cleanup_deletes_only_expired_channel_sessions(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.services import session_service as ss
+
+        class _AsyncIter:
+            def __init__(self, items): self._it = iter(items)
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(self._it)
+                except StopIteration:
+                    raise StopAsyncIteration from None
+
+        mock_coll = MagicMock()
+        mock_coll.find.return_value.limit.return_value = _AsyncIter([
+            {"_id": "session_old_1"}, {"_id": "session_old_2"},
+        ])
+
+        with patch.object(ss.SessionService, "_collection", return_value=mock_coll), \
+             patch.object(
+                 ss.SessionService, "delete_session", new=AsyncMock(),
+             ) as mock_del:
+            n = await ss.SessionService.cleanup_channel_sessions(7)
+
+        assert n == 2
+        assert mock_del.await_count == 2
+        query = mock_coll.find.call_args.args[0]
+        assert query["user_id"] == {"$regex": "^channel:"}  # 只碰渠道会话
+        assert "$lt" in query["updated_at"]

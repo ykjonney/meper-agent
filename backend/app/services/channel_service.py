@@ -51,6 +51,22 @@ logger = logging.getLogger(__name__)
 _SESSION_RESET_COMMANDS = ("#新话题", "/new", "/reset")
 _SESSION_RESET_REPLY = "已开启新话题，请直接说出你的问题～"
 
+# 群聊的 chat_type 平台原值（钉钉 "2"；飞书 "group"）。群消息加 "[昵称] "
+# 前缀送入 agent——共享会话流保留跨用户接话能力，同时让 agent 感知"谁在
+# 说话"（记忆归属到人）。单聊不加（一对一无需区分）。
+_GROUP_CHAT_TYPES = frozenset({"2", "group"})
+
+
+def _agent_input(inbound: InboundMessage) -> str:
+    """Build the text sent to the agent (group messages get sender prefix).
+
+    重置指令匹配、会话标题、去重均使用原始 text；前缀只影响 agent 输入。
+    无昵称（如飞书事件不含）时退回裸文本。
+    """
+    if inbound.chat_type in _GROUP_CHAT_TYPES and inbound.platform_user_name:
+        return f"[{inbound.platform_user_name}] {inbound.text}"
+    return inbound.text
+
 
 class ChannelService:
     # ── DB access ──
@@ -185,10 +201,11 @@ class ChannelService:
         )
         from app.core.errors import SessionBudgetExceededError
 
+        agent_input = _agent_input(inbound)
         try:
             response = await AgentExecutionService.invoke(
                 agent_id=config.agent_id,
-                body=ExecutionRequest(input=inbound.text, session_id=session_id),
+                body=ExecutionRequest(input=agent_input, session_id=session_id),
                 user_id=user_id,
             )
         except SessionBudgetExceededError:
@@ -205,7 +222,7 @@ class ChannelService:
             response = await AgentExecutionService.invoke(
                 agent_id=config.agent_id,
                 body=ExecutionRequest(
-                    input=inbound.text, session_id=str(fresh["_id"]),
+                    input=agent_input, session_id=str(fresh["_id"]),
                 ),
                 user_id=user_id,
             )

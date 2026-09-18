@@ -177,6 +177,26 @@ class _DingtalkMessageHandler(dingtalk_stream.CallbackHandler):
         carries the inbound JSON. We forward it through dispatch_inbound
         using the same parser as webhook mode (parse_dingtalk_event).
         """
+        # 无条件到达日志：不管后续解析/去重/执行结果如何，先记一笔。
+        # 这是区分"平台没推"与"我们静默丢弃"的唯一可靠信号。
+        # 只挑诊断相关字段——绝不打 sessionWebhook（含 ~2h 有效的回复
+        # 令牌，进日志=任何读日志者可冒充机器人发消息）。
+        data = getattr(callback, "data", None)
+        preview = {
+            k: data.get(k)
+            for k in (
+                "msgtype", "text", "msgId", "messageId",
+                "conversationId", "conversationType",
+                "senderNick", "senderStaffId", "senderPlatform",
+            )
+            if isinstance(data, dict) and data.get(k) is not None
+        } if isinstance(data, dict) else {"raw": str(data)[:200]}
+        logger.info(
+            "dingtalk_message_received channel=%s topic=%s data=%s",
+            self.owner.config.id,
+            getattr(getattr(callback, "headers", None), "topic", "?"),
+            preview,
+        )
         try:
             body = self._extract_body(callback)
         except Exception as exc:

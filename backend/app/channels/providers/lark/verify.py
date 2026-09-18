@@ -193,7 +193,10 @@ def parse_lark_event(body: str, config: ChannelConfig):
         channel_id=config.id,
         platform_chat_id=msg_obj.get("chat_id", ""),
         platform_user_id=sender_id.get("open_id", ""),
+        # 飞书事件不含发送者昵称（需另调通讯录 API）——群聊前缀在无名字时
+        # 自动跳过（见 ChannelService._agent_input）。
         platform_user_name=None,
+        chat_type=msg_obj.get("chat_type", ""),
         message_id=msg_obj.get("message_id", ""),
         text=text,
         raw=payload,

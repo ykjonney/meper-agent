@@ -27,6 +27,9 @@ class InboundMessage(BaseModel):
     platform_chat_id: str         # chat/group/open_id this conversation lives in
     platform_user_id: str         # sender identity within the platform
     platform_user_name: str | None = None
+    # 会话类型（平台原值）：钉钉 "1"=单聊 "2"=群聊；飞书 "p2p"/"group"。
+    # 群聊时编排层会用 platform_user_name 给送入 agent 的文本加发送者前缀。
+    chat_type: str = ""
     message_id: str               # platform message id (idempotency key)
     text: str = Field(..., min_length=1)
     raw: dict                     # original payload (audit/debug/future rich format)

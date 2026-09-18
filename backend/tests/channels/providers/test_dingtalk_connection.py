@@ -425,3 +425,36 @@ class TestForcedShutdown:
 
         assert stub.closed is True  # websocket closed, not just state cleared
         assert client._sdk_client is None
+
+
+class TestArrivalLogHygiene:
+    """到达日志不得泄漏 sessionWebhook（~2h 有效的回复令牌）。"""
+
+    async def test_arrival_log_excludes_session_webhook(self, caplog):
+        import logging as _logging
+
+        from app.channels.providers.dingtalk.connection import (
+            DingtalkConnectionClient,
+            _DingtalkMessageHandler,
+        )
+
+        client = DingtalkConnectionClient(_make_dt_config())
+        handler = _DingtalkMessageHandler(client)
+        callback = MagicMock()
+        callback.headers.topic = "/v1.0/im/bot/messages/get"
+        callback.data = {
+            "msgtype": "text", "text": {"content": "hi"},
+            "msgId": "m1", "conversationId": "c1",
+            "sessionWebhook": "https://oapi.dingtalk.com/robot/sendBySession?session=SECRET",
+        }
+
+        with patch(
+            "app.channels.providers.dingtalk.connection.dispatch_inbound",
+            new=AsyncMock(return_value=None),
+        ), caplog.at_level(_logging.INFO, logger="app.channels.providers.dingtalk.connection"):
+            await handler.process(callback)
+
+        joined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "dingtalk_message_received" in joined
+        assert "SECRET" not in joined and "sessionWebhook" not in joined
+        assert "m1" in joined  # 诊断字段仍在
