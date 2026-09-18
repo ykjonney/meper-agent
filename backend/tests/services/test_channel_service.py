@@ -317,6 +317,10 @@ class TestSessionContinuity:
         ), patch.object(
             ChannelService, "_find_continuable_session",
             new=AsyncMock(return_value="session_old"),
+        ), patch.object(
+            # 成功路径尾部的 _reset_failure_counter 真写 configs 集合——
+            # 不 mock 则本地连真 Mongo 静默通过、CI 无 Mongo 超时挂掉。
+            ChannelService, "_reset_failure_counter", new=AsyncMock(),
         ):
             await ChannelService.execute(inbound)
 
@@ -340,6 +344,8 @@ class TestSessionContinuity:
         ), patch.object(
             ChannelService, "_find_continuable_session",
             new=AsyncMock(return_value=None),
+        ), patch.object(
+            ChannelService, "_reset_failure_counter", new=AsyncMock(),
         ):
             await ChannelService.execute(inbound)
 
@@ -446,6 +452,8 @@ class TestResetCommand:
         ), patch(
             "app.services.channel_service.SessionService.create_session",
             new=create_mock,
+        ), patch.object(
+            ChannelService, "_reset_failure_counter", new=AsyncMock(),
         ):
             await ChannelService.execute(inbound)
 

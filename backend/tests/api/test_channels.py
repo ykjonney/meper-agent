@@ -385,6 +385,11 @@ class TestInboundWebhookE2E:
                 "app.services.channel_service.AgentExecutionService.invoke",
                 new=AsyncMock(return_value=fake_response),
             ), patch.object(
+                # 不 mock 则 _find_continuable_session → get_latest_session
+                # 真查 sessions 集合——本地连真 Mongo 静默通过、CI 超时挂。
+                ChannelService, "_find_continuable_session",
+                new=AsyncMock(return_value=None),
+            ), patch.object(
                 ChannelService, "_configs_coll", return_value=mock_cfg_coll,
             ):
                 await ChannelService.execute(inbound)
