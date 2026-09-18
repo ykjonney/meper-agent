@@ -4,7 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from app.core.auth_apikey import ApiKeyPrincipal, get_api_key_principal
+from app.core.auth_apikey import (
+    ApiKeyPrincipal,
+    get_api_key_principal,
+    get_api_key_principal_allow_unbound,
+)
 from app.core.errors import ForbiddenError, UnauthorizedError
 from app.services.api_key_service import (
     _extract_prefix,
@@ -438,3 +442,129 @@ class TestGetApiKeyPrincipal:
         with pytest.raises(UnauthorizedError) as exc:
             await get_api_key_principal(request, authorization="Bearer af_live_test")
         assert exc.value.code == "EXT_USER_NOT_BOUND"
+
+    async def test_relaxed_deleted_platform_user_passes_unbound(
+        self, monkeypatch, api_key_doc
+    ):
+        """relaxed + 孤儿映射（已删用户）→ 视同未绑定放行。
+
+        首绑门页 bootstrap/PUT 走 relaxed 鉴权——孤儿回查不豁免 relaxed
+        会把门页自身拦死：strict 401 引导用户去重新授权，门页却 401。
+        """
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        monkeypatch.setattr(
+            ExternalIdentityService,
+            "find_by_sub",
+            AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
+        )
+        self._mock_platform_user(monkeypatch, user_doc=None)
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+
+        principal = await get_api_key_principal_allow_unbound(
+            request, authorization="Bearer af_live_test"
+        )
+
+        assert principal.user_id is None
+        assert principal.token_record_id is None
+        # 身份锚照常携带：PUT 授权时以 ext_user_id 组 sub 接管孤儿映射
+        assert principal.ext_username == "bob"
+        assert principal.ext_user_id == "bob"
+
+    async def test_relaxed_disabled_platform_user_passes_unbound(
+        self, monkeypatch, api_key_doc
+    ):
+        """relaxed + 禁用用户 → 同样视同未绑定放行（门页可达）。
+
+        重新授权能否接管由 bind_credential 决定（禁用维持抢注冲突，
+        不绕过管理员停用）；鉴权层只负责放行到授权端点。
+        """
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        monkeypatch.setattr(
+            ExternalIdentityService,
+            "find_by_sub",
+            AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
+        )
+        self._mock_platform_user(
+            monkeypatch,
+            user_doc={"_id": "user_platform_01", "status": "disabled"},
+        )
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+
+        principal = await get_api_key_principal_allow_unbound(
+            request, authorization="Bearer af_live_test"
+        )
+
+        assert principal.user_id is None
+        assert principal.ext_username == "bob"
+        assert principal.ext_user_id == "bob"
+
+    async def test_relaxed_active_platform_user_keeps_identity(
+        self, monkeypatch, api_key_doc
+    ):
+        """relaxed + 健康映射 → 仍设置 user_id（bootstrap 显示已绑定）。"""
+        from app.services.api_key_service import ApiKeyService
+        from app.services.application_service import ApplicationService
+        from app.services.external_identity_service import ExternalIdentityService
+        from app.services.user_auth_service import UserAuthService
+
+        monkeypatch.setattr(
+            ApiKeyService, "verify_key", AsyncMock(return_value=api_key_doc)
+        )
+        monkeypatch.setattr(
+            ApplicationService,
+            "get_application",
+            AsyncMock(return_value={"_id": "app_01", "name": "测试应用"}),
+        )
+        monkeypatch.setattr(
+            UserAuthService,
+            "introspect",
+            AsyncMock(return_value=SimpleNamespace(active=True, username="bob")),
+        )
+        monkeypatch.setattr(
+            ExternalIdentityService,
+            "find_by_sub",
+            AsyncMock(return_value={"platform_user_id": "user_platform_01"}),
+        )
+        self._mock_platform_user(monkeypatch)
+        request = self._make_request({"X-User-Token": "Bearer meper_xxx"})
+
+        principal = await get_api_key_principal_allow_unbound(
+            request, authorization="Bearer af_live_test"
+        )
+
+        assert principal.user_id == "user_platform_01"
+        assert principal.token_record_id == "user_platform_01"

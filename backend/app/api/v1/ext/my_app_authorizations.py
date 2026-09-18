@@ -13,6 +13,7 @@ client 端自助授权入口，解决"未绑定用户到不了授权端点"的�
   用户名；凭证一律经应用 login_url 真实验证，身份锚（ext_user_id）与
   登录名解耦，安全性对齐 studio 流程（login_url 验证 + sub 抢注保护）。
 """
+from agent_flow_harness.mcp.errors import McpAppUnavailable
 from fastapi import APIRouter, Depends
 
 from app.api.v1.ext import auth_and_rate_limit, auth_and_rate_limit_allow_unbound
@@ -221,6 +222,11 @@ async def authorize_app(
                 code="MCP_CREDENTIAL_INVALID",
                 message=str(exc),
             ) from exc
+        except McpAppUnavailable as exc:
+            raise ValidationError(
+                code="MCP_APP_UNAVAILABLE",
+                message="应用登录服务暂不可用，请稍后重试",
+            ) from exc
         # 用户名已有平台账号 → 同密码验证（同一自然人的既有账号，
         # 例如 admin 预建或此前自动创建）；验证不过说明密码不是平台
         # 密码，交由用户改走认领（claim）。
@@ -261,6 +267,11 @@ async def authorize_app(
         raise ValidationError(
             code="MCP_CREDENTIAL_INVALID",
             message=str(exc),
+        ) from exc
+    except McpAppUnavailable as exc:
+        raise ValidationError(
+            code="MCP_APP_UNAVAILABLE",
+            message="应用登录服务暂不可用，请稍后重试",
         ) from exc
 
     return await _list_bindings_response(platform_user_id)

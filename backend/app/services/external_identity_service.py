@@ -107,6 +107,27 @@ class ExternalIdentityService:
         return result.deleted_count
 
     @staticmethod
+    async def delete_by_sub(sub: str) -> int:
+        """Delete a single identity mapping by sub.
+
+        孤儿映射接管用：sub 指向的平台用户已删除时，重新授权前先清掉
+        该映射，让 upsert 可以建立新绑定（delete_by_app_and_user 按
+        platform_user_id 过滤，删不掉指向已删用户的孤儿）。
+
+        Returns:
+            Number of deleted mappings (0 or 1).
+        """
+        if not sub:
+            return 0
+        result = await ExternalIdentityService._collection().delete_one({"sub": sub})
+        if result.deleted_count:
+            logger.info(
+                "external_identity_deleted_by_sub",
+                sub=sub,
+            )
+        return result.deleted_count
+
+    @staticmethod
     async def list_by_platform_user(platform_user_id: str) -> list[dict]:
         """List all identity mappings for a platform user."""
         cursor = ExternalIdentityService._collection().find(

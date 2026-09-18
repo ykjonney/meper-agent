@@ -252,7 +252,9 @@ async def _user_token_interceptor(
     JSON 标记（前端兜底渲染授权卡片用），文案同时覆盖两种语境——chat
     语境引导 LLM 调 request_app_authorization；工作流语境（无人值守，
     无该工具）引导用户去客户端完成授权。UNBOUND=未授权，
-    INVALID=已授权但凭证失效（密码/用户名被修改），两者都走授权更新。
+    INVALID=已授权但凭证失效（密码/用户名被修改），两者都走授权更新；
+    FORBIDDEN=MCP 未挂任何应用（无可授权的 app），不引导授权、
+    禁止索要凭证，引导联系管理员。
     """
     platform_user_id = get_token_record_id_context()
     external_required = get_external_required_context()
@@ -300,7 +302,26 @@ async def _user_token_interceptor(
             "app_id": exc.app_id,
             "app_name": exc.app_name,
         }, ensure_ascii=False)
-        if exc.reason == "INVALID":
+        if exc.reason == "UNAVAILABLE":
+            # 应用登录端点故障（5xx/超时）——凭证未必有问题，不引导授权
+            # 更新（前端 marker 过滤只认 UNBOUND/INVALID，不渲染授权卡）
+            hint = (
+                f"应用「{exc.app_name}」的登录服务暂不可用"
+                f"（{exc.detail or '服务无响应'}），请稍后重试；"
+                "若持续出现请联系管理员。此问题与授权凭证无关，"
+                "请勿要求用户重新输入账号或密码。"
+            )
+        elif exc.reason == "FORBIDDEN":
+            # MCP 未挂载到任何授权应用——无可授权的 app，用户授权解决
+            # 不了（前端 marker 过滤只认 UNBOUND/INVALID，不渲染授权卡）。
+            # 引导联系管理员：挂应用走授权，或从 Agent 解绑该工具。
+            hint = (
+                f"服务 {server_name} 未对终端用户开放"
+                "（未挂载到任何授权应用），已拒绝以平台内部凭证执行调用。"
+                "此问题无法通过用户授权解决，请告知用户联系管理员配置；"
+                "禁止向用户索要任何账号或密码。"
+            )
+        elif exc.reason == "INVALID":
             hint = (
                 f"用户对应用「{exc.app_name}」的授权凭证已失效"
                 f"（可能修改过密码或用户名{f'：{exc.detail}' if exc.detail else ''}）。"
@@ -317,8 +338,18 @@ async def _user_token_interceptor(
             )
         return _make_error_result(f"{marker}\n{hint}")
     except Exception as exc:
-        # resolver 异常（DB 不可用、登录失败等）→ 返回错误结果（不抛异常）
-        return _make_error_result(f"MCP 凭证兑换失败({server_name}): {exc}")
+        # resolver 未分类异常（DB 不可用等）→ 错误结果（不抛异常，不中断
+        # 宿主进程）。原始异常只进日志——错误文本会到达 LLM/用户，透出
+        # repr（含内部 URL/堆栈片段）既不利读也无谓暴露内部细节。
+        logger.warning(
+            "mcp_credential_resolve_failed",
+            server_name=server_name,
+            error=repr(exc),
+        )
+        return _make_error_result(
+            f"MCP 凭证兑换失败({server_name})，请稍后重试；"
+            "若持续出现请联系管理员。"
+        )
 
     if cred is None:
         # 连接不存在 / 应用 login_config 缺失等配置问题（公共放行后

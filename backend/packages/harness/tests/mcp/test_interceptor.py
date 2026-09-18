@@ -241,6 +241,67 @@ class TestUserTokenInterceptor:
         assert "request_app_authorization" in text
         assert "禁止向用户索要" in text
 
+    async def test_external_path_app_unavailable_returns_unmarked_error(self):
+        """应用端点不可用（McpAppUnavailable，5xx/超时）→ isError + 机器
+        可读标记（reason=UNAVAILABLE），但文案不引导授权更新——凭证未必
+        有问题，重输密码解决不了端点故障。"""
+        import json
+
+        from agent_flow_harness.mcp.errors import McpAppUnavailable
+
+        set_token_record_id_context("platform-user-1")
+        set_credential_resolver(
+            _FakeResolver(
+                error=McpAppUnavailable(
+                    "app_1", "合作系统", "partner", detail="HTTPStatusError"
+                )
+            )
+        )
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        marker = json.loads(text.split("\n")[0])
+        assert marker["mcp_credential_error"] == "UNAVAILABLE"
+        assert marker["app_id"] == "app_1"
+        # 文案：暂不可用 + 稍后重试；不出现授权引导与索要凭证
+        assert "暂不可用" in text
+        assert "稍后重试" in text
+        assert "request_app_authorization" not in text
+        assert "禁止向用户索要" not in text
+
+    async def test_external_path_forbidden_returns_marked_error(self):
+        """MCP 未挂任何应用（McpCredentialForbidden）→ isError + FORBIDDEN
+        标记；无可授权的 app，不引导授权，引导联系管理员、禁止索要凭证。"""
+        import json
+
+        from agent_flow_harness.mcp.errors import McpCredentialForbidden
+
+        set_token_record_id_context("platform-user-1")
+        set_credential_resolver(
+            _FakeResolver(
+                error=McpCredentialForbidden("", "", "partner", detail="未挂应用")
+            )
+        )
+        handler = AsyncMock(return_value={"ok": True})
+
+        result = await _user_token_interceptor(_FakeRequest(), handler)
+
+        handler.assert_not_awaited()
+        assert getattr(result, "isError", False) is True
+        text = result.content[0].text
+        marker = json.loads(text.split("\n")[0])
+        assert marker["mcp_credential_error"] == "FORBIDDEN"
+        # 文案：未对终端用户开放 + 联系管理员；不出现授权工具引导
+        assert "未对终端用户开放" in text
+        assert "partner" in text
+        assert "联系管理员" in text
+        assert "request_app_authorization" not in text
+        assert "禁止向用户索要" in text
+
     async def test_external_path_resolver_error_returns_error(self):
         """外部路径兑换异常 → 返回 isError 结果, 不调 handler。"""
         set_token_record_id_context("platform-user-1")

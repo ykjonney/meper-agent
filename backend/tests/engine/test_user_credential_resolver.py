@@ -6,11 +6,15 @@ get_binding(platform_user_id, app_id) → _get_or_exchange_session
 （Redis 缓存 / POST login_url 换 session）→ 按 conn.auth_type + auth_config 注入。
 token 型绑定已废弃。
 
-v5 增补（公共 MCP 放行）：auth_type=none 的连接直接放行（不反查应用）；
-不挂任何应用的连接用平台静态凭证放行（无授权单元）。
+v5 增补（公共 MCP 放行）：auth_type=none 的连接直接放行（不反查应用）。
+
+v5.1 收紧：不挂任何应用且需认证的连接 → McpCredentialForbidden——
+外部用户的调用不得回退平台静态凭证（跨权限访问风险），公共语义
+仅剩免认证连接；认证型连接必须挂应用走用户授权。
 """
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from app.engine.mcp.user_credential_resolver import UserCredentialResolver
 
@@ -83,9 +87,11 @@ class TestResolve:
             result = await resolver.resolve("user_platform_01", "weather")
         assert result == {"auth_type": "none"}
 
-    async def test_no_application_uses_static_credentials(self) -> None:
-        """不挂任何应用 = 公共 MCP：返回平台静态凭证（auth_config）放行；
-        auth_config 为空则裸透传（loader 空 headers 分支）。"""
+    async def test_no_application_with_static_credentials_forbidden(self) -> None:
+        """不挂任何应用且需认证 → FORBIDDEN：即使平台配了静态凭证也不放行
+        （外部用户的调用不得以平台共享身份代用，防跨权限访问）。"""
+        from agent_flow_harness.mcp.errors import McpCredentialForbidden
+
         resolver = UserCredentialResolver()
         conn = {
             "_id": "mcp_public_key",
@@ -99,16 +105,18 @@ class TestResolve:
         ), patch(
             "app.services.application_service.ApplicationService.find_by_mcp_connection",
             AsyncMock(return_value=None),
-        ):
-            result = await resolver.resolve("user_platform_01", "public_api")
+        ), pytest.raises(McpCredentialForbidden) as exc_info:
+            await resolver.resolve("user_platform_01", "public_api")
 
-        assert result is not None
-        assert result["auth_type"] == "bearer_token"
-        assert result["token"] == "platform_static_token"
+        assert exc_info.value.reason == "FORBIDDEN"
+        assert exc_info.value.server_name == "public_api"
 
-    async def test_no_application_without_static_credentials(self) -> None:
-        """不挂应用且 auth_config 为空：仍放行（返回不含凭证的描述，
-        loader 空 headers 裸透传）。"""
+    async def test_no_application_without_static_credentials_forbidden(
+        self,
+    ) -> None:
+        """不挂应用且 auth_config 为空：同样 FORBIDDEN（不裸透传）。"""
+        from agent_flow_harness.mcp.errors import McpCredentialForbidden
+
         resolver = UserCredentialResolver()
         with patch.object(
             UserCredentialResolver,
@@ -117,9 +125,9 @@ class TestResolve:
         ), patch(
             "app.services.application_service.ApplicationService.find_by_mcp_connection",
             AsyncMock(return_value=None),
-        ):
-            result = await resolver.resolve("user_platform_01", "oa_system")
-        assert result == {"auth_type": "bearer_token"}
+        ), pytest.raises(McpCredentialForbidden) as exc_info:
+            await resolver.resolve("user_platform_01", "oa_system")
+        assert exc_info.value.reason == "FORBIDDEN"
 
     async def test_unbound_raises_structured_error(self) -> None:
         """用户未绑定该应用 → 抛 McpCredentialUnbound（携带 app_id/app_name，
@@ -259,6 +267,74 @@ class TestResolve:
         assert exc_info.value.app_name == "OA 系统"
         assert "密码错误" in exc_info.value.detail
 
+    async def test_endpoint_5xx_raises_structured_unavailable(self) -> None:
+        """登录端点 5xx → 结构化 McpAppUnavailable（UNAVAILABLE）——
+        凭证未必有问题，不引导授权更新，提示稍后重试。"""
+        from agent_flow_harness.mcp.errors import McpAppUnavailable
+
+        app = {**_APP, "name": "OA 系统"}
+        request = httpx.Request("POST", "https://oa.example.com/login")
+        resolver = UserCredentialResolver()
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=_CONN),
+        ), patch(
+            "app.services.application_service.ApplicationService.find_by_mcp_connection",
+            AsyncMock(return_value=app),
+        ), patch(
+            "app.services.user_mcp_credential_service.UserMcpCredentialService.get_binding",
+            AsyncMock(return_value=_BINDING),
+        ), patch(
+            "app.services.user_mcp_credential_service.get_cached_session",
+            AsyncMock(return_value=None),  # cache miss → 走 login
+        ), patch.object(
+            UserCredentialResolver,
+            "_do_login",
+            AsyncMock(
+                side_effect=httpx.HTTPStatusError(
+                    "Server error '500'",
+                    request=request,
+                    response=httpx.Response(500, request=request),
+                )
+            ),
+        ), pytest.raises(McpAppUnavailable) as exc_info:
+            await resolver.resolve("user_platform_01", "oa_system")
+
+        assert exc_info.value.reason == "UNAVAILABLE"
+        assert exc_info.value.app_id == "app_01"
+        assert exc_info.value.app_name == "OA 系统"
+        # detail 只放异常类名，不透内部 URL
+        assert exc_info.value.detail == "HTTPStatusError"
+
+    async def test_endpoint_timeout_raises_structured_unavailable(self) -> None:
+        """登录端点超时（httpx.RequestError）→ 同样归 UNAVAILABLE。"""
+        from agent_flow_harness.mcp.errors import McpAppUnavailable
+
+        app = {**_APP, "name": "OA 系统"}
+        resolver = UserCredentialResolver()
+        with patch.object(
+            UserCredentialResolver,
+            "_get_connection_by_name",
+            AsyncMock(return_value=_CONN),
+        ), patch(
+            "app.services.application_service.ApplicationService.find_by_mcp_connection",
+            AsyncMock(return_value=app),
+        ), patch(
+            "app.services.user_mcp_credential_service.UserMcpCredentialService.get_binding",
+            AsyncMock(return_value=_BINDING),
+        ), patch(
+            "app.services.user_mcp_credential_service.get_cached_session",
+            AsyncMock(return_value=None),
+        ), patch.object(
+            UserCredentialResolver,
+            "_do_login",
+            AsyncMock(side_effect=httpx.ConnectTimeout("timed out")),
+        ), pytest.raises(McpAppUnavailable) as exc_info:
+            await resolver.resolve("user_platform_01", "oa_system")
+
+        assert exc_info.value.reason == "UNAVAILABLE"
+
     async def test_injects_header_name_from_auth_config(self) -> None:
         """auth_config.header_name 决定注入头。"""
         resolver = UserCredentialResolver()
@@ -289,6 +365,25 @@ class TestResolve:
 class TestDoLogin:
     """_do_login 的 HTTP 调用 + jsonpath 解析。"""
 
+    @staticmethod
+    def _fake_client(resp: "_FakeResp") -> type:
+        """按给定响应构造 httpx.AsyncClient 替身。"""
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            async def request(self, method, url, **kw):
+                return resp
+
+        return _FakeClient
+
     async def test_successful_login_extracts_token(self) -> None:
         """正常登录：POST 成功 → 按 token_jsonpath 取 token。"""
         resolver = UserCredentialResolver()
@@ -298,32 +393,52 @@ class TestDoLogin:
             "token_jsonpath": "data.access_token",
         }
 
-        class _FakeResp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"data": {"access_token": "sess_abc"}, "status": "ok"}
-
-        class _FakeClient:
-            def __init__(self, *a, **kw):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                pass
-
-            async def request(self, method, url, **kw):
-                return _FakeResp()
+        resp = _FakeResp(
+            200, lambda: {"data": {"access_token": "sess_abc"}, "status": "ok"}
+        )
 
         with patch(
-            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient", _FakeClient
+            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient",
+            self._fake_client(resp),
         ):
             token = await resolver._do_login(login_config, "admin", "pass123")
 
         assert token == "sess_abc"
+
+    async def test_4xx_login_rejected_as_permission_error(self) -> None:
+        """4xx（密码错误返回 401/403 的接入方）→ PermissionError（INVALID
+        语义，出授权卡）。若落入 raise_for_status 的 HTTPStatusError 会被
+        归为「端点不可用」，这类应用永远出不了授权卡。"""
+        resolver = UserCredentialResolver()
+        login_config = {
+            "login_url": "https://oa.example.com/login",
+            "token_jsonpath": "data.token",
+        }
+
+        resp = _FakeResp(401, lambda: {})
+
+        with patch(
+            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient",
+            self._fake_client(resp),
+        ), pytest.raises(PermissionError, match="HTTP 401"):
+            await resolver._do_login(login_config, "admin", "wrong_pass")
+
+    async def test_5xx_login_raises_http_status_error(self) -> None:
+        """5xx → raise_for_status 抛 HTTPStatusError（resolve 层归 UNAVAILABLE）。"""
+        resolver = UserCredentialResolver()
+        login_config = {
+            "login_url": "https://oa.example.com/login",
+            "token_jsonpath": "data.token",
+        }
+
+        resp = _FakeResp(500, lambda: {})
+        resp.raise_for_status_error = True
+
+        with patch(
+            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient",
+            self._fake_client(resp),
+        ), pytest.raises(httpx.HTTPStatusError):
+            await resolver._do_login(login_config, "admin", "pass123")
 
     async def test_missing_token_path_raises(self) -> None:
         """响应成功但找不到 token_jsonpath → 抛 PermissionError。"""
@@ -333,29 +448,13 @@ class TestDoLogin:
             "token_jsonpath": "data.token",
         }
 
-        class _FakeResp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                # 成功响应但没有 data.token（路径不存在）
-                return {"success": True, "data": {"other": "value"}}
-
-        class _FakeClient:
-            def __init__(self, *a, **kw):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                pass
-
-            async def request(self, method, url, **kw):
-                return _FakeResp()
+        resp = _FakeResp(
+            200, lambda: {"success": True, "data": {"other": "value"}}
+        )
 
         with patch(
-            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient", _FakeClient
+            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient",
+            self._fake_client(resp),
         ), pytest.raises(PermissionError, match="未找到 token 路径"):
             await resolver._do_login(login_config, "admin", "pass123")
 
@@ -367,27 +466,39 @@ class TestDoLogin:
             "token_jsonpath": "data.accessToken",
         }
 
-        class _FakeResp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"success": False, "code": 500, "message": "User Name or Password is Invalid!", "data": {}}
-
-        class _FakeClient:
-            def __init__(self, *a, **kw):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                pass
-
-            async def request(self, method, url, **kw):
-                return _FakeResp()
+        resp = _FakeResp(
+            200,
+            lambda: {
+                "success": False,
+                "code": 500,
+                "message": "User Name or Password is Invalid!",
+                "data": {},
+            },
+        )
 
         with patch(
-            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient", _FakeClient
+            "app.engine.mcp.user_credential_resolver.httpx.AsyncClient",
+            self._fake_client(resp),
         ), pytest.raises(PermissionError, match="登录失败.*Invalid"):
             await resolver._do_login(login_config, "admin", "pass123")
+
+
+class _FakeResp:
+    """httpx 响应替身：status_code 参与错误分类；json/raise_for_status 可配。"""
+
+    def __init__(self, status_code: int, json_body) -> None:
+        self.status_code = status_code
+        self._json_body = json_body
+        self.raise_for_status_error = status_code >= 500
+
+    def raise_for_status(self) -> None:
+        if self.raise_for_status_error:
+            request = httpx.Request("POST", "https://oa.example.com/login")
+            raise httpx.HTTPStatusError(
+                f"Server error '{self.status_code}'",
+                request=request,
+                response=httpx.Response(self.status_code, request=request),
+            )
+
+    def json(self):
+        return self._json_body()

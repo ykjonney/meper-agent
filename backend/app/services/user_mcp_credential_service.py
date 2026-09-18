@@ -105,10 +105,24 @@ async def _verify_credentials(
 
     body = {username_field: username, password_field: password}
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.request(method, login_url, json=body)
+    # 端点故障（网络异常/5xx/非 JSON 响应）→ McpAppUnavailable（授权提交
+    # 路径转 422 MCP_APP_UNAVAILABLE，提示稍后重试，不误导用户重输密码）；
+    # 凭证类失败（4xx、业务 success:false、token 路径缺失）→ PermissionError
+    # （INVALID 语义，引导重输凭证）。4xx 必须在 raise_for_status 之前判：
+    # 密码错误返回 401/403 的接入方若走 HTTPStatusError 会落入「不可用」。
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.request(method, login_url, json=body)
+        if 400 <= resp.status_code < 500:
+            raise PermissionError(f"应用登录端点返回 HTTP {resp.status_code}")
         resp.raise_for_status()
         data = resp.json()
+    except PermissionError:
+        raise
+    except (httpx.HTTPError, ValueError) as exc:
+        from agent_flow_harness.mcp.errors import McpAppUnavailable
+
+        raise McpAppUnavailable("", "", "", detail=type(exc).__name__) from exc
 
     # 校验登录是否成功
     if isinstance(data, dict) and data.get("success") is False:
@@ -296,6 +310,29 @@ class UserMcpCredentialService:
 
         # 2. 写 external_identities（sub → platform_user_id）
         sub = compose_sub(app_id, identity_key)
+        # 孤儿映射自愈：sub 已绑定到别的平台用户但该用户已删除
+        # （存量数据——delete_user 级联清理之前的残留）时，先清掉再
+        # upsert，让被引导重新授权的用户能接管自己的身份锚。禁用用户
+        # 不接管——管理员停用账号的意图不应被重新授权绕过，维持 upsert
+        # 的抢注冲突。
+        from app.services.user_service import UserService
+
+        existing = await ExternalIdentityService.find_by_sub(sub)
+        if (
+            existing is not None
+            and existing.get("platform_user_id") != platform_user_id
+        ):
+            prev_user = await UserService.get_user_by_id(
+                existing["platform_user_id"]
+            )
+            if prev_user is None:
+                await ExternalIdentityService.delete_by_sub(sub)
+                logger.info(
+                    "orphan_external_identity_taken_over",
+                    sub=sub,
+                    stale_platform_user_id=existing["platform_user_id"],
+                    platform_user_id=platform_user_id,
+                )
         await ExternalIdentityService.upsert(sub, platform_user_id)
 
         # 3. 加密账密 + 写 app_bindings（identity_key 明文存储——非敏感，

@@ -15,6 +15,14 @@ v5 增补（公共 MCP 放行）：
 - conn 不属于任何应用：无授权单元，用平台静态凭证（auth_config）放行
 - 两者返回的凭证经 harness loader._cred_to_headers 转 headers；为空时
   loader 裸透传 handler（loader.py `if not headers` 分支）
+
+v5.1 收紧（认证型连接必须挂应用）：
+- 不挂应用 + 需认证：不再放行平台静态凭证——外部终端用户的调用
+  不得以平台共享身份代用（跨权限访问风险，与拦截器 fail-closed 守卫
+  同源），抛 McpCredentialForbidden（FORBIDDEN）。公共语义收窄为仅
+  auth_type=none 的免认证连接；认证型连接挂应用后走用户授权。
+  注意 resolver 仅在外部路径被调用（内部路径 loader 直接透传静态
+  auth_config），studio 预览/内部触发工作流不受影响。
 """
 from __future__ import annotations
 
@@ -68,16 +76,24 @@ class UserCredentialResolver:
 
         app = await ApplicationService.find_by_mcp_connection(conn["_id"])
         if not app:
-            # 不挂任何应用 = 公共 MCP：无授权单元，用平台静态凭证放行
-            # （auth_config 为空时同样裸透传）。info 留审计痕迹。
-            logger.info(
-                "mcp_public_access",
+            # 不挂任何应用且需认证 → FORBIDDEN：外部终端用户的调用不得
+            # 回退平台静态凭证（跨权限访问风险，与拦截器 fail-closed 守卫
+            # 同源）。公共语义收窄为仅免认证连接（上方 auth_type=none）；
+            # 认证型连接必须挂应用走用户授权。warning 留审计痕迹。
+            from agent_flow_harness.mcp.errors import McpCredentialForbidden
+
+            logger.warning(
+                "mcp_credential_forbidden_no_app",
                 server_name=server_name,
                 conn_id=conn["_id"],
                 auth_type=auth_type,
-                static_credentials=True,
             )
-            return {"auth_type": auth_type, **(conn.get("auth_config") or {})}
+            raise McpCredentialForbidden(
+                app_id="",
+                app_name="",
+                server_name=server_name,
+                detail="该 MCP 未挂载到任何授权应用",
+            )
 
         # 4. 查用户对该应用的授权
         from app.services.user_mcp_credential_service import (
@@ -98,10 +114,15 @@ class UserCredentialResolver:
                 server_name=server_name,
             )
 
-        # 5. 查/换 session（Redis 缓存）。登录失败（账密被用户在外部系统
-        #    改掉等）→ 结构化 INVALID 错误：身份映射不受影响（sub 以稳定
-        #    用户 ID 为锚），拦截器据此引导用户在聊天内更新授权凭证。
-        from agent_flow_harness.mcp.errors import McpCredentialInvalid
+        # 5. 查/换 session（Redis 缓存）。凭证类失败（账密被用户在外部
+        #    系统改掉、4xx 登录拒绝等）→ 结构化 INVALID：身份映射不受
+        #    影响（sub 以稳定用户 ID 为锚），拦截器据此引导用户在聊天内
+        #    更新授权凭证；端点故障（5xx/超时/连接失败）→ UNAVAILABLE：
+        #    凭证未必有问题，不引导授权更新，提示稍后重试。
+        from agent_flow_harness.mcp.errors import (
+            McpAppUnavailable,
+            McpCredentialInvalid,
+        )
 
         try:
             session = await self._get_or_exchange_session(
@@ -113,6 +134,17 @@ class UserCredentialResolver:
                 app_name=app.get("name", app["_id"]),
                 server_name=server_name,
                 detail=str(exc),
+            ) from exc
+        except McpAppUnavailable:
+            raise
+        except Exception as exc:
+            # 5xx/超时/连接失败/响应解析异常等端点故障归一为不可用——
+            # detail 只放异常类名，不透内部 URL（错误文本会到达 LLM/用户）
+            raise McpAppUnavailable(
+                app_id=app["_id"],
+                app_name=app.get("name", app["_id"]),
+                server_name=server_name,
+                detail=type(exc).__name__,
             ) from exc
         if not session:
             return None
@@ -186,6 +218,14 @@ class UserCredentialResolver:
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.request(method, login_url, json=body)
+            if 400 <= resp.status_code < 500:
+                # 4xx（密码错误返回 401/403 的接入方）→ 凭证类失败走
+                # INVALID 授权卡。若交给 raise_for_status 先炸，会落入
+                # 「端点不可用」分支——这类应用永远出不了授权卡。
+                raise PermissionError(
+                    f"应用登录端点返回 HTTP {resp.status_code}"
+                )
+            # 5xx 保留抛 HTTPStatusError → resolve() 归一为 UNAVAILABLE
             resp.raise_for_status()
             data = resp.json()
 

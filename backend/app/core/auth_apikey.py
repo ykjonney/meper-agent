@@ -231,12 +231,18 @@ async def authenticate_api_key(
             identity["platform_user_id"]
         )
         if platform_user is None or platform_user.get("status") != UserStatus.ACTIVE.value:
-            raise UnauthorizedError(
-                code="EXT_USER_NOT_BOUND",
-                message="绑定的平台用户不存在或已禁用，请重新完成授权",
-            )
-        principal.user_id = identity["platform_user_id"]
-        principal.token_record_id = identity["platform_user_id"]
+            if require_bound:
+                raise UnauthorizedError(
+                    code="EXT_USER_NOT_BOUND",
+                    message="绑定的平台用户不存在或已禁用，请重新完成授权",
+                )
+            # relaxed（首绑门页 bootstrap/PUT）：孤儿/禁用映射视同未绑定
+            # 放行——否则门页自身被同一 401 拦死，被引导去重新授权的
+            # 用户反而到不了授权端点。重新授权时由 bind_credential 接管
+            # 孤儿映射（已删用户）；禁用用户维持抢注冲突（不绕过停用）。
+        else:
+            principal.user_id = identity["platform_user_id"]
+            principal.token_record_id = identity["platform_user_id"]
     principal.user_token = user_token
     principal.app_id = app_id
     principal.introspect_url = introspect_url
