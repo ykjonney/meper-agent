@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1.7
+# 无 syntax 指令：本文件只用多阶段/COPY 等基础语法，用 daemon 内置
+# frontend 构建，免去每次解析 docker/dockerfile 前端镜像的网络往返
+# （国内访问 Docker Hub 慢时仅 resolve 就可能花 60s+）。
 
 # --- Stage 1: Build frontend-studio (management console) ---
 FROM node:22-alpine AS frontend-builder

@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1.7
+# （heredoc 需要 1.4+ 语法。若部署机 daemon ≥ 23，可删掉本行改用内置
+# frontend，免去解析 docker/dockerfile 镜像的网络往返。）
 
 # --- Builder stage: use uv to install prod deps in a slim venv ---
 FROM python:3.12-slim AS builder
@@ -43,20 +45,22 @@ RUN groupadd -r -g ${APP_GID} appuser \
         gosu libgl1 libglib2.0-0 libsm6 libxext6 libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the venv from builder
-COPY --from=builder /app/.venv /app/.venv
+# Copy the venv from builder. --chown 在打层时写入属主（无 COW 复制）；
+# 若改成运行期 `chown -R /app`，overlayfs 会把数万 venv 小文件逐个
+# copy-up 到可写层，实测仅这一步就要 90s+。
+COPY --from=builder --chown=${APP_UID}:${APP_GID} /app/.venv /app/.venv
 
 # The venv installs harness as editable (pointing at /app/packages/harness), so
 # the harness source must be present at runtime too.
-COPY packages/harness packages/harness
+COPY --chown=${APP_UID}:${APP_GID} packages/harness packages/harness
 
 # Copy application code
-COPY app/ app/
-COPY scripts/ scripts/
-COPY pyproject.toml uv.lock .python-version ./
+COPY --chown=${APP_UID}:${APP_GID} app/ app/
+COPY --chown=${APP_UID}:${APP_GID} scripts/ scripts/
+COPY --chown=${APP_UID}:${APP_GID} pyproject.toml uv.lock .python-version ./
 
-# Create logs directory for non-root user
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+# Create logs directory for non-root user（仅此目录，非递归）
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
 
 # Entrypoint: fix ownership of bind-mounted volumes as root, then drop to appuser.
 # Inlined here (via BuildKit heredoc) so no separate script file is needed.
@@ -100,8 +104,10 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 
 EXPOSE 8000
 
-# Healthcheck against the unauthenticated /health endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+# Healthcheck against the unauthenticated /health endpoint.
+# interval 10s：30s 会拉长「启动完成 → 首次探测」的空窗（Healthy 最坏
+# 多等一个 interval），部署编排等待时间随之变长。
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import httpx, sys; sys.exit(0 if httpx.get('http://localhost:8000/health', timeout=3).status_code == 200 else 1)"
 
 # Start Uvicorn
