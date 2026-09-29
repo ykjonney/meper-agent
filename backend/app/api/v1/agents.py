@@ -222,6 +222,68 @@ async def update_agent(
     return _doc_to_response(doc)
 
 
+# ── Snapshot / Version（版本化：快照列表 / 详情 / 回滚）──────────────────
+
+
+@router.get(
+    "/{agent_id}/snapshots",
+    summary="List Agent config snapshots (version history)",
+)
+async def list_snapshots(
+    agent_id: str,
+    _: UserResponse = Depends(require_permission("agent:read")),
+) -> list[dict]:
+    """列某 Agent 的全部配置快照（版本倒序摘要，不含 doc 全文）。"""
+    from app.services.agent_snapshot_service import AgentSnapshotService
+
+    return await AgentSnapshotService.list_snapshots(agent_id)
+
+
+@router.get(
+    "/{agent_id}/snapshots/{version}",
+    summary="Get a specific snapshot (full doc)",
+)
+async def get_snapshot(
+    agent_id: str,
+    version: int,
+    _: UserResponse = Depends(require_permission("agent:read")),
+) -> dict:
+    """取指定版本的完整快照（含 Agent 文档全文——用于 diff / 审阅）。"""
+    from app.core.errors import NotFoundError
+    from app.services.agent_snapshot_service import AgentSnapshotService
+
+    snap = await AgentSnapshotService.get_snapshot(agent_id, version)
+    if snap is None:
+        raise NotFoundError(
+            code="SNAPSHOT_NOT_FOUND",
+            message=f"Agent {agent_id} 无版本 v{version} 的快照",
+        )
+    return snap
+
+
+@router.post(
+    "/{agent_id}/snapshots/{version}/restore",
+    response_model=AgentResponse,
+    summary="Restore Agent to a snapshot version",
+)
+async def restore_snapshot(
+    agent_id: str,
+    version: int,
+    user: UserResponse = Depends(require_permission("agent:write")),
+) -> AgentResponse:
+    """回滚 Agent 配置到指定版本的快照。
+
+    回滚前自动快照当前状态（防"回滚后后悔"）；版本号永不复用——
+    恢复 v3 后新版本号 = max(v3, 当前) + 1。Published Agent 不可回滚。
+    """
+    from app.services.agent_snapshot_service import AgentSnapshotService
+
+    doc = await AgentSnapshotService.restore(
+        agent_id, version, created_by=user.id,
+    )
+    return _doc_to_response(doc)
+
+
 # 头像上传：MIME/大小校验 + 落盘 + set_avatar（绕开 published 守卫）
 _AVATAR_MAX_BYTES = 2 * 1024 * 1024
 _AVATAR_ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp"}
@@ -489,6 +551,7 @@ async def dismiss_interrupt(
     dismissed = await AgentExecutionService.dismiss_interrupt(agent_id, body, user.id)
     return {"dismissed": dismissed, "session_id": body.session_id}
 
+
 @router.post(
     "/{agent_id}/plan/approve",
     summary="Approve the pending plan: write PLAN.md, zero LLM cost",
@@ -507,4 +570,3 @@ async def approve_plan(
     """
     result = await AgentExecutionService.approve_plan(agent_id, body, user.id)
     return {**result, "session_id": body.session_id}
-

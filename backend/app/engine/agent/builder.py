@@ -269,7 +269,6 @@ async def build_system_prompt(
     Delegates to the slot renderer which handles PromptTemplate-based
     prompt composition. exclude_skill_names 透传给技能声明——
     被用户个人技能遮蔽的同名官方技能不进官方列表（§7.4）。
-
     execution_context 透传给工具声明段（plan: 剥离副作用工具声明 +
     注入计划纪律段，与运行时工具集保持一致）。
     """
@@ -640,6 +639,57 @@ def _build_builtin_tool_declaration(
     return "\n".join(lines)
 
 
+def _build_plan_mode_section() -> list[str]:
+    """计划模式纪律段（plan 语义，独立成段）。
+
+    与 context.py 的工具剥离配套（变更工具已移除、propose_plan 已注入）：
+    边界语义是"不产生变更"而非"不执行"——沙盒内探索性执行（跑测试
+    收集失败清单、git status、检索）是调研的合法部分（Claude Code 同例，
+    计划期允许命令、只禁编辑）。计划判据是不确定性而非步骤数：路径
+    确定、每步可逆的批量任务直接执行不造计划。五段式计划规范与
+    plan_tool.propose_plan 的 description 同源。
+    """
+    return [
+        "",
+        "### Plan Mode",
+        "",
+        "You are in **plan mode**: investigate and design — do not produce changes.",
+        "Exploratory commands in the sandbox (run tests to collect failures,",
+        "git status, searches, dry-runs) are part of research and encouraged.",
+        "Do NOT create deliverables or make intentional lasting changes — direct",
+        "file-writing tools are disabled for this run. You may still ask the user",
+        "clarifying questions (ask_clarification).",
+        "",
+        "**Grading — a plan's value comes from uncertainty, not step count.**",
+        "Simple questions or chitchat: answer directly (answering is not",
+        "\"executing\"). Repetitive batch work with a known path and reversible",
+        "steps (rename 200 files, archive invoices): execute directly — step",
+        "count alone never justifies a plan. A plan IS warranted when the path",
+        "is uncertain, actions are hard to reverse, or the approach needs user",
+        "alignment before you act.",
+        "",
+        "When your research for such a task is sufficient, you MUST call the",
+        "**propose_plan** tool with the complete plan — never just describe it in",
+        "plain text, and never start executing the steps. Execution happens only",
+        "after the user approves the plan.",
+        "",
+        "The plan must be a single markdown string with exactly these sections:",
+        "",
+        "# 目标 — one sentence, stated so success/failure is decidable",
+        "# 背景与约束 — key context distilled from the conversation (scope /",
+        "  environment / what must not be touched / preferences)",
+        "# 步骤 — checkbox list (`- [ ]`), coarse-grained; the plan may evolve",
+        "  during execution but keep this shape",
+        "# 验收标准 — human-reviewable criteria; include a runnable command",
+        "  when the outcome is command-checkable (e.g. `pytest -q`)",
+        "# 完成时交付 — what the deliverable looks like (files / report / summary)",
+        "",
+        "If the user gives feedback on a submitted plan, revise it accordingly and",
+        "call propose_plan again.",
+        "",
+    ]
+
+
 def _build_autonomous_execution_section() -> list[str]:
     """工作流 agent 节点的自主执行规则段（无人值守语义，独立成段）。
 
@@ -764,56 +814,6 @@ def _build_task_tool_declaration() -> str:
     ]
     return "\n".join(lines)
 
-
-def _build_plan_mode_section() -> list[str]:
-    """计划模式纪律段（plan 语义，独立成段）。
-
-    与 context.py 的工具剥离配套（变更工具已移除、propose_plan 已注入）：
-    边界语义是"不产生变更"而非"不执行"——沙盒内探索性执行（跑测试
-    收集失败清单、git status、检索）是调研的合法部分（Claude Code 同例，
-    计划期允许命令、只禁编辑）。计划判据是不确定性而非步骤数：路径
-    确定、每步可逆的批量任务直接执行不造计划。五段式计划规范与
-    plan_tool.propose_plan 的 description 同源。
-    """
-    return [
-        "",
-        "### Plan Mode",
-        "",
-        "You are in **plan mode**: investigate and design — do not produce changes.",
-        "Exploratory commands in the sandbox (run tests to collect failures,",
-        "git status, searches, dry-runs) are part of research and encouraged.",
-        "Do NOT create deliverables or make intentional lasting changes — direct",
-        "file-writing tools are disabled for this run. You may still ask the user",
-        "clarifying questions (ask_clarification).",
-        "",
-        "**Grading — a plan's value comes from uncertainty, not step count.**",
-        "Simple questions or chitchat: answer directly (answering is not",
-        "\"executing\"). Repetitive batch work with a known path and reversible",
-        "steps (rename 200 files, archive invoices): execute directly — step",
-        "count alone never justifies a plan. A plan IS warranted when the path",
-        "is uncertain, actions are hard to reverse, or the approach needs user",
-        "alignment before you act.",
-        "",
-        "When your research for such a task is sufficient, you MUST call the",
-        "**propose_plan** tool with the complete plan — never just describe it in",
-        "plain text, and never start executing the steps. Execution happens only",
-        "after the user approves the plan.",
-        "",
-        "The plan must be a single markdown string with exactly these sections:",
-        "",
-        "# 目标 — one sentence, stated so success/failure is decidable",
-        "# 背景与约束 — key context distilled from the conversation (scope /",
-        "  environment / what must not be touched / preferences)",
-        "# 步骤 — checkbox list (`- [ ]`), coarse-grained; the plan may evolve",
-        "  during execution but keep this shape",
-        "# 验收标准 — human-reviewable criteria; include a runnable command",
-        "  when the outcome is command-checkable (e.g. `pytest -q`)",
-        "# 完成时交付 — what the deliverable looks like (files / report / summary)",
-        "",
-        "If the user gives feedback on a submitted plan, revise it accordingly and",
-        "call propose_plan again.",
-        "",
-    ]
 
 # ---------------------------------------------------------------------------
 # Tool resolution — delegates to the unified resolver in context.py
