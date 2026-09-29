@@ -6,6 +6,7 @@ import re
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
+from app.api.sse import sse_event_stream
 from app.core.config import settings
 from app.core.errors import (
     ConflictError,
@@ -363,21 +364,11 @@ async def stream_agent(
         external_call_chain=_parse_call_chain(x_call_chain),
     )
 
-    async def _event_stream():
-        try:
-            while True:
-                item = await event_queue.get()
-                if item is None:
-                    break
-                yield item
-        finally:
-            # 断连 ≠ 取消：客户端断开（刷新/关页）只结束本渲染管道，
-            # 后台 _run() 继续执行并落库，结果不丢。要停止生成请显式
-            # 调用 POST /{agent_id}/stop（mid-stream abort）。
-            pass
-
+    # sse_event_stream：静默期逐秒发 ": ping" 心跳；断连 ≠ 取消——客户端
+    # 断开（刷新/关页）只结束本渲染管道，后台 _run() 继续执行并落库，结果
+    # 不丢。要停止生成请显式调用 POST /{agent_id}/stop（mid-stream abort）。
     return StreamingResponse(
-        _event_stream(),
+        sse_event_stream(event_queue),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -449,19 +440,9 @@ async def resume_agent(
         agent_id, body, user.id,
     )
 
-    async def _event_stream():
-        try:
-            while True:
-                item = await event_queue.get()
-                if item is None:
-                    break
-                yield item
-        finally:
-            # 断连 ≠ 取消（与 stream 端点语义一致）：停止生成请显式调 stop 端点。
-            pass
-
+    # 心跳语义同 stream 端点；断连 ≠ 取消，停止生成请显式调 stop 端点。
     return StreamingResponse(
-        _event_stream(),
+        sse_event_stream(event_queue),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

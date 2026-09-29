@@ -4,6 +4,7 @@ import asyncio
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.api.sse import sse_event_stream
 from app.api.v1.ext import auth_and_rate_limit, resolve_user_id
 from app.core.auth_apikey import ApiKeyPrincipal
 from app.core.errors import NotFoundError
@@ -200,13 +201,11 @@ async def stream_agent(
         user_token=principal.user_token,
     )
 
+    # sse_event_stream：静默期逐秒发 ": ping" 心跳帧（注释行，解析器忽略）
     async def _event_stream():
         task = asyncio.current_task()
         try:
-            while True:
-                item = await event_queue.get()
-                if item is None:
-                    break
+            async for item in sse_event_stream(event_queue):
                 yield item
         finally:
             if task and not task.done():
@@ -249,13 +248,11 @@ async def resume_agent(
         user_token=principal.user_token,
     )
 
+    # 心跳语义同 invoke/stream 端点
     async def _event_stream():
         task = asyncio.current_task()
         try:
-            while True:
-                item = await event_queue.get()
-                if item is None:
-                    break
+            async for item in sse_event_stream(event_queue):
                 yield item
         finally:
             if task and not task.done():

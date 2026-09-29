@@ -5,9 +5,12 @@
 	root * /srv
 
 	# Backend API proxy
+	# flush_interval -1：流式响应（SSE token 流）写出即转发不缓冲。
 	@api path /api/*
 	handle @api {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
 	}
 
 	# WebSocket proxy
@@ -22,6 +25,9 @@
 	# SPA fallback：找不到的文件回退到 /client/index.html。
 	@client path /client/*
 	handle @client {
+		# gzip 只压静态资源（js/css/html）：API 流量不进压缩层——SSE 逐 token
+		# 小帧压缩纯耗 CPU 且 flush 行为与 Caddy 版本相关（曾挂在全局导致流式卡顿）。
+		encode gzip
 		root * /srv
 		try_files {path} /client/index.html
 		file_server
@@ -29,6 +35,7 @@
 
 	# frontend-studio (management at /) — SPA fallback to /index.html
 	handle {
+		encode gzip
 		try_files {path} /index.html
 		file_server
 	}
@@ -36,6 +43,4 @@
 	log {
 		output stdout
 	}
-
-	encode gzip
 }
