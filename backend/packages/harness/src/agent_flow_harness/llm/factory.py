@@ -44,22 +44,31 @@ def build_client_from_doc(
     doc: dict[str, Any],
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
+    max_retries: int | None = None,
 ) -> ChatOpenAI | ChatAnthropic:
     """Build a chat model from a resolved model-table document.
 
     The caller (application layer) is responsible for resolving ``doc`` from
     the models collection and decrypting ``api_key`` first.
+
+    max_retries: SDK 级瞬态重试次数(app 层把 Agent.max_retry 接到这里;
+    None = SDK 默认)。
     """
-    return _build_client_from_doc(doc, agent_config, enable_thinking=enable_thinking)
+    return _build_client_from_doc(
+        doc, agent_config, enable_thinking=enable_thinking, max_retries=max_retries
+    )
 
 
 def build_client_from_env(
     model_name: str,
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
+    max_retries: int | None = None,
 ) -> ChatOpenAI | ChatAnthropic:
     """Legacy env-var fallback: build a chat model from a plain model name."""
-    return _build_client_from_env(model_name, agent_config, enable_thinking=enable_thinking)
+    return _build_client_from_env(
+        model_name, agent_config, enable_thinking=enable_thinking, max_retries=max_retries
+    )
 
 
 __all__ = [

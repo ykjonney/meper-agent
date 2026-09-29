@@ -77,6 +77,7 @@ def build_client_from_doc(
     doc: dict[str, Any],
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
+    max_retries: int | None = None,
 ) -> ChatOpenAI | ChatAnthropic:
     """Build a chat model from a model-table document shape.
 
@@ -86,6 +87,8 @@ def build_client_from_doc(
             ``auth_header_format`` and ``default_params``.
         agent_config: Optional overrides (e.g. ``temperature``).
         enable_thinking: Enable native reasoning if supported.
+        max_retries: SDK 级瞬态重试次数(网络抖动/5xx/限流,由 provider SDK
+            原生执行,回调链完整)。None = 用 SDK 默认。
 
     Returns:
         A configured :class:`ChatOpenAI` / :class:`ChatAnthropic`.
@@ -112,6 +115,8 @@ def build_client_from_doc(
     }
     if max_tokens is not None:
         common_kwargs["max_tokens"] = int(max_tokens)
+    if max_retries is not None:
+        common_kwargs["max_retries"] = int(max_retries)
 
     auth_kwargs = build_auth_kwargs(auth_type, api_key, auth_header_format)
     thinking_kwargs = build_thinking_kwargs(
@@ -136,6 +141,7 @@ def build_client_from_env(
     model_name: str,
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
+    max_retries: int | None = None,
 ) -> ChatOpenAI | ChatAnthropic:
     """Legacy env-var fallback: build a chat model from a plain model name.
 
@@ -156,6 +162,8 @@ def build_client_from_env(
     extra_kwargs: dict[str, Any] = {}
     if cls is ReasoningChatOpenAI:
         extra_kwargs["stream_usage"] = True
+    if max_retries is not None:
+        extra_kwargs["max_retries"] = int(max_retries)
 
     return cast(
         "ChatOpenAI | ChatAnthropic",

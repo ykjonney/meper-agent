@@ -200,3 +200,43 @@ def test_plain_content_chunk_unaffected() -> None:
     assert gen is not None
     assert gen.message.content == "你好"
     assert "reasoning_content" not in gen.message.additional_kwargs
+
+
+# ---------------------------------------------------------------------------
+# max_retries — SDK 级瞬态重试接线（P0-3）
+# ---------------------------------------------------------------------------
+
+
+def test_build_client_from_env_max_retries(monkeypatch) -> None:
+    """max_retries 透传到 SDK 客户端（openai 与 anthropic 两路径）。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    llm = build_client_from_env("gpt-4o-mini", {}, max_retries=5)
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.max_retries == 5
+
+    llm2 = build_client_from_env("claude-sonnet-4", max_retries=0)  # 0 = 显式关闭
+    assert isinstance(llm2, ChatAnthropic)
+    assert llm2.max_retries == 0
+
+
+def test_build_client_from_doc_max_retries(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    llm = build_client_from_doc(_doc(), {}, max_retries=7)
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.max_retries == 7
+
+    llm2 = build_client_from_doc(
+        _doc(compatibility_type="anthropic", model_id="claude-sonnet-4"),
+        {},
+        max_retries=2,
+    )
+    assert isinstance(llm2, ChatAnthropic)
+    assert llm2.max_retries == 2
+
+
+def test_max_retries_none_keeps_sdk_default(monkeypatch) -> None:
+    """不传 max_retries = 属性保持 None（openai SDK 内部按自己的默认重试）。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    llm = build_client_from_env("gpt-4o-mini")
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.max_retries is None  # None = 未覆盖,SDK 自行决定
