@@ -568,3 +568,34 @@ class TestSessionTokenAccumulation:
         mock_session.add_tokens.assert_awaited_once_with("s1", 200)
         # execution_log 同口径
         assert mock_log.call_args.kwargs["token_usage"]["total_tokens"] == 200
+
+
+# ---------------------------------------------------------------------------
+# _resume_execution_context — 计划审批恢复的上下文决策（回归：批准无反应）
+# ---------------------------------------------------------------------------
+
+
+class _ResumeBody:
+    def __init__(self, answer: str, plan_mode: bool = False):
+        self.answer = answer
+        self.plan_mode = plan_mode
+
+
+def test_resume_context_approval_marker_forces_plan():
+    """批准标记 → 强制 plan 上下文（不信客户端 plan_mode=False）。
+
+    回归根因：propose_plan 只在 plan 工具集注册，chat 上下文恢复会让
+    挂起的 tool_call 找不到工具而报错（批准后无反应）。
+    """
+    from app.services.agent_execution_service import _resume_execution_context
+
+    assert _resume_execution_context(_ResumeBody("__plan_approved__", plan_mode=False)) == "plan"
+    assert _resume_execution_context(_ResumeBody("__plan_approved__", plan_mode=True)) == "plan"
+
+
+def test_resume_context_feedback_and_clarification():
+    """反馈按开关保持只读；澄清走 chat。"""
+    from app.services.agent_execution_service import _resume_execution_context
+
+    assert _resume_execution_context(_ResumeBody("缩小范围到后端", plan_mode=True)) == "plan"
+    assert _resume_execution_context(_ResumeBody("好的，用方案A", plan_mode=False)) == "chat"

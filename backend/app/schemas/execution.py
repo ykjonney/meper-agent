@@ -22,6 +22,12 @@ class ExecutionRequest(BaseModel):
         description="启用 LLM 原生推理（Claude extended thinking / OpenAI o-series reasoning_effort）。"
         "不支持的模型会静默降级到普通模式。",
     )
+    plan_mode: bool = Field(
+        default=False,
+        description="计划模式：调研设计优先、不产生变更——剥离变更工具"
+        "（write/edit/run_code；沙盒内探索性命令保留），路径不确定或不可逆的"
+        "任务以 propose_plan 提交计划挂起审批后再执行。",
+    )
     file_paths: list[str] | None = Field(
         default=None,
         description="本次上传的文件相对路径列表（相对于 workspace input/ 目录）",
@@ -50,11 +56,17 @@ class ExecutionResponse(BaseModel):
 
 
 class ResumeRequest(BaseModel):
-    """Request body for resuming an interrupted agent (ask_clarification)."""
+    """Request body for resuming an interrupted agent (ask_clarification / propose_plan)."""
 
     session_id: str = Field(..., description="被中断的 session ID")
     answer: str = Field(..., min_length=1, max_length=50000, description="用户的回答")
     enable_thinking: bool = Field(default=False, description="启用 LLM 推理模式")
+    plan_mode: bool = Field(
+        default=False,
+        description="恢复时的执行语义：true=继续计划模式（反馈/重新规划，保持只读）；"
+        "false=普通模式（批准计划后解除只读，恢复全量工具）。"
+        "计划批准的 resume 用 answer=__plan_approved__ 且本字段为 false。",
+    )
 
 
 class DismissRequest(BaseModel):
@@ -65,6 +77,23 @@ class DismissRequest(BaseModel):
     """
 
     session_id: str = Field(..., description="待忽略澄清卡片所属的 session ID")
+
+
+class ApprovePlanRequest(BaseModel):
+    """Request body for approving a pending plan (propose_plan).
+
+    批准 = 零 LLM 成本：写 PLAN.md 进 session workspace（执行期的抗压缩
+    事实源）+ 合成 tool_result 终止挂起（不 resume 不跑模型）。执行由
+    前端随后自动发送的 kickoff 消息触发（普通 stream 新一轮，全量工具）。
+    """
+
+    session_id: str = Field(..., description="待审批计划所属的 session ID")
+    plan: str = Field(
+        ...,
+        min_length=1,
+        max_length=100000,
+        description="计划全文 markdown（五段式；可为用户在卡片上编辑后的版本）",
+    )
 
 
 class StopRequest(BaseModel):

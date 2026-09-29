@@ -109,6 +109,7 @@ def _extract_interrupt(error: Any) -> dict[str, Any] | None:
     - ``ask_clarification`` (no explicit type, carries ``question``)
     - ``workflow_confirmation`` (``confirm_workflow`` tool)
     - ``app_authorization`` (``request_app_authorization`` tool)
+    - ``plan`` (``propose_plan`` tool — 计划审批卡)
     """
     # GraphInterrupt stores interrupts tuple in args[0]
     raw = None
@@ -126,11 +127,12 @@ def _extract_interrupt(error: Any) -> dict[str, Any] | None:
             continue
         # ask_clarification carries "question"; confirm_workflow carries
         # type="workflow_confirmation"; request_app_authorization carries
-        # type="app_authorization". Accept all three.
+        # type="app_authorization"; propose_plan carries type="plan".
         if (
             "question" in value
             or value.get("type") == "workflow_confirmation"
             or value.get("type") == "app_authorization"
+            or value.get("type") == "plan"
         ):
             return value
     return None
@@ -159,6 +161,12 @@ def _build_interrupt_event(payload: dict[str, Any], *, interrupt_id: str = "") -
             app_id=payload.get("app_id", ""),
             app_name=payload.get("app_name", ""),
             reason=payload.get("reason", ""),
+            interrupt_id=interrupt_id,
+        )
+    if payload.get("type") == "plan":
+        return InterruptEvent(
+            kind="plan",
+            plan=str(payload.get("plan", "")),
             interrupt_id=interrupt_id,
         )
     return InterruptEvent(
@@ -306,8 +314,14 @@ async def stream_events_to_app_events(
                 ]
 
         elif kind in _LLM_ERROR_KINDS:
+            from app.utils.llm_errors import classify_llm_error
+
             await on_event(
-                ErrorEvent(message=_error_message(data), source="llm")
+                ErrorEvent(
+                    message=_error_message(data),
+                    source="llm",
+                    code=classify_llm_error(_error_message(data)).value,
+                )
             )
 
         elif kind in _TOOL_ERROR_KINDS:

@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationError
 from app.engine.agent.builder import build_system_prompt
 from app.schemas.execution import (
+    ApprovePlanRequest,
     DismissRequest,
     ExecutionRequest,
     ExecutionResponse,
@@ -77,12 +78,17 @@ class AgentExecutionService:
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
 
+        # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）。
+        exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
+
         session_id = await _resolve_session(agent_id, body, user_id)
         request_id = str(uuid.uuid4())
         call_chain = [*(external_call_chain or []), agent_id]
 
         # Build messages (system prompt + user input with file attachments)
-        system_text = await _build_system_prompt_checked(exec_doc, user_id)
+        system_text = await _build_system_prompt_checked(
+            exec_doc, user_id, execution_context=exec_ctx,
+        )
         user_content = await _build_user_content(body, user_id, session_id)
         initial_messages = _assemble_messages(system_text, user_content)
 
@@ -110,6 +116,7 @@ class AgentExecutionService:
                 legacy_records=legacy_records,
                 user_token=user_token,
                 recorder_sink=recorder_sink,
+                execution_context=exec_ctx,
             )
         except Exception as exc:
             run_error = exc
@@ -198,7 +205,11 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         call_chain = [*(external_call_chain or []), agent_id]
 
-        system_text = await _build_system_prompt_checked(exec_doc, user_id)
+        # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）。
+        exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
+        system_text = await _build_system_prompt_checked(
+            exec_doc, user_id, execution_context=exec_ctx,
+        )
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
         collected_timeline: list[dict] = []
@@ -245,6 +256,7 @@ class AgentExecutionService:
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
                     recorder_sink=recorder_sink,
+                    execution_context=exec_ctx,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -402,6 +414,12 @@ class AgentExecutionService:
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
                     recorder_sink=recorder_sink,
+                    # 计划审批恢复必须保持 plan 上下文（不信客户端标志）：
+                    # propose_plan 只在 plan 工具集里，chat 上下文恢复会导致
+                    # 挂起的 tool_call 找不到工具而报错（批准无反应的根因）。
+                    # 批准以 marker 识别强制 plan；反馈按 plan_mode；
+                    # "解除只读"发生在用户下一条消息（全新 run 换全量工具）。
+                    execution_context=_resume_execution_context(body),
                 )
             except asyncio.CancelledError:
                 # 与 stream() 相同的 mid-stream abort 语义（见 stream 内注释）。
@@ -511,6 +529,71 @@ class AgentExecutionService:
             user_id=user_id, dismissed=dismissed,
         )
         return dismissed
+
+    @staticmethod
+    async def approve_plan(agent_id: str, body: ApprovePlanRequest, user_id: str) -> dict:
+        """批准挂起的计划：写 PLAN.md + 合成 tool_result 终止（零 LLM 成本）。
+
+        与 dismiss 同构但不跑任何模型——批准动作本身不再烧一轮"收到"回复
+        （此前 resume(marker) 的收尾轮）。计划落盘为执行期事实源：
+        - 抗压缩：文件不参与上下文压缩，执行期随时 read 取回原文；
+        - 单一版本：多轮修订只留最终版（对话里的旧版本随挂起 run 终结）；
+        - 可编辑：用户在卡片上编辑后的版本以本请求的 plan 为准落盘。
+
+        执行由前端随后自动发送的 kickoff 消息触发（普通 stream 新一轮、
+        全量工具、指示读取 PLAN.md 并对照验收标准执行）。
+        """
+        from app.core.errors import ValidationError
+        from app.engine.tool.workspace import WorkspaceManager
+
+        exec_doc = await AgentService.get_agent(agent_id)
+        if exec_doc is None:
+            raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
+        if not body.plan.strip():
+            raise ValidationError(code="PLAN_EMPTY", message="计划内容为空，无法批准")
+
+        # 1) PLAN.md 落盘（session workspace 根目录——与代码/交付物同层，
+        #    执行轮 read 可直接取）。
+        ws = WorkspaceManager.get_workspace(user_id, body.session_id)
+        ws.root.mkdir(parents=True, exist_ok=True)
+        (ws.root / "PLAN.md").write_text(body.plan, encoding="utf-8")
+
+        # 2) 合成 tool_result 关闭待审批卡片（挂起 interrupt 由下一次
+        #    stream 新输入自然丢弃，孤儿 tool_call 由配对清理兜底）。
+        approved = await MessageService.dismiss_pending_clarification(
+            body.session_id,
+            result_text=MessageService.PLAN_APPROVED_RESULT_TEXT,
+            tool_names=("propose_plan",),
+        )
+        # 3) 双重确认抑制：计划中点名（且 agent 已绑定）的工作流记入会话
+        #    授权清单——执行期 confirm_workflow 对清单内工作流跳过确认卡
+        #    （计划批准已覆盖此次授权）；清单外照常确认（模型自行加戏
+        #    不被批准覆盖）。白名单制，绝不整体免确认。
+        mentioned_workflows: list[str] = []
+        try:
+            from app.services.workflow_registry_service import WorkflowRegistryService
+
+            for wid in exec_doc.get("workflow_ids") or []:
+                entry = await WorkflowRegistryService.get_by_workflow_id(wid)
+                name = (entry or {}).get("name", "")
+                if (name and name in body.plan) or (wid in body.plan):
+                    if name:
+                        mentioned_workflows.append(name)
+                    mentioned_workflows.append(wid)
+            await SessionService.update_session(
+                body.session_id, {"plan_authorized_workflows": mentioned_workflows},
+            )
+        except Exception:  # noqa: BLE001 — 抑制失败不影响批准主流程
+            logger.debug(
+                "plan_authorization_skip_failed", session_id=body.session_id,
+            )
+        logger.info(
+            "agent_plan_approved",
+            agent_id=agent_id, session_id=body.session_id,
+            user_id=user_id, approved=approved, plan_chars=len(body.plan),
+            authorized_workflows=len(mentioned_workflows),
+        )
+        return {"approved": approved, "plan_file": "PLAN.md"}
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +757,9 @@ async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) 
     return session_id
 
 
-async def _build_system_prompt_checked(exec_doc: dict, user_id: str = "") -> str:
+async def _build_system_prompt_checked(
+    exec_doc: dict, user_id: str = "", *, execution_context: str = "chat",
+) -> str:
     """Build system prompt, raising ValidationError on slot issues.
 
     v6 用户技能与记忆注入（§5.3）：全部住主 system prompt 末尾
@@ -685,6 +770,9 @@ async def _build_system_prompt_checked(exec_doc: dict, user_id: str = "") -> str
     官方/个人重名（§7.4）：个人技能遮蔽同名官方技能——解析层
     （SkillManager 双根个人优先）与注入层（官方声明剔除被遮蔽名）
     双重保证，prompt 中同名技能只出现一份（个人版）。
+
+    execution_context 透传给工具声明/计划纪律段（plan 语义时声明与
+    运行时工具集保持一致——剥离副作用工具 + 注入 propose_plan）。
     """
     personal_skills: list[dict] = []
     if user_id and exec_doc.get("user_skills_enabled", True):
@@ -701,7 +789,11 @@ async def _build_system_prompt_checked(exec_doc: dict, user_id: str = "") -> str
     shadow_names = {s["effective_name"] for s in personal_skills} or None
 
     try:
-        system_text = await build_system_prompt(exec_doc, exclude_skill_names=shadow_names)
+        system_text = await build_system_prompt(
+            exec_doc,
+            exclude_skill_names=shadow_names,
+            execution_context=execution_context,
+        )
     except ValueError as exc:
         raise ValidationError(code="AGENT_PROMPT_SLOT_MISSING", message=str(exc)) from exc
 
@@ -849,6 +941,24 @@ def _classify_error_source(exc: BaseException) -> str:
         return "llm"
 
     return "graph"
+
+
+def _resume_execution_context(body) -> str:
+    """恢复 run 的执行上下文决策（计划审批链路的信任边界）。
+
+    propose_plan 只在 plan 工具集注册——挂起它的 run 恢复时必须仍在
+    plan 上下文，否则 LangGraph 重放 tools 节点时找不到工具而报错
+    （"批准后无反应"根因）。因此：
+    - answer 为批准标记 → 强制 plan（服务端权威，不信客户端 plan_mode）
+    - 其余 → 按客户端 plan_mode（反馈/重新规划保持只读，澄清走 chat）
+    "解除只读"不在 resume 发生——用户下一条消息是全新 run，自然换
+    全量工具与新 prompt。
+    """
+    from app.engine.agent.plan_tool import PLAN_APPROVED_MARKER
+
+    if body.answer == PLAN_APPROVED_MARKER:
+        return "plan"
+    return "plan" if getattr(body, "plan_mode", False) else "chat"
 
 
 def _llm_error_code(exc: BaseException) -> str:

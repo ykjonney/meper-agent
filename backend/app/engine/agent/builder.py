@@ -24,6 +24,11 @@ from app.models.compat import (
     resolve_skill_ids,  # noqa: F401 (used by build_tool_declaration)
 )
 
+# 计划模式声明跳过的变更工具——与 harness_integration.context 的
+# _PLAN_EXCLUDED_TOOLS 保持一致（运行时裁剪与 prompt 声明单一口径，
+# 防双路径漂移；改名单时两处同步）。bash 不在名单：探索性执行合法。
+_PLAN_DECL_EXCLUDED: frozenset[str] = frozenset({"write", "edit", "run_code"})
+
 # ---------------------------------------------------------------------------
 # System prompt + tool declaration (used by stream / invoke / preview)
 # ---------------------------------------------------------------------------
@@ -91,6 +96,12 @@ async def build_tool_declaration(
     - 配置了 response_schema 时追加 Output Contract 段（response 的结构
       契约——API 返回体心智：固定字段引擎填，response 结构用户声明，
       最终回复必须是符合契约的 JSON）
+
+    execution_context="plan"（计划模式，人在场但只调研不执行）时：
+    - Workflow 列表 / Task Management / 图表段不生成（运行时已剥离）
+    - Built-in 段跳过副作用工具（bash/write/edit/run_code，与运行时
+      _PLAN_EXCLUDED_TOOLS 一致）
+    - 追加 Plan Mode 纪律段（只调研 + propose_plan 终结 + 五段式规范）
     """
     sections: list[str] = []
 
@@ -120,9 +131,9 @@ async def build_tool_declaration(
         if mcp_decl:
             sections.append(mcp_decl)
 
-    if execution_context != "workflow":
+    if execution_context not in ("workflow", "plan"):
         # Workflow 列表是给 chat 语义的 dispatch_workflow 用的；
-        # 工作流上下文没有该工具，声明一并省略。
+        # 工作流/计划上下文没有该工具，声明一并省略。
         workflow_ids = agent.get("workflow_ids") or []
         if workflow_ids:
             workflow_decl = await _build_workflow_tool_declaration(workflow_ids)
@@ -147,12 +158,17 @@ async def build_tool_declaration(
         if response_schema and response_schema.get("type") in ("object", "array"):
             sections.append("\n".join(_build_output_contract_section(response_schema)))
 
-    if execution_context != "workflow":
-        # task/workflow 编排工具仅聊天上下文注入，工作流上下文已剥离。
+    if execution_context == "plan":
+        # 计划纪律段：行为契约 + propose_plan 声明（不依赖 builtin_config）。
+        sections.append("\n".join(_build_plan_mode_section()))
+
+    if execution_context not in ("workflow", "plan"):
+        # task/workflow 编排工具仅聊天上下文注入，工作流/计划上下文已剥离。
         task_decl = _build_task_tool_declaration()
         sections.append(task_decl)
 
-    sections.append(_build_chart_tool_declaration())
+    if execution_context != "plan":
+        sections.append(_build_chart_tool_declaration())
 
     return "\n".join(sections) if sections else ""
 
@@ -242,16 +258,28 @@ async def _build_kb_declaration(kb_ids: list[str]) -> str:
     return "\n".join(lines)
 
 
-async def build_system_prompt(agent_doc: dict, exclude_skill_names: set[str] | None = None) -> str:
+async def build_system_prompt(
+    agent_doc: dict,
+    exclude_skill_names: set[str] | None = None,
+    *,
+    execution_context: str = "chat",
+) -> str:
     """Build the fully assembled system prompt for an Agent.
 
     Delegates to the slot renderer which handles PromptTemplate-based
     prompt composition. exclude_skill_names 透传给技能声明——
     被用户个人技能遮蔽的同名官方技能不进官方列表（§7.4）。
+
+    execution_context 透传给工具声明段（plan: 剥离副作用工具声明 +
+    注入计划纪律段，与运行时工具集保持一致）。
     """
     from app.engine.agent.slot_renderer import render_system_prompt_full
 
-    return await render_system_prompt_full(agent_doc, exclude_skill_names=exclude_skill_names)
+    return await render_system_prompt_full(
+        agent_doc,
+        exclude_skill_names=exclude_skill_names,
+        execution_context=execution_context,
+    )
 
 
 async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
@@ -446,6 +474,10 @@ def _build_builtin_tool_declaration(
             continue
         if name not in enabled:
             continue
+        # 计划模式：跳过副作用工具（与运行时 _PLAN_EXCLUDED_TOOLS 一致，
+        # 声明与工具集保持一致——AGENTS.md 单一事实源纪律）。
+        if execution_context == "plan" and name in _PLAN_DECL_EXCLUDED:
+            continue
         tool = BUILTIN_TOOLS.get(name) or PARSE_TOOL_BY_NAME.get(name)
         desc = (tool.description if tool and tool.description else name)
         # 取描述第一行(有些描述很长,system prompt 里只需摘要)
@@ -505,6 +537,7 @@ def _build_builtin_tool_declaration(
             "output (exact values, complete JSON, log lines), call",
             "`recall_tool_result(tool_call_id=...)` — long outputs are paginated via",
             "`offset`.",
+            "",
         ])
 
     if execution_context == "workflow":
@@ -731,6 +764,56 @@ def _build_task_tool_declaration() -> str:
     ]
     return "\n".join(lines)
 
+
+def _build_plan_mode_section() -> list[str]:
+    """计划模式纪律段（plan 语义，独立成段）。
+
+    与 context.py 的工具剥离配套（变更工具已移除、propose_plan 已注入）：
+    边界语义是"不产生变更"而非"不执行"——沙盒内探索性执行（跑测试
+    收集失败清单、git status、检索）是调研的合法部分（Claude Code 同例，
+    计划期允许命令、只禁编辑）。计划判据是不确定性而非步骤数：路径
+    确定、每步可逆的批量任务直接执行不造计划。五段式计划规范与
+    plan_tool.propose_plan 的 description 同源。
+    """
+    return [
+        "",
+        "### Plan Mode",
+        "",
+        "You are in **plan mode**: investigate and design — do not produce changes.",
+        "Exploratory commands in the sandbox (run tests to collect failures,",
+        "git status, searches, dry-runs) are part of research and encouraged.",
+        "Do NOT create deliverables or make intentional lasting changes — direct",
+        "file-writing tools are disabled for this run. You may still ask the user",
+        "clarifying questions (ask_clarification).",
+        "",
+        "**Grading — a plan's value comes from uncertainty, not step count.**",
+        "Simple questions or chitchat: answer directly (answering is not",
+        "\"executing\"). Repetitive batch work with a known path and reversible",
+        "steps (rename 200 files, archive invoices): execute directly — step",
+        "count alone never justifies a plan. A plan IS warranted when the path",
+        "is uncertain, actions are hard to reverse, or the approach needs user",
+        "alignment before you act.",
+        "",
+        "When your research for such a task is sufficient, you MUST call the",
+        "**propose_plan** tool with the complete plan — never just describe it in",
+        "plain text, and never start executing the steps. Execution happens only",
+        "after the user approves the plan.",
+        "",
+        "The plan must be a single markdown string with exactly these sections:",
+        "",
+        "# 目标 — one sentence, stated so success/failure is decidable",
+        "# 背景与约束 — key context distilled from the conversation (scope /",
+        "  environment / what must not be touched / preferences)",
+        "# 步骤 — checkbox list (`- [ ]`), coarse-grained; the plan may evolve",
+        "  during execution but keep this shape",
+        "# 验收标准 — human-reviewable criteria; include a runnable command",
+        "  when the outcome is command-checkable (e.g. `pytest -q`)",
+        "# 完成时交付 — what the deliverable looks like (files / report / summary)",
+        "",
+        "If the user gives feedback on a submitted plan, revise it accordingly and",
+        "call propose_plan again.",
+        "",
+    ]
 
 # ---------------------------------------------------------------------------
 # Tool resolution — delegates to the unified resolver in context.py

@@ -86,6 +86,59 @@ class TestResolveBuiltinToolsByContext:
             names = _tool_names(_resolve_builtin_tools({"builtin_config": ["bash"]}, ctx))
             assert "recall_tool_result" in names, ctx
 
+    def test_plan_context_strips_side_effect_tools(self):
+        """计划模式:剥离变更工具(write/edit/run_code),bash 保留为探索执行。
+
+        边界语义是"不产生变更"而非"不执行"——跑测试收集失败清单等
+        探索性执行是调研的合法部分(Claude Code 同例:计划期允许命令、
+        只禁编辑),且 bash 已被 Docker 沙盒隔离兜底。
+        """
+        from app.engine.harness_integration.context import _resolve_builtin_tools
+
+        agent = {"builtin_config": ["bash", "glob", "grep"]}
+        names = _tool_names(_resolve_builtin_tools(agent, "plan"))
+        for mutating in ("write", "edit", "run_code"):
+            assert mutating not in names, mutating
+        # bash/read/glob/grep 保留(探索 + 只读探查)
+        assert {"bash", "read", "glob", "grep"} <= names
+
+    def test_plan_context_injects_propose_plan_keeps_clarification(self):
+        """计划模式:注入 propose_plan 终结工具;ask_clarification 保留(人在场可反问)。"""
+        from app.engine.harness_integration.context import _resolve_builtin_tools
+
+        names = _tool_names(_resolve_builtin_tools({}, "plan"))
+        assert "propose_plan" in names
+        assert "ask_clarification" in names
+
+    def test_plan_context_strips_task_and_chart_tools(self):
+        """计划模式:任务派发/图表工具剥离(无副作用编排,纯调研)。"""
+        from app.engine.agent.workflow_executor import _TASK_TOOLS
+        from app.engine.harness_integration.context import _resolve_builtin_tools
+
+        names = _tool_names(_resolve_builtin_tools({}, "plan"))
+        for t in _TASK_TOOLS:
+            assert t.name not in names
+        assert "render_chart" not in names
+
+
+# ---------------------------------------------------------------------------
+# 2. Prompt 层
+# ---------------------------------------------------------------------------
+
+
+def _fake_agent(**extra) -> dict:
+    agent = {
+        "_id": "agent_01HTEST",
+        "name": "Test Agent",
+        "skill_ids": [],
+        "knowledge_base_ids": [],
+        "mcp_connection_ids": [],
+        "workflow_ids": ["wf_demo"],
+        "builtin_config": ["bash"],
+    }
+    agent.update(extra)
+    return agent
+
 
 # ---------------------------------------------------------------------------
 # 2. Prompt 层

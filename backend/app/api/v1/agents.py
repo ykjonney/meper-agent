@@ -28,6 +28,7 @@ from app.schemas.agent import (
     AgentUpdate,
 )
 from app.schemas.execution import (
+    ApprovePlanRequest,
     DismissRequest,
     ExecutionRequest,
     ExecutionResponse,
@@ -468,3 +469,23 @@ async def dismiss_interrupt(
     """
     dismissed = await AgentExecutionService.dismiss_interrupt(agent_id, body, user.id)
     return {"dismissed": dismissed, "session_id": body.session_id}
+
+@router.post(
+    "/{agent_id}/plan/approve",
+    summary="Approve the pending plan: write PLAN.md, zero LLM cost",
+)
+async def approve_plan(
+    agent_id: str,
+    body: ApprovePlanRequest,
+    user: UserResponse = Depends(require_permission("agent:invoke")),
+) -> dict:
+    """批准挂起的计划（propose_plan）——零 LLM 成本的批准动作。
+
+    写 PLAN.md 进 session workspace（执行期抗压缩事实源）+ 合成
+    tool_result 终止挂起（不 resume 不跑模型）。执行由客户端随后的
+    kickoff 消息触发（普通 stream 新一轮，全量工具）。plan 可为用户
+    在卡片上编辑后的版本（编辑后批准）。
+    """
+    result = await AgentExecutionService.approve_plan(agent_id, body, user.id)
+    return {**result, "session_id": body.session_id}
+

@@ -120,7 +120,7 @@ class InterruptEvent(_Base):
 
     type: Literal["interrupt"] = "interrupt"
     kind: Literal[
-        "clarification", "workflow_confirmation", "app_authorization"
+        "clarification", "workflow_confirmation", "app_authorization", "plan"
     ] = "clarification"
     # clarification fields (ask_clarification)
     question: str = ""
@@ -136,6 +136,8 @@ class InterruptEvent(_Base):
     app_id: str = ""
     app_name: str = ""
     reason: str = ""
+    # plan fields (propose_plan)：完整计划 markdown，前端渲染计划审批卡
+    plan: str = ""
     interrupt_id: str = ""
 
 

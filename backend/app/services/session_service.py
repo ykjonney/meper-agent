@@ -372,16 +372,29 @@ class MessageService:
     # 忽略标记文案——与 resume 的 tool_result 同构持久化，前端卡片
     # 已答态直接展示该文本。
     DISMISSED_RESULT_TEXT = "(用户已忽略此问题)"
-    _INTERRUPT_TOOL_NAMES = ("ask_clarification", "confirm_workflow")
+    _INTERRUPT_TOOL_NAMES = ("ask_clarification", "confirm_workflow", "propose_plan")
+
+    #: 计划批准的合成 tool_result 文案。前端 approved 判定依赖此开头
+    #: 措辞（startsWith("用户已批准")），与 plan_tool 批准返回文案同源——
+    #: 勿改开头。
+    PLAN_APPROVED_RESULT_TEXT = "用户已批准该计划（全文已写入 workspace/PLAN.md）。"
 
     @staticmethod
-    async def dismiss_pending_clarification(session_id: str) -> bool:
-        """Close the pending ask_clarification/confirm_workflow card.
+    async def dismiss_pending_clarification(
+        session_id: str,
+        *,
+        result_text: str | None = None,
+        tool_names: tuple[str, ...] | None = None,
+    ) -> bool:
+        """Close the pending interrupt card (synthesizes a tool_result).
 
         用户不想回答 agent 的追问（问题不对 / 想改传文件）时关闭待答卡片：
         给最后一条 agent 消息里未答的 interrupt tool_call 追加一条合成
         tool_result（与 resume 持久化答案完全同构，前端按 tool_call_id
         配对合并）。卡片进入已答态后，下一次发送即走普通 stream 新一轮。
+
+        计划批准复用同一机制（result_text 换成批准文案、tool_names 收窄到
+        propose_plan）——批准动作零 LLM 成本，执行由后续 kickoff 消息触发。
 
         LLM 上下文不受影响——checkpointer 里的 pending interrupt 由下一次
         普通 stream 输入自然丢弃（annotate_interruptions 合成
@@ -398,6 +411,8 @@ class MessageService:
         if last_msg is None:
             return False
 
+        names = tool_names if tool_names is not None else MessageService._INTERRUPT_TOOL_NAMES
+        content = result_text if result_text is not None else MessageService.DISMISSED_RESULT_TEXT
         entries = last_msg.get("timeline_entries") or []
         # 已应答 tool_call 的配对键集合（tool_call_id 优先，回退
         # tool_name——与前端 agentMessageToDisplay 的合并逻辑一致）。
@@ -411,7 +426,7 @@ class MessageService:
             if e.get("type") != "tool_call":
                 continue
             name = e.get("tool_name") or ""
-            if name not in MessageService._INTERRUPT_TOOL_NAMES:
+            if name not in names:
                 continue
             if (e.get("id") or name) in answered_keys:
                 continue
@@ -422,7 +437,7 @@ class MessageService:
                         "timeline_entries": {
                             "type": "tool_result",
                             "tool_name": name,
-                            "content": MessageService.DISMISSED_RESULT_TEXT,
+                            "content": content,
                             "status": "success",
                             "tool_call_id": e.get("id") or "",
                         }

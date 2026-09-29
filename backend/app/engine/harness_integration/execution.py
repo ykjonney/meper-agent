@@ -105,6 +105,7 @@ async def stream(
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
     recorder_sink: dict | None = None,
+    execution_context: str = "chat",
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。
 
@@ -116,6 +117,8 @@ async def stream(
         recorder_sink: 可选字典出参——resolve 后立刻塞入本次执行的
             ExecutionRecorder,调用方据此补 interrupt/error 终态并
             finalize 进 execution_log.events(成功/失败路径都拿得到)。
+        execution_context: chat(默认) | plan(计划模式:剥离副作用工具,
+            注入 propose_plan)。workflow 上下文走 invoke。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
@@ -124,6 +127,7 @@ async def stream(
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
+        execution_context=execution_context,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -357,6 +361,33 @@ async def resume_agent(
         release_harness_context(hctx)
 
 
+async def _peek_has_pending_plan(agent: dict, session_id: str) -> bool:
+    """探针读取 thread 是否挂着 propose_plan 的 interrupt（反馈链根治）。
+
+    用空工具集构建探针 graph 仅为 aget_state——状态读取不执行节点、
+    不依赖工具集。挂起真相以 checkpoint 为单一事实源，不信客户端
+    plan_mode（刷新/多端/第三方调用方下客户端状态可能失真）。
+    任何异常按"无 plan 挂起"处理（退回调用方提供的上下文）。
+    """
+    from agent_flow_harness import build_agent_graph
+
+    from app.engine.harness_integration.context import get_checkpointer
+
+    if not session_id:
+        return False
+    try:
+        probe = build_agent_graph(agent, checkpointer=get_checkpointer(), middleware=[], tools=[])
+        snap = await probe.aget_state({"configurable": {"thread_id": session_id}})
+        for task in getattr(snap, "tasks", None) or ():
+            for intr in getattr(task, "interrupts", None) or ():
+                value = getattr(intr, "value", None)
+                if isinstance(value, dict) and value.get("type") == "plan":
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 async def resume(
     agent: dict,
     state: dict,
@@ -367,16 +398,29 @@ async def resume(
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
     recorder_sink: dict | None = None,
+    execution_context: str = "chat",
 ) -> dict:
-    """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。"""
+    """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。
+
+    execution_context: 决定恢复后的工具集。**挂起为 propose_plan 时强制
+    plan 上下文**（探针读 checkpoint 推断,不信调用方）——propose_plan 只在
+    plan 工具集注册,chat 上下文恢复会让挂起的 tool_call 找不到工具而
+    报错（"批准/反馈无反应"根因的根治）。
+    """
     from agent_flow_harness import build_agent_graph, build_config
     from langgraph.types import Command
 
     from app.engine.harness_integration.adapters import stream_events_to_app_events
 
+    if execution_context != "plan" and await _peek_has_pending_plan(
+        agent, str(state.get("session_id", "")),
+    ):
+        execution_context = "plan"
+
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
+        execution_context=execution_context,
     )
     clock.attach(hctx)
     if recorder_sink is not None:

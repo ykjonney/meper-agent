@@ -57,6 +57,15 @@ _RUN_CODE_EXCLUDED_TOOLS: frozenset[str] = frozenset({
     "bash", "read", "write", "edit", "glob", "grep",
 })
 
+# 计划模式(plan_mode)剥离的变更工具——边界语义是"不产生变更"而非"不执行"。
+# bash 保留(Claude Code 同例:计划期允许命令、只禁编辑):跑测试收集失败
+# 清单/git status 等探索性执行是调研的合法部分,且已被 Docker 沙盒隔离兜底;
+# write/edit(直接文件变更)与 run_code(可编排任意工具绕过限制)剥离。
+# MCP/自定义工具无法静态判定读写,v1 保留但由计划纪律(prompt)约束。
+_PLAN_EXCLUDED_TOOLS: frozenset[str] = frozenset({
+    "write", "edit", "run_code",
+})
+
 # 新建 Agent 时默认启用的内建工具(白名单语义:列表中的工具才会注入)。
 # 保持与 _CONFIGURABLE_BUILTIN_TOOL_NAMES 一致(按 _INJECTED_BUILTIN_TOOL_NAMES
 # 的顺序),创建端点与前端默认值共同引用,作为单一事实源避免名单漂移。
@@ -110,6 +119,10 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
             _TASK_TOOLS 整组(dispatch/intervene/cancel 等)会 造成循环派发或
             干预父任务 —— 改注入 abort_workflow 诚实终止通道。
             工作流嵌套的正确方式是 subflow 节点,不是 agent 内 dispatch。
+        "plan" — 计划模式语义(人在场但只调研不执行):剥离副作用工具
+            (bash/write/edit/run_code,见 _PLAN_EXCLUDED_TOOLS)与任务派发/
+            图表工具,保留只读探查 + ask_clarification(计划可以反问),
+            注入 propose_plan 作为唯一终结动作(计划审批卡)。
 
     chat 语义下 task/workflow 工具始终注入;harness 内建工具与 app 层 parse_file
     按 builtin_config 白名单过滤。bash 选中时连带 read/write/edit。
@@ -121,15 +134,20 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
     from app.engine.agent.chart_tool import _CHART_TOOLS
     from app.engine.agent.image_tool import IMAGE_TOOL_BY_NAME
     from app.engine.agent.parse_tool import PARSE_TOOL_BY_NAME
+    from app.engine.agent.plan_tool import _PLAN_TOOLS
     from app.engine.agent.recall_tool import RECALL_TOOL_BY_NAME
     from app.engine.agent.workflow_executor import _TASK_TOOLS, _WORKFLOW_CONTEXT_TOOLS
 
     tools: list = []
     if execution_context == "workflow":
         tools += list(_WORKFLOW_CONTEXT_TOOLS)  # abort_workflow 诚实终止
+    elif execution_context == "plan":
+        tools += list(_PLAN_TOOLS)  # propose_plan:计划审批终结动作
     else:
         tools += list(_TASK_TOOLS)  # app-level task/workflow 工具始终注入
-    tools += list(_CHART_TOOLS)  # render_chart 图表工具始终注入
+    if execution_context != "plan":
+        # 计划模式剥离图表工具(渲染产物属交付物制作,非调研)。
+        tools += list(_CHART_TOOLS)
 
     builtin_config = set(agent.get("builtin_config") or [])
     if not settings.RUN_CODE_ENABLED:
@@ -152,6 +170,8 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
             continue  # 工作流无人值守:反问会 interrupt 挂起导致工作流停摆
         if name == "request_app_authorization" and execution_context == "workflow":
             continue  # 工作流无人值守:按需授权弹卡无意义,未绑定保持 isError 现状
+        if execution_context == "plan" and name in _PLAN_EXCLUDED_TOOLS:
+            continue  # 计划模式:剥离副作用工具(只调研不执行)
         if name not in _CONFIGURABLE_BUILTIN_TOOL_NAMES:
             tools.append(tool)  # 始终开启的能力型工具
         elif name in builtin_config:

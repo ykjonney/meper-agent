@@ -308,6 +308,27 @@ async def confirm_workflow(
     """
     from langgraph.types import interrupt
 
+    # 双重确认抑制（白名单制）：该工作流在用户已批准的计划中点名 →
+    # 授权已被计划批准覆盖，跳过确认卡直接放行；清单外照常弹卡
+    # （模型自行加戏的派发不被批准覆盖）。
+    from app.engine.agent.builtin_tools import _get_workspace
+
+    ws = _get_workspace()
+    if ws is not None and ws.session_id:
+        try:
+            from app.services.session_service import SessionService
+
+            session_doc = await SessionService.get_session(ws.session_id) or {}
+            authorized = session_doc.get("plan_authorized_workflows") or []
+            if workflow_name in authorized:
+                return (
+                    f"已自动确认执行工作流 '{workflow_name}'（该工作流在用户已批准"
+                    "的计划中点名，授权已被计划批准覆盖）。请继续调用 "
+                    "dispatch_workflow 执行。"
+                )
+        except Exception:  # noqa: BLE001 — 查询失败退回正常确认卡
+            pass
+
     payload = {
         "type": "workflow_confirmation",
         "workflow_name": workflow_name,
