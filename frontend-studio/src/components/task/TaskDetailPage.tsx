@@ -326,7 +326,10 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     </SectionTitle>
                     <div className="space-y-2.5">
                       {taskDetail.checkpoint.human_context?.title && (
-                        <InfoRow label="审批标题" value={String(taskDetail.checkpoint.human_context.title)} />
+                        /* 标题整行居中展示：InfoRow 的 justify-between 会把标题值顶到行尾，视觉割裂 */
+                        <div className="text-center text-sm font-medium text-[#fafafa] py-1 break-words">
+                          {String(taskDetail.checkpoint.human_context.title)}
+                        </div>
                       )}
                       {taskDetail.checkpoint.human_context?.description && (
                         <div>
