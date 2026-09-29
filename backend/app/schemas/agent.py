@@ -110,6 +110,10 @@ class AgentUpdate(BaseModel):
         default="",
         description="头像 URL 路径；空串=清除回默认 logo",
     )
+    can_spawn_agents: bool = Field(
+        default=False,
+        description="允许该 agent 创建新 agent（能力门控；创建物为草稿态且不再拥有此能力）",
+    )
     welcome_message: str = Field(
         default="",
         max_length=2000,
@@ -223,6 +227,9 @@ class AgentResponse(BaseModel):
     name: str
     description: str
     avatar: str = Field(default="")
+    can_spawn_agents: bool = Field(default=False, description="允许该 agent 创建新 agent")
+    spawned_by_agent_id: str = Field(default="", description="父 agent id（自繁殖审计）")
+    version: int = Field(default=1, description="配置版本号（每次 update +1）")
     welcome_message: str = Field(default="")
     recommended_items: list[RecommendedItem] = Field(default_factory=list)
     recommended_groups: list[RecommendedGroup] = Field(default_factory=list)

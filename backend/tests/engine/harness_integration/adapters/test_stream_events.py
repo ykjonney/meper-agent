@@ -583,3 +583,14 @@ class TestExtractContent:
     def test_thinking_from_content_blocks(self):
         chunk = _Chunk(content=[{"type": "thinking", "thinking": "deep thought"}])
         assert extract_thinking_text(chunk) == "deep thought"
+
+
+def test_build_interrupt_event_plan_branch() -> None:
+    """payload type=plan → InterruptEvent(kind=plan, plan=...)。"""
+    from app.engine.harness_integration.adapters.stream_events import (
+        _build_interrupt_event,
+    )
+
+    evt = _build_interrupt_event({"type": "plan", "plan": "# 目标\n..."})
+    assert evt.kind == "plan"
+    assert evt.plan.startswith("# 目标")

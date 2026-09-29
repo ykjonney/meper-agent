@@ -149,6 +149,23 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
         # 计划模式剥离图表工具(渲染产物属交付物制作,非调研)。
         tools += list(_CHART_TOOLS)
 
+    # spawn 工具（能力门控：agent.can_spawn_agents 手动开启，与 plan 模式
+    # 解耦——两种语境均可创建，plan 只影响路径：
+    # chat=直接创建；plan=计划→批准→执行期创建（实验对照点）。
+    # create_agent 属变更操作，计划期剥离；workflow 无人值守不繁殖）。
+    if agent.get("can_spawn_agents") and execution_context != "workflow":
+        from app.engine.agent.spawn_tools import (
+            CREATE_AGENT_TOOL,
+            LIST_CAPABILITIES_TOOL,
+            TEST_AGENT_TOOL,
+        )
+        tools.append(LIST_CAPABILITIES_TOOL)
+        if execution_context != "plan":
+            # 创建与验收测试同规则：plan 期剥离（执行期使用）——
+            # 计划模式下走 计划→批准→执行期创建+验收。
+            tools.append(CREATE_AGENT_TOOL)
+            tools.append(TEST_AGENT_TOOL)
+
     builtin_config = set(agent.get("builtin_config") or [])
     if not settings.RUN_CODE_ENABLED:
         builtin_config.discard("run_code")
@@ -746,7 +763,11 @@ async def resolve_harness_context(
         load_errors,
     )
 
+    # 父 agent id 上下文（spawn_tools 繁殖审计用；release 成对 reset）。
+    from app.engine.agent.spawn_tools import set_spawn_agent_context
     from app.engine.harness_integration.recorder_middleware import RecorderMiddleware
+
+    spawn_token = set_spawn_agent_context(str(agent_doc.get("_id", "") or agent_id))
 
     return {
         "agent_doc": agent_doc,
@@ -763,6 +784,7 @@ async def resolve_harness_context(
         "context_window": context_window,
         # 执行过程记录器——execution.py 经 recorder_sink 暴露给调用方。
         "recorder": recorder,
+        "spawn_token": spawn_token,
         # DEBUG 分段计时（关闭时为 None；execution.py 汇总进 agent_phase_timing 日志）
         "_timing_phases": timing_phases,
         # 压缩配置(全局可配)。
@@ -870,7 +892,10 @@ def release_harness_context(hctx: dict) -> None:
     from agent_flow_harness.mcp.user_token_context import reset_token_record_id_context
 
     from app.engine.agent.builtin_tools import reset_workspace_context
+    from app.engine.agent.spawn_tools import reset_spawn_agent_context
 
+    if hctx.get("spawn_token") is not None:
+        reset_spawn_agent_context(hctx["spawn_token"])
     reset_sandbox_context(hctx["sb_token"])
     if hctx.get("ws_token") is not None:
         reset_workspace_context(hctx["ws_token"])

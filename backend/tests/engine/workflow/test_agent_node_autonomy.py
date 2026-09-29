@@ -140,25 +140,6 @@ def _fake_agent(**extra) -> dict:
     return agent
 
 
-# ---------------------------------------------------------------------------
-# 2. Prompt 层
-# ---------------------------------------------------------------------------
-
-
-def _fake_agent(**extra) -> dict:
-    agent = {
-        "_id": "agent_01HTEST",
-        "name": "Test Agent",
-        "skill_ids": [],
-        "knowledge_base_ids": [],
-        "mcp_connection_ids": [],
-        "workflow_ids": ["wf_demo"],
-        "builtin_config": ["bash"],
-    }
-    agent.update(extra)
-    return agent
-
-
 class TestBuildToolDeclarationByContext:
     """build_tool_declaration 的声明与运行时工具集保持一致。"""
 

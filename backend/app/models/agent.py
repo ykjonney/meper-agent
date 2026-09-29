@@ -86,12 +86,28 @@ class Agent(BaseModel):
         default=False,
         description="Whether this Agent may be used for realtime voice conversations",
     )
+    can_spawn_agents: bool = Field(
+        default=False,
+        description="允许该 agent 调用 create_agent 创建新 agent（能力门控，"
+        "手动开启；创建物为草稿态且不再拥有此能力——权限不放大，最多一层）",
+    )
+    spawned_by_agent_id: str = Field(
+        default="", description="创建本 agent 的父 agent id（自繁殖审计；空=人创建）"
+    )
+    spawned_by_session_id: str = Field(
+        default="", description="创建本 agent 时所在会话 id（审计回溯）"
+    )
     user_skills_enabled: bool = Field(
         default=True,
         description="是否向会话注入当前用户的个人技能（False=纯净模式，§5.2）",
     )
     max_retry: int = Field(default=3, ge=0, le=10, description="Max LLM call retries on failure")
     max_tokens: int = Field(default=0, ge=0, description="Session token budget (0 = use global DEFAULT_SESSION_MAX_TOKENS)")
+    version: int = Field(
+        default=1, ge=1,
+        description="配置版本号：每次 update +1，永不复用（对齐 penguin "
+        "kernel-update 语义——优化循环严格提升门控的回滚前提）",
+    )
     status: AgentStatus = Field(default=AgentStatus.DRAFT)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
@@ -101,3 +117,25 @@ class Agent(BaseModel):
         super().model_post_init(__context)
         if not self.skill_ids and self.tool_ids:
             object.__setattr__(self, "skill_ids", list(self.tool_ids))
+
+
+class AgentSnapshot(BaseModel):
+    """One immutable configuration snapshot of an Agent (agent_snapshots).
+
+    Taken automatically before every update_agent $set — the rollback anchor
+    for the optimization loop ("strict improvement gate" needs revert) and for
+    "regressed after a platform upgrade" forensics.
+
+    版本号语义：snapshot_of_version=N 表示"该次变更前的 vN 完整状态"。
+    restore 时以 v(N) 恢复并 version 递增到 max+1（版本号永不复用）。
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(default_factory=lambda: generate_id("asnap"), alias="_id")
+    agent_id: str = Field(..., description="快照所属 Agent")
+    snapshot_of_version: int = Field(..., ge=1, description="此快照记录的版本号")
+    doc: dict = Field(..., description="Agent 文档完整快照（含 prompt_slots/tools/config）")
+    label: str = Field(default="", description="快照标签（update/publish/optimizer…）")
+    created_by: str = Field(default="", description="触发者 user_id 或 agent_id（optimizer 场景）")
+    created_at: str = Field(default_factory=lambda: utc_now().isoformat())

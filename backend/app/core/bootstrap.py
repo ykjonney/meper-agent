@@ -72,6 +72,7 @@ async def ensure_all_indexes() -> TriggerRepository:
     """Create indexes for all collections (parallelized, idempotent)."""
     from app.db.indexes import create_indexes
     from app.db.mongodb import get_database
+    from app.services.agent_snapshot_service import AgentSnapshotService
     from app.services.api_key_service import (
         ApiKeyService,  # noqa: F401 (avoid eager import cycle)
     )
@@ -88,6 +89,7 @@ async def ensure_all_indexes() -> TriggerRepository:
         ApiKeyService.ensure_indexes(),
         ExecutionLogService.ensure_indexes(),
         ToolOutputArchiveService.ensure_indexes(),
+        AgentSnapshotService.ensure_indexes(),
         # 全量核心索引（users/agents/tools/kb/user_skills/skill_logs/
         # message_feedback 等）——此前只能手动 python -m app.db.indexes，
         # 新环境部署会缺（含消息反馈唯一索引的并发防线）

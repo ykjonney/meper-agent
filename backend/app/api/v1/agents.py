@@ -2,6 +2,7 @@
 import json
 import pathlib
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -49,6 +50,20 @@ router = APIRouter(
 )
 
 
+def _as_iso(value: object) -> str:
+    """Normalize a MongoDB time field to an ISO 8601 string.
+
+    Legacy documents may store ``created_at``/``updated_at`` as BSON
+    ``datetime`` objects (or ``None``); Pydantic v2 rejects ``datetime``
+    for ``str``-typed fields, so coerce at the boundary.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def _doc_to_response(doc: dict) -> AgentResponse:
     """Convert a raw MongoDB document to AgentResponse.
 
@@ -66,6 +81,9 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         name=doc["name"],
         description=doc.get("description", ""),
         avatar=doc.get("avatar", ""),
+        can_spawn_agents=bool(doc.get("can_spawn_agents", False)),
+        spawned_by_agent_id=doc.get("spawned_by_agent_id", ""),
+        version=int(doc.get("version", 1) or 1),
         welcome_message=doc.get("welcome_message", ""),
         recommended_items=doc.get("recommended_items", []),
         recommended_groups=doc.get("recommended_groups", []),
@@ -85,8 +103,8 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         max_retry=max_retry,
         max_tokens=max_tokens,
         status=AgentStatus(doc["status"]),
-        created_at=doc["created_at"],
-        updated_at=doc["updated_at"],
+        created_at=_as_iso(doc.get("created_at")),
+        updated_at=_as_iso(doc.get("updated_at")),
     )
 
 
@@ -197,6 +215,7 @@ async def update_agent(
         recommended_items=[item.model_dump() for item in body.recommended_items],
         recommended_groups=[group.model_dump() for group in body.recommended_groups],
         avatar=body.avatar,
+        can_spawn_agents=body.can_spawn_agents,
     )
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")

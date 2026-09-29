@@ -78,6 +78,9 @@ class AgentService:
         recommended_groups: list[dict] | None = None,
         avatar: str = "",
         user_skills_enabled: bool = True,
+        can_spawn_agents: bool = False,
+        spawned_by_agent_id: str = "",
+        spawned_by_session_id: str = "",
     ) -> dict:
         """Create a new Agent in draft status.
 
@@ -148,6 +151,9 @@ class AgentService:
             "recommended_groups": recommended_groups or [],
             "avatar": avatar,
             "user_skills_enabled": agent.user_skills_enabled,
+            "can_spawn_agents": can_spawn_agents,
+            "spawned_by_agent_id": spawned_by_agent_id,
+            "spawned_by_session_id": spawned_by_session_id,
             "status": agent.status.value,
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
@@ -243,6 +249,7 @@ class AgentService:
         recommended_items: list[dict] | None = None,
         recommended_groups: list[dict] | None = None,
         avatar: str = "",
+        can_spawn_agents: bool = False,
     ) -> dict | None:
         """Update an existing Agent's configuration.
 
@@ -294,6 +301,12 @@ class AgentService:
 
         now_iso = utc_now().isoformat()
 
+        # 版本化：每次 update 前自动快照当前状态（回滚锚点）+ version 递增。
+        from app.services.agent_snapshot_service import AgentSnapshotService
+
+        await AgentSnapshotService.take_snapshot(existing_doc, label="update")
+        current_version = int(existing_doc.get("version", 1) or 1)
+
         resolved_custom_tools = await _resolve_custom_tools(custom_tools, custom_tool_ids, encrypt=True)
 
         set_fields: dict = {
@@ -314,6 +327,8 @@ class AgentService:
             "recommended_items": recommended_items or [],
             "recommended_groups": recommended_groups or [],
             "avatar": avatar,
+            "can_spawn_agents": can_spawn_agents,
+            "version": current_version + 1,
             "updated_at": now_iso,
         }
         await col.update_one(

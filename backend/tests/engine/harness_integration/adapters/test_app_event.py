@@ -80,8 +80,11 @@ def test_error_dump_source_values() -> None:
         "type": "error",
         "message": "boom",
         "source": "llm",
+        "code": "",  # 稳定错误码缺省为空（P0-3）
     }
     assert ErrorEvent(message="boom", source="tool").source == "tool"
+    # LLM 来源可携带稳定机器码，前端/渠道按 code 决策
+    assert ErrorEvent(message="boom", source="llm", code="LLM_TIMEOUT").code == "LLM_TIMEOUT"
 
 
 def test_error_rejects_invalid_source() -> None:
@@ -93,3 +96,14 @@ def test_extra_fields_rejected() -> None:
     """extra='forbid' keeps the schema tight against drift."""
     with pytest.raises(ValidationError):
         TextEvent(content="x", surprise=True)  # type: ignore[call-arg]
+
+
+def test_interrupt_plan_kind_dump() -> None:
+    """propose_plan 的 interrupt → kind=plan + 计划全文（计划审批卡）。"""
+    from app.engine.harness_integration.adapters.app_event import InterruptEvent
+
+    evt = InterruptEvent(kind="plan", plan="# 目标\n修复测试")
+    dumped = evt.model_dump()
+    assert dumped["type"] == "interrupt"
+    assert dumped["kind"] == "plan"
+    assert dumped["plan"].startswith("# 目标")
