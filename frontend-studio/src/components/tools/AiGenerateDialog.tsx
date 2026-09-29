@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, Play, Send, Sparkles } from 'lucide-react'
 import { getErrorMessage } from '../../lib/api-client'
+import { isImeComposing } from '../../lib/keyboard'
 import { parseSSEStream } from '../../lib/sse-parser'
 import { toast } from '../ui/toast'
 import { Markdown } from '../Markdown'
@@ -425,6 +426,8 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
+              // 中文 IME 选词的 Enter 不是发送
+              if (isImeComposing(e)) return;
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 // interrupt 挂起时输入框回复即作答（无 fields 场景）

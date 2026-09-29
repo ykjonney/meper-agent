@@ -104,24 +104,39 @@ export function ClarificationFormCard({ question, context, fields, answered, res
     ? currentVal as string : ''
   // 输入框的值（不含选项选中的值）
   const inputVal = selectedOption ? '' : (currentVal as string)
-  // 能否进入下一题：有选项选中 或 有输入值
-  const canProceed = currentVal !== '' && currentVal !== undefined && currentVal !== null
+  // 能否进入下一题：必填需有值；可选题允许留空直接下一步（或显式「跳过此题」）
+  const canProceed = !field.required || (currentVal !== '' && currentVal !== undefined && currentVal !== null)
+
+  const submitAnswers = (ans: Record<string, string | number>) => {
+    const result: Record<string, unknown> = {}
+    fields.forEach(f => {
+      if (f.field_type === 'boolean') {
+        result[f.name] = ans[f.name] === 'true'
+      } else if (ans[f.name] !== undefined && ans[f.name] !== '') {
+        result[f.name] = f.field_type === 'number' ? Number(ans[f.name]) : ans[f.name]
+      }
+    })
+    onSubmit(JSON.stringify(result))
+  }
 
   const handleNext = () => {
     if (isLast) {
-      // 提交：合并 boolean + 填写的值
-      const result: Record<string, unknown> = {}
-      fields.forEach(f => {
-        if (f.field_type === 'boolean') {
-          result[f.name] = answers[f.name] === 'true'
-        } else if (answers[f.name] !== undefined && answers[f.name] !== '') {
-          result[f.name] = f.field_type === 'number' ? Number(answers[f.name]) : answers[f.name]
-        }
-      })
-      onSubmit(JSON.stringify(result))
+      // 提交：合并 boolean + 填写的值（留空的可选字段不进 JSON）
+      submitAnswers(answers)
     } else {
       setCurrentIdx(currentIdx + 1)
     }
+  }
+
+  /** 跳过当前可选题（单题级，区别于整卡的忽略）：清除已填值并前进，
+   *  提交 JSON 不含该字段——agent 从缺省字段自行推断。 */
+  const handleSkip = () => {
+    if (field.required) return
+    const next = { ...answers }
+    delete next[field.name]
+    setAnswers(next)
+    if (isLast) submitAnswers(next)
+    else setCurrentIdx(currentIdx + 1)
   }
 
   const handlePrev = () => {
@@ -186,6 +201,10 @@ export function ClarificationFormCard({ question, context, fields, answered, res
       <div className="clarification-form-actions">
         {currentIdx > 0 && (
           <Button type="text" icon={<LeftOutlined />} onClick={handlePrev}>上一题</Button>
+        )}
+        {/* 单题跳过（仅可选题）：清除本题答案前进，区别于整卡忽略 */}
+        {!field.required && (
+          <Button type="text" onClick={handleSkip}>跳过此题</Button>
         )}
         <Button
           type="primary"

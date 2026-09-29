@@ -60,7 +60,14 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
   const { data: taskDetail, isLoading } = useQuery({
     queryKey: taskKeys.detail(taskId),
     queryFn: () => tasksApi.get(taskId),
-    // 刷新由 WebSocket task_status 事件 invalidate 驱动（use-task-realtime），不轮询。
+    // 刷新双通道：任务级状态变迁由 WebSocket task_status 事件 invalidate 即时驱动
+    // （use-task-realtime）；执行中（pending/running/waiting_human）另有 3s 轮询——
+    // WS 只推状态变迁不推 node_start/node_complete，节点进度靠轮询拉 timeline 推进，
+    // 终态即停。
+    refetchInterval: (query) =>
+      ['pending', 'running', 'waiting_human'].includes(query.state.data?.status ?? '')
+        ? 3_000
+        : false,
   })
   const { data: agentListData } = useQuery({
     queryKey: agentKeys.lists(),

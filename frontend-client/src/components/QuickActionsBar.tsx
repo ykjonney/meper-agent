@@ -78,6 +78,15 @@ export function QuickActionsBar({ items, groups, disabled, onSelect }: QuickActi
     setOpenGroup(null)
   }, [items, groups])
 
+  // 执行中/等待人工时收起云团与展开态——按钮已禁用，且云团悬浮在输入区
+  // 上方（不透明、最高约 42vh），会盖住自动跟随滚到底部的流式思考面板。
+  useEffect(() => {
+    if (disabled) {
+      setExpanded(false)
+      setOpenGroup(null)
+    }
+  }, [disabled])
+
   // 仅单行折叠态需要测量；「⋯」展开态按钮全部平铺，无需量尺。
   // 分组云团是绝对定位悬浮层，不影响主行折叠态——照常测量。
   useLayoutEffect(() => {

@@ -13,6 +13,7 @@
  */
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Send, CheckCircle, Loader2 } from 'lucide-react';
+import { isImeComposing } from '../lib/keyboard';
 
 /** 后端 ClarificationField 的前端镜像。 */
 export interface ClarificationField {
@@ -72,21 +73,34 @@ export function ClarificationFormCard({
     else commitAnswer(current.field_type === 'number' ? Number(val) : val);
   };
 
+  /** 序列化已答字段提交（未答/跳过的字段不进 JSON）。 */
+  const submitAnswers = (ans: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {};
+    for (const f of fields) {
+      const v = ans[f.name];
+      if (v === undefined || v === '' || v === null) continue;
+      out[f.name] = v;
+    }
+    onSubmit(JSON.stringify(out));
+  };
+
   const handleNext = () => {
     const val = answers[current.name];
     const empty = val === undefined || val === '' || val === null;
     if (current.required && current.field_type !== 'boolean' && empty) return;
-    if (isLast) {
-      const out: Record<string, unknown> = {};
-      for (const f of fields) {
-        const v = answers[f.name];
-        if (v === undefined || v === '' || v === null) continue;
-        out[f.name] = v;
-      }
-      onSubmit(JSON.stringify(out));
-    } else {
-      setStep((s) => Math.min(s + 1, total - 1));
-    }
+    if (isLast) submitAnswers(answers);
+    else setStep((s) => Math.min(s + 1, total - 1));
+  };
+
+  /** 跳过当前可选题（单个问题级，区别于整卡的 onDismiss）：清除已填答案并
+   *  前进，提交 JSON 不含该字段——agent 从缺省字段自行推断。 */
+  const handleSkip = () => {
+    if (current.required) return;
+    const next = { ...answers };
+    delete next[current.name];
+    setAnswers(next);
+    if (isLast) submitAnswers(next);
+    else setStep((s) => Math.min(s + 1, total - 1));
   };
 
   const handlePrev = () => setStep((s) => Math.max(s - 1, 0));
@@ -263,6 +277,8 @@ export function ClarificationFormCard({
                 placeholder="或在此输入自定义内容…"
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => {
+                  // 中文 IME 选词的 Enter 不是提交
+                  if (isImeComposing(e)) return;
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (current.required && !isAnswered) return;
@@ -294,24 +310,36 @@ export function ClarificationFormCard({
                   </button>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={current.required && current.field_type !== 'boolean' && !isAnswered}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-              >
-                {isLast ? (
-                  <>
-                    <Send size={13} />
-                    提交
-                  </>
-                ) : (
-                  <>
-                    下一题
-                    <ChevronRight size={13} />
-                  </>
+              <div className="flex items-center gap-2">
+                {/* 单题跳过（仅可选题）：清除本题答案前进，区别于整卡「忽略此问题」 */}
+                {!current.required && (
+                  <button
+                    type="button"
+                    onClick={handleSkip}
+                    className="text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+                  >
+                    跳过此题
+                  </button>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={current.required && current.field_type !== 'boolean' && !isAnswered}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                >
+                  {isLast ? (
+                    <>
+                      <Send size={13} />
+                      提交
+                    </>
+                  ) : (
+                    <>
+                      下一题
+                      <ChevronRight size={13} />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

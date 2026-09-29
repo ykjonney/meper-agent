@@ -802,12 +802,16 @@ export function ChatView({
                         >
                           发送
                         </Button>
+                      </div>
+                      {/* 跳过入口：可选问题允许不回答直接继续（下一条消息走普通
+                          stream）。文案与 studio 端 ClarificationCard 保持一致。 */}
+                      <div className="clarification-options">
                         <Button
                           type="text"
                           disabled={running}
                           onClick={() => void dismissClarification()}
                         >
-                          忽略
+                          跳过此问题，直接继续 →
                         </Button>
                       </div>
                       </>

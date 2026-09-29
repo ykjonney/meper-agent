@@ -1,7 +1,10 @@
-/** ToolMarketPage — 组织工具库（ToB 治理模型，单页卡片墙）。
+/** ToolMarketPage — 工具库（内置工具 + 组织自定义工具的统一目录）。
  *
- * 治理流程：tool:write 创建 → submit → admin 审查 → admin 配置凭证
- * → admin 开启 →「已开启」的工具才能被 Agent 绑定 / 工作流直调。
+ * 双 Tab：「组织工具」= ToB 治理卡片墙（tool:write 创建 → submit → admin
+ * 审查 → admin 配置凭证 → admin 开启 →「已开启」才能被 Agent 绑定/工作流
+ * 直调）；「系统内置」= bash/read 等运行时注入工具的只读目录（仅 tool:read
+ * 持有者可见——/tools/builtin 接口要求该权限，无权限用户不渲染 Tab 行，
+ * 视图与合并前一致）。
  * 对话框组件已拆分至 ./tools/（ToolEditModal / AiGenerateDialog / TestToolDialog）。
  */
 import { useEffect, useState } from 'react';
@@ -24,9 +27,11 @@ import {
 } from '../services/user-tools-api';
 import { ToolEditModal } from './tools/ToolEditModal';
 import { AiGenerateDialog } from './tools/AiGenerateDialog';
+import { BuiltinToolsTab } from './tools/BuiltinToolsTab';
+import { SegmentedTabs, type SegmentedTabItem } from './ui/tabs';
 import { SOURCE_META } from './tools/tool-form-utils';
 
-type Tab = 'library';
+type Tab = 'library' | 'builtin';
 
 const STATUS_LABEL: Record<string, string> = {
   private: '草稿', submitted: '审核中', published: '已过审', hidden: '已隐藏',
@@ -38,17 +43,111 @@ interface Props {
   theme?: 'dark' | 'light';
 }
 
-/** 组织工具库（单页卡片墙）：无个人工具概念——卡片标创建者，操作就地做 */
+/** 工具库：顶部公共行（Tab + 搜索 + 创建）双 Tab 切换组织工具 / 系统内置 */
 export function ToolMarketPage({ theme = 'dark' }: Props) {
-  return <LibraryTab theme={theme} />;
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<Tab>('library');
+  // 搜索词两 Tab 共用：library 走服务端 q，builtin 客户端过滤
+  const [q, setQ] = useState('');
+  // 创建/编辑弹窗挂页面级（入口按钮在公共行，编辑由卡片回调触发）
+  const [editing, setEditing] = useState<UserToolDetail | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [genOpen, setGenOpen] = useState(false);
+  const canReadTools = usePermission('tool:read');
+  const canCreate = usePermission('tool:write');
+
+  const handleEdit = (item: ToolMarketItem) => {
+    // 拉详情作编辑初值（官方工具不支持就地编辑定义——无入口）
+    void userToolsApi.get(item.id)
+      .then(setEditing)
+      .catch((e) => toast.error(getErrorMessage(e, '加载工具详情失败')));
+  };
+
+  const tabs: SegmentedTabItem<Tab>[] = [
+    { id: 'library', label: '组织工具' },
+    // 仅 tool:read 持有者可见内置 Tab（接口同权限，避免无权限用户 403）
+    ...(canReadTools ? [{ id: 'builtin' as Tab, label: '系统内置' }] : []),
+  ];
+
+  const invalidate = () => void qc.invalidateQueries({ queryKey: userToolKeys.all });
+
+  return (
+    <div className="space-y-4">
+      {/* 搜索/Tab 行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片）。
+          flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
+      <div className={`sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 ${
+        theme === 'dark' ? 'bg-[#09090b]' : 'bg-slate-50'
+      }`}>
+        {tabs.length > 1 && (
+          <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
+        )}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
+          className={`flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
+            theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200'
+          }`}
+        />
+        {canCreate && tab === 'library' && (
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setGenOpen(true)}
+              title="描述需求，AI 自动生成工具定义草稿"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
+                theme === 'dark'
+                  ? 'border border-blue-500/40 text-blue-400 hover:bg-blue-500/10'
+                  : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
+              }`}>
+              <Sparkles size={14} />AI 生成
+            </button>
+            <button onClick={() => setCreating(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
+              <Plus size={14} />创建工具
+            </button>
+          </div>
+        )}
+      </div>
+
+      {tab === 'library' ? (
+        <LibraryTab q={q} theme={theme} onEditItem={handleEdit} />
+      ) : (
+        <BuiltinToolsTab q={q} theme={theme} />
+      )}
+
+      {genOpen && (
+        <AiGenerateDialog
+          dark={theme === 'dark'}
+          mode="create"
+          // save_tool 落库后刷新列表（agent 迭代可多次触发）
+          onSavedTool={() => invalidate()}
+          onClose={() => setGenOpen(false)}
+        />
+      )}
+      {(creating || editing) && (
+        <ToolEditModal
+          theme={theme}
+          initial={editing ?? undefined}
+          // AI 修改经工坊保存（save_tool=update）后刷新列表，不关表单
+          onExternalSave={() => invalidate()}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { invalidate(); setCreating(false); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
 }
 
 
 /* ══════════════ 工具库（目录） ══════════════ */
 
-function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
+/** 组织工具卡片墙：无个人工具概念——卡片标创建者，操作就地做。
+ *  搜索/创建入口与编辑弹窗已提升至 ToolMarketPage（与内置 Tab 共用）。 */
+function LibraryTab({ q, theme, onEditItem }: {
+  q: string;
+  theme: 'dark' | 'light';
+  onEditItem: (item: ToolMarketItem) => void;
+}) {
   const qc = useQueryClient();
-  const [q, setQ] = useState('');
   const [preview, setPreview] = useState<ToolMarketItem | null>(null);
   const [argsTool, setArgsTool] = useState<{ id: string; name: string } | null>(null);
   /** 开启时缺凭证 → 弹配置框，保存成功后自动重试开启 */
@@ -56,9 +155,6 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
   const pendingEnableRef = pendingEnable
     ? { ...pendingEnable, enabled: true as const }
     : null;
-  const [editing, setEditing] = useState<UserToolDetail | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [genOpen, setGenOpen] = useState(false);
   const role = useAuthStore((s) => s.user?.role);
   const isAdmin = role === 'admin';
   const canCreate = usePermission('tool:write');
@@ -136,48 +232,11 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
       danger: true,
     }).then((ok) => { if (ok) deleteM.mutate(item.id); });
   };
-  const handleEdit = (item: ToolMarketItem) => {
-    // 拉详情作编辑初值（官方工具不支持就地编辑定义——无入口）
-    void userToolsApi.get(item.id)
-      .then(setEditing)
-      .catch((e) => toast.error(getErrorMessage(e, '加载工具详情失败')));
-  };
 
   const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
 
   return (
     <div className="space-y-4">
-      {/* 搜索/创建工具行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片） */}
-      <div className={`sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex items-center gap-2 ${
-        theme === 'dark' ? 'bg-[#09090b]' : 'bg-slate-50'
-      }`}>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索工具名称/描述…"
-          className={`flex-1 max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200'
-          }`}
-        />
-        {canCreate && (
-          <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => setGenOpen(true)}
-              title="描述需求，AI 自动生成工具定义草稿"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
-                theme === 'dark'
-                  ? 'border border-blue-500/40 text-blue-400 hover:bg-blue-500/10'
-                  : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
-              }`}>
-              <Sparkles size={14} />AI 生成
-            </button>
-            <button onClick={() => setCreating(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
-              <Plus size={14} />创建工具
-            </button>
-          </div>
-        )}
-      </div>
-
       {isLoading && <div className="py-12 text-center text-sm opacity-60">加载中…</div>}
       {!isLoading && all.length === 0 && (
         <div className={`py-12 text-center text-sm ${textMuted}`}>
@@ -199,7 +258,7 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
               : enableM.mutate({ id: it.id, name: it.name, enabled: v }))}
             onConfigArgs={() => setArgsTool({ id: it.id, name: it.name })}
             onVote={(v) => voteM.mutate({ id: it.id, value: v })}
-            onEdit={() => handleEdit(it)}
+            onEdit={() => onEditItem(it)}
             onSubmit={() => submitM.mutate(it.id)}
             onDelete={() => handleDelete(it)}
           />
@@ -221,25 +280,6 @@ function LibraryTab({ theme }: { theme: 'dark' | 'light' }) {
               enableM.mutate(target); // 凭证配齐——自动续接开启
             }
           }}
-        />
-      )}
-      {genOpen && (
-        <AiGenerateDialog
-          dark={theme === 'dark'}
-          mode="create"
-          // save_tool 落库后刷新列表（agent 迭代可多次触发）
-          onSavedTool={() => invalidate()}
-          onClose={() => setGenOpen(false)}
-        />
-      )}
-      {(creating || editing) && (
-        <ToolEditModal
-          theme={theme}
-          initial={editing ?? undefined}
-          // AI 修改经工坊保存（save_tool=update）后刷新列表，不关表单
-          onExternalSave={() => invalidate()}
-          onClose={() => { setCreating(false); setEditing(null); }}
-          onSaved={() => { invalidate(); setCreating(false); setEditing(null); }}
         />
       )}
     </div>

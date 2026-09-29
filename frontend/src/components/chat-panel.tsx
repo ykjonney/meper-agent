@@ -935,9 +935,11 @@ export default function ChatPanel({
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
                 }
-                const buf = deltaBufferRef.current
-                deltaBufferRef.current = null
-                rafIdRef.current = null
+                // 必须走 flushDelta 的合并语义（尾巴并入当前轮已存在的 text entry）。
+                // 不能手动把 buf push 成新 entry——那会把一轮正文劈成两个 entry，
+                // 随后 text final 从后往前只覆盖最后一个（尾巴→变成全文），头部
+                // entry 成孤儿，同一轮回复重复显示两张几乎相同的卡。
+                flushDelta()
                 textEntryIdRef.current = null
                 textStartedRef.current = false
                 const e2 = event as { tool_name?: string }
@@ -953,9 +955,6 @@ export default function ChatPanel({
                   prev.map((m) => {
                     if (m.id !== agentMsgId) return m
                     const tl = [...(m.timeline ?? [])]
-                    if (buf) {
-                      tl.push({ id: generateId(), type: 'text', content: buf.delta })
-                    }
                     tl.push(pendingEntry)
                     return { ...m, timeline: tl }
                   }),
@@ -966,11 +965,12 @@ export default function ChatPanel({
                 // Update the pending entry (from tool_call_start) or create new.
                 const e = event as ToolCallEvent
                 // Synchronous flush: drain text buffer BEFORE updating tool entry.
+                // 走 flushDelta 合并语义而非直接清空，尾巴不丢（随后 text final
+                // 覆盖当前轮唯一 entry，自愈语义不变）。
                 if (rafIdRef.current) {
                   cancelAnimationFrame(rafIdRef.current)
                 }
-                deltaBufferRef.current = null
-                rafIdRef.current = null
+                flushDelta()
                 textEntryIdRef.current = null
                 textStartedRef.current = false
                 setMessages((prev) =>
