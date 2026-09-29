@@ -260,9 +260,6 @@ class TestSpawnChainE2E:
             def find(self, _q, _proj=None):
                 return _FakeCursor(self._docs)
 
-            async def find_one(self, _q, _proj=None):
-                return None
-
         class _FakeDB:
             def __getitem__(self, name):
                 if name == "tools":
@@ -306,11 +303,20 @@ class TestSpawnChainE2E:
             AIMessage(content="已创建草稿 Agent「报表助手」。"),
         ]
 
+        # user_id 留空：非空会走 user-skills 装配（UserSkillService 顶层
+        # from-import get_database，monkeypatch 罩不住，CI 无 Mongo 挂）。
+        # 审计所需的 workspace 上下文改由 patch _get_workspace 提供
+        # （spawn_tools 调用时解析 builtin_tools 模块属性，patch 生效）。
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "app.engine.agent.builtin_tools._get_workspace",
+            lambda: SimpleNamespace(session_id=sid),
+        )
+
         events: list[dict] = []
-        state = _state(sid)
-        state["user_id"] = "user_e2e"  # workspace 审计上下文需要平台用户
         await harness_exec.stream(
-            agent, state, on_event=await _sink_into(events),
+            agent, _state(sid), on_event=await _sink_into(events),
         )
 
         # 1) spawn 工具确实注入（can_spawn_agents=True + chat 上下文）

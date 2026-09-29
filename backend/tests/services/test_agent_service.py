@@ -8,9 +8,21 @@ from app.services.agent_service import AgentService
 
 @pytest.fixture(autouse=True)
 def mock_database():
-    """Mock the MongoDB database."""
+    """Mock the MongoDB database.
+
+    update_agent 前置 AgentSnapshotService.take_snapshot（版本化）——快照
+    服务顶层 from-import get_database，mock 不到真连 Mongo（CI 无 27017 挂，
+    本地有库静默通过）。快照语义在 test_agent_snapshot.py 独立覆盖，这里
+    一并 stub 掉。
+    """
+    from app.services.agent_snapshot_service import AgentSnapshotService
+
     mock_db = MagicMock()
-    with patch("app.services.agent_service.get_database", return_value=mock_db):
+    with patch(
+        "app.services.agent_service.get_database", return_value=mock_db,
+    ), patch.object(
+        AgentSnapshotService, "take_snapshot", new=AsyncMock(return_value=True),
+    ):
         yield mock_db
 
 
