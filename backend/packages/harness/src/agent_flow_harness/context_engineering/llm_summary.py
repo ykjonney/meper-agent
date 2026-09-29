@@ -53,7 +53,7 @@ def _truncate_args_preview(args: dict[str, Any], limit: int = 100) -> str:
 def render_history_for_summary(
     messages: "list[BaseMessage]",
     *,
-    reference_formatter: "Callable[[str], str] | None" = None,
+    reference_formatter: "Callable[[str, str], str] | None" = None,
 ) -> str:
     """渲染历史给摘要 LLM:非工具原文,工具结果只留引用。
 
@@ -62,11 +62,12 @@ def render_history_for_summary(
     - HumanMessage: [用户] {原文}
     - AIMessage(有tool_calls): [助手] 已调用 {name}({参数概要})
     - AIMessage(有content): [助手] {原文}
-    - ToolMessage: [工具结果] 已返回 + reference_formatter(tool_call_id) 的输出
+    - ToolMessage: [工具结果] 已返回 + reference_formatter(tool_call_id, 原文) 的输出
 
     Args:
         reference_formatter: app 层注入的引用标记生成器(与 compress_tool_outputs
-            共用同一个)。None 时只写"[工具结果] 已返回"(harness 不硬编码工具名)。
+            共用同一个,签名 ``(tool_call_id, original_content) -> str``)。
+            None 时只写"[工具结果] 已返回"(harness 不硬编码工具名)。
     """
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -93,7 +94,7 @@ def render_history_for_summary(
                 parts.append(f"[助手] {content}")
         elif isinstance(m, ToolMessage):
             tcid = m.tool_call_id or ""
-            ref = reference_formatter(tcid) if reference_formatter else ""
+            ref = reference_formatter(tcid, content) if reference_formatter else ""
             parts.append(f"[工具结果] 已返回{ref}")
     return "\n".join(parts)
 
@@ -104,7 +105,7 @@ async def compress_history_with_llm(
     session_id: str,
     cache: SummaryCache,
     *,
-    reference_formatter: "Callable[[str], str] | None" = None,
+    reference_formatter: "Callable[[str, str], str] | None" = None,
     timeout: float = 120.0,
 ) -> None:
     """后台任务:对 5轮外历史调 LLM 生成语义摘要,存入缓存。

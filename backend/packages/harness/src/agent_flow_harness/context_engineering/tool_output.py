@@ -28,10 +28,12 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# 引用标记生成器:接收 tool_call_id,返回追加在被截断结果末尾的提示文本。
-# 由应用层注入(因为"用什么工具回溯"是应用层决策,harness 不应硬编码工具名)。
+# 引用标记生成器:接收 (tool_call_id, original_content),返回追加在被截断
+# 结果末尾的提示文本。由应用层注入(因为"用什么工具回溯"是应用层决策,
+# harness 不应硬编码工具名)。第二参是被压缩的**原文**——应用层可借此在
+# 压缩发生时把原文归档,使压缩可逆(harness 自身只透传,不存档)。
 # None 表示压缩后不加任何标记(纯截断)。
-ReferenceFormatter = Callable[[str], str]
+ReferenceFormatter = Callable[[str, str], str]
 
 # 单条 ToolMessage.content 超过此字符数才截断成极简提示。
 _DEFAULT_MAX_TOOL_OUTPUT = 1500
@@ -117,11 +119,13 @@ def compress_tool_outputs(
     - **永不截断未被 AI 消费的最新工具结果**(它们是 AI 即将基于其生成
       回复的输入,截断会导致 AI 看不到完整工具结果)。
 
-    Args:
-        reference_formatter: 可选的引用标记生成器。传入时,被截断的工具结果
-            末尾会追加它返回的文本(通常提示如何取回完整原文)。这是应用层
-            决策——"用什么工具/机制回溯"由应用层定义,harness 不硬编码工具名。
-            ``None`` 时只纯截断,不加任何标记。
+        Args:
+            reference_formatter: 可选的引用标记生成器,签名为
+                ``(tool_call_id, original_content) -> str``。传入时,被截断的
+                工具结果末尾会追加它返回的文本(通常提示如何取回完整原文);
+                original_content 是被压缩前的全文,应用层可借此归档使压缩可逆。
+                这是应用层决策——"用什么工具/机制回溯"由应用层定义,harness
+                不硬编码工具名。``None`` 时只纯截断,不加任何标记。
         unconsumed_ids: 由调用方在**完整** messages 上算好的未消费 tool_call_id
             集合。切片后调用时必须传入(否则 find_unconsumed_tool_call_ids 丢失
             全局上下文会误判)。None 时本函数内部计算(仅对完整列表正确)。
@@ -158,7 +162,7 @@ def compress_tool_outputs(
                 changed = True
                 content = shortened
                 if reference_formatter is not None:
-                    content += reference_formatter(tcid)
+                    content += reference_formatter(tcid, original)
                 result.append(
                     ToolMessage(content=content, tool_call_id=tcid)
                 )

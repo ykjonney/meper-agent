@@ -34,12 +34,16 @@ def test_render_tool_result_only_reference() -> None:
         AIMessage(content="", tool_calls=[{"name": "kb_search", "args": {"q": "x"}, "id": "c1"}]),
         ToolMessage(content=big_content, tool_call_id="c1"),
     ]
-    # 传 formatter:工具结果带 recall 引用。
+    # 传 formatter:工具结果带 recall 引用(签名 (tcid, 原文))。
+    seen: list[tuple[str, str]] = []
     result = render_history_for_summary(
-        msgs, reference_formatter=lambda t: f"(recall:{t})",
+        msgs,
+        reference_formatter=lambda t, orig: (seen.append((t, orig)), f"(recall:{t})")[1],
     )
     assert big_content not in result  # 大结果内容不进摘要
     assert "(recall:c1)" in result   # formatter 标记
+    # formatter 收到原文(应用层可据此归档)。
+    assert seen == [("c1", big_content)]
 
     # 不传 formatter:只留"已返回",不硬编码工具名。
     result2 = render_history_for_summary(msgs)

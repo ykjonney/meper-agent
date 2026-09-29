@@ -92,12 +92,18 @@ def test_compress_tool_output_preserves_pairing_and_ids() -> None:
     assert result[2] is msgs[2]
     assert result[3] is msgs[3]
 
-    # 传 formatter:被压缩结果末尾带应用层提供的引用标记。
-    def fmt(tcid: str) -> str:
+    # 传 formatter:被压缩结果末尾带应用层引用标记;formatter 收到压缩前原文
+    # (应用层据此归档,使压缩可逆)。
+    seen: list[tuple[str, str]] = []
+
+    def fmt(tcid: str, original: str) -> str:
+        seen.append((tcid, original))
         return f"\n[REF:{tcid}]"
 
     result2 = compress_tool_outputs(msgs, reference_formatter=fmt)
     assert "[REF:call_1]" in result2[1].content
+    # formatter 第二参 = 压缩前的完整原文(而非缩短后的提示)。
+    assert seen == [("call_1", big_result)]
 
 
 def test_compress_tool_output_noop_when_all_small() -> None:

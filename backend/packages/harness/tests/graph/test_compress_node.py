@@ -191,7 +191,7 @@ async def test_case2_under_threshold_does_nothing() -> None:
         "configurable": {
             "llm": None,
             "context_window": 1_000_000,  # 大窗口,不达阈值
-            "tool_output_reference_formatter": lambda t: f"[REF:{t}]",
+            "tool_output_reference_formatter": lambda t, orig: f"[REF:{t}]",
         }
     }
     patch = await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
@@ -207,7 +207,7 @@ async def test_level1_outer_tools_compressed() -> None:
         "configurable": {
             "llm": None,
             "context_window": 1200,  # 阈值≈840,工具结果951tok > 阈值 → 触发压缩
-            "tool_output_reference_formatter": lambda t: f"[REF:{t}]",
+            "tool_output_reference_formatter": lambda t, orig: f"[REF:{t}]",
         }
     }
     patch = await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
