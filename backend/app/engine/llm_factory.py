@@ -57,6 +57,9 @@ async def get_llm_client(
     model_ref: str = resolve_default_model(doc)
     # Temperature: runtime override > model default_params (handled by caller)
     temperature_override = doc.get("temperature_override")
+    # SDK 级瞬态重试：接活 Agent.max_retry（模型默认 3，ge=0 le=10；
+    # 0 = 显式关闭重试）。旧文档缺字段按模型默认 3 处理。
+    max_retries = int(doc.get("max_retry", 3))
 
     # 1. Try to resolve as model table _id (ULID prefix "model_")
     if model_ref.startswith("model_"):
@@ -65,7 +68,10 @@ async def get_llm_client(
             agent_config = {}
             if temperature_override is not None:
                 agent_config["temperature"] = temperature_override
-            return build_client_from_doc(model_doc, agent_config, enable_thinking=enable_thinking)
+            return build_client_from_doc(
+                model_doc, agent_config,
+                enable_thinking=enable_thinking, max_retries=max_retries,
+            )
         # Model not found in table → fall through to legacy
 
         logger.warning(
@@ -79,10 +85,15 @@ async def get_llm_client(
         agent_config = {}
         if temperature_override is not None:
             agent_config["temperature"] = temperature_override
-        return build_client_from_env(model_ref, agent_config, enable_thinking=enable_thinking)
+        return build_client_from_env(
+            model_ref, agent_config,
+            enable_thinking=enable_thinking, max_retries=max_retries,
+        )
 
     # 3. Final fallback
-    return build_client_from_env("gpt-4o-mini", {}, enable_thinking=enable_thinking)
+    return build_client_from_env(
+        "gpt-4o-mini", {}, enable_thinking=enable_thinking, max_retries=max_retries,
+    )
 
 
 async def _resolve_model_doc(model_ref: str) -> dict | None:

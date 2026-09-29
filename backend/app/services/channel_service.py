@@ -154,7 +154,9 @@ class ChannelService:
             return
 
         try:
-            reply_text = await ChannelService._invoke_agent(inbound, config)
+            reply_text = await ChannelService._invoke_agent_with_llm_classify(
+                inbound, config,
+            )
             await ChannelService._send_reply(inbound, config, reply_text)
             await ChannelService._reset_failure_counter(config.id)
         except PermanentChannelError as e:
@@ -227,6 +229,32 @@ class ChannelService:
                 user_id=user_id,
             )
         return response.output
+
+    @staticmethod
+    async def _invoke_agent_with_llm_classify(
+        inbound: InboundMessage, config: ChannelConfig,
+    ) -> str:
+        """_invoke_agent 的分级包装：LLM 稳定错误码随异常透出给熔断决策。
+
+        AUTH/QUOTA（换会话也没用、重试也没用）→ AgentRuntimeError 携带
+        llm_code；其余 LLM/运行时异常 → 普通 AgentRuntimeError（沿用
+        "代码 bug 不熔断渠道"语义）。TransientChannelError 不在此包装
+        （继续上抛由 Celery 重试）。
+        """
+        from app.channels.errors import AgentRuntimeError
+        from app.services.agent_execution_service import _llm_error_code
+
+        try:
+            return await ChannelService._invoke_agent(inbound, config)
+        except PermanentChannelError:
+            raise
+        except TransientChannelError:
+            raise
+        except Exception as exc:
+            code = _llm_error_code(exc)
+            err = AgentRuntimeError(f"{type(exc).__name__}: {exc}")
+            err.llm_code = code  # type: ignore[attr-defined]
+            raise err from exc
 
     @staticmethod
     async def _find_continuable_session(user_id: str, agent_id: str) -> str | None:
@@ -336,7 +364,21 @@ class ChannelService:
         #    InvalidCredentialsError AND SendFailedError (e.g. platform API
         #    outage) both bump; otherwise a persistently failing channel
         #    would silently lose every message and stay ACTIVE forever.
-        if not isinstance(error, AgentRuntimeError):
+        # 分级熔断（对齐 LLMErrorCode 语义）：AUTH/QUOTA 是确定性失败——
+        # 换会话/重试/等阈值都无意义，直接 DEGRADED 一步到位（管理员修凭证
+        # 后手动恢复）；其余照旧计数到阈值。AgentRuntimeError 不计数的
+        # 既有语义保留（代码 bug 不惩罚渠道其他用户）。
+        fatal_code = getattr(error, "llm_code", "")
+        if fatal_code in ("LLM_AUTH", "LLM_QUOTA"):
+            await ChannelService._configs_coll().update_one(
+                {"_id": config.id},
+                {"$set": {"status": ChannelStatus.DEGRADED, "consecutive_failures": 0}},
+            )
+            logger.warning(
+                "channel %s auto-degraded immediately: fatal llm_code=%s",
+                config.id, fatal_code,
+            )
+        elif not isinstance(error, AgentRuntimeError):
             await ChannelService._bump_failure_counter(config.id)
 
     @staticmethod

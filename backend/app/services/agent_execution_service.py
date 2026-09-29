@@ -801,6 +801,19 @@ def _classify_error_source(exc: BaseException) -> str:
     return "graph"
 
 
+def _llm_error_code(exc: BaseException) -> str:
+    """LLM 来源错误的稳定机器码（LLM_*）；非 LLM 错误返回空串。
+
+    SSE ErrorEvent / execution_log events / 渠道熔断共用同一份 code
+    （分类逻辑唯一事实源：app.utils.llm_errors.classify_llm_error）。
+    """
+    if _classify_error_source(exc) != "llm":
+        return ""
+    from app.utils.llm_errors import classify_llm_error
+
+    return classify_llm_error(exc).value
+
+
 async def _emit_stream_error(
     exc: BaseException,
     event_queue: asyncio.Queue,
@@ -823,6 +836,7 @@ async def _emit_stream_error(
         err_evt = ErrorEvent(
             message=translate_llm_error(str(exc)),
             source=_classify_error_source(exc),
+            code=_llm_error_code(exc),
         ).model_dump()
         err_evt["content"] = err_evt.pop("message", "")
         collected_timeline.append(err_evt)

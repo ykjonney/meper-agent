@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class _Base(BaseModel):
@@ -145,6 +145,12 @@ class ErrorEvent(_Base):
     type: Literal["error"] = "error"
     message: str
     source: Literal["llm", "tool", "graph"]
+    code: str = Field(
+        default="",
+        description="稳定机器码（source=llm 时为 LLM_* 枚举值，"
+        "见 app.utils.llm_errors.LLMErrorCode；其余 source 为空）。"
+        "前端/渠道按 code 决策（本地化文案、是否重试/熔断），不解析 message。",
+    )
 
 
 type AppEvent = (

@@ -19,6 +19,7 @@ from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES
 from app.models.channel import (
     ChannelConfig,
     ChannelProvider,
+    ChannelStatus,
     InboundEventLog,
 )
 from app.schemas.execution import ExecutionResponse
@@ -512,3 +513,88 @@ class TestGroupSenderPrefix:
             await ChannelService.execute(inbound)
 
         invoke_mock.assert_not_awaited()  # 重置生效，未进 agent
+
+
+# ---------------------------------------------------------------------------
+# 分级熔断（LLMErrorCode）：AUTH/QUOTA 直接 DEGRADED，不等连续失败阈值
+# ---------------------------------------------------------------------------
+
+
+def _make_log(cfg) -> InboundEventLog:
+    return InboundEventLog(
+        channel_id=cfg.id, platform_message_id="m_1",
+        payload=_make_inbound().model_dump(mode="json"),
+    )
+
+
+async def test_fatal_llm_code_degrades_immediately():
+    """LLM_AUTH/LLM_QUOTA → 一步 DEGRADED（确定性失败，计数无意义）。"""
+    cfg = _make_config()
+    err = AgentRuntimeError("AuthenticationError: invalid api key")
+    err.llm_code = "LLM_AUTH"
+    mock_coll = MagicMock()
+    mock_coll.update_one = AsyncMock()
+    mock_bump = AsyncMock()
+
+    with patch.object(
+        ChannelService, "_event_logs_coll", return_value=mock_coll,
+    ), patch.object(
+        ChannelService, "_configs_coll", return_value=mock_coll,
+    ), patch.object(
+        ChannelService, "_bump_failure_counter", new=mock_bump,
+    ):
+        await ChannelService.handle_error(_make_log(cfg), cfg, err)
+
+    fatal = [
+        c.args[1] for c in mock_coll.update_one.await_args_list
+        if c.args[1].get("$set", {}).get("status") == ChannelStatus.DEGRADED
+    ]
+    assert fatal, "AUTH 应立即 DEGRADED"
+    assert fatal[0]["$set"]["consecutive_failures"] == 0
+    mock_bump.assert_not_awaited()  # 不走计数路径
+
+
+async def test_retryable_llm_error_still_counts():
+    """可重试类 LLM 错误（TIMEOUT 等）→ 不立即降级（计数路径由既有语义管）。"""
+    cfg = _make_config()
+    err = AgentRuntimeError("APITimeoutError")
+    err.llm_code = "LLM_TIMEOUT"
+    mock_coll = MagicMock()
+    mock_coll.update_one = AsyncMock()
+    mock_bump = AsyncMock()
+
+    with patch.object(
+        ChannelService, "_event_logs_coll", return_value=mock_coll,
+    ), patch.object(
+        ChannelService, "_configs_coll", return_value=mock_coll,
+    ), patch.object(
+        ChannelService, "_bump_failure_counter", new=mock_bump,
+    ):
+        await ChannelService.handle_error(_make_log(cfg), cfg, err)
+
+    degraded = [
+        c for c in mock_coll.update_one.await_args_list
+        if c.args[1].get("$set", {}).get("status") == ChannelStatus.DEGRADED
+    ]
+    assert not degraded  # TIMEOUT 不立即降级
+    mock_bump.assert_not_awaited()  # AgentRuntimeError 既有语义：不计数
+
+
+async def test_invoke_wraps_llm_error_with_code(monkeypatch):
+    """_invoke_agent 抛出的 LLM 异常 → AgentRuntimeError.llm_code 透出。"""
+
+    cfg = _make_config()
+
+    async def fake_invoke_agent(inbound, config):
+        raise RuntimeError("Incorrect API key provided")
+
+    monkeypatch.setattr(
+        ChannelService, "_invoke_agent", staticmethod(fake_invoke_agent),
+    )
+    try:
+        await ChannelService._invoke_agent_with_llm_classify(_make_inbound(), cfg)
+        raised = None
+    except Exception as e:
+        raised = e
+    assert isinstance(raised, AgentRuntimeError)
+    assert getattr(raised, "llm_code", "") == "LLM_AUTH"
