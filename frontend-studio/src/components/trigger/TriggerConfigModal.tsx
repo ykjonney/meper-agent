@@ -3,7 +3,7 @@
  *
  * 字段：工作流选择（创建模式）/ 只读（编辑模式）、启用开关、触发类型
  * (cron 重复 / once 一次性)、调度配置（cron 用 TriggerSchedulePicker，
- * once 用原生 datetime-local）、默认输入参数。
+ * once 用 TriggerOnceTimePicker）、默认输入参数。
  *
  * workflow Select 的 value 用 registry entry _id (wfr_，唯一稳定)，提交时
  * 解析成模板 workflow_id (wf_) 传后端 - 引擎直接按 _id 查 workflows 集合。
@@ -32,6 +32,7 @@ import {
 } from '../../features/workflow-editor/utils/workflow-input-values'
 import WorkflowInputForm from '../../features/workflow-editor/WorkflowInputForm'
 import TriggerSchedulePicker from './TriggerSchedulePicker'
+import TriggerOnceTimePicker from './TriggerOnceTimePicker'
 
 interface Props {
   open: boolean
@@ -53,23 +54,6 @@ function resolveTemplateId(
     (wf) => wf._id === maybeRegistryId || wf.workflow_id === maybeRegistryId,
   )
   return entry?.workflow_id ?? maybeRegistryId
-}
-
-/** ISO -> datetime-local 输入值 (YYYY-MM-DDTHH:MM，本地时区)。 */
-function toDatetimeLocal(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-/** datetime-local 输入值 -> ISO 字符串。 */
-function fromDatetimeLocal(local: string): string {
-  if (!local) return ''
-  const d = new Date(local)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toISOString()
 }
 
 /**
@@ -94,10 +78,6 @@ function applyExistingValues(
   }
   return merged
 }
-
-const datetimeInputCls =
-  'h-8 w-full px-2.5 rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] text-xs ' +
-  'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
 
 export default function TriggerConfigModal({
   open,
@@ -176,9 +156,16 @@ export default function TriggerConfigModal({
       toast.error('请填写 Cron 表达式')
       return
     }
-    if (triggerType === 'once' && !executeAt) {
-      toast.error('请选择执行时间')
-      return
+    if (triggerType === 'once') {
+      if (!executeAt) {
+        toast.error('请选择执行时间')
+        return
+      }
+      // 过期时间后端不会触发（静默失效任务），前端直接拦截
+      if (new Date(executeAt).getTime() <= Date.now()) {
+        toast.error('执行时间需晚于当前时间')
+        return
+      }
     }
 
     const coerced = coerceValues(variables, inputValues)
@@ -305,14 +292,9 @@ export default function TriggerConfigModal({
         ) : (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-[#fafafa]">执行时间</div>
-            <input
-              type="datetime-local"
-              value={toDatetimeLocal(executeAt)}
-              onChange={(e) => setExecuteAt(fromDatetimeLocal(e.target.value))}
-              className={datetimeInputCls}
-            />
+            <TriggerOnceTimePicker value={executeAt} onChange={setExecuteAt} disabled={saving} />
             <p className="text-[10px] text-[#71717a]">
-              到达此时间后触发一次，过期时间不会触发。
+              到达此时间后触发一次，执行时间需晚于当前时间。
             </p>
           </div>
         )}
