@@ -124,6 +124,7 @@ class ExecutionLogService:
         llm_duration_ms: int = 0,
         tool_duration_ms: int = 0,
         ttft_ms: int = 0,
+        events: list[dict] | None = None,
     ) -> str | None:
         """Insert one execution-log document.
 
@@ -160,6 +161,7 @@ class ExecutionLogService:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             llm_calls=llm_calls,
+            events=events or [],
         )
         try:
             col = ExecutionLogService._collection()
@@ -304,12 +306,58 @@ class ExecutionLogService:
 
         return {"channels": channels, "totals": totals}
 
+    @staticmethod
+    async def get_daily_trend(*, days: int = 7) -> list[dict[str, Any]]:
+        """按日聚合最近 N 天的执行量（调用数 / token / 失败数），缺日补零。
+
+        供仪表盘「Agent 调用趋势」图——execution_logs 的真实按日聚合
+        （区别于任务侧用 created_at 做的近似）。
+        """
+        from datetime import timedelta
+
+        days = max(1, min(days, 90))
+        now = utc_now()
+        start = (now - timedelta(days=days - 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": start}}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}
+                    },
+                    "calls": {"$sum": 1},
+                    "tokens": {"$sum": "$total_tokens"},
+                    "failed": {
+                        "$sum": {"$cond": [{"$ne": ["$status", "success"]}, 1, 0]}
+                    },
+                }
+            },
+            {"$sort": {"_id": 1}},
+        ]
+        rows = await ExecutionLogService._collection().aggregate(pipeline).to_list(length=days)
+        by_day = {row["_id"]: row for row in rows}
+
+        result: list[dict[str, Any]] = []
+        for i in range(days):
+            day = (start + timedelta(days=i)).date().isoformat()
+            row = by_day.get(day) or {}
+            result.append({
+                "date": day,
+                "calls": int(row.get("calls", 0) or 0),
+                "tokens": int(row.get("tokens", 0) or 0),
+                "failed": int(row.get("failed", 0) or 0),
+            })
+        return result
+
     # ── List (paginated detail) ──
 
     @staticmethod
     async def list_logs(
         *,
         source: str | None = None,
+        status: str | None = None,
         agent_id: str | None = None,
         session_id: str | None = None,
         start: str | None = None,
@@ -321,6 +369,8 @@ class ExecutionLogService:
         query: dict[str, Any] = {}
         if source:
             query["source"] = source
+        if status:
+            query["status"] = status
         if agent_id:
             query["agent_id"] = agent_id
         if session_id:
@@ -342,8 +392,10 @@ class ExecutionLogService:
 
         col = ExecutionLogService._collection()
         total = await col.count_documents(query)
+        # 投影：带 _id（列表 key + 详情跳转键），排除 events（单条可达
+        # 16KB，列表页不需要——详情端点单独取）。
         cursor = (
-            col.find(query, {"_id": 0})
+            col.find(query, {"events": 0})
             .sort("timestamp", -1)
             .skip((page - 1) * page_size)
             .limit(page_size)
@@ -355,6 +407,18 @@ class ExecutionLogService:
                 it["timestamp"] = ts.isoformat()
         await _enrich_caller_names(items)
         return items, total
+
+    @staticmethod
+    async def get_log(log_id: str) -> dict | None:
+        """按 _id 取单条执行记录（含 events 过程事件，供详情视图）。"""
+        doc = await ExecutionLogService._collection().find_one({"_id": log_id})
+        if doc is None:
+            return None
+        ts = doc.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            doc["timestamp"] = ts.isoformat()
+        await _enrich_caller_names([doc])
+        return doc
 
     # ── API-Key-scoped queries (服务 API Keys 页面审计) ──
 

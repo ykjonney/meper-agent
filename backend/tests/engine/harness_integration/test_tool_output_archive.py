@@ -33,6 +33,28 @@ def test_formatter_marker_text(monkeypatch) -> None:
     assert scheduled == [("call_9", "完整原文内容")]
 
 
+def test_formatter_marks_compaction_event(monkeypatch) -> None:
+    """recorder 非空时,压缩同步记一条 compaction 过程事件(execution_log.events)。"""
+    from app.services.execution_recorder import ExecutionRecorder
+
+    monkeypatch.setattr(
+        "app.engine.harness_integration.context._schedule_archive",
+        lambda tcid, original: None,
+    )
+    rec = ExecutionRecorder()
+    fmt = _make_tool_output_reference_formatter(recorder=rec)
+
+    fmt("call_7", "x" * 8210)
+
+    events = rec.finalize()
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["e"] == "compaction"
+    assert ev["level"] == "tool_output"
+    assert ev["id"] == "call_7"
+    assert ev["before"] == 8210
+
+
 async def test_schedule_archive_creates_task(monkeypatch) -> None:
     """有 running loop + thread 上下文 → 异步归档任务被调度并执行。"""
     archived: list[tuple[str, str, str]] = []

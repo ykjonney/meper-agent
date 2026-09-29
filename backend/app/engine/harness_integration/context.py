@@ -713,6 +713,21 @@ async def resolve_harness_context(
         session_token_limit=session_token_limit,
     )
 
+    # 执行过程记录器（execution_log.events 事实源）：装配结果即时入账,
+    # request/tool 事件由 RecorderMiddleware 在 graph 内采集,压缩事件由
+    # formatter 触发;_record_execution_log 收尾 finalize 随 write_log 落库。
+    from app.services.execution_recorder import ExecutionRecorder
+
+    recorder = ExecutionRecorder()
+    recorder.tools_resolved(
+        execution_context,
+        model_ref,
+        [getattr(t, "name", str(t)) for t in all_tools],
+        load_errors,
+    )
+
+    from app.engine.harness_integration.recorder_middleware import RecorderMiddleware
+
     return {
         "agent_doc": agent_doc,
         "llm": llm,
@@ -724,8 +739,10 @@ async def resolve_harness_context(
         "tri_token": tri_token,
         "ext_token": ext_token,
         "tb_token": tb_token,
-        "middlewares": [UsageMiddleware()],
+        "middlewares": [UsageMiddleware(), RecorderMiddleware(recorder)],
         "context_window": context_window,
+        # 执行过程记录器——execution.py 经 recorder_sink 暴露给调用方。
+        "recorder": recorder,
         # DEBUG 分段计时（关闭时为 None；execution.py 汇总进 agent_phase_timing 日志）
         "_timing_phases": timing_phases,
         # 压缩配置(全局可配)。
@@ -734,8 +751,8 @@ async def resolve_harness_context(
         "hard_limit_ratio": settings.COMPRESSION_HARD_LIMIT_RATIO,
         # 工具输出被压缩后,在被截断的结果末尾追加"可回溯"提示。这是应用层
         # 决策——具体用什么工具回溯(recall_tool_result)由 app 层定义,harness
-        # 不硬编码工具名,只透传这个 formatter。
-        "tool_output_reference_formatter": _make_tool_output_reference_formatter(),
+        # 不硬编码工具名,只透传这个 formatter。压缩事件同时记入 recorder。
+        "tool_output_reference_formatter": _make_tool_output_reference_formatter(recorder),
         # 图片降级同理:旧轮 image 块被移出上下文时,用此 formatter 生成
         # 可回取占位(file_id 供 view_image 使用)。harness 只做机械替换。
         "image_reference_formatter": _make_image_reference_formatter(),
@@ -784,7 +801,7 @@ def _schedule_archive(tool_call_id: str, original: str) -> None:
         )
 
 
-def _make_tool_output_reference_formatter():
+def _make_tool_output_reference_formatter(recorder=None):
     """构造工具输出引用标记生成器(供 harness compress_tool_outputs 使用)。
 
     签名 (tool_call_id, original_content) -> str:harness 在缩短一条工具
@@ -792,10 +809,16 @@ def _make_tool_output_reference_formatter():
     tool_output_archives(fire-and-forget),再返回提示文本告知 LLM 用
     recall_tool_result 取回。这样压缩是"可逆"的:信息没真正丢失,
     IM 渠道 / workflow 节点(无 messages 明细)也有原文可回溯。
+
+    recorder 非空时同时记一条 compaction 过程事件(execution_log.events)。
     """
 
     def _format(tool_call_id: str, original: str) -> str:
         _schedule_archive(tool_call_id, original)
+        if recorder is not None:
+            recorder.compaction(
+                "tool_output", id=tool_call_id, before=len(original)
+            )
         return (
             f"\n\n[此结果已被压缩,完整原文已存档,"
             f'可用 recall_tool_result(tool_call_id="{tool_call_id}") 查看]'

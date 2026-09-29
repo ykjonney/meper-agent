@@ -104,6 +104,7 @@ async def stream(
     legacy_records: list[dict] | None = None,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
+    recorder_sink: dict | None = None,
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。
 
@@ -112,6 +113,9 @@ async def stream(
             compress_node 每轮 REACT 迭代检查一次；task.cancel() 打断
             await 链是主取消路径，本检查器是迭代边界的兜底闸门。
         user_token: 外部终端用户 token(回调验证模式),透传给 MCP server。
+        recorder_sink: 可选字典出参——resolve 后立刻塞入本次执行的
+            ExecutionRecorder,调用方据此补 interrupt/error 终态并
+            finalize 进 execution_log.events(成功/失败路径都拿得到)。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
@@ -122,6 +126,8 @@ async def stream(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
     )
     clock.attach(hctx)
+    if recorder_sink is not None:
+        recorder_sink["recorder"] = hctx.get("recorder")
     usage_summary: dict = {}
     # thread 上下文(checkpointer thread_id = session_id):recall_tool_result
     # 与压缩归档调度靠它取数。run 结束 finally 成对 reset。
@@ -200,6 +206,7 @@ async def invoke(
     user_token: str | None = None,
     require_user_credentials: bool = False,
     execution_context: str = "chat",
+    recorder_sink: dict | None = None,
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
@@ -212,6 +219,8 @@ async def invoke(
             兑换（fail-closed 拒绝而非静默降级内部静态凭证）。
         execution_context: "chat"(默认)或 "workflow"(工作流 agent 节点,
             无人值守——剥离交互式/任务编排工具,注入 abort_workflow)。
+        recorder_sink: 可选字典出参(语义同 stream;workflow 节点不落
+            execution_log,不传)。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
@@ -223,6 +232,8 @@ async def invoke(
         execution_context=execution_context,
     )
     clock.attach(hctx)
+    if recorder_sink is not None:
+        recorder_sink["recorder"] = hctx.get("recorder")
     # thread 上下文(同 stream):invoke 供 chat 端点与 workflow agent 节点共用,
     # 后者 state["session_id"] 即节点 thread({task_id}_{node_id})。
     from app.engine.agent.recall_tool import (
@@ -355,6 +366,7 @@ async def resume(
     enable_thinking: bool = False,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
     user_token: str | None = None,
+    recorder_sink: dict | None = None,
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。"""
     from agent_flow_harness import build_agent_graph, build_config
@@ -367,6 +379,8 @@ async def resume(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
     )
     clock.attach(hctx)
+    if recorder_sink is not None:
+        recorder_sink["recorder"] = hctx.get("recorder")
     usage_summary: dict = {}
     # thread 上下文(checkpointer thread_id = session_id):recall_tool_result
     # 与压缩归档调度靠它取数。run 结束 finally 成对 reset。

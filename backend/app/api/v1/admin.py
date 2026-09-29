@@ -226,6 +226,7 @@ async def get_execution_stats(
 )
 async def list_execution_logs(
     source: str | None = Query(None, description="Filter by channel: internal | api_key | im"),
+    status: str | None = Query(None, description="Filter by status: success | error | cancelled"),
     agent_id: str | None = Query(None, description="Filter by agent ID"),
     session_id: str | None = Query(None, description="Filter by session ID"),
     start: str | None = Query(None, description="ISO datetime (inclusive lower bound)"),
@@ -238,11 +239,14 @@ async def list_execution_logs(
 
     Each record is one agent invocation (invoke/stream/resume), independent
     of session lifecycle — deleting a session does not remove its log here.
+    List responses omit the ``events`` array (up to 16KB per record); fetch
+    ``/execution-logs/{id}`` for the full process log.
     """
     from app.services.execution_log_service import ExecutionLogService
 
     items, total = await ExecutionLogService.list_logs(
         source=source,
+        status=status,
         agent_id=agent_id,
         session_id=session_id,
         start=start,
@@ -251,3 +255,51 @@ async def list_execution_logs(
         page_size=page_size,
     )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get(
+    "/execution-logs/daily",
+    summary="Daily execution trend for dashboard chart (admin)",
+    responses={403: {"description": "Forbidden — admin role required"}},
+)
+async def get_execution_daily_trend(
+    days: int = Query(7, ge=1, le=90, description="Days to aggregate (including today)"),
+    _: UserResponse = Depends(require_role(UserRole.ADMIN)),
+) -> list[dict]:
+    """Per-day execution counts / tokens / failures from ``execution_logs``.
+
+    Real daily aggregation (missing days zero-filled) — powers the dashboard
+    "Agent 调用趋势" chart. Defined BEFORE ``/execution-logs/{log_id}`` so
+    the literal path isn't captured as a log id.
+    """
+    from app.services.execution_log_service import ExecutionLogService
+
+    return await ExecutionLogService.get_daily_trend(days=days)
+
+
+@router.get(
+    "/execution-logs/{log_id}",
+    summary="Single execution log with process events (admin)",
+    responses={
+        403: {"description": "Forbidden — admin role required"},
+        404: {"description": "Execution log not found"},
+    },
+)
+async def get_execution_log(
+    log_id: str,
+    _: UserResponse = Depends(require_role(UserRole.ADMIN)),
+) -> dict:
+    """Fetch one execution-log record **including its ``events`` process log**.
+
+    The events array is the per-run process ledger (request boundaries,
+    per-request tokens, tool-call metadata, compaction/interrupt/error)
+    produced by ``ExecutionRecorder``; list responses omit it (up to 16KB
+    per record) — this endpoint is where the detail view reads it from.
+    """
+    from app.core.errors import NotFoundError
+    from app.services.execution_log_service import ExecutionLogService
+
+    doc = await ExecutionLogService.get_log(log_id)
+    if doc is None:
+        raise NotFoundError(code="EXECUTION_LOG_NOT_FOUND", message=f"执行记录 {log_id} 不存在")
+    return doc

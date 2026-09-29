@@ -59,5 +59,15 @@ class ExecutionLog(BaseModel):
     output_tokens: int = Field(default=0)
     llm_calls: int = Field(default=0)
 
+    # ── Process events（过程事件，ExecutionRecorder 产出）──
+    # 一次执行的过程流水账：request 边界/工具调用元数据/压缩/中断/错误。
+    # 与 messages 的分工：正文归 messages（这里只有 size/预览），过程归这里
+    # （messages 放不下时刻/耗时/请求边界）。IM 渠道与工作流节点没有
+    # messages 明细，events 是那里唯一的执行记录；会话删除后审计过程
+    # 仍存续（与本 collection "统计独立于会话" 的定位一致）。
+    # 上限由 recorder 保证（≤500 条 / 序列化 ≤16KB，超限丢中段工具事件
+    # 并自声明 events_truncated）。
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
     # ── BSON date for TTL index ──
     timestamp: Any = Field(default_factory=utc_now)

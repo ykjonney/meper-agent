@@ -127,6 +127,178 @@ async def test_write_log_failure_does_not_raise() -> None:
 
 
 @pytest.mark.asyncio
+async def test_write_log_persists_events() -> None:
+    """write_log 把过程事件随文档落库;缺省为空数组（旧调用方兼容）。"""
+    mock_col = MagicMock()
+    mock_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="xlog_1"))
+
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: mock_col if key == "execution_logs" else MagicMock()
+
+    with patch("app.services.execution_log_service.get_database", return_value=mock_db):
+        events = [
+            {"t": 0, "e": "tools_resolved", "tools": ["bash"]},
+            {"t": 10, "e": "request_begin", "i": 1},
+        ]
+        await ExecutionLogService.write_log(user_id="user_01", events=events)
+        doc = mock_col.insert_one.call_args.args[0]
+        assert doc["events"] == events
+
+        # 不传 events → 空数组（与模型 default 一致）
+        await ExecutionLogService.write_log(user_id="user_01")
+        doc2 = mock_col.insert_one.call_args_list[1].args[0]
+        assert doc2["events"] == []
+
+
+# ---------------------------------------------------------------------------
+# list_logs 投影 / get_log 详情（执行详情视图）
+# ---------------------------------------------------------------------------
+
+
+def _mock_log_cursor(monkeypatch, rows: list[dict]) -> MagicMock:
+    """把 list_logs 的 find 链替换为返回 rows 的 mock cursor。"""
+    cursor = MagicMock()
+    cursor.sort = MagicMock(return_value=cursor)
+    cursor.skip = MagicMock(return_value=cursor)
+    cursor.limit = MagicMock(return_value=cursor)
+    cursor.to_list = AsyncMock(return_value=rows)
+    col = MagicMock()
+    col.count_documents = AsyncMock(return_value=len(rows))
+    col.find = MagicMock(return_value=cursor)
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: col if key == "execution_logs" else MagicMock()
+    monkeypatch.setattr(
+        "app.services.execution_log_service.get_database", lambda: mock_db
+    )
+    return col
+
+
+@pytest.mark.asyncio
+async def test_list_logs_excludes_events_and_keeps_id(monkeypatch) -> None:
+    """列表投影排除 events（16KB 大字段）、保留 _id（详情跳转键）。"""
+    col = _mock_log_cursor(monkeypatch, [{"_id": "xlog_1", "source": "internal"}])
+
+    await ExecutionLogService.list_logs(source="internal")
+
+    projection = col.find.call_args.args[1]
+    assert projection == {"events": 0}
+
+
+@pytest.mark.asyncio
+async def test_list_logs_filters_by_status(monkeypatch) -> None:
+    """status 筛选进查询（排障常用：只看失败）。"""
+    col = _mock_log_cursor(monkeypatch, [])
+
+    await ExecutionLogService.list_logs(status="error", source="im")
+
+    query = col.find.call_args.args[0]
+    assert query["status"] == "error"
+    assert query["source"] == "im"
+
+
+@pytest.mark.asyncio
+async def test_get_log_returns_doc_with_events(monkeypatch) -> None:
+    """get_log 按 _id 取单条（含 events），timestamp 转 ISO。"""
+    from datetime import UTC, datetime
+
+    col = MagicMock()
+    col.find_one = AsyncMock(
+        return_value={
+            "_id": "xlog_9",
+            "source": "internal",
+            "events": [{"t": 0, "e": "request_begin", "i": 1}],
+            "timestamp": datetime(2026, 9, 23, 8, 0, tzinfo=UTC),
+        }
+    )
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: col if key == "execution_logs" else MagicMock()
+    monkeypatch.setattr(
+        "app.services.execution_log_service.get_database", lambda: mock_db
+    )
+
+    doc = await ExecutionLogService.get_log("xlog_9")
+
+    col.find_one.assert_awaited_once_with({"_id": "xlog_9"})
+    assert doc is not None
+    assert doc["events"][0]["e"] == "request_begin"
+    assert doc["timestamp"].startswith("2026-09-23")
+
+
+@pytest.mark.asyncio
+async def test_get_log_missing_returns_none(monkeypatch) -> None:
+    col = MagicMock()
+    col.find_one = AsyncMock(return_value=None)
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: col if key == "execution_logs" else MagicMock()
+    monkeypatch.setattr(
+        "app.services.execution_log_service.get_database", lambda: mock_db
+    )
+
+    assert await ExecutionLogService.get_log("xlog_gone") is None
+
+
+# ---------------------------------------------------------------------------
+# get_daily_trend — 仪表盘按日聚合
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_daily_trend_fills_missing_days(monkeypatch) -> None:
+    """按日聚合 + 缺日补零：返回连续 N 天，聚合行缺失的日子填 0。"""
+    from datetime import UTC, datetime, timedelta
+
+    today = datetime.now(UTC).date()
+    rows = [
+        # 只有今天和前天有数据，昨天缺
+        {
+            "_id": today.isoformat(),
+            "calls": 12, "tokens": 3400, "failed": 1,
+        },
+        {
+            "_id": (today - timedelta(days=2)).isoformat(),
+            "calls": 5, "tokens": 900, "failed": 0,
+        },
+    ]
+    col = MagicMock()
+    col.aggregate = MagicMock(return_value=_MockAggCursor(rows))
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: col if key == "execution_logs" else MagicMock()
+    monkeypatch.setattr(
+        "app.services.execution_log_service.get_database", lambda: mock_db
+    )
+
+    result = await ExecutionLogService.get_daily_trend(days=3)
+
+    assert len(result) == 3
+    assert [d["date"] for d in result] == [
+        (today - timedelta(days=2)).isoformat(),
+        (today - timedelta(days=1)).isoformat(),
+        today.isoformat(),
+    ]
+    assert result[2]["calls"] == 12 and result[2]["failed"] == 1
+    assert result[1]["calls"] == 0  # 缺日补零
+    assert result[0]["tokens"] == 900
+    # 聚合 match 从 N 天前的 0 点起
+    match_stage = col.aggregate.call_args.args[0][0]["$match"]
+    assert "timestamp" in match_stage
+
+
+@pytest.mark.asyncio
+async def test_get_daily_trend_days_clamped(monkeypatch) -> None:
+    """days 越界钳制到 [1, 90]。"""
+    col = MagicMock()
+    col.aggregate = MagicMock(return_value=_MockAggCursor([]))
+    mock_db = MagicMock()
+    mock_db.__getitem__.side_effect = lambda key: col if key == "execution_logs" else MagicMock()
+    monkeypatch.setattr(
+        "app.services.execution_log_service.get_database", lambda: mock_db
+    )
+
+    assert len(await ExecutionLogService.get_daily_trend(days=0)) == 1
+    assert len(await ExecutionLogService.get_daily_trend(days=1000)) == 90
+
+
+@pytest.mark.asyncio
 async def test_write_log_derives_other_duration() -> None:
     """write_log persists duration split and derives other = latency - llm - tool."""
     mock_col = MagicMock()

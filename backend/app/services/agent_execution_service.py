@@ -102,12 +102,14 @@ class AgentExecutionService:
 
         prep_done_ms = _now_ms() - start_time_ms
         run_error: BaseException | None = None
+        recorder_sink: dict = {}
         try:
             result = await harness_invoke(
                 exec_doc, initial_state,
                 enable_thinking=body.enable_thinking,
                 legacy_records=legacy_records,
                 user_token=user_token,
+                recorder_sink=recorder_sink,
             )
         except Exception as exc:
             run_error = exc
@@ -123,6 +125,7 @@ class AgentExecutionService:
                 user_id=user_id, agent_id=agent_id, session_id=session_id,
                 request_id=request_id, start_time_ms=start_time_ms,
                 token_usage=request_usage, error=run_error,
+                recorder=recorder_sink.get("recorder"),
                 phase_timing=_compose_phase_timing(
                     result.get("timing"), request_usage, prep_ms=prep_done_ms,
                 ),
@@ -199,11 +202,18 @@ class AgentExecutionService:
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
         collected_timeline: list[dict] = []
+        # 执行过程记录器出参（harness_stream resolve 后回填 recorder 实例，
+        # 收尾时经 _record_execution_log finalize 进 execution_log.events）。
+        recorder_sink: dict = {}
 
         async def _on_event(event: dict) -> None:
             # TTFT：首个内容 token 到达时打点（只记第一次）。
             if "ttft_ms" not in timing and event.get("type") in _TTFT_EVENT_TYPES:
                 timing["ttft_ms"] = max(0, _now_ms() - timing.get("start_ms", _now_ms()))
+            if event.get("type") == "interrupt":
+                rec = recorder_sink.get("recorder")
+                if rec is not None:
+                    rec.interrupt(str(event.get("kind") or "clarification"))
             collected_timeline.append(event)
             await event_queue.put(f"data: {safe_json(event)}\n\n")
 
@@ -234,6 +244,7 @@ class AgentExecutionService:
                     legacy_records=legacy_records,
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
+                    recorder_sink=recorder_sink,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -278,6 +289,7 @@ class AgentExecutionService:
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
                             token_usage=request_usage, error=run_error,
+                            recorder=recorder_sink.get("recorder"),
                             ttft_ms=timing.get("ttft_ms", 0),
                             phase_timing=_compose_phase_timing(
                                 result.get("timing"), request_usage,
@@ -303,6 +315,7 @@ class AgentExecutionService:
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
                             token_usage=None, error=None, status_override="cancelled",
+                            recorder=recorder_sink.get("recorder"),
                         ))
                 await _emit_stream_done(
                     event_queue, request_id=request_id, session_id=session_id,
@@ -356,10 +369,15 @@ class AgentExecutionService:
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
         collected_timeline: list[dict] = []
+        recorder_sink: dict = {}
 
         async def _on_event(event: dict) -> None:
             if "ttft_ms" not in timing and event.get("type") in _TTFT_EVENT_TYPES:
                 timing["ttft_ms"] = max(0, _now_ms() - timing.get("start_ms", _now_ms()))
+            if event.get("type") == "interrupt":
+                rec = recorder_sink.get("recorder")
+                if rec is not None:
+                    rec.interrupt(str(event.get("kind") or "clarification"))
             collected_timeline.append(event)
             await event_queue.put(f"data: {safe_json(event)}\n\n")
 
@@ -383,6 +401,7 @@ class AgentExecutionService:
                     enable_thinking=body.enable_thinking,
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
+                    recorder_sink=recorder_sink,
                 )
             except asyncio.CancelledError:
                 # 与 stream() 相同的 mid-stream abort 语义（见 stream 内注释）。
@@ -421,6 +440,7 @@ class AgentExecutionService:
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
                             token_usage=request_usage, error=run_error,
+                            recorder=recorder_sink.get("recorder"),
                             ttft_ms=timing.get("ttft_ms", 0),
                             phase_timing=_compose_phase_timing(
                                 result.get("timing"), request_usage,
@@ -448,6 +468,7 @@ class AgentExecutionService:
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
                             token_usage=None, error=None, status_override="cancelled",
+                            recorder=recorder_sink.get("recorder"),
                         ))
                 await _emit_stream_done(
                     event_queue, request_id=request_id, session_id=session_id,
@@ -959,6 +980,7 @@ async def _record_execution_log(
     status_override: str | None = None,
     ttft_ms: int = 0,
     phase_timing: dict | None = None,
+    recorder: Any = None,
 ) -> None:
     """Write one unified execution_logs record for ANY agent call.
 
@@ -967,6 +989,9 @@ async def _record_execution_log(
     fields (api_key_id / endpoint) are pulled from the stashed
     ExtCallContext when present, and the context is marked consumed so
     the stats middleware fallback skips the duplicate write.
+
+    recorder 非空时（ExecutionRecorder）：补 error/cancelled 终态事件后
+    finalize，把本次执行的过程流水账随文档落库（capped，见 recorder 模块）。
 
     同时输出一行 ``agent_call_timing`` 诊断日志（毫秒级耗时拆分），用于
     快速判断慢因：llm 高 = 模型服务慢；tool 高 = 工具慢；other 高 =
@@ -1023,6 +1048,22 @@ async def _record_execution_log(
         endpoint = ctx.endpoint
         ctx.consumed = True  # suppress middleware fallback duplicate
 
+    # 过程事件收尾：补终态（error/cancelled）→ finalize（cap 生效）→ 落库。
+    events: list[dict] = []
+    if recorder is not None:
+        if error is not None:
+            with contextlib.suppress(Exception):
+                recorder.error(
+                    source=_classify_error_source(error),
+                    msg=str(error),
+                    code=_llm_error_code(error),
+                )
+        if status_override == "cancelled":
+            with contextlib.suppress(Exception):
+                recorder.interrupt("cancelled")
+        with contextlib.suppress(Exception):
+            events = recorder.finalize()
+
     await ExecutionLogService.write_log(
         user_id=user_id,
         agent_id=agent_id,
@@ -1040,6 +1081,7 @@ async def _record_execution_log(
         input_tokens=int(usage.get("input_tokens") or 0),
         output_tokens=int(usage.get("output_tokens") or 0),
         llm_calls=int(usage.get("llm_calls") or 0),
+        events=events,
     )
 
 
