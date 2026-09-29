@@ -15,6 +15,7 @@ from app.services.agent_execution_service import (
     _duration_metrics,
     _emit_stream_done,
     _now_ms,
+    _request_usage,
 )
 
 # ── _classify_error_source ──────────────────────────────────────────────────
@@ -412,3 +413,158 @@ class TestChannelSessionCleanup:
         query = mock_coll.find.call_args.args[0]
         assert query["user_id"] == {"$regex": "^channel:"}  # 只碰渠道会话
         assert "$lt" in query["updated_at"]
+
+
+
+# ── _request_usage — mw.summary 运行累计 → 本轮真实增量 ──────────────────────
+
+
+def test_request_usage_strips_seed_from_total():
+    """seed 过的累计 total 扣除 session 历史累计，换算后 total = input + output。"""
+    u = _request_usage(
+        {"total_tokens": 2_050, "input_tokens": 800, "output_tokens": 250, "llm_calls": 2},
+        seed_tokens=1_000,
+    )
+    assert u["total_tokens"] == 1_050
+    assert u["total_tokens"] == u["input_tokens"] + u["output_tokens"]
+    assert u["llm_calls"] == 2  # 其余字段原样保留
+
+
+def test_request_usage_clamps_negative_delta():
+    """total < seed（异常数据）时 clamp ≥ 0，不出现负数被 $inc。"""
+    assert _request_usage({"total_tokens": 30}, seed_tokens=100)["total_tokens"] == 0
+
+
+def test_request_usage_passthrough_on_empty():
+    """None / 空 usage 原样返回（cancelled、guard 静默路径兜底）。"""
+    assert _request_usage(None, seed_tokens=500) is None
+    assert _request_usage({}, seed_tokens=500) == {}
+    # seed=0（新 session / 工作流节点）时即本轮值，不变
+    assert _request_usage({"total_tokens": 7}, seed_tokens=0)["total_tokens"] == 7
+
+
+# ── token 累计回归：session total 按本轮增量线性增长（防指数膨胀）────────────
+
+
+class TestSessionTokenAccumulation:
+    """mw.summary 的 total_tokens 被 seed 过（session 历史累计 + 本轮）。
+    落库必须只加本轮增量——否则 S_N = 2·S_{N-1} + T_N，每轮近翻倍。"""
+
+    async def test_stream_session_total_grows_linearly_across_rounds(self):
+        """连续两轮各耗 100 tokens → session 累计 200（bug 下第二轮会 $inc 200 得 300）。"""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.services import agent_execution_service as svc
+
+        session_store = {"s1": {"_id": "s1", "total_tokens": 0}}
+        round_delta = 100
+
+        async def fake_harness_stream(_doc, initial_state, on_event=None, **_kw):
+            # 模拟 UsageMiddleware 的 seeding：summary.total = seed + 本轮
+            seed = int(initial_state.get("total_tokens", 0) or 0)
+            await on_event({"type": "text", "content": "hi"})
+            return {
+                "step_count": 1,
+                "usage": {
+                    "total_tokens": seed + round_delta,
+                    "input_tokens": 80, "output_tokens": 20, "llm_calls": 1,
+                },
+            }
+
+        async def fake_add_tokens(session_id: str, tokens: int):
+            session_store[session_id]["total_tokens"] += tokens
+
+        async def consume_done(queue: asyncio.Queue) -> dict:
+            """消费至哨兵，返回 done 事件。"""
+            events: list[dict] = []
+            while True:
+                item = await queue.get()
+                if item is None:
+                    return events[-1]
+                events.append(json.loads(item.removeprefix("data: ").strip()))
+
+        with (
+            patch.object(svc, "_resolve_session", new=AsyncMock(return_value="s1")),
+            patch.object(svc, "AgentService") as mock_agent,
+            patch.object(svc, "_build_system_prompt_checked", new=AsyncMock(return_value="sys")),
+            patch.object(svc, "_build_user_content", new=AsyncMock(return_value="uc")),
+            patch.object(svc, "_assemble_messages", return_value=[]),
+            patch.object(svc, "_load_legacy_records", new=AsyncMock(return_value=[])),
+            patch.object(svc.SessionService, "get_session", new=AsyncMock(return_value=session_store["s1"])),
+            patch.object(svc.SessionService, "add_tokens", new=fake_add_tokens),
+            patch.object(svc.MessageService, "add_message", new=AsyncMock()) as mock_add_message,
+            patch.object(svc, "_record_execution_log", new=AsyncMock()),
+            patch.object(svc, "cancel_runs_by_session", new=AsyncMock()),
+            patch.object(svc, "register_run"),
+            patch.object(svc, "make_cancel_checker", return_value=AsyncMock()),
+            patch("app.engine.harness_integration.stream", new=fake_harness_stream),
+        ):
+            mock_agent.get_agent = AsyncMock(return_value={"_id": "a"})
+
+            done_1 = await consume_done((await svc.AgentExecutionService.stream(
+                "a", MagicMock(input="hi"), "u",
+            ))[0])
+            done_2 = await consume_done((await svc.AgentExecutionService.stream(
+                "a", MagicMock(input="hi"), "u",
+            ))[0])
+
+        # session 累计 = 两轮真实增量之和，线性不翻倍
+        assert session_store["s1"]["total_tokens"] == 2 * round_delta
+        # 每轮 done 事件的 usage 都是本轮值，且 total = in + out
+        for done in (done_1, done_2):
+            u = done["usage"]
+            assert u["total_tokens"] == round_delta
+            assert u["total_tokens"] == u["input_tokens"] + u["output_tokens"]
+        # 消息 token_usage 同为本轮增量
+        add_calls = mock_add_message.await_args_list
+        assert [c.kwargs["token_usage"]["total_tokens"] for c in add_calls] == [
+            round_delta, round_delta,
+        ]
+
+    async def test_invoke_persists_usage_and_adds_delta(self):
+        """invoke（非流式）也落 token_usage 并按增量累计（原路径完全不计数）。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.services import agent_execution_service as svc
+
+        async def fake_harness_invoke(*_args, **_kw):
+            # session total=500 为 seed，本轮真实消耗 200
+            return {
+                "messages": [],
+                "execution_path": "react",
+                "usage": {"total_tokens": 700, "input_tokens": 150, "output_tokens": 50, "llm_calls": 1},
+            }
+
+        with (
+            patch.object(svc, "_resolve_session", new=AsyncMock(return_value="s1")),
+            patch.object(svc, "AgentService") as mock_agent,
+            patch.object(svc, "_build_system_prompt_checked", new=AsyncMock(return_value="sys")),
+            patch.object(svc, "_build_user_content", new=AsyncMock(return_value="uc")),
+            patch.object(svc, "_assemble_messages", return_value=[]),
+            patch.object(svc, "_load_legacy_records", new=AsyncMock(return_value=[])),
+            patch.object(svc, "SessionService") as mock_session,
+            patch.object(svc, "MessageService") as mock_message,
+            patch.object(svc, "_record_execution_log", new=AsyncMock()) as mock_log,
+            patch.object(svc, "_should_persist_messages", return_value=True),
+            patch.object(svc, "extract_final_answer", return_value="ok"),
+            patch.object(svc, "messages_to_timeline_entries", return_value=[]),
+            patch("app.engine.harness_integration.invoke", new=fake_harness_invoke),
+        ):
+            mock_agent.get_agent = AsyncMock(return_value={"_id": "a"})
+            mock_session.get_session = AsyncMock(return_value={"total_tokens": 500})
+            mock_session.add_tokens = AsyncMock()
+            mock_message.add_message = AsyncMock()
+
+            resp = await svc.AgentExecutionService.invoke(
+                "a", MagicMock(input="hi", enable_thinking=False), "u",
+            )
+
+        assert resp.output == "ok"
+        # 消息 token_usage = 本轮增量（700 − seed 500）
+        persisted = mock_message.add_message.call_args.kwargs["token_usage"]
+        assert persisted["total_tokens"] == 200
+        # session 只加增量 200，不是 seed 过的 700
+        mock_session.add_tokens.assert_awaited_once_with("s1", 200)
+        # execution_log 同口径
+        assert mock_log.call_args.kwargs["token_usage"]["total_tokens"] == 200

@@ -116,12 +116,15 @@ class AgentExecutionService:
         finally:
             # Unified execution log (all channels).
             # （invoke 的消息持久化在 execution log 之后，phase_timing 不含 persist）
+            # mw.summary 的 total_tokens 含 seed 的 session 历史累计，统一换算
+            # 为本轮增量后再落库/回传（防 add_tokens 双重累计指数膨胀）。
+            request_usage = _request_usage(result.get("usage"), session_total_tokens)
             await _record_execution_log(
                 user_id=user_id, agent_id=agent_id, session_id=session_id,
                 request_id=request_id, start_time_ms=start_time_ms,
-                token_usage=result.get("usage"), error=run_error,
+                token_usage=request_usage, error=run_error,
                 phase_timing=_compose_phase_timing(
-                    result.get("timing"), result.get("usage"), prep_ms=prep_done_ms,
+                    result.get("timing"), request_usage, prep_ms=prep_done_ms,
                 ),
             )
 
@@ -142,8 +145,13 @@ class AgentExecutionService:
         if _should_persist_messages(user_id):
             await MessageService.add_message(
                 session_id=session_id, role="agent", timeline_entries=timeline,
+                token_usage=request_usage or {},
                 request_id=request_id,
             )
+        # Token 累计独立于消息明细持久化（渠道会话不落 messages 也计 token），
+        # 只加本轮增量——与 stream 路径的 add_tokens 语义对齐。
+        if request_usage and request_usage.get("total_tokens"):
+            await SessionService.add_tokens(session_id, request_usage["total_tokens"])
 
         return ExecutionResponse(
             output=output_text,
@@ -252,12 +260,15 @@ class AgentExecutionService:
                 result = {}
             finally:
                 unregister_run(request_id)
+                # mw.summary 的 total_tokens 含 seed 的 session 历史累计，统一
+                # 换算为本轮增量后再落库/回传（防 add_tokens 双重累计指数膨胀）。
+                request_usage = _request_usage(result.get("usage"), session_total_tokens)
                 if not cancelled:
                     persist_t0 = _now_ms()
                     with contextlib.suppress(Exception):
                         await _persist_agent_message(
                             session_id, collected_timeline,
-                            token_usage=result.get("usage"),
+                            token_usage=request_usage,
                             request_id=request_id,
                         )
                     timing["persist_ms"] = _now_ms() - persist_t0
@@ -266,10 +277,10 @@ class AgentExecutionService:
                         await _record_execution_log(
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
-                            token_usage=result.get("usage"), error=run_error,
+                            token_usage=request_usage, error=run_error,
                             ttft_ms=timing.get("ttft_ms", 0),
                             phase_timing=_compose_phase_timing(
-                                result.get("timing"), result.get("usage"),
+                                result.get("timing"), request_usage,
                                 prep_ms=timing.get("prep_ms"),
                                 persist_ms=timing.get("persist_ms"),
                             ),
@@ -295,7 +306,7 @@ class AgentExecutionService:
                         ))
                 await _emit_stream_done(
                     event_queue, request_id=request_id, session_id=session_id,
-                    usage=result.get("usage"), cancelled=cancelled,
+                    usage=request_usage, cancelled=cancelled,
                     start_time_ms=start_time_ms, ttft_ms=timing.get("ttft_ms", 0),
                 )
 
@@ -390,13 +401,15 @@ class AgentExecutionService:
                 result = {}
             finally:
                 unregister_run(request_id)
+                # 与 stream 相同：换算为本轮增量，防双重累计（见 stream 内注释）。
+                request_usage = _request_usage(result.get("usage"), session_total_tokens)
                 if not cancelled:
                     persist_t0 = _now_ms()
                     with contextlib.suppress(Exception):
                         await _persist_agent_message(
                             session_id, collected_timeline,
                             extra_filter_types=("interrupt",),
-                            token_usage=result.get("usage"),
+                            token_usage=request_usage,
                             append_to_last_agent=True,
                             request_id=request_id,
                         )
@@ -407,10 +420,10 @@ class AgentExecutionService:
                         await _record_execution_log(
                             user_id=user_id, agent_id=agent_id, session_id=session_id,
                             request_id=request_id, start_time_ms=start_time_ms,
-                            token_usage=result.get("usage"), error=run_error,
+                            token_usage=request_usage, error=run_error,
                             ttft_ms=timing.get("ttft_ms", 0),
                             phase_timing=_compose_phase_timing(
-                                result.get("timing"), result.get("usage"),
+                                result.get("timing"), request_usage,
                                 prep_ms=timing.get("prep_ms"),
                                 persist_ms=timing.get("persist_ms"),
                             ),
@@ -438,7 +451,7 @@ class AgentExecutionService:
                         ))
                 await _emit_stream_done(
                     event_queue, request_id=request_id, session_id=session_id,
-                    usage=result.get("usage"), cancelled=cancelled,
+                    usage=request_usage, cancelled=cancelled,
                     start_time_ms=start_time_ms, ttft_ms=timing.get("ttft_ms", 0),
                 )
 
@@ -490,6 +503,22 @@ _TTFT_EVENT_TYPES = ("text_delta", "thinking_delta", "text", "thinking")
 
 #: 慢请求阈值（毫秒）——超过时 agent_call_timing 日志升级为 warning，便于筛选。
 _SLOW_CALL_MS = 10_000
+
+
+def _request_usage(usage: dict | None, seed_tokens: int) -> dict | None:
+    """把 mw.summary 的运行累计换算成本轮真实增量。
+
+    UsageMiddleware 的 summary["total_tokens"] 被 seed 过（session 历史
+    累计 + 本轮，供 TokenBudgetGuard 跨请求判断预算），而 input/output/
+    llm_calls/duration 是本轮值。消息落库、SSE done、execution_log 统一
+    用本轮值（换算后 total = input + output 自洽）；session 累计由
+    add_tokens 以增量 `$inc`——否则把含历史的累计值再加一遍，session
+    总量每轮近翻倍（指数膨胀）。
+    """
+    if not usage:
+        return usage
+    total = int(usage.get("total_tokens") or 0)
+    return {**usage, "total_tokens": max(0, total - int(seed_tokens or 0))}
 
 
 def _compose_phase_timing(
