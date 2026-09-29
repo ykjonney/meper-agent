@@ -60,7 +60,12 @@ COPY --chown=${APP_UID}:${APP_GID} scripts/ scripts/
 COPY --chown=${APP_UID}:${APP_GID} pyproject.toml uv.lock .python-version ./
 
 # Create logs directory for non-root user（仅此目录，非递归）
-RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+# /app 目录 inode 也须归 appuser：celery beat 把 schedule shelve 写到
+# CWD（/app/celerybeat-schedule），目录属主不可写则 [Errno 13]
+# （2de4b0f 去掉 -R 后漏掉的点）。只 chown 目录本身、不递归——
+# 不触发数万 venv 小文件的 copy-up（优化语义保留）。
+RUN mkdir -p /app/logs \
+    && chown appuser:appuser /app/logs /app
 
 # Entrypoint: fix ownership of bind-mounted volumes as root, then drop to appuser.
 # Inlined here (via BuildKit heredoc) so no separate script file is needed.
