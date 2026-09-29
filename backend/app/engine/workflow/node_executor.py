@@ -113,10 +113,14 @@ class BaseNodeExecutor(ABC):
             except FileNotFoundError:
                 # File was removed between rglob and stat — skip.
                 continue
-            if not register_all and stat.st_mtime < node_start_ts:
+            if not register_all and stat.st_mtime < int(node_start_ts):
                 # Pre-existing file from an earlier run; do not re-register.
                 # 恢复场景(register_all=True)跳过此过滤——agent 在上次执行
                 # （被取消前）已写入的文件 mtime 早于本次恢复时间。
+                # 与 node_start_ts 比较前先取整到秒：部分文件系统 mtime 只有
+                # 秒级精度（截断），亚秒级严格小于会把节点启动同秒写入的新
+                # 文件误判为旧产物（CI 偶发 registered == [] 的根因）；
+                # 取整后同秒旧文件误注册由 sha256 去重兜底，丢新文件不可接受。
                 continue
             try:
                 data = path.read_bytes()
