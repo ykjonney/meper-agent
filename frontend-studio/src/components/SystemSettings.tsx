@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Key, ShieldAlert, Plus, Sliders, CheckCircle, Check, Copy,
+  ShieldAlert, Plus, Sliders, CheckCircle, Check, Copy,
   AlertTriangle, RefreshCw, ChevronDown, ChevronUp, ChevronRight, Pencil,
 } from 'lucide-react';
 import { agentApi } from '../services/agent-api';
@@ -253,16 +253,10 @@ export function SystemSettings() {
         </div>
       )}
 
-      {/* Visual top bar */}
-      <div className="flex items-center gap-3 p-4 bg-[#18181b] rounded-xl border border-[#27272a]">
-        <Key className="w-5 h-5 text-amber-400" />
-        <div className="space-y-0.5">
-          <h2 className="text-sm font-bold text-white font-sans">对外接入密钥与后端引擎全局配置</h2>
-          <p className="text-xs text-[#a1a1aa] font-sans">
-            管理对外接入用的 API Key（供 /ext 嵌入式对话、第三方系统调用），并配置运行时全局参数。
-          </p>
-        </div>
-      </div>
+      {/* 页面语境由设置页 Tab 承担——这里只留一行说明，避免与 Tab 层级堆叠 */}
+      <p className="text-xs text-[#a1a1aa] font-sans">
+        管理对外接入用的 API Key（供 /ext 嵌入式对话、第三方系统调用），并配置运行时全局参数。
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN: API KEY MANAGEMENT (real) */}

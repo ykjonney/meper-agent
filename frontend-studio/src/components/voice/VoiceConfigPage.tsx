@@ -260,19 +260,17 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
       : !!cfg?.api_key_masked
   const previewDisabled = !providerSaved || !keyConfigured || !previewText.trim()
 
-  if (isLoading) return <div className="p-6 text-sm opacity-60">加载语音配置…</div>
+  if (isLoading) return <div className="text-sm opacity-60">加载语音配置…</div>
 
   return (
-    <div className={`max-w-3xl mx-auto p-6 space-y-4 ${dark ? 'text-[#fafafa]' : 'text-slate-800'}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold">语音设置</h2>
-          <p className={`text-xs mt-1 ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>
-            选择语音供应商后配置对应 API Key。凭证加密存储，切换后保存生效。
-          </p>
-        </div>
+    <div className={`space-y-4 ${dark ? 'text-[#fafafa]' : 'text-slate-800'}`}>
+      {/* 页面标题由系统设置 Tab 承担；这里保留说明 + 上次测试徽标 */}
+      <div className="flex items-center justify-between gap-4">
+        <p className={`text-xs ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>
+          选择语音供应商后配置对应 API Key。凭证加密存储，切换后保存生效。
+        </p>
         {cfg?.last_test_at && (
-          <span className={`text-xs ${cfg.last_test_success ? 'text-emerald-500' : 'text-rose-500'}`}>
+          <span className={`text-xs shrink-0 ${cfg.last_test_success ? 'text-emerald-500' : 'text-rose-500'}`}>
             上次测试：{cfg.last_test_success ? '通过' : '失败'}
           </span>
         )}

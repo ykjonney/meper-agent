@@ -24,6 +24,7 @@ import { usePermission } from '../hooks/use-permission';
 import { AvatarRender } from './AvatarRender';
 import { toast } from './ui/toast';
 import { confirmDialog } from './ui/confirm';
+import { SegmentedTabs } from './ui/tabs';
 import { toolsApi } from '../services/tools-api';
 import {
   userSkillsApi,
@@ -54,9 +55,6 @@ export function UserSkillsPage({ theme = 'dark', onOpenOfficial }: Props) {
   const [tab, setTab] = useState<Tab>('marketplace');
   const isAdmin = useIsAdmin();
 
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
-  const activeTabCls = theme === 'dark' ? 'bg-[#27272a] text-[#fafafa]' : 'bg-slate-100 text-slate-900';
-
   const tabs: { id: Tab; label: string; icon: typeof Sparkles }[] = [
     { id: 'marketplace', label: '技能广场', icon: Sparkles },
     { id: 'mine', label: '我的技能', icon: FileText },
@@ -65,19 +63,7 @@ export function UserSkillsPage({ theme = 'dark', onOpenOfficial }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border-0 cursor-pointer transition ${tab === t.id ? activeTabCls : `${textMuted} hover:opacity-80`}`}
-            style={tab === t.id ? undefined : { background: 'transparent' }}
-          >
-            <t.icon size={14} />
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
 
       {tab === 'marketplace' && <MarketplaceTab theme={theme} isAdmin={isAdmin} />}
       {tab === 'mine' && <MySkillsTab theme={theme} isAdmin={isAdmin} onOpenOfficial={onOpenOfficial} />}

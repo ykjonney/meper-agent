@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Bot, BookOpen, LayoutDashboard, Layers, Key, Server,
   Sun, Moon, MessageSquare, ListTodo, Sparkles, Shield,
-  Wrench, Plug, UserCog, LogOut, ChevronDown,
-  PanelLeftClose, PanelLeftOpen, Clock, Mic, SlidersHorizontal,
+  Plug, UserCog, LogOut, ChevronDown,
+  PanelLeftClose, PanelLeftOpen, Clock, Mic,
   Link2, ArrowLeftRight, Store,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
@@ -20,7 +20,6 @@ import { Tooltip } from './components/ui';
 import { ConfirmHost } from './components/ui/confirm';
 import { ChatHomepage } from './components/ChatHomepage';
 import { VoiceHomepage } from './components/voice/VoiceHomepage';
-import { VoiceConfigPage } from './components/voice/VoiceConfigPage';
 import { TaskBoard } from './components/TaskBoard';
 import { TaskDetailPage } from './components/task/TaskDetailPage';
 import { Dashboard } from './components/Dashboard';
@@ -30,7 +29,6 @@ import { AgentEditorPage } from './components/AgentEditorPage';
 import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { WorkflowSpace } from './components/WorkflowSpace';
 import { UserSkillsPage } from './components/UserSkillsPage';
-import { BuiltinToolsPage } from './components/BuiltinToolsPage';
 import { ToolMarketPage } from './components/ToolMarketPage';
 import { McpManagePage } from './components/McpManagePage';
 import { SkillDetailPage } from './components/SkillDetailPage';
@@ -40,7 +38,7 @@ import { KbVectorDetailPage } from './components/KbVectorDetailPage';
 import { UserManagement } from './components/UserManagement';
 import { TransferManagementPage } from './components/transfer/TransferManagementPage';
 import { ExternalAuthPage } from './components/ExternalAuthPage';
-import { SystemSettings } from './components/SystemSettings';
+import { SettingsPage } from './components/SettingsPage';
 import { ModelsPage } from './components/ModelsPage';
 import { TriggersPage } from './components/TriggersPage';
 import { ProfilePage } from './components/ProfilePage';
@@ -62,7 +60,8 @@ interface NavItem {
   label: string;
   icon: typeof Bot;
   badge?: string;
-  permission?: string;
+  /** 权限门控：单键精确匹配；数组 = 任一满足（多权限域页面的入口并集）。 */
+  permission?: string | string[];
   /** 仅 admin 角色可见（如导入导出中心），与 permission 点过滤叠加。 */
   adminOnly?: boolean;
 }
@@ -70,7 +69,6 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'chat', label: '会话记录', icon: MessageSquare, badge: 'HP' },
   { id: 'voice', label: '语音对话', icon: Mic },
-  { id: 'voice-settings', label: '语音设置', icon: SlidersHorizontal, permission: 'settings:manage' },
   // 任务协作看板 badge 由下方 activeTaskCount 实时注入（执行中 + 等待人工）。
   { id: 'board', label: '任务协作看板', icon: ListTodo },
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, permission: 'execution:read:own' },
@@ -78,9 +76,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'models', label: '模型配置', icon: Server, permission: 'model:read' },
   { id: 'workflows', label: 'AI 工作路线', icon: Layers, permission: 'workflow:read' },
   { id: 'triggers', label: '定时任务', icon: Clock, permission: 'trigger:read' },
-  { id: 'tools', label: '内置工具', icon: Wrench, permission: 'tool:read' },
   { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
-  // 工具市场：所有登录用户可见（创建/安装/发布同技能市场模式）
+  // 工具库（内置 + 组织自定义工具统一目录，页内 Tab 切换）：所有登录用户可见
+  // （创建/安装/发布同技能市场模式；「系统内置」Tab 页内按 tool:read 控制）
   { id: 'tool-market', label: '工具库', icon: Store },
   { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'knowledge', label: '知识库', icon: BookOpen, permission: 'knowledge:read' },
@@ -89,7 +87,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'users', label: '用户权限', icon: Shield, permission: 'user:read' },
   // 数据导入导出中心：资源包（afpkg）迁移入口，仅管理员可见（后端 admin/developer 双角色放行）。
   { id: 'transfer', label: '导入导出', icon: ArrowLeftRight, adminOnly: true },
-  { id: 'settings', label: '系统设置', icon: Key, permission: 'settings:manage' },
+  // 系统设置 = 多权限域容器（SettingsPage 内 Tab 各自门控）：语音/通用走
+  // settings:manage，消息渠道走 channel:read（已从独立导航项归并至此，
+  // 后端 channels API 同为 RBAC）。入口 permission 为数组——任一满足即可见：
+  // developer 无 settings:manage 但有 channel 读写，仍能进入本页管理渠道。
+  { id: 'settings', label: '系统设置', icon: Key, permission: ['settings:manage', 'channel:read'] },
 ];
 
 export default function App() {
@@ -225,7 +227,10 @@ export default function App() {
   }, []);
 
   const permissions = authUser?.permissions ?? [];
-  const has = (perm?: string) => !perm || permissions.includes(perm);
+  // 数组 = 任一满足（多权限域页面的入口并集，如系统设置）
+  const has = (perm?: string | string[]) =>
+    !perm ||
+    (Array.isArray(perm) ? perm.some((p) => permissions.includes(p)) : permissions.includes(perm));
 
   const visibleNav = useMemo(() => {
     const items = NAV_ITEMS.filter(
@@ -485,10 +490,6 @@ export default function App() {
             <VoiceHomepage agents={studioAgents} theme={theme} />
           )}
 
-          {activeTab === 'voice-settings' && (
-            <VoiceConfigPage theme={theme} />
-          )}
-
           {activeTab === 'board' && (
             <TaskBoard theme={theme} onOpenTaskDetail={(id) => setActiveTaskDetail({ id, mode: 'full' })} />
           )}
@@ -548,8 +549,6 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'tools' && <BuiltinToolsPage />}
-
           {activeTab === 'mcp' && <McpManagePage />}
 
           {activeTab === 'tool-market' && <ToolMarketPage theme={theme} />}
@@ -592,8 +591,7 @@ export default function App() {
           {activeTab === 'users' && <UserManagement />}
           {activeTab === 'transfer' && <TransferManagementPage theme={theme} />}
           {activeTab === 'external-auth' && <ExternalAuthPage />}
-
-          {activeTab === 'settings' && <SystemSettings />}
+          {activeTab === 'settings' && <SettingsPage theme={theme} />}
 
           {activeTab === 'profile' && (
             <ProfilePage theme={theme} />
