@@ -176,27 +176,6 @@ async def _list_capabilities() -> str:
     except Exception:
         pass
 
-    # 4) 参考 agent（样例：名称/描述，供风格参考；不含他人 prompt）
-    try:
-        cursor = (
-            db["agents"]
-            .find(
-                {"status": {"$in": ["draft", "published"]}},
-                {"name": 1, "description": 1},
-            )
-            .limit(20)
-        )
-        refs = await cursor.to_list(length=20)
-        if refs:
-            lines.append(
-                "## 参考 agent（已有制品，风格参考）\n"
-                + "\n".join(
-                    f"- {a.get('name','')}：{(a.get('description') or '')[:60]}" for a in refs
-                )
-            )
-    except Exception:
-        pass
-
     if not lines:
         return "（能力盘点为空或查询失败——请直接告知用户平台暂无可用能力清单）"
     return "\n\n".join(lines)
@@ -335,7 +314,7 @@ list_capabilities = StructuredTool.from_function(
     name="list_capabilities",
     description=(
         "盘点平台当前可用的全部能力：内置工具、自定义工具、MCP 工具、技能、"
-        "可用模型、参考 agent。设计或创建新 agent 前必须先调用本工具做能力"
+        "可用模型。设计或创建新 agent 前必须先调用本工具做能力"
         "分配——不要臆造不存在的工具或模型 id。"
     ),
     coroutine=_list_capabilities,

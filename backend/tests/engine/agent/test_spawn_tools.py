@@ -110,7 +110,8 @@ class TestCreateAgentTool:
 
 
 async def test_list_capabilities_inventory(monkeypatch):
-    """能力清单：tools 集合按 source 分拣 + 模型 + 参考 agent。"""
+    """能力清单：tools 集合按 source 分拣 + 模型（参考 agent 段已删——
+    只有名称/描述无详情可看，对能力分配无信息量，纯占上下文）。"""
     from app.engine.agent.spawn_tools import list_capabilities
 
     class _Cur:
@@ -151,10 +152,6 @@ async def test_list_capabilities_inventory(monkeypatch):
             col.find = MagicMock(
                 return_value=_Cur([{"_id": "m1", "name": "主力模型", "model_id": "gpt-x"}])
             )
-        elif key == "agents":
-            col.find = MagicMock(
-                return_value=_Cur([{"_id": "a1", "name": "客服一号", "description": "客服"}])
-            )
         return col
 
     db = MagicMock()
@@ -169,7 +166,8 @@ async def test_list_capabilities_inventory(monkeypatch):
     assert "mcp_x" in result and "mcp 工具" in result and "绑定粒度=整连接" in result
     assert "技能" in result and "写作技能" in result
     assert "主力模型" in result
-    assert "客服一号" in result
+    # 参考 agent 段已移除：盘点不含 agent 名单
+    assert "客服一号" not in result and "参考 agent" not in result
 
 
 async def test_create_agent_normalizes_mcp_tool_id_to_connection(monkeypatch):
