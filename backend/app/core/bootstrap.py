@@ -77,6 +77,7 @@ async def ensure_all_indexes() -> TriggerRepository:
     )
     from app.services.execution_log_service import ExecutionLogService
     from app.services.role_service import RoleService  # noqa: F401
+    from app.services.tool_output_archive_service import ToolOutputArchiveService
     from app.services.trigger_repo import TriggerRepository
 
     trigger_repo = TriggerRepository(get_database())
@@ -86,6 +87,7 @@ async def ensure_all_indexes() -> TriggerRepository:
         RoleService.ensure_indexes(),
         ApiKeyService.ensure_indexes(),
         ExecutionLogService.ensure_indexes(),
+        ToolOutputArchiveService.ensure_indexes(),
         # 全量核心索引（users/agents/tools/kb/user_skills/skill_logs/
         # message_feedback 等）——此前只能手动 python -m app.db.indexes，
         # 新环境部署会缺（含消息反馈唯一索引的并发防线）

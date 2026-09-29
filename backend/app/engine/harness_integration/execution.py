@@ -123,6 +123,14 @@ async def stream(
     )
     clock.attach(hctx)
     usage_summary: dict = {}
+    # thread 上下文(checkpointer thread_id = session_id):recall_tool_result
+    # 与压缩归档调度靠它取数。run 结束 finally 成对 reset。
+    from app.engine.agent.recall_tool import (
+        reset_thread_id_context,
+        set_thread_id_context,
+    )
+
+    tid_token = set_thread_id_context(state.get("session_id", ""))
     try:
         # 先发出工具/MCP 加载失败，让用户尽早知道哪些工具不可用
         await _emit_load_errors(hctx, on_event)
@@ -171,6 +179,7 @@ async def stream(
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
     finally:
+        reset_thread_id_context(tid_token)
         release_harness_context(hctx)
 
     result = {"step_count": 0, "usage": usage_summary}
@@ -214,6 +223,14 @@ async def invoke(
         execution_context=execution_context,
     )
     clock.attach(hctx)
+    # thread 上下文(同 stream):invoke 供 chat 端点与 workflow agent 节点共用,
+    # 后者 state["session_id"] 即节点 thread({task_id}_{node_id})。
+    from app.engine.agent.recall_tool import (
+        reset_thread_id_context,
+        set_thread_id_context,
+    )
+
+    tid_token = set_thread_id_context(state.get("session_id", ""))
     try:
         session_id = state.get("session_id", "")
         with timed_phase(clock.phases, "build_compile"):
@@ -252,6 +269,7 @@ async def invoke(
             result["timing"] = timing
         return result
     finally:
+        reset_thread_id_context(tid_token)
         release_harness_context(hctx)
 
 
@@ -285,6 +303,13 @@ async def resume_agent(
         execution_context=execution_context,
     )
     clock.attach(hctx)
+    # thread 上下文:resume_agent 用显式 thread_id 参数(工作流恢复路径)。
+    from app.engine.agent.recall_tool import (
+        reset_thread_id_context,
+        set_thread_id_context,
+    )
+
+    tid_token = set_thread_id_context(thread_id)
     try:
         with timed_phase(clock.phases, "build_compile"):
             graph = build_agent_graph(
@@ -317,6 +342,7 @@ async def resume_agent(
             result["timing"] = timing
         return result
     finally:
+        reset_thread_id_context(tid_token)
         release_harness_context(hctx)
 
 
@@ -342,6 +368,14 @@ async def resume(
     )
     clock.attach(hctx)
     usage_summary: dict = {}
+    # thread 上下文(checkpointer thread_id = session_id):recall_tool_result
+    # 与压缩归档调度靠它取数。run 结束 finally 成对 reset。
+    from app.engine.agent.recall_tool import (
+        reset_thread_id_context,
+        set_thread_id_context,
+    )
+
+    tid_token = set_thread_id_context(state.get("session_id", ""))
     try:
         # 先发出工具/MCP 加载失败，让用户尽早知道哪些工具不可用
         await _emit_load_errors(hctx, on_event)
@@ -391,6 +425,7 @@ async def resume(
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
     finally:
+        reset_thread_id_context(tid_token)
         release_harness_context(hctx)
 
     result = {"step_count": 0, "usage": usage_summary}

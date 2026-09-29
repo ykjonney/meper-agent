@@ -29,7 +29,8 @@ def get_checkpointer() -> Any:
 # 保证「端点展示的 = 运行时注入的」。
 _INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "bash", "read", "write", "edit", "glob", "grep", "ask_clarification",
-    "run_code", "parse_file", "view_image", "request_app_authorization",
+    "run_code", "parse_file", "view_image", "recall_tool_result",
+    "request_app_authorization",
 )
 
 # 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
@@ -120,6 +121,7 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
     from app.engine.agent.chart_tool import _CHART_TOOLS
     from app.engine.agent.image_tool import IMAGE_TOOL_BY_NAME
     from app.engine.agent.parse_tool import PARSE_TOOL_BY_NAME
+    from app.engine.agent.recall_tool import RECALL_TOOL_BY_NAME
     from app.engine.agent.workflow_executor import _TASK_TOOLS, _WORKFLOW_CONTEXT_TOOLS
 
     tools: list = []
@@ -136,11 +138,13 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
         builtin_config |= {"read", "write", "edit"}
 
     for name in _INJECTED_BUILTIN_TOOL_NAMES:
-        # parse_file / view_image 是 app 层工具,harness 注册表取不到,补查找表。
+        # parse_file / view_image / recall_tool_result 是 app 层工具,harness
+        # 注册表取不到,补查找表。
         tool = (
             BUILTIN_TOOLS.get(name)
             or PARSE_TOOL_BY_NAME.get(name)
             or IMAGE_TOOL_BY_NAME.get(name)
+            or RECALL_TOOL_BY_NAME.get(name)
         )
         if tool is None:
             continue
@@ -740,14 +744,58 @@ async def resolve_harness_context(
     }
 
 
+# 归档后台任务引用——防 GC 回收 pending task(asyncio 文档推荐模式)。
+_archive_tasks: set = set()
+
+
+def _schedule_archive(tool_call_id: str, original: str) -> None:
+    """尽力而为地把被压缩的工具结果原文归档(绝不影响压缩主流程)。
+
+    压缩发生在 harness 异步节点内,必有 running loop;经 create_task 异步
+    写库,写失败只记 debug 日志。thread_id 取 recall 模块的 ContextVar
+    (execution.py 在 build_config 旁 set;chat=会话 id,workflow=节点 thread)。
+    无 loop(同步路径调用 formatter)或无 thread_id 时静默跳过——chat 会话
+    仍有 messages timeline 兜底。
+    """
+    import asyncio
+
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        from app.engine.agent.recall_tool import _get_thread_id
+
+        thread_id = _get_thread_id()
+        if not thread_id:
+            return
+        from app.services.tool_output_archive_service import (
+            ToolOutputArchiveService,
+        )
+
+        task = loop.create_task(
+            ToolOutputArchiveService.archive(thread_id, tool_call_id, original)
+        )
+        _archive_tasks.add(task)
+        task.add_done_callback(_archive_tasks.discard)
+    except Exception:
+        logger.debug(
+            "tool_output_archive_schedule_failed", tool_call_id=tool_call_id
+        )
+
+
 def _make_tool_output_reference_formatter():
     """构造工具输出引用标记生成器(供 harness compress_tool_outputs 使用)。
 
-    被压缩的工具结果末尾会追加提示,告知 LLM 用 recall_tool_result 取回
-    完整原文 —— 这样压缩是"可逆"的,信息没真正丢失。
+    签名 (tool_call_id, original_content) -> str:harness 在缩短一条工具
+    结果**之前**回调,original 即压缩前全文——借此把原文归档进
+    tool_output_archives(fire-and-forget),再返回提示文本告知 LLM 用
+    recall_tool_result 取回。这样压缩是"可逆"的:信息没真正丢失,
+    IM 渠道 / workflow 节点(无 messages 明细)也有原文可回溯。
     """
 
-    def _format(tool_call_id: str) -> str:
+    def _format(tool_call_id: str, original: str) -> str:
+        _schedule_archive(tool_call_id, original)
         return (
             f"\n\n[此结果已被压缩,完整原文已存档,"
             f'可用 recall_tool_result(tool_call_id="{tool_call_id}") 查看]'

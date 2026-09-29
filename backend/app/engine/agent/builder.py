@@ -488,6 +488,25 @@ def _build_builtin_tool_declaration(
             "",
         ])
 
+    # recall_tool_result is always available in both contexts (capability tool)
+    from app.engine.agent.recall_tool import RECALL_TOOL_BY_NAME
+
+    _recall = RECALL_TOOL_BY_NAME.get("recall_tool_result")
+    if _recall is not None:
+        _recall_desc = (_recall.description or "").split("\n")[0].strip()
+        lines.extend([
+            "",
+            "### Tool Result Recall",
+            "",
+            f"- **recall_tool_result**: {_recall_desc}",
+            "Old tool outputs that exceeded the context budget are compacted to a one-line",
+            "hint ending with a marker like \"[此结果已被压缩,完整原文已存档,可用",
+            "recall_tool_result(tool_call_id=...) 查看]\". When you need the full original",
+            "output (exact values, complete JSON, log lines), call",
+            "`recall_tool_result(tool_call_id=...)` — long outputs are paginated via",
+            "`offset`.",
+        ])
+
     if execution_context == "workflow":
         # 工作流无人值守语义：ask_clarification 已剥离，不生成 Clarification 段
         # （自主执行规则由 build_tool_declaration 作为独立段注入）。

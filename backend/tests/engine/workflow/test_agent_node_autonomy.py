@@ -74,6 +74,18 @@ class TestResolveBuiltinToolsByContext:
         assert "ask_clarification" in names
         assert "abort_workflow" not in names
 
+    def test_recall_tool_injected_in_both_contexts(self):
+        """recall_tool_result 是只读回溯工具,chat 与 workflow 上下文都注入。
+
+        压缩标记(chat/workflow/渠道都会出现)承诺"可用 recall_tool_result
+        查看"——工具必须真实存在,否则模型会调用不存在的工具。
+        """
+        from app.engine.harness_integration.context import _resolve_builtin_tools
+
+        for ctx in ("chat", "workflow"):
+            names = _tool_names(_resolve_builtin_tools({"builtin_config": ["bash"]}, ctx))
+            assert "recall_tool_result" in names, ctx
+
 
 # ---------------------------------------------------------------------------
 # 2. Prompt 层

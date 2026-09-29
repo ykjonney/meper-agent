@@ -437,3 +437,28 @@ class MessageService:
         """List all messages for a session, ordered by creation time."""
         cursor = MessageService._collection().find({"session_id": session_id}).sort("created_at", 1)
         return await cursor.to_list(length=1000)
+
+    @staticmethod
+    async def get_tool_result_content(session_id: str, tool_call_id: str) -> str | None:
+        """按 tool_call_id 取该会话某条工具结果的原文（timeline 明细）。
+
+        recall_tool_result 的兜底数据源：压缩归档机制上线前已压缩的存量
+        chat 会话，原文只存在于 messages.timeline_entries（展示侧不压缩）。
+        未命中返回 None（渠道会话默认不落 messages，miss 属预期）。
+        """
+        doc = await MessageService._collection().find_one(
+            {
+                "session_id": session_id,
+                "timeline_entries": {
+                    "$elemMatch": {"type": "tool_result", "tool_call_id": tool_call_id}
+                },
+            },
+            {"timeline_entries.$": 1},
+        )
+        if doc is None:
+            return None
+        entries = doc.get("timeline_entries") or []
+        if not entries:
+            return None
+        content = entries[0].get("content")
+        return content if isinstance(content, str) else None
