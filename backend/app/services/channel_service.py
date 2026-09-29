@@ -437,27 +437,32 @@ class ChannelService:
         await ChannelService._configs_coll().insert_one(cfg.model_dump(by_alias=True))
         return cfg
 
+    # Channel management is global (admin-only route): every admin sees and
+    # can manage all channel instances — matches the connection manager and
+    # inbound execution, which also run system-wide. owner_user_id stays on
+    # the document for audit only.
     @staticmethod
     async def list_channels(
-        *, owner_user_id: str, page: int = 1, page_size: int = 20,
+        *, provider: str | None = None, page: int = 1, page_size: int = 20,
     ) -> tuple[list[ChannelConfig], int]:
+        query: dict = {"deleted": {"$ne": True}}
+        if provider is not None:
+            query["provider"] = provider
         skip = (page - 1) * page_size
         coll = ChannelService._configs_coll()
-        total = await coll.count_documents({"owner_user_id": owner_user_id})
-        cursor = coll.find({"owner_user_id": owner_user_id}).skip(skip).limit(page_size)
+        total = await coll.count_documents(query)
+        cursor = coll.find(query).skip(skip).limit(page_size)
         docs = await cursor.to_list(length=page_size)
         return [ChannelConfig(**d) for d in docs], total
 
     @staticmethod
-    async def get_channel(channel_id: str, owner_user_id: str) -> ChannelConfig | None:
-        doc = await ChannelService._configs_coll().find_one({
-            "_id": channel_id, "owner_user_id": owner_user_id,
-        })
+    async def get_channel(channel_id: str) -> ChannelConfig | None:
+        doc = await ChannelService._configs_coll().find_one({"_id": channel_id})
         return ChannelConfig(**doc) if doc else None
 
     @staticmethod
     async def update_channel(
-        channel_id: str, owner_user_id: str, *, name=None, agent_id=None,
+        channel_id: str, *, name=None, agent_id=None,
         credentials: dict | None = None, enabled=None,
         receive_mode: str | None = None,
     ) -> ChannelConfig | None:
@@ -478,8 +483,7 @@ class ChannelService:
             # existing app_id/app_secret — that was a real bug where editing
             # one credential field in the UI cleared the others.
             existing_doc = await ChannelService._configs_coll().find_one(
-                {"_id": channel_id, "owner_user_id": owner_user_id},
-                projection={"credentials": 1},
+                {"_id": channel_id}, projection={"credentials": 1},
             )
             merged: dict = dict(existing_doc.get("credentials", {})) if existing_doc else {}
             for k, v in credentials.items():
@@ -487,17 +491,19 @@ class ChannelService:
                     merged[k] = encrypt_secret(str(v))
             update["credentials"] = merged
         await ChannelService._configs_coll().update_one(
-            {"_id": channel_id, "owner_user_id": owner_user_id},
-            {"$set": update},
+            {"_id": channel_id}, {"$set": update},
         )
-        return await ChannelService.get_channel(channel_id, owner_user_id)
+        return await ChannelService.get_channel(channel_id)
 
     @staticmethod
     async def delete_channel(channel_id: str) -> None:
-        """Soft delete: disable + mark DISABLED. Keeps row for audit/event logs."""
+        """Soft delete: tombstone + disable. The document is kept (event-log
+        audit references channel_id) but filtered out of list_channels —
+        which is what makes delete observably distinct from disable."""
         await ChannelService._configs_coll().update_one(
             {"_id": channel_id},
             {"$set": {
+                "deleted": True,
                 "enabled": False,
                 "status": ChannelStatus.DISABLED,
                 "updated_at": datetime.now(UTC).isoformat(),

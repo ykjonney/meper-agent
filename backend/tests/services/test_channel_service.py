@@ -515,6 +515,49 @@ class TestGroupSenderPrefix:
         invoke_mock.assert_not_awaited()  # 重置生效，未进 agent
 
 
+class TestCrudSoftDelete:
+    """delete 与 disable 必须可区分：delete 打 deleted tombstone（list 过滤
+    掉），disable 只是 enabled/status 翻转（list 仍可见）。"""
+
+    def _mock_coll(self) -> MagicMock:
+        coll = MagicMock()
+        coll.find_one = AsyncMock(return_value=None)
+        coll.update_one = AsyncMock()
+        coll.count_documents = AsyncMock(return_value=0)
+        cursor = MagicMock()
+        cursor.skip.return_value = cursor
+        cursor.limit.return_value = cursor
+        cursor.to_list = AsyncMock(return_value=[])
+        coll.find = MagicMock(return_value=cursor)
+        return coll
+
+    @pytest.mark.asyncio
+    async def test_delete_sets_deleted_tombstone(self):
+        coll = self._mock_coll()
+        with patch.object(ChannelService, "_configs_coll", return_value=coll):
+            await ChannelService.delete_channel("ch_01J")
+        set_doc = coll.update_one.call_args.args[1]["$set"]
+        assert set_doc["deleted"] is True
+        assert set_doc["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_list_filters_deleted_and_by_provider(self):
+        coll = self._mock_coll()
+        with patch.object(ChannelService, "_configs_coll", return_value=coll):
+            await ChannelService.list_channels(provider="lark")
+        expected = {"deleted": {"$ne": True}, "provider": "lark"}
+        assert coll.count_documents.call_args.args[0] == expected
+        assert coll.find.call_args.args[0] == expected
+
+    @pytest.mark.asyncio
+    async def test_list_without_provider_still_filters_deleted(self):
+        coll = self._mock_coll()
+        with patch.object(ChannelService, "_configs_coll", return_value=coll):
+            await ChannelService.list_channels()
+        expected = {"deleted": {"$ne": True}}
+        assert coll.find.call_args.args[0] == expected
+
+
 # ---------------------------------------------------------------------------
 # 分级熔断（LLMErrorCode）：AUTH/QUOTA 直接 DEGRADED，不等连续失败阈值
 # ---------------------------------------------------------------------------

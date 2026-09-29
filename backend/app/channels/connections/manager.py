@@ -176,8 +176,10 @@ class ChannelConnectionManager:
     async def _load_long_connection_channels(self) -> list[ChannelConfig]:
         from app.services.channel_service import ChannelService
 
-        # ChannelService.list_channels is owner-scoped. The manager runs as
-        # system, so we go straight to the collection and filter by mode.
+        # Fixed-channel semantics: ChannelService.list_channels is global (no
+        # owner scoping) but paginated; the manager wants every enabled
+        # long-connection channel in one pass, so query the collection
+        # directly filtered by mode.
         coll = ChannelService._configs_coll()
         cursor = coll.find({"receive_mode": "long_connection", "enabled": True})
         docs = await cursor.to_list(length=1000)

@@ -1,7 +1,9 @@
-"""Channel management API tests (admin CRUD + provider schema + inbound).
+"""Channel management API tests (RBAC CRUD + provider schema + inbound).
 
-Auth pattern follows test_webhooks.py: override BOTH get_current_user and
-require_role (the admin gate is a router-level Depends, not an inline check).
+权限对接（PERMISSIONS.md：判权限不判角色）：
+- 准入：路由级 channel:read；写端点 channel:write（无权限 403）
+- override get_current_user + patch get_role_permissions（require_permission
+  内部经两者校验），不触达真实 Redis/Mongo（triggers 测试同款范式）
 ``user`` is a UserResponse Pydantic object — fields accessed via attributes
 (user.id), confirmed in Step 0.
 """
@@ -9,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user
 from app.main import app
 from app.models.channel import ChannelConfig, ChannelProvider, InboundEventLog
 from app.models.user import UserStatus
@@ -37,11 +39,32 @@ def admin_user() -> UserResponse:
     )
 
 
-def _override_auth(admin_user):
-    """Override both auth deps (matches webhooks.py router-level gating)."""
-    app.dependency_overrides[get_current_user] = lambda: admin_user
-    app.dependency_overrides[require_role] = lambda: admin_user
-    return lambda: app.dependency_overrides.clear()
+# 权限集（patch get_role_permissions 返回值）
+PERMS_CHANNEL_ALL = {"channel:read", "channel:write"}  # admin/developer 默认
+
+
+def _override_auth(admin_user, perms: set[str] = PERMS_CHANNEL_ALL):
+    """Override auth: get_current_user + get_role_permissions（权限键 RBAC）。
+
+    路由级 require_permission("channel:read") 与写端点的 channel:write 都
+    经这两个引用点校验；默认给全量，只读/无权限场景经 perms 参数注入。
+    """
+
+    async def _fake_user():
+        return admin_user
+
+    async def _fake_perms(role_name: str):
+        return perms
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    patcher = patch("app.core.security.get_role_permissions", new=_fake_perms)
+    patcher.start()
+
+    def _cleanup():
+        patcher.stop()
+        app.dependency_overrides.clear()
+
+    return _cleanup
 
 
 def _make_config(**overrides) -> ChannelConfig:
@@ -56,6 +79,52 @@ def _make_config(**overrides) -> ChannelConfig:
     }
     defaults.update(overrides)
     return ChannelConfig(**defaults)
+
+
+# ---------------------------------------------------------------------------
+# RBAC — channel:read 准入 / channel:write 写门控
+# ---------------------------------------------------------------------------
+
+
+class TestChannelRbac:
+    def test_read_only_user_gets_403_on_all_write_endpoints(self, client, admin_user):
+        cleanup = _override_auth(admin_user, perms={"channel:read"})
+        try:
+            cases = [
+                ("post", "/api/v1/channels", {"name": "x", "provider": "mock", "agent_id": "a"}),
+                ("patch", "/api/v1/channels/ch_01J", {"name": "x"}),
+                ("delete", "/api/v1/channels/ch_01J", None),
+                ("post", "/api/v1/channels/ch_01J/enable", None),
+                ("post", "/api/v1/channels/ch_01J/disable", None),
+                ("post", "/api/v1/channels/ch_01J/reset", None),
+            ]
+            for method, path, body in cases:
+                if body is None:
+                    resp = getattr(client, method)(path)
+                else:
+                    resp = getattr(client, method)(path, json=body)
+                assert resp.status_code == 403, f"{method} {path} 应 403，实得 {resp.status_code}"
+        finally:
+            cleanup()
+
+    def test_read_only_user_can_read(self, client, admin_user):
+        with patch.object(ChannelService, "list_channels", new=AsyncMock(return_value=([], 0))):
+            cleanup = _override_auth(admin_user, perms={"channel:read"})
+            try:
+                resp = client.get("/api/v1/channels")
+                assert resp.status_code == 200
+            finally:
+                cleanup()
+
+    def test_no_channel_perm_gets_403_on_reads(self, client, admin_user):
+        cleanup = _override_auth(admin_user, perms=set())
+        try:
+            resp = client.get("/api/v1/channels")
+            assert resp.status_code == 403
+            resp = client.get("/api/v1/channels/providers/schema")
+            assert resp.status_code == 403
+        finally:
+            cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +200,9 @@ class TestCreateChannel:
 
 
 class TestListChannels:
-    def test_returns_owner_channels(self, client, admin_user):
+    def test_lists_all_channels_globally(self, client, admin_user):
+        """Fixed-channel semantics: channels are global (admin-only route),
+        no owner scoping — any admin sees and can manage them."""
         cleanup = _override_auth(admin_user)
         try:
             with patch(
@@ -145,7 +216,22 @@ class TestListChannels:
             assert body["page"] == 1
             assert body["items"][0]["id"] == "ch_1"
             mock_list.assert_awaited_once()
-            assert mock_list.call_args.kwargs.get("owner_user_id") == "user_admin"
+            assert "owner_user_id" not in mock_list.call_args.kwargs
+        finally:
+            cleanup()
+
+    def test_list_filters_by_provider(self, client, admin_user):
+        cleanup = _override_auth(admin_user)
+        try:
+            with patch(
+                "app.services.channel_service.ChannelService.list_channels",
+                new=AsyncMock(return_value=([], 0)),
+            ) as mock_list:
+                resp = client.get("/api/v1/channels?provider=lark")
+            assert resp.status_code == 200
+            assert resp.json()["total"] == 0
+            mock_list.assert_awaited_once()
+            assert mock_list.call_args.kwargs.get("provider") == "lark"
         finally:
             cleanup()
 

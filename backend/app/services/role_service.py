@@ -31,6 +31,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "apikey:manage", "settings:manage",
         "model:read", "model:write",
         "trigger:read", "trigger:write", "trigger:manage",
+        "channel:read", "channel:write",
     ],
     "developer": [
         "agent:read", "agent:write", "agent:invoke",
@@ -44,6 +45,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "execution:read:own",
         "model:read",
         "trigger:read", "trigger:write",
+        "channel:read", "channel:write",
     ],
     "operator": [
         "agent:read", "agent:invoke",
@@ -94,6 +96,7 @@ ALL_PERMISSION_KEYS: list[str] = [
     "apikey:manage", "settings:manage",
     "model:read", "model:write",
     "trigger:read", "trigger:write", "trigger:manage",
+    "channel:read", "channel:write",
 ]
 
 # ---------------------------------------------------------------------------
@@ -144,6 +147,15 @@ _BACKFILL_V4_MARKER = "backfill_trigger_perms_v4"
 _BACKFILL_V4_TARGETS: dict[str, list[str]] = {
     "admin": ["trigger:read", "trigger:write", "trigger:manage"],
     "developer": ["trigger:read", "trigger:write"],
+}
+
+# v5: 消息渠道（channels）模块从 admin-only 迁移 RBAC：
+# - admin/developer 缺 channel:read/write（渠道接入是平台级外部连接配置，
+#   与工具/MCP 管理同类；operator/viewer 默认不开放，可经自定义角色授予）
+_BACKFILL_V5_MARKER = "backfill_channel_perms_v5"
+_BACKFILL_V5_TARGETS: dict[str, list[str]] = {
+    "admin": ["channel:read", "channel:write"],
+    "developer": ["channel:read", "channel:write"],
 }
 
 
@@ -258,7 +270,7 @@ class RoleService:
 
     @staticmethod
     async def run_all_system_role_backfills() -> None:
-        """Run all one-time system-role permission backfills (v1→v3).
+        """Run all one-time system-role permission backfills (v1→v5).
 
         bootstrap 启动时调用。数据（marker + targets）集中在本模块，调用方
         无需用字面量重写一份（避免与常量漂移）。每个迁移 marker-guarded，
@@ -268,6 +280,7 @@ class RoleService:
         await RoleService._backfill_permissions(_BACKFILL_V2_MARKER, _BACKFILL_V2_TARGETS)
         await RoleService._backfill_permissions(_BACKFILL_V3_MARKER, _BACKFILL_V3_TARGETS)
         await RoleService._backfill_permissions(_BACKFILL_V4_MARKER, _BACKFILL_V4_TARGETS)
+        await RoleService._backfill_permissions(_BACKFILL_V5_MARKER, _BACKFILL_V5_TARGETS)
 
     @staticmethod
     async def _backfill_permissions(

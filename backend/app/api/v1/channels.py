@@ -1,8 +1,10 @@
-"""Channel management API (admin) + inbound webhook receiver (public).
+"""Channel management API (RBAC) + inbound webhook receiver (public).
 
 Two distinct auth modes:
-- Management endpoints (/api/v1/channels/*): JWT (admin role), enforced at
-  the router level via ``Depends(require_role(UserRole.ADMIN))``.
+- Management endpoints (/api/v1/channels/*): JWT + permission keys —
+  ``channel:read`` at the router level (covers all reads), and
+  ``channel:write`` on each mutating endpoint (create/update/delete/
+  enable/disable/reset).
 - Inbound webhook (/api/v1/channels/inbound/...): platform signature
   verification done by each adapter (no JWT — the IM platform doesn't carry
   our API key).
@@ -16,9 +18,8 @@ from fastapi.responses import JSONResponse
 
 from app.channels.connections import get_connection_manager
 from app.channels.registry import ChannelRegistry
-from app.core.security import get_current_user, require_role
+from app.core.security import require_permission
 from app.models.channel import ChannelStatus
-from app.models.user import UserRole
 from app.schemas.channel import (
     PROVIDER_SCHEMAS,
     RECEIVE_MODE_LONG_CONNECTION,
@@ -30,6 +31,7 @@ from app.schemas.channel import (
     ProviderSchema,
     ProviderSchemaResponse,
 )
+from app.schemas.user import UserResponse
 from app.services.channel_service import ChannelService
 
 logger = logging.getLogger(__name__)
@@ -84,13 +86,13 @@ def _validate_receive_mode(mode: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Management router — JWT + admin role
+# Management router — JWT + channel:read（写端点另行叠加 channel:write）
 # ---------------------------------------------------------------------------
 
 router = APIRouter(
     prefix="/channels",
     tags=["channels"],
-    dependencies=[Depends(get_current_user), Depends(require_role(UserRole.ADMIN))],
+    dependencies=[Depends(require_permission("channel:read"))],
 )
 
 
@@ -130,7 +132,7 @@ async def get_provider_schema() -> ProviderSchemaResponse:
 async def create_channel(
     body: ChannelCreateRequest,
     request: Request,
-    user=Depends(get_current_user),
+    user=Depends(require_permission("channel:write")),
 ) -> ChannelResponse:
     _validate_receive_mode(body.receive_mode)
     cfg = await ChannelService.create_channel(
@@ -146,10 +148,10 @@ async def create_channel(
 async def list_channels(
     page: int = 1,
     page_size: int = 20,
-    user=Depends(get_current_user),
+    provider: str | None = None,
 ) -> ChannelListResponse:
     items, total = await ChannelService.list_channels(
-        owner_user_id=user.id, page=page, page_size=page_size,
+        provider=provider, page=page, page_size=page_size,
     )
     return ChannelListResponse(
         items=[_to_response(c, "") for c in items],
@@ -161,9 +163,8 @@ async def list_channels(
 async def get_channel(
     channel_id: str,
     request: Request,
-    user=Depends(get_current_user),
 ) -> ChannelResponse:
-    cfg = await ChannelService.get_channel(channel_id, user.id)
+    cfg = await ChannelService.get_channel(channel_id)
     if cfg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
     return _to_response(cfg, str(request.base_url).rstrip("/"))
@@ -174,12 +175,12 @@ async def update_channel(
     channel_id: str,
     body: ChannelUpdateRequest,
     request: Request,
-    user=Depends(get_current_user),
+    _: UserResponse = Depends(require_permission("channel:write")),
 ) -> ChannelResponse:
     if body.receive_mode is not None:
         _validate_receive_mode(body.receive_mode)
     cfg = await ChannelService.update_channel(
-        channel_id, user.id,
+        channel_id,
         name=body.name, agent_id=body.agent_id,
         credentials=body.credentials, enabled=body.enabled,
         receive_mode=body.receive_mode,
@@ -191,27 +192,39 @@ async def update_channel(
 
 
 @router.delete("/{channel_id}", status_code=204)
-async def delete_channel(channel_id: str, user=Depends(get_current_user)) -> None:
+async def delete_channel(
+    channel_id: str,
+    _: UserResponse = Depends(require_permission("channel:write")),
+) -> None:
     await ChannelService.delete_channel(channel_id)
     await _reload(channel_id)
 
 
 @router.post("/{channel_id}/enable", status_code=200)
-async def enable_channel(channel_id: str, user=Depends(get_current_user)) -> dict:
+async def enable_channel(
+    channel_id: str,
+    _: UserResponse = Depends(require_permission("channel:write")),
+) -> dict:
     await ChannelService.set_enabled(channel_id, True)
     await _reload(channel_id)
     return {"ok": True}
 
 
 @router.post("/{channel_id}/disable", status_code=200)
-async def disable_channel(channel_id: str, user=Depends(get_current_user)) -> dict:
+async def disable_channel(
+    channel_id: str,
+    _: UserResponse = Depends(require_permission("channel:write")),
+) -> dict:
     await ChannelService.set_enabled(channel_id, False)
     await _reload(channel_id)
     return {"ok": True}
 
 
 @router.post("/{channel_id}/reset", status_code=200)
-async def reset_channel(channel_id: str, user=Depends(get_current_user)) -> dict:
+async def reset_channel(
+    channel_id: str,
+    _: UserResponse = Depends(require_permission("channel:write")),
+) -> dict:
     await ChannelService.reset_degraded(channel_id)
     return {"ok": True}
 

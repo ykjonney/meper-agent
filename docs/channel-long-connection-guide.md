@@ -47,17 +47,21 @@ CHANNEL_WECOM_LONG_CONNECTION_ENABLED=false
 CHANNEL_CONNECTION_RECONNECT_INTERVAL=10
 ```
 
-设为 `false` 时,该平台的前端创建表单不会显示"长连接"选项,只能用 webhook。
+设为 `false` 时,studio 消息渠道卡片会提示"当前部署未启用该平台长连接",API 也不再
+接受该平台的 long_connection 模式。
 
-### 创建 channel 时选择模式
+### studio 消息渠道页
 
-后台 → 渠道 → 新建 Channel:
-1. 选平台(飞书 / 钉钉)
-2. **接收模式** 选 **长连接(免公网)**
-3. 填平台凭据(见下方各平台章节)
-4. 绑定 Agent → 创建
+studio → 消息渠道(仅 admin 可见)把平台类型固定为**飞书 / 钉钉**两组(无自定义平台),
+每个平台下可创建**多个渠道实例**(如多个飞书应用,各绑一个 agent、独立凭据)。点分组
+右上「新增接入」填极简表单即可:
 
-前端列表会显示一个圆点指示连接状态(绿色=已连接,灰色=已断开)。
+1. 绑定 Agent(实例名自动取「平台 · 智能体」)
+2. 填必填凭据(见下方各平台章节;选填项长连接模式不需要,不展示)
+3. 保存 — 接收模式固定**长连接(免公网)**
+
+实例行会显示一个圆点指示连接状态(绿色=已连接,灰色=已断开),并提供启用/停用开关、
+编辑、删除(软删除,历史会话保留);连续失败自动降级后可点「重置」恢复。
 
 ---
 
@@ -92,16 +96,14 @@ CHANNEL_CONNECTION_RECONNECT_INTERVAL=10
 
 ### 第 5 步:后台配置 channel
 
-1. 后台 → 渠道 → 新建 Channel
-2. 平台选 **飞书**
-3. **接收模式** 选 **长连接(免公网)**
-4. 凭据:
+1. studio → 消息渠道 → 飞书分组 → 「新增接入」
+2. 凭据:
    - App ID = `cli_xxx`
    - App Secret = 飞书给的 secret
-   - Verification Token / Encrypt Key:**长连接模式不需要**(留空)
-5. 绑定 Agent → 创建
+   - Verification Token / Encrypt Key:**长连接模式不需要**(不展示)
+3. 绑定 Agent → 完成配置
 
-创建后,后端 FastAPI 进程会自动启动一个 WebSocket 连接到飞书。列表里看到绿色圆点
+创建后,后端 FastAPI 进程会自动启动一个 WebSocket 连接到飞书。卡片上看到绿色圆点
 "已连接"即表示连接成功。
 
 ### 第 6 步:测试
@@ -153,14 +155,12 @@ INFO  agent invoked, reply sent
 
 ### 第 4 步:后台配置 channel
 
-1. 后台 → 渠道 → 新建 Channel
-2. 平台选 **钉钉**
-3. **接收模式** 选 **长连接(免公网)**
-4. 凭据:
+1. studio → 消息渠道 → 钉钉分组 → 「新增接入」
+2. 凭据:
    - App Key = `dingxxx`
    - App Secret = 钉钉给的 secret
-   - Webhook URL:**长连接模式不需要**(留空)
-5. 绑定 Agent → 创建
+   - Webhook URL:**长连接模式不需要**(不展示)
+3. 绑定 Agent → 完成配置
 
 ### 第 5 步:测试
 
@@ -213,6 +213,9 @@ Celery worker 进程
 ---
 
 ## 切换模式
+
+> studio 固定渠道卡片不暴露接收模式切换(新配置一律长连接)。以下切换操作面向
+> 保留的旧管理端渠道页,或直接调 PATCH API。
 
 ### webhook → 长连接
 

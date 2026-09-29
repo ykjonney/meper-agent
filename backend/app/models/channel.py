@@ -59,6 +59,10 @@ class ChannelConfig(BaseModel):
     webhook_secret: str = Field(..., min_length=16)  # secondary inbound verification
     status: ChannelStatus = ChannelStatus.ACTIVE
     consecutive_failures: int = 0
+    # Soft-delete tombstone. Distinct from enabled/status: a disabled channel
+    # stays listed (admin can re-enable), a deleted one is filtered out of
+    # list_channels while the document is kept for inbound event-log audit.
+    deleted: bool = False
 
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
