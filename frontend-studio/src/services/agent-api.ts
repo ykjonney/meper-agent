@@ -42,6 +42,8 @@ export interface Agent {
   default_model: string
   /** Whether this Agent can be used by the realtime voice entry. */
   voice_enabled: boolean
+  /** 允许该 agent 创建新 agent（能力门控） */
+  can_spawn_agents: boolean
   max_retry: number
   /** Session token budget (0 = use global DEFAULT_SESSION_MAX_TOKENS). */
   max_tokens: number
@@ -81,6 +83,7 @@ export interface AgentUpdateInput {
   default_model?: string
   /** Enable realtime voice conversations for this Agent. */
   voice_enabled?: boolean
+  can_spawn_agents?: boolean
   max_retry?: number
   /** Session token budget (0 = use global default). */
   max_tokens?: number
@@ -115,6 +118,8 @@ export interface ExecutionRequest {
   input: string
   session_id?: string
   enable_thinking?: boolean
+  /** 计划模式：只调研不执行（剥离副作用工具），propose_plan 提交计划审批 */
+  plan_mode?: boolean
   file_paths?: string[]
   file_ids?: string[]
 }
@@ -229,7 +234,7 @@ export interface ErrorEvent {
  *  parity with the backend InterruptEvent. */
 export interface InterruptEvent {
   type: 'interrupt'
-  kind?: 'clarification' | 'workflow_confirmation'
+  kind?: 'clarification' | 'workflow_confirmation' | 'plan'
   // clarification fields (ask_clarification)
   question: string
   clarification_type: string
@@ -242,6 +247,8 @@ export interface InterruptEvent {
   workflow_name?: string
   workflow_description?: string
   input_preview?: Record<string, unknown>
+  // plan fields (propose_plan) — 五段式计划全文，渲染计划审批卡
+  plan?: string
   interrupt_id: string
 }
 
@@ -427,7 +434,13 @@ export const agentApi = {
    */
   async resume(
     agentId: string,
-    body: { session_id: string; answer: string; enable_thinking?: boolean },
+    body: {
+      session_id: string
+      answer: string
+      enable_thinking?: boolean
+      /** 恢复语义：true=继续计划模式（反馈保持只读）；批准用默认 false 解除只读 */
+      plan_mode?: boolean
+    },
     signal?: AbortSignal,
   ): Promise<Response> {
     const url = `${ENV.API_BASE_URL}/api/v1/agents/${encodeURIComponent(agentId)}/resume`
@@ -449,6 +462,24 @@ export const agentApi = {
       { session_id: sessionId },
     )
     return res.data.dismissed
+  },
+
+  /**
+   * 批准挂起的计划（propose_plan）——零 LLM 成本：服务端写 PLAN.md 进
+   * session workspace（执行期抗压缩事实源）+ 合成 tool_result 终止挂起。
+   * 执行由调用方随后的 kickoff 消息触发（普通 stream 新一轮）。
+   * plan 可为用户在卡片上编辑后的版本。
+   */
+  async approvePlan(
+    agentId: string,
+    sessionId: string,
+    plan: string,
+  ): Promise<{ approved: boolean; plan_file: string }> {
+    const res = await apiClient.post<{ approved: boolean; plan_file: string }>(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/plan/approve`,
+      { session_id: sessionId, plan },
+    )
+    return res.data
   },
 
   /**

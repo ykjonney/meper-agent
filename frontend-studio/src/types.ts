@@ -12,6 +12,8 @@ export interface Agent {
   model: string;
   /** Agent-level capability switch; global voice credentials are checked separately. */
   voiceEnabled: boolean;
+  /** 允许该 agent 创建新 agent（能力门控，默认关；创建物为草稿态且不再拥有此能力） */
+  canSpawnAgents: boolean;
   temperature: number;
   systemPrompt: string;
   /** 角色定义 — 后端 prompt_slots.role（必填） */

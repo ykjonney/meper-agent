@@ -1,13 +1,26 @@
 import { useState } from 'react';
 import {
   Cpu, RotateCcw, CheckCircle, TrendingUp, Calendar, Search, Loader2,
-  ExternalLink, Brain, Terminal,
+  ExternalLink, Brain, Terminal, Activity, Zap, Coins, CheckCircle2,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   tasksApi, taskKeys, type TaskSummary, type TaskDetail, type TimelineEvent,
 } from '../services/tasks-api';
 import { agentApi, agentKeys } from '../services/agent-api';
+import {
+  RecentExecutionsTable,
+  PagerBar,
+  ExecFilterBar,
+  EMPTY_EXEC_FILTERS,
+  type ExecFilters,
+} from './ExecutionLogsPage';
+import {
+  executionLogApi,
+  executionLogKeys,
+  type DailyTrendItem,
+} from '../services/execution-logs-api';
+import { usePermission } from '../hooks/use-permission';
 
 interface DashboardProps {
   onSelectTab: (tab: string) => void;
@@ -17,6 +30,11 @@ interface DashboardProps {
    */
   onViewTask: (task: TaskDetail) => void;
 }
+
+/** 趋势图 SVG 画布尺寸（模块级常量——任务图与执行图共用；放组件内会
+ *  与"声明前执行的派生计算"（execLinePath 闭包）形成 TDZ 崩溃）。 */
+const svgWidth = 500;
+const svgHeight = 160;
 
 /**
  * Studio Dashboard — aggregates several backend endpoints since there is no
@@ -28,6 +46,19 @@ interface DashboardProps {
  */
 export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
   const [filterSearch, setFilterSearch] = useState('');
+  // 运行账 tab：工作流任务（全员）| Agent 执行记录（execution:read:all，
+  // 与后端 admin 端点一致；RecentExecutionsTable 内部同样自门控兜底）。
+  const [historyTab, setHistoryTab] = useState<'tasks' | 'execs'>('tasks');
+  const canReadExecs = usePermission('execution:read:all');
+
+  // 任务 tab 真分页（服务端 page/page_size，默认 20/页、页大小可调）。
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskPageSize, setTaskPageSize] = useState(20);
+
+  // 执行记录 tab 筛选（控件在卡片头右上方，与任务搜索框同位；草稿态
+  // 回车/按钮提交 → 应用态进 queryKey，key 重挂载表格自然回到第 1 页）。
+  const [execDraft, setExecDraft] = useState<ExecFilters>(EMPTY_EXEC_FILTERS);
+  const [execFilters, setExecFilters] = useState<ExecFilters>(EMPTY_EXEC_FILTERS);
 
   // ── Aggregation queries ──
   const { data: statsData, isLoading: statsLoading } = useQuery({
@@ -36,10 +67,12 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
     staleTime: 15_000,
   });
 
-  const { data: tasksData, isLoading: tasksLoading } = useQuery({
-    queryKey: taskKeys.list({ page: 1, page_size: 20 }),
-    queryFn: () => tasksApi.list({ page: 1, page_size: 20 }),
+  const { data: tasksData, isLoading: tasksLoading, isFetching: tasksFetching } = useQuery({
+    queryKey: taskKeys.list({ page: taskPage, page_size: taskPageSize }),
+    queryFn: () => tasksApi.list({ page: taskPage, page_size: taskPageSize }),
     staleTime: 10_000,
+    // 翻页期间保留上一页数据（半透明过渡），仅首次加载显示加载态。
+    placeholderData: keepPreviousData,
   });
 
   const { data: agentsData } = useQuery({
@@ -48,8 +81,43 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
     staleTime: 60_000,
   });
 
+  // ── Execution-side aggregates（admin：execution:read:all 才拉取）──
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const { data: execStatsAll } = useQuery({
+    queryKey: executionLogKeys.stats({}),
+    queryFn: () => executionLogApi.getStats(),
+    enabled: canReadExecs,
+    staleTime: 60_000,
+  });
+  const { data: execStatsToday } = useQuery({
+    queryKey: executionLogKeys.stats({ date: todayKey }),
+    queryFn: () => executionLogApi.getStats({ date: todayKey }),
+    enabled: canReadExecs,
+    staleTime: 30_000,
+  });
+  const { data: execTrendData } = useQuery({
+    queryKey: executionLogKeys.trend(7),
+    queryFn: () => executionLogApi.getDailyTrend(7),
+    enabled: canReadExecs,
+    staleTime: 60_000,
+  });
+  const execTrend: DailyTrendItem[] = execTrendData ?? [];
+  // 趋势图路径：调用（实线+渐变）与失败（红色虚线）共用纵轴刻度。
+  const execMaxVal = Math.max(...execTrend.map((d) => d.calls), 1);
+  const execLinePath = (vals: number[]): string =>
+    vals
+      .map((v, i) => {
+        const x = (i / Math.max(1, execTrend.length - 1)) * (svgWidth - 60) + 30;
+        const y = svgHeight - 20 - (v / execMaxVal) * (svgHeight - 40);
+        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+      })
+      .join(' ');
+  const execCallsPath = execLinePath(execTrend.map((d) => d.calls));
+  const execFailedPath = execLinePath(execTrend.map((d) => d.failed));
+
   const tasks: TaskSummary[] = tasksData?.items ?? [];
   const totalTasks = tasksData?.total ?? 0;
+  const taskTotalPages = Math.max(1, Math.ceil(totalTasks / taskPageSize));
   const agentTotal = agentsData?.total ?? 0;
   const running = statsData?.global_running ?? 0;
   const pending = statsData?.global_pending ?? 0;
@@ -59,8 +127,6 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
   const chartPoints = build7DayChart(tasks);
 
   const maxVal = Math.max(...chartPoints.map((p) => p.val), 1);
-  const svgWidth = 500;
-  const svgHeight = 160;
 
   const pathData = chartPoints
     .map((p, i) => {
@@ -86,7 +152,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             仪表盘 <span className="text-xl">📊</span>
           </h1>
           <p className="text-[#a1a1aa] text-xs max-w-xl">
-            聚合自 /tasks/stats、/agents、/tasks。当前并发上限 {maxConcurrent}，运行中 {running}，待执行 {pending}。
+            聚合自 /tasks/stats、/agents、/tasks{canReadExecs ? '、/execution-stats、/execution-logs/daily' : ''}。当前并发上限 {maxConcurrent}，运行中 {running}，待执行 {pending}。
           </p>
         </div>
         <div className="mt-4 md:mt-0 flex gap-3 relative z-10">
@@ -146,6 +212,49 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           loading={statsLoading}
         />
       </div>
+
+      {/* Execution metric cards（admin：execution:read:all 才渲染；数据来自
+          /execution-stats 全量 + 今日两份聚合） */}
+      {canReadExecs && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            title="Agent 调用总数"
+            value={execStatsAll ? String(execStatsAll.totals.calls) : '…'}
+            note={`今日 ${execStatsToday?.totals.calls ?? 0} 次`}
+            icon={Activity}
+            color="text-indigo-400"
+            bg="bg-indigo-500/10 border-indigo-500/20"
+            loading={!execStatsAll}
+          />
+          <MetricCard
+            title="今日调用"
+            value={execStatsToday ? String(execStatsToday.totals.calls) : '…'}
+            note={`失败 ${execStatsToday?.totals.failed ?? 0} 次`}
+            icon={Zap}
+            color="text-amber-400"
+            bg="bg-amber-500/10 border-amber-500/20"
+            loading={!execStatsToday}
+          />
+          <MetricCard
+            title="Token 消耗"
+            value={execStatsAll ? fmtTok(execStatsAll.totals.tokens) : '…'}
+            note={`今日 ${fmtTok(execStatsToday?.totals.tokens ?? 0)}`}
+            icon={Coins}
+            color="text-teal-400"
+            bg="bg-teal-500/10 border-teal-500/20"
+            loading={!execStatsAll}
+          />
+          <MetricCard
+            title="调用成功率"
+            value={execStatsAll ? `${execStatsAll.totals.success_rate}%` : '…'}
+            note={`成功 ${execStatsAll?.totals.success ?? 0} · 失败 ${execStatsAll?.totals.failed ?? 0}`}
+            icon={CheckCircle2}
+            color="text-emerald-400"
+            bg="bg-emerald-500/10 border-emerald-500/20"
+            loading={!execStatsAll}
+          />
+        </div>
+      )}
 
       {/* Chart + node health */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -233,33 +342,161 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
         </div>
       </div>
 
-      {/* Recent executions (from /tasks) */}
-      <div className="p-5 bg-[#18181b] rounded-xl border border-[#27272a] space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-bold text-[#fafafa]">运行历史 (GET /tasks)</h3>
-            <p className="text-xs text-[#71717a]">最近任务列表，点击查看追踪渲染 GET /tasks/{'{id}'} 的 timeline。</p>
+      {/* Execution trend + channel breakdown（admin；真实按日聚合，缺日补零） */}
+      {canReadExecs && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-8 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-indigo-400" />
+                  近 7 天 Agent 调用趋势
+                </h3>
+                <span className="flex items-center gap-3 text-[10px] font-mono text-[#71717a]">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-0.5 bg-indigo-500 inline-block" /> 调用
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-0.5 bg-red-500 inline-block" /> 失败
+                  </span>
+                </span>
+              </div>
+
+              {execTrend.length === 0 ? (
+                <div className="h-44 flex items-center justify-center text-xs text-[#71717a]">加载趋势…</div>
+              ) : (
+                <div className="relative w-full h-44 flex items-end">
+                  <svg className="w-full h-full overflow-visible">
+                    {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+                      const y = 15 + p * (svgHeight - 40);
+                      return (
+                        <line
+                          key={i}
+                          x1="30"
+                          y1={y}
+                          x2={svgWidth + 30}
+                          y2={y}
+                          stroke="rgba(113, 113, 122, 0.15)"
+                          strokeDasharray="4 4"
+                        />
+                      );
+                    })}
+                    <defs>
+                      <linearGradient id="exec-chart-grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgb(99, 102, 241)" stopOpacity="0.18" />
+                        <stop offset="100%" stopColor="rgb(99, 102, 241)" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d={`${execCallsPath} L ${(execTrend.length - 1) * ((svgWidth - 60) / Math.max(1, execTrend.length - 1)) + 30} ${svgHeight - 20} L 30 ${svgHeight - 20} Z`}
+                      fill="url(#exec-chart-grad)"
+                    />
+                    <path d={execCallsPath} fill="none" stroke="#6366f1" strokeWidth="2.5" />
+                    <path d={execFailedPath} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5 4" />
+                    {execTrend.map((p, i) => {
+                      const x = (i / Math.max(1, execTrend.length - 1)) * (svgWidth - 60) + 30;
+                      const y = svgHeight - 20 - (p.calls / execMaxVal) * (svgHeight - 40);
+                      return (
+                        <g key={p.date}>
+                          <circle cx={x} cy={y} r="5" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2" />
+                          <text x={x} y={y - 10} textAnchor="middle" className="fill-[#a1a1aa] text-[10px] font-mono font-semibold">
+                            {p.calls}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between border-t border-[#27272a] pt-3 mt-4 text-[10px] text-[#71717a] font-mono font-semibold">
+              {execTrend.map((p) => (
+                <span key={p.date}>{execDayLabel(p.date)}</span>
+              ))}
+            </div>
           </div>
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              value={filterSearch}
-              onChange={(e) => setFilterSearch(e.target.value)}
-              placeholder="搜索工作流或ID..."
-              className="pl-8 pr-3 py-1.5 w-60 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-[#fafafa] focus:outline-none focus:border-indigo-500 transition font-sans font-medium"
-            />
+
+          {/* 渠道分布（来自 /execution-stats channels） */}
+          <div className="lg:col-span-4 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+            <div className="space-y-4">
+              <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+                <Terminal className="w-4 h-4 text-indigo-400" />
+                调用渠道分布
+              </h3>
+              <div className="space-y-3">
+                {(['internal', 'api_key', 'im'] as const).map((src) => {
+                  const ch = execStatsAll?.channels?.[src];
+                  const calls = ch?.calls ?? 0;
+                  const rate = calls ? ((ch!.success / calls) * 100).toFixed(1) : '—';
+                  return (
+                    <StatRow
+                      key={src}
+                      name={EXEC_CHANNEL_LABELS[src]}
+                      value={String(calls)}
+                      status={calls > 0 ? 'building' : 'normal'}
+                      desc={`${fmtTok(ch?.tokens ?? 0)} token · 成功率 ${rate}%`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        {tasksLoading ? (
+      {/* 运行账：任务 | 执行记录 tab 切换（同卡片内切换；任务全员可见、
+          执行记录仅 execution:read:all） */}
+      <div className="p-5 bg-[#18181b] rounded-xl border border-[#27272a] space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <div className="flex items-center gap-1 p-1 bg-[#121214] border border-[#27272a] rounded-lg">
+            <button
+              onClick={() => setHistoryTab('tasks')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                historyTab === 'tasks' ? 'bg-[#27272a] text-[#fafafa]' : 'text-[#a1a1aa] hover:text-white'
+              }`}
+            >
+              任务运行历史
+            </button>
+            {canReadExecs && (
+              <button
+                onClick={() => setHistoryTab('execs')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                  historyTab === 'execs' ? 'bg-[#27272a] text-[#fafafa]' : 'text-[#a1a1aa] hover:text-white'
+                }`}
+              >
+                Agent 执行记录
+              </button>
+            )}
+          </div>
+          {historyTab === 'tasks' ? (
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
+                placeholder="搜索工作流或ID..."
+                className="pl-8 pr-3 py-1.5 w-60 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-[#fafafa] focus:outline-none focus:border-indigo-500 transition font-sans font-medium"
+              />
+            </div>
+          ) : (
+            <ExecFilterBar
+              draft={execDraft}
+              onChange={setExecDraft}
+              onApply={() => setExecFilters({ ...execDraft })}
+            />
+          )}
+        </div>
+
+        {historyTab === 'tasks' && tasksLoading ? (
           <div className="flex items-center justify-center py-8 text-[#71717a] text-xs">
             <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载任务…
           </div>
-        ) : filteredTasks.length === 0 ? (
+        ) : historyTab === 'tasks' && filteredTasks.length === 0 ? (
           <div className="text-center py-8 text-[#71717a] text-xs">暂无任务记录</div>
-        ) : (
-          <div className="overflow-x-auto">
+        ) : historyTab === 'tasks' && (
+          <div className={`overflow-x-auto transition-opacity ${tasksFetching ? 'opacity-60' : ''}`}>
             <table className="w-full text-xs text-left text-[#a1a1aa] leading-normal font-sans">
               <thead>
                 <tr className="border-b border-[#27272a] text-[#71717a] font-bold">
@@ -304,6 +541,26 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             </table>
           </div>
         )}
+
+        {historyTab === 'execs' && (
+          // 不用 key 重挂载：组件保持挂载让 query observer 延续，
+          // keepPreviousData 在筛选/翻页期间平滑展示旧数据。
+          <RecentExecutionsTable filters={execFilters} />
+        )}
+
+        {historyTab === 'tasks' && !tasksLoading && (
+          <PagerBar
+            page={taskPage}
+            totalPages={taskTotalPages}
+            pageSize={taskPageSize}
+            total={totalTasks}
+            onPage={setTaskPage}
+            onPageSize={(n) => {
+              setTaskPageSize(n);
+              setTaskPage(1);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -317,6 +574,29 @@ function openTrace(task: TaskSummary, onViewTask: (t: TaskDetail) => void) {
     .catch(() => {
       // Silently ignore — the table row still shows summary data.
     });
+}
+
+/** 调用渠道显示名（execution-stats channels 的三主渠道）。 */
+const EXEC_CHANNEL_LABELS: Record<string, string> = {
+  internal: '平台用户',
+  api_key: 'API Key',
+  im: 'IM 渠道',
+};
+
+function fmtTok(n?: number): string {
+  if (n == null) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** 趋势图 x 轴标签：日期 → 周X。 */
+function execDayLabel(date: string): string {
+  try {
+    return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][new Date(date).getDay()];
+  } catch {
+    return date;
+  }
 }
 
 interface MetricCardProps {

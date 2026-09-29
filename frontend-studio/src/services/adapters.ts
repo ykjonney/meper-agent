@@ -79,6 +79,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
     })),
     model: a.default_model || 'gemini-3.5-flash',
     voiceEnabled: a.voice_enabled ?? false,
+    canSpawnAgents: a.can_spawn_agents ?? false,
     temperature: DEFAULT_AGENT_TEMPERATURE,
     // role/task map to backend prompt_slots.role/.task (both required by slot_renderer).
     // systemPrompt kept as a legacy fallback (prompt_slots.system) for old agents.
@@ -111,6 +112,7 @@ export function fromStudioAgent(a: Agent): {
   prompt_slots?: Record<string, string>
   default_model?: string
   voice_enabled?: boolean
+  can_spawn_agents?: boolean
   skill_ids?: string[]
   mcp_connection_ids?: string[]
   builtin_config?: string[]
@@ -161,6 +163,7 @@ export function fromStudioAgent(a: Agent): {
     },
     default_model: a.model,
     voice_enabled: a.voiceEnabled ?? false,
+    can_spawn_agents: a.canSpawnAgents ?? false,
     skill_ids,
     mcp_connection_ids,
     builtin_config,

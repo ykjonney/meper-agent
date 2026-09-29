@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, FormEvent, useCallback, t
 import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../types';
 import {
   Send, Plus, Sparkles, Trash2, FileCode, CheckCircle,
-  Bot, Terminal, Loader2, Paperclip, Brain, X,
+  Bot, Terminal, Loader2, Paperclip, Brain, X, ClipboardList, ShieldAlert,
   Wrench, AlertTriangle, ChevronRight, User, Download, FileText, Image as ImageIcon, Mic,
   ThumbsUp, ThumbsDown, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
@@ -16,6 +16,7 @@ import { modelApi, modelKeys } from '../services/model-api';
 import { toStudioAgent } from '../services/adapters';
 import { getFileBlob, downloadFile as downloadFileById } from '../services/file-api';
 import { parseSSEStream } from '../lib/sse-parser';
+import { isImeComposing } from '../lib/keyboard';
 import { countZi, truncateByZi } from '../lib/text-stats';
 import { SessionFilesPanel, type SessionFilesPanelHandle } from './SessionFilesPanel';
 import AvatarRender from './AvatarRender';
@@ -52,6 +53,37 @@ interface ChatHomepageProps {
  * 返回去重后的 ChatAttachment[]（source='output'）。
  */
 const OUTPUT_PATH_RE = /\boutput\/([^\s"'<>)\\]+\.[A-Za-z0-9]+)/g;
+
+/**
+ * 可挂起 interrupt 的工具名单（前端唯一事实源：历史重建/中断检测/忽略
+ * 标记/答填/收敛五处匹配共用；与后端 MessageService._INTERRUPT_TOOL_NAMES
+ * 保持一致——加新 HITL 工具时两侧同步）。
+ */
+const INTERRUPT_TOOLS: ReadonlySet<string> = new Set([
+  'ask_clarification',
+  'confirm_workflow',
+  'propose_plan',
+]);
+const isInterruptTool = (name: unknown): boolean =>
+  typeof name === 'string' && INTERRUPT_TOOLS.has(name);
+
+/**
+ * ① 计划工具清单提取：从计划文本识别将使用的工具/能力，审批卡警示条展示。
+ * 审阅焦点从"步骤是否合理"（需领域知识）降到"会碰什么"（一眼可扫）——
+ * 变更类（执行期才解锁）高亮警示。启发式匹配，宁缺勿滥（提示用，非强制）。
+ */
+const PLAN_TOOL_HINTS: ReadonlyArray<{ label: string; mutating: boolean; re: RegExp }> = [
+  { label: '命令执行 bash', mutating: true, re: /bash|shell|命令行|运行命令|执行命令|pip install|npm (install|run)|pytest|git (commit|push)/i },
+  { label: '文件写入 write/edit', mutating: true, re: /write_file|edit_file|写入文件|修改文件|创建文件|覆盖文件/ },
+  { label: '代码编排 run_code', mutating: true, re: /run_code/ },
+  { label: '派发工作流', mutating: true, re: /dispatch_workflow|派发工作流|启动工作流|运行工作流/ },
+  { label: '图表生成', mutating: true, re: /render_chart|绘制图表|生成图表/ },
+  { label: '外部调用 HTTP/MCP', mutating: true, re: /webhook|https?:\/\/|api 调用|调用接口|调用 API|\bMCP\b/i },
+  { label: '知识库检索', mutating: false, re: /kb_search|kb_read|知识库/ },
+];
+const extractPlanToolHints = (plan: string) =>
+  PLAN_TOOL_HINTS.filter((h) => h.re.test(plan));
+
 export function parseOutputAttachments(text: string): ChatAttachment[] {
   if (!text) return [];
   const seen = new Set<string>();
@@ -101,7 +133,7 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
         entry.type === 'tool' &&
         typeof entry.content === 'string' &&
         /\b(error|fail)/i.test(entry.content);
-      const isInterruptTool = name === 'ask_clarification' || name === 'confirm_workflow';
+      const matched = isInterruptTool(name);
       const idx = timeline.push({
         id: `${rec._id}-tool-${name}-${i}`,
         type: 'tool',
@@ -166,7 +198,7 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
   for (const e of timeline) {
     if (
       e.type === 'tool' &&
-      (e.toolName === 'ask_clarification' || e.toolName === 'confirm_workflow') &&
+      isInterruptTool(e.toolName) &&
       !e.result
     ) {
       isInterrupted = true;
@@ -547,6 +579,11 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const [inputText, setInputText] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [isStreaming, setIsStreaming] = useState(false);
+  // 当前流式中的 agent 消息 id（文本/语音两路占位消息）——消息级"生成中"动效
+  // 的判据。不能用 msg.status 判：thinking final / tool_call_start 会把它清成
+  // undefined（避免工具期误显"思考中"），导致思考完成→正文生成、工具完成→
+  // 下一轮等空窗期失去执行中指示（用户分不清回答结束还是仍在等）。
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   // Live messages for the active session (history + in-flight stream deltas).
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -556,6 +593,12 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   // frontend/src/components/chat-panel.tsx. This avoids the race where the text
   // prompt is sent before the file upload resolves.
   const [enableThinking, setEnableThinking] = useState(true);
+  // 计划模式（plan_mode）：只调研不执行，agent 产出计划书卡片（propose_plan，
+  // 文档样式）待审批。批准后自动关闭；反馈/重新规划时保持开启。
+  // 刻意不持久化：计划模式是任务级开关而非会话偏好——刷新/切会话重置为
+  // 关（安全方向默认），可见性由常驻横幅承担（有横幅=开，无=关，零歧义）；
+  // 刷新后的反馈 resume 由服务端 checkpoint 推断兜底，不依赖本开关。
+  const [planMode, setPlanMode] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   // Right-pane tab: 'chat' (messages) | 'files' (generated-file manager).
@@ -570,6 +613,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const pinnedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 输入框高度自适应：随内容增高（rows=2 起），超上限转内部滚动。
+  const inputTextareaRef = useRef<HTMLTextAreaElement>(null);
   const filesPanelRef = useRef<SessionFilesPanelHandle>(null);
   const voiceAgentMsgIdRef = useRef<string | null>(null);
   // ask_clarification / confirm_workflow 中断态：SSE 收到 interrupt 或历史回填时
@@ -587,6 +632,18 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const rafIdRef = useRef<number | null>(null);
   const textEntryIdRef = useRef<string | null>(null);
   const textStartedRef = useRef(false);
+
+  // ── 输入框 auto-grow ──
+  // 大量文本时输入框随内容增高（消息区 flex-1 min-h-0 自动让位），超过上限
+  // （160px ≈ 8 行）切换为内部滚动方便回看编辑；发送清空后缩回 rows=2 初始高度。
+  useEffect(() => {
+    const el = inputTextareaRef.current;
+    if (!el) return;
+    const maxHeight = 160;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [inputText]);
 
   /** 输出是否贴底（距底部 120px 内）。自动跟随滚动只在贴底时发生——
    *  用户上翻阅读历史、或点开工具/思考详情时，即使 liveMessages 变化
@@ -861,7 +918,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           if (
             !dismissed &&
             e.type === 'tool' &&
-            (e.toolName === 'ask_clarification' || e.toolName === 'confirm_workflow') &&
+            isInterruptTool(e.toolName) &&
             !e.result
           ) {
             dismissed = true;
@@ -875,6 +932,55 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     if (pendingInterruptRef.current?.toolMsgId === msgId) {
       pendingInterruptRef.current = null;
     }
+  };
+
+  // 批准计划（零 LLM 成本）：写 PLAN.md + 合成 tool_result 终止挂起，
+  // 随后自动发送 kickoff 消息触发执行（新 run、全量工具、读 PLAN.md、
+  // 逐项对照验收标准）。编辑后的版本以传入 plan 为准落盘。
+  const handleApprovePlan = async (msgId: string, plan: string) => {
+    const sessionId = activeSessionId;
+    const agent = activeAgent;
+    if (!sessionId || !agent || isStreaming) return;
+    if (!plan.trim()) {
+      setStreamError('计划内容为空，无法批准');
+      return;
+    }
+    try {
+      await agentApi.approvePlan(agent.id, sessionId, plan);
+    } catch (err) {
+      setStreamError(`批准失败：${(err as Error).message}`);
+      return;
+    }
+    setPlanMode(false); // 执行轮 = 普通 chat 语义（全量工具）
+    if (pendingInterruptRef.current?.toolMsgId === msgId) {
+      pendingInterruptRef.current = null;
+    }
+    updateLiveMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId) return m;
+        let answered = false;
+        const tl = (m.timeline ?? []).map((e) => {
+          if (!answered && e.type === 'tool' && e.toolName === 'propose_plan' && !e.result) {
+            answered = true;
+            return {
+              ...e,
+              result: '用户已批准该计划（全文已写入 workspace/PLAN.md）。',
+              toolStatus: 'success' as const,
+            };
+          }
+          return e;
+        });
+        return { ...m, isInterrupted: false, timeline: tl };
+      }),
+    );
+    // 批准即执行：kickoff 新一轮——指示读取 PLAN.md（抗压缩事实源）、
+    // 每步勾选、完成前逐项对照验收标准。
+    await handleSendMessage(
+      undefined,
+      '计划已获批准，全文见 workspace 的 PLAN.md。请先读取 PLAN.md，然后逐条按步骤执行；'
+        + '每完成一步将对应 checkbox 勾选为 [x]；全部完成后逐项对照「验收标准」核验，'
+        + '未通过的项目继续修复，全部通过再作总结。',
+    );
   };
 
   const handleSendMessage = async (e?: FormEvent, overrideText?: string) => {
@@ -984,7 +1090,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               if (
                 !answered &&
                 e.type === 'tool' &&
-                (e.toolName === 'ask_clarification' || e.toolName === 'confirm_workflow') &&
+                isInterruptTool(e.toolName) &&
                 !e.result
               ) {
                 answered = true;
@@ -1007,6 +1113,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     });
     pendingInterruptRef.current = null;
     setIsStreaming(true);
+    setStreamingMsgId(agentMsgId);
+
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1019,11 +1127,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // 澄清回答时只贴图不打字 → 占位让请求可过,agent 从上下文理解。
             answer: prompt || '(用户上传了附件)',
             enable_thinking: enableThinking,
+            // 反馈保持 plan 上下文的最终保证在服务端（探针读 checkpoint
+            // 推断挂起类型强制 plan，刷新/多端下客户端状态失真也不受影响）；
+            // 此处 plan_mode 仅为提示。
+            plan_mode: planMode || undefined,
           }, controller.signal)
         : await agentApi.stream(agent.id, {
             input: prompt,
             session_id: sessionId,
             enable_thinking: enableThinking,
+            plan_mode: planMode || undefined,
             // file_ids: persists the reference on the user message (history).
             // file_paths: backend embeds file contents into the LLM user message
             // (agents.py:589-610) — without this the agent never sees the content.
@@ -1138,9 +1251,11 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // 注意：此处不重置 thinking 累积——tool_call_start 在流式期间先于
             // on_chat_model_end 到达，thinking 的轮次边界是 final 事件本身。
             if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-            const buf = deltaBufferRef.current;
-            deltaBufferRef.current = null;
-            rafIdRef.current = null;
+            // 必须走 flushDelta 的合并语义（尾巴并入当前轮已存在的 text entry）。
+            // 不能手动把 buf push 成新 entry——那会把一轮正文劈成两个 entry，
+            // 随后 text final 从后往前只覆盖最后一个（尾巴→变成全文），头部
+            // entry 成孤儿，同一轮回复重复显示两张几乎相同的卡。
+            flushDelta();
             textEntryIdRef.current = null;
             textStartedRef.current = false;
             // tool_call_start 携带首个 chunk 里已流出的工具名（多数模型此刻
@@ -1152,7 +1267,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               prev.map((m) => {
                 if (m.id !== agentMsgId) return m;
                 const tl = [...(m.timeline ?? [])];
-                if (buf) tl.push({ id: `${agentMsgId}-text-${Date.now()}`, type: 'text', content: buf.delta });
                 tl.push({ id: toolEntryId, type: 'tool', content: '', toolName, toolStatus: 'pending' });
                 return { ...m, status: undefined, timeline: tl };
               }),
@@ -1169,8 +1283,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             thinkingText = '';
             thinkingEntryId = null;
             if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-            deltaBufferRef.current = null;
-            rafIdRef.current = null;
+            // 同步 flush 而非直接清空：tool_call 无 start、或 start 与 call 之间
+            // 又有 delta 到达时，尾巴并入当前轮 text entry 而不是丢给 final 覆盖。
+            flushDelta();
             textEntryIdRef.current = null;
             textStartedRef.current = false;
             updateLiveMessages((prev) =>
@@ -1309,7 +1424,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   if (
                     tl[i].type === 'tool' &&
                     !tl[i].result &&
-                    (tl[i].toolName === 'ask_clarification' || tl[i].toolName === 'confirm_workflow')
+                    isInterruptTool(tl[i].toolName)
                   ) {
                     if (tl[i].toolName === 'ask_clarification') {
                       // 把后端权威字段合并进 args（不覆盖已有值）。
@@ -1320,6 +1435,11 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                       if (args.context == null && evt.context != null) args.context = evt.context;
                       if (args.options == null && evt.options != null) args.options = evt.options;
                       if (args.fields == null && evt.fields != null) args.fields = evt.fields;
+                      tl[i] = { ...tl[i], args, toolStatus: 'success' };
+                    } else if (tl[i].toolName === 'propose_plan') {
+                      // 计划审批：回填后端权威的 plan 全文（kind=plan）。
+                      const args = { ...tl[i].args };
+                      if (!args.plan && evt.plan) args.plan = evt.plan;
                       tl[i] = { ...tl[i], args, toolStatus: 'success' };
                     } else {
                       tl[i] = { ...tl[i], toolStatus: 'success' };
@@ -1360,6 +1480,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       }
     } finally {
       setIsStreaming(false);
+      setStreamingMsgId(null);
+      // 中止（stop/切会话）没有 done 事件收尾：占位残留的 thinking 态会让
+      // "思考中"标签与占位动效永远挂着，这里防御性清掉（正常 done 路径已是
+      // undefined，no-op）。
+      updateLiveMessages((prev) =>
+        prev.map((m) => (m.id === agentMsgId && m.status === 'thinking' ? { ...m, status: undefined } : m)),
+      );
       abortRef.current = null;
       refreshSessions();
     }
@@ -1408,6 +1535,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     }
     // 新一轮语音回复开始生成：恢复跟随。
     pinnedRef.current = true;
+    setStreamingMsgId(agentMsgId);
     updateLiveMessages((prev) => [
       ...prev,
       {
@@ -1445,6 +1573,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       );
     }
     voiceAgentMsgIdRef.current = null;
+    setStreamingMsgId(null);
     refreshSessions();
     filesPanelRef.current?.refresh();
 
@@ -1709,6 +1838,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // agent 消息靠 timeline 渲染（text/tool/thinking/error 按顺序）；
             // user 消息保持单个气泡。
             const hasTimeline = isAgent && !!msg.timeline && msg.timeline.length > 0;
+            // 本条是否流式生成中——消息级"生成中"动效判据（见 streamingMsgId 声明处
+            // 注释：msg.status 在轮次空窗期会被清空，不能作判据）。
+            const inFlight = streamingMsgId === msg.id;
             return (
               <div
                 key={msg.id}
@@ -1815,8 +1947,17 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                             entry={entry}
                             msgId={msg.id}
                             interrupted={!!msg.isInterrupted}
+                            theme={theme}
                             onAnswer={(a) => handleSendMessage(undefined, a)}
                             onDismiss={() => handleDismissInterrupt(msg.id)}
+                            onApprovePlan={(plan) => handleApprovePlan(msg.id, plan)}
+                            planVersion={
+                              entry.type === 'tool' && entry.toolName === 'propose_plan'
+                                ? (msg.timeline ?? [])
+                                    .slice(0, (msg.timeline ?? []).indexOf(entry) + 1)
+                                    .filter((e) => e.type === 'tool' && e.toolName === 'propose_plan').length
+                                : undefined
+                            }
                           />
                         );
                       })}
@@ -1833,7 +1974,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   >
                     {msg.content
                       ? <Markdown content={msg.content} />
-                      : (msg.status === 'thinking' ? '…' : '')}
+                      : (inFlight ? (
+                          /* 首 token 等待期：执行中动效（原为静态 '…'） */
+                          <span className="inline-flex items-center gap-1.5">
+                            正在响应
+                            <StreamingDots />
+                          </span>
+                        ) : '')}
                     {/* 可预览附件挂在气泡内部。有正文时隔开 + 分隔线；
                         仅附件（无文字）时直接贴边，不留空隙不画线。 */}
                     {msg.attachments && msg.attachments.length > 0 && (
@@ -1848,6 +1995,15 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                       </div>
                     )}
                   </div>
+                  )}
+                  {/* 消息级"生成中"动效：流式全程显示——覆盖思考完成→正文生成、
+                      工具完成→下一轮等 status 已被清空的空窗期，让用户始终能
+                      分清"回答结束了"还是"仍在等"；流结束/中止/出错即消失 */}
+                  {inFlight && hasTimeline && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-indigo-400 font-sans">
+                      <StreamingDots />
+                      <span>生成中…</span>
+                    </div>
                   )}
                   {/* 回答下方：消息级反馈（§8.2 v2）——赞回复→本轮技能派生加分 */}
                   {!isUser && !isStreaming && msg.requestId && (
@@ -1918,6 +2074,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               </div>
             )}
             <textarea
+              ref={inputTextareaRef}
               rows={2}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -1929,6 +2086,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               disabled={!activeSession || isStreaming}
               className="w-full bg-transparent text-xs text-white focus:outline-none resize-none font-sans placeholder-[#71717a] leading-relaxed disabled:opacity-50"
               onKeyDown={(e) => {
+                // 中文 IME 选词/确认候选的 Enter 不是发送（见 isImeComposing 注释）
+                if (isImeComposing(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage();
@@ -1967,6 +2126,30 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   <Brain className="w-3 h-3" />
                   {enableThinking ? '思考' : '直答'}
                 </button>
+                {/* ⑤ 模式横幅：长对话中途可见的模式状态（点击退出） */}
+                {planMode && (
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-[10px] text-sky-300 cursor-pointer select-none hover:bg-sky-500/20 transition"
+                    onClick={() => setPlanMode(false)}
+                    title="点击退出计划模式"
+                  >
+                    <ClipboardList className="w-3 h-3" />
+                    计划模式进行中 — 调研设计优先，变更类操作已禁
+                  </div>
+                )}
+                {/* Plan-mode toggle（仅关闭态显示——开启态由横幅承担状态+退出，
+                    两者互斥防重复控件）。点击进入计划模式。 */}
+                {!planMode && (
+                  <button
+                    type="button"
+                    onClick={() => setPlanMode(true)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition cursor-pointer select-none bg-[#121214] border-[#27272a] text-[#71717a] hover:text-white"
+                    title="计划模式（plan_mode）— 调研设计优先、不产生变更（沙盒内探索性命令保留）；路径不确定或不可逆的任务先出计划审批后再执行"
+                  >
+                    <ClipboardList className="w-3 h-3" />
+                    计划模式
+                  </button>
+                )}
                 <span className="text-[10px] text-[#71717a] font-sans flex items-center gap-1 select-none">
                   <CheckCircle className="w-3 h-3 text-indigo-400" />
                   {isStreaming ? '正在接收流…' : uploading ? '上传中…' : '就绪'}
@@ -2163,6 +2346,23 @@ function formatToolResult(raw?: string): { text: string; isJson: boolean } {
 
 const RESULT_COLLAPSE_THRESHOLD = 800;
 
+/** 流式执行中三点跳动（消息级动效）。与 ThinkingEntryCard 头部圆点同款
+ *  （animate-thinking-dot + 0.18s stagger），对齐 client streaming-dots：
+ *  放在消息末尾、不碰 markdown 内部，稳定不抖。 */
+function StreamingDots() {
+  return (
+    <span className="inline-flex items-center gap-[3px] align-baseline" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-1 h-1 rounded-full bg-indigo-400 animate-thinking-dot"
+          style={{ animationDelay: `${i * 0.18}s` }}
+        />
+      ))}
+    </span>
+  );
+}
+
 /** Thinking entry — collapsible reasoning card with streaming animation.
  *  内容区固定最大高度（内部滚动），避免长思考撑爆版面；流式期间内部
  *  贴底跟随（终端效果），思考结束自动收起。 */
@@ -2238,15 +2438,29 @@ function ToolEntryCard({
   interrupted,
   onAnswer,
   onDismiss,
+  onApprovePlan,
+  planVersion,
+  theme,
 }: {
   entry: TimelineEntry;
   msgId: string;
   interrupted: boolean;
   onAnswer?: (answer: string) => void;
   onDismiss?: () => void;
+  onApprovePlan?: (plan: string) => void;
+  /** ④ 修订版本号：本条消息内第几次提交计划（反馈循环轮次可见）。 */
+  planVersion?: number;
+  /** 明暗主题——计划书卡片等使用实色底的组件必须感知（prose-chat 的
+   *  正文色随主题切换，深色卡片在浅色主题下会深字深底看不清）。 */
+  theme: 'dark' | 'light';
 }) {
   // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
   if (entry.toolName === 'ask_clarification') {
+    // 授权守卫 veto（toolStatus=error）：被拦截的追问渲染为系统引导条
+    // 而非澄清卡——否则"被拦的假澄清 + 后续真澄清"看起来像重复提问。
+    if (entry.result && entry.toolStatus === 'error') {
+      return <GuardRedirectNote text={entry.result} theme={theme} />;
+    }
     return (
       <ClarificationCard
         entry={entry}
@@ -2257,6 +2471,19 @@ function ToolEntryCard({
     );
   }
   // confirm_workflow：工作流确认卡片（从 tool_call args 渲染，tool_result 决定终态）。
+  if (entry.toolName === 'propose_plan') {
+    return (
+      <PlanCard
+        entry={entry}
+        interrupted={interrupted}
+        theme={theme}
+        planVersion={planVersion}
+        onAnswer={onAnswer}
+        onDismiss={onDismiss}
+        onApprovePlan={onApprovePlan}
+      />
+    );
+  }
   if (entry.toolName === 'confirm_workflow') {
     const args = entry.args ?? {};
     const resultText = entry.result ?? '';
@@ -2405,6 +2632,331 @@ function ToolEntryCard({
   );
 }
 
+/** propose_plan 计划书卡片 — 文档样式呈现五段式计划，底部审批操作。
+ *
+ * 样式上做成"计划书"：文档标题栏（编号感图标 + 标题 + 状态章）、纸面正文
+ * （按 `# 标题` 分节渲染：节标题带竖向强调条，目标节强调展示，步骤节
+ * checkbox 转为 ☐/☑ 字形），页脚审批区。
+ *
+ * 交互（interrupted 且未答）：【同意执行】走 approve 端点（零 LLM：
+ * 写 PLAN.md + 合成 tool_result），前端随后自动 kickoff 执行；
+ * 【拒绝】走 dismiss（本轮作废）；【反馈输入】任意内容 resume
+ * （保持计划模式，agent 修订后重新提交新计划书）。
+ * 已答态：状态章（已批准/已反馈）+ 反馈摘要。
+ */
+
+/** 把五段式计划 markdown 按 `# 标题` 切成节（未带标题的内容归入首节）。 */
+function parsePlanSections(plan: string): Array<{ title: string; body: string }> {
+  const lines = plan.split("\n");
+  const sections: Array<{ title: string; body: string }> = [];
+  let current: { title: string; body: string } | null = null;
+  for (const line of lines) {
+    const m = /^#\s+(.*)$/.exec(line);
+    if (m) {
+      if (current) sections.push(current);
+      current = { title: m[1].trim(), body: "" };
+    } else {
+      if (!current) current = { title: "", body: "" };
+      current.body += line + "\n";
+    }
+  }
+  if (current) sections.push(current);
+  return sections.filter((sec) => sec.title || sec.body.trim());
+}
+
+/** 步骤 checkbox 转 Unicode 字形（Markdown 任务列表渲染不可依赖）。 */
+function planCheckboxGlyphs(body: string): string {
+  return body
+    .replace(/^- \[ \]\s*/gm, "☐ ")
+    .replace(/^- \[x\]\s*/gim, "☑ ");
+}
+
+const PLAN_SECTION_ORDER = ["目标", "背景与约束", "步骤", "验收标准", "完成时交付"];
+
+function PlanCard({
+  entry,
+  interrupted,
+  onAnswer,
+  onDismiss,
+  onApprovePlan,
+  planVersion,
+  theme,
+}: {
+  entry: TimelineEntry;
+  interrupted: boolean;
+  onAnswer?: (answer: string) => void;
+  onDismiss?: () => void;
+  /** 零 LLM 批准：写 PLAN.md + 合成 tool_result（ChatHomepage 接线后自动 kickoff） */
+  onApprovePlan?: (plan: string) => void;
+  /** ④ 修订版本号（同一消息内第几次提交；>1 时显示 v{n}）。 */
+  planVersion?: number;
+  theme: 'dark' | 'light';
+}) {
+  const [feedback, setFeedback] = useState("");
+  // 编辑模式：直接改计划全文——[按此版本批准]（编辑稿落盘 PLAN.md）或
+  // [作为反馈提交]（编辑稿走 resume 修订通道）。零 LLM 的精确修正路径。
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const dark = theme === 'dark';
+  const plan = String(entry.args?.plan ?? "");
+  const result = entry.result ?? "";
+  const answered = Boolean(result);
+  const toolHints = extractPlanToolHints(plan);
+  // approved 判定：稳定前缀（后端 PLAN_APPROVED_RESULT_TEXT 与 plan_tool
+  // 批准返回文案均以"用户已批准"开头——两侧同源，勿改开头措辞）。
+  const approved = result.startsWith("用户已批准");
+
+  const sections = parsePlanSections(plan);
+  // 规范五段顺序排前，未知节殿后（可演化的计划允许加节）。
+  const ordered = [
+    ...PLAN_SECTION_ORDER.map((t) => sections.find((s) => s.title === t)),
+    ...sections.filter((s) => !PLAN_SECTION_ORDER.includes(s.title)),
+  ].filter((s): s is { title: string; body: string } => Boolean(s));
+  const isObjective = (title: string) => title === "目标";
+
+  // 主题化实色（prose-chat 正文色随主题切换，卡片底色必须跟着走，
+  // 否则浅色主题下深字深底看不清）。
+  const shellCls = dark
+    ? 'border-[#3f3f46] bg-[#18181b]'
+    : 'border-slate-200 bg-white';
+  const headerCls = dark ? 'bg-[#212126] border-[#3f3f46]' : 'bg-slate-50 border-slate-200';
+  const bodyCls = dark ? 'bg-[#1a1a20]' : 'bg-white';
+  const footerCls = dark ? 'bg-[#121214] border-[#3f3f46]' : 'bg-slate-50 border-slate-200';
+  const titleCls = dark ? 'text-white' : 'text-slate-900';
+  const subtitleCls = dark ? 'text-[#71717a]' : 'text-slate-400';
+  const sectionTitleCls = dark ? 'text-sky-300' : 'text-sky-700';
+  const dashCls = dark ? 'border-[#3f3f46]' : 'border-slate-300';
+  const objectiveTextCls = dark ? 'text-white' : 'text-slate-900';
+  const bodyTextCls = dark ? 'text-zinc-300' : 'text-slate-700';
+  const badge = answered
+    ? approved
+      ? dark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+             : 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
+      : dark ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+             : 'bg-amber-500/10 text-amber-700 border-amber-500/30'
+    : dark ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+           : 'bg-sky-500/10 text-sky-700 border-sky-500/30';
+  const ghostBtnCls = dark
+    ? 'border-[#3f3f46] text-[#a1a1aa] hover:text-white hover:border-[#52525b]'
+    : 'border-slate-300 text-slate-500 hover:text-slate-900 hover:border-slate-400';
+  const inputCls = dark
+    ? 'bg-[#18181b] border-[#3f3f46] text-white placeholder-[#52525b] focus:border-sky-500/50'
+    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-sky-500';
+  const secondaryBtnCls = dark
+    ? 'bg-[#27272a] hover:bg-[#3f3f46] text-white'
+    : 'bg-slate-200 hover:bg-slate-300 text-slate-900';
+  const resultTextCls = dark ? 'text-[#a1a1aa]' : 'text-slate-500';
+
+  return (
+    <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-lg max-w-full ${shellCls}`}>
+      {/* 文档标题栏 */}
+      <div className={`flex items-center justify-between px-5 py-3 border-b ${headerCls}`}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-md bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
+            <ClipboardList className={`w-3.5 h-3.5 ${dark ? 'text-sky-400' : 'text-sky-600'}`} />
+          </div>
+          <div>
+            <div className={`text-[13px] font-bold tracking-widest ${titleCls}`}>
+              执行计划书{planVersion && planVersion > 1 ? ` · v${planVersion}` : ''}
+            </div>
+            <div className={`text-[9px] tracking-wide ${subtitleCls}`}>
+              PLAN{planVersion && planVersion > 4 ? ` · 已修订 ${planVersion} 轮` : ' · 待人工审批后执行'}
+            </div>
+          </div>
+        </div>
+        <span className={`text-[10px] font-semibold px-2 py-1 rounded border ${badge}`}>
+          {answered ? (approved ? "✓ 已批准" : "已反馈") : "待审批"}
+        </span>
+      </div>
+
+      {/* ① 工具清单警示条：审批焦点从"步骤合理"降到"会碰什么"（变更类⚠高亮） */}
+      {toolHints.length > 0 && (
+        <div className={`flex flex-wrap items-center gap-1.5 px-5 py-2 border-b ${dark ? 'border-[#3f3f46] bg-[#1d1d23]' : 'border-slate-100 bg-slate-50/60'}`}>
+          <span className={`text-[9px] font-semibold tracking-wide ${subtitleCls}`}>本计划将使用：</span>
+          {toolHints.map((h) => (
+            <span
+              key={h.label}
+              className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                h.mutating
+                  ? dark
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-700'
+                  : dark
+                    ? 'bg-[#27272a] border-[#3f3f46] text-[#a1a1aa]'
+                    : 'bg-slate-100 border-slate-200 text-slate-500'
+              }`}
+            >
+              {h.mutating ? '⚠ ' : ''}{h.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 纸面正文：分节渲染 */}
+      <div className={`px-6 py-4 max-h-96 overflow-y-auto space-y-4 ${bodyCls}`}>
+        {ordered.length === 0 && <p className={`text-xs ${subtitleCls}`}>（计划内容缺失）</p>}
+        {ordered.map((sec, i) => (
+          <div key={i}>
+            {sec.title && (
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="w-1 h-3.5 bg-sky-500/70 rounded-full" />
+                <h4 className={`text-[11px] font-bold tracking-widest uppercase ${sectionTitleCls}`}>{sec.title}</h4>
+                <span className={`flex-1 border-t border-dashed ${dashCls}`} />
+              </div>
+            )}
+            {isObjective(sec.title) ? (
+              <div className={`px-3 py-2 rounded-md bg-sky-500/5 border-l-2 border-sky-500/60 text-[13px] font-medium leading-relaxed ${objectiveTextCls}`}>
+                <Markdown content={planCheckboxGlyphs(sec.body.trim())} />
+              </div>
+            ) : (
+              <div className={`text-[12px] leading-relaxed pl-1 ${bodyTextCls}`}>
+                <Markdown content={planCheckboxGlyphs(sec.body.trim() || "—")} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 页脚：审批操作（未答态） */}
+      {!answered && interrupted && (
+        <div className={`px-5 py-3 border-t space-y-2 ${footerCls}`}>
+          {editing ? (
+            <div className="space-y-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={10}
+                spellCheck={false}
+                className={`w-full px-3 py-2 rounded-md text-xs font-mono leading-relaxed outline-none transition resize-y ${inputCls}`}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!draft.trim()}
+                  onClick={() => {
+                    setEditing(false);
+                    onApprovePlan?.(draft.trim());
+                  }}
+                  className="px-4 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  按此版本批准
+                </button>
+                <button
+                  type="button"
+                  disabled={!draft.trim()}
+                  onClick={() => {
+                    setEditing(false);
+                    onAnswer?.(`以下为用户修改后的计划全文，请据此修订并重新提交：\n\n${draft.trim()}`);
+                    setFeedback("");
+                  }}
+                  className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${ghostBtnCls}`}
+                >
+                  作为反馈提交
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="px-3 py-1.5 rounded-md text-xs text-slate-400 hover:text-slate-600 cursor-pointer transition"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onApprovePlan?.(plan)}
+              className="px-4 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer transition-colors"
+            >
+              同意执行
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(plan);
+                setEditing(true);
+              }}
+              className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors ${ghostBtnCls}`}
+            >
+              编辑
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors ${ghostBtnCls}`}
+            >
+              拒绝
+            </button>
+          </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && feedback.trim()) {
+                  e.preventDefault();
+                  onAnswer?.(feedback.trim());
+                  setFeedback("");
+                }
+              }}
+              placeholder="输入修改意见，agent 修订后将重新提交计划书…"
+              className={`flex-1 px-3 py-1.5 rounded-md text-xs outline-none transition ${inputCls}`}
+            />
+            <button
+              type="button"
+              disabled={!feedback.trim()}
+              onClick={() => {
+                onAnswer?.(feedback.trim());
+                setFeedback("");
+              }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition disabled:opacity-40 disabled:cursor-not-allowed ${secondaryBtnCls}`}
+            >
+              提交反馈
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 已答态：结果摘要 */}
+      {answered && result && (
+        <div className={`px-5 py-2.5 border-t text-[11px] ${footerCls} ${resultTextCls}`}>
+          {approved ? "✅ 计划已批准 — 对话中说“开始执行”即可按计划推进" : `反馈：${result}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 授权守卫引导条 — ask_clarification 被 authorization_guard_veto 拦截
+ * （存在未授权应用时防模型向用户索要凭证）的呈现形态。与澄清卡区分：
+ * 这是系统级安全引导（指向 request_app_authorization），不是一次提问。 */
+function GuardRedirectNote({ text, theme }: { text: string; theme: 'dark' | 'light' }) {
+  const dark = theme === 'dark';
+  return (
+    <div
+      className={`rounded-xl rounded-tl-none border px-4 py-3 font-sans shadow-sm ${
+        dark
+          ? 'border-amber-500/25 bg-amber-500/5'
+          : 'border-amber-500/30 bg-amber-50'
+      }`}
+    >
+      <div className={`flex items-center gap-2 text-xs font-semibold ${dark ? 'text-amber-400' : 'text-amber-700'}`}>
+        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+        系统安全引导（追问已拦截）
+      </div>
+      <p className={`mt-1.5 text-[11.5px] leading-relaxed ${dark ? 'text-zinc-300' : 'text-slate-600'}`}>
+        {text}
+      </p>
+      <p className={`mt-1 text-[10px] ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>
+        模型被引导改用应用授权流程（request_app_authorization），凭证永不进入对话。
+      </p>
+    </div>
+  );
+}
+
 /* ────────────────────────────────────────────────────────────
    ClarificationCard — ask_clarification 交互卡片
    按 clarification_type 分样式渲染问题 + 选项/按钮 + 内联输入。
@@ -2510,16 +3062,7 @@ function ClarificationCard({
         <span className={`text-[10px] ${accent.icon} opacity-70`}>
           {answered ? (dismissed ? '已忽略' : '已回答') : '等待回答'}
         </span>
-        {/* 忽略：不回答此问题，恢复自由输入（下一次发送走普通 stream） */}
-        {interactive && onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="ml-auto px-2 py-0.5 rounded text-[10px] text-[#a1a1aa] hover:text-[#fafafa] hover:bg-white/5 border border-transparent hover:border-[#3f3f46] transition cursor-pointer"
-          >
-            忽略
-          </button>
-        )}
+        {/* 跳过入口移至交互区（「跳过此问题，直接继续」）——此处不再放小字按钮 */}
       </div>
 
       {/* 问题正文 + 交互区：实底深色内嵌区块（bg-[#121214]）+ 白字，可读性优先 */}
@@ -2602,6 +3145,8 @@ function ClarificationCard({
                   value={inlineText}
                   onChange={(e) => setInlineText(e.target.value)}
                   onKeyDown={(e) => {
+                    // 中文 IME 选词的 Enter 不是提交回答
+                    if (isImeComposing(e)) return;
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       submitInline();
@@ -2619,6 +3164,19 @@ function ClarificationCard({
                   发送
                 </button>
               </div>
+            )}
+
+            {/* 跳过入口：可选问题允许不回答直接继续（下一条消息走普通 stream，
+                不注入本卡）。原入口是右上角 10px 小字「忽略」，太隐蔽用户找不到
+                ——改到交互区，文案说明后果，与表单卡「忽略此问题」同级。 */}
+            {interactive && onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="mt-2 text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+              >
+                跳过此问题，直接继续 →
+              </button>
             )}
 
             {/* 已答：答案在卡片内部展示（紧贴问题下方，与 ClarificationFormCard 一致），

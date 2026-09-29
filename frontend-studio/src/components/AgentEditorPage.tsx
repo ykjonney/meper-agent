@@ -591,6 +591,37 @@ export function AgentEditorPage({
               />
             </span>
           </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.canSpawnAgents}
+            onClick={() => set({ canSpawnAgents: !form.canSpawnAgents })}
+            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-[#27272a] bg-[#121214] px-3 py-2 text-left transition-colors duration-200 hover:border-[#3f3f46] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <Bot className={`h-4 w-4 shrink-0 ${form.canSpawnAgents ? 'text-emerald-400' : 'text-[#71717a]'}`} />
+              <span>
+                <span className="block text-xs font-semibold text-[#f4f4f5]">允许创建 Agent</span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-[#71717a]">
+                  开启后该 Agent 获得能力盘点与创建工具；创建物为草稿态，需人工审核发布，且不再拥有此能力（最多一层）。
+                </span>
+              </span>
+            </span>
+            <span
+              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
+                form.canSpawnAgents
+                  ? 'border-emerald-400 bg-emerald-500'
+                  : 'border-[#52525b] bg-[#27272a]'
+              }`}
+              aria-hidden="true"
+            >
+              <span
+                className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  form.canSpawnAgents ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+          </button>
         </Section>
 
         {/* ── Section: Prompt 配置 ── */}

@@ -79,6 +79,7 @@ export const PERMISSION_GROUPS: Record<string, string[]> = {
   '工具': ['tool:read', 'tool:write'],
   '应用': ['application:read', 'application:write'],
   'MCP': ['mcp:read', 'mcp:write'],
+  '消息渠道': ['channel:read', 'channel:write'],
   'Skill': ['skill:read', 'skill:write'],
   '任务': ['task:read', 'task:write', 'task:invoke'],
   '知识库': ['knowledge:read', 'knowledge:write'],
