@@ -21,6 +21,8 @@ ask_clarification 防冲突（authorization_guard_veto）：本轮消息里存�
 """
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -28,6 +30,24 @@ from pydantic import BaseModel, Field
 
 # 未授权错误标记的识别子串（与 mcp/loader.py 的错误文本约定一致）
 UNBOUND_MARKER_KEY = "mcp_credential_error"
+
+#: veto 触发的结构化判别：仅匹配真实 MCP 凭证错误的 JSON 形态，且仅
+#: 授权相关 reason（UNBOUND/INVALID——与前端 marker 过滤语义对齐；
+#: UNAVAILABLE/FORBIDDEN 明确不引导授权）。裸子串匹配已被取证证伪：
+#: list_capabilities 等清单类工具会原样搬运工具描述（如
+#: request_app_authorization 的说明文档里就含 "mcp_credential_error"
+#: 字面量），文档性文本不得误触发授权引导。
+_VETO_MARKER_RE = re.compile(
+    r'"mcp_credential_error"\s*:\s*"(?:UNBOUND|INVALID)"'
+)
+
+#: veto 纠正文案——刻意不含 UNBOUND_MARKER_KEY 字面量（子串匹配会把
+#: 含该串的任何工具结果当 MCP 错误，文案自身回灌 state 会自我延续）。
+_VETO_MESSAGE = (
+    "检测到有待授权的应用（工具返回了凭证授权错误标记）。"
+    "请改用 request_app_authorization 工具请求用户完成授权；"
+    "禁止通过对话向用户索要任何应用的账号或密码。"
+)
 
 
 class _RequestAuthorizationArgs(BaseModel):
@@ -76,12 +96,17 @@ request_app_authorization = StructuredTool.from_function(
 
 
 def authorization_guard_veto(tool_name: str, state: Any) -> str | None:
-    """ask_clarification 防冲突 veto：存在未消化的授权错误时拦截追问。
+    """ask_clarification 防冲突 veto：**当前轮**存在未消化的授权错误时拦截追问。
 
-    扫描 state["messages"]：最近一次 request_app_authorization 的工具
-    结果之后的 ToolMessage 里若仍有 UNBOUND 标记，说明本轮还有待授权
-    应用未处理——此时 ask_clarification（LLM 本能的追问通道）会被
-    拦下，返回纠正性文案引导改用 request_app_authorization。
+    扫描 state["messages"]（倒序），两个边界任一命中即放行：
+    1. 最近一次 request_app_authorization 的工具结果 → 标记已消化；
+    2. 最近一条 HumanMessage（用户消息）→ 标记属历史轮次，已过期——
+       陈旧标记不得永久污染会话（曾出现：早期某轮的未消化 UNBOUND 让
+       之后所有追问被"幽灵拦截"，而当前流程并无任何 MCP 调用）。
+
+    仅当**本轮内**（用户最近一次发言之后）仍有未消化的 UNBOUND 标记时，
+       ask_clarification（LLM 本能的追问通道）才被拦下，返回纠正性文案
+       引导改用 request_app_authorization。
 
     Returns:
         纠正性文案（拦截）或 None（放行）。
@@ -95,14 +120,18 @@ def authorization_guard_veto(tool_name: str, state: Any) -> str | None:
         if name == "request_app_authorization":
             # 最近一次授权请求之后无新标记 → 已消化，放行
             return None
+        if name == "ask_clarification":
+            # 本 veto 自身的结果回灌（名称同名）——不是 MCP 工具消息，
+            # 跳过防自我延续：veto 文案曾含标记字面量，若不跳过，
+            # 第一次拦截会永久喂饱后续所有追问（已证的自我延续 bug）。
+            continue
+        if getattr(msg, "type", "") == "human":
+            # 越过最近一条用户消息 → 标记属历史轮次（过期），放行
+            return None
         if name and getattr(msg, "type", "") == "tool":
             content = _message_text(msg)
-            if UNBOUND_MARKER_KEY in content:
-                return (
-                    "检测到有待授权的应用（工具返回了 mcp_credential_error "
-                    "标记）。请改用 request_app_authorization 工具请求用户"
-                    "完成授权；禁止通过对话向用户索要任何应用的账号或密码。"
-                )
+            if _VETO_MARKER_RE.search(content):
+                return _VETO_MESSAGE
     return None
 
 
