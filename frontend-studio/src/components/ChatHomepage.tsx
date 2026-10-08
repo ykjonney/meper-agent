@@ -2530,6 +2530,12 @@ function ToolEntryCard({
     : '';
   const parseMetaMatch = isParseResult ? /^# .+（(.+?)）/.exec(entry.result ?? '') : null;
   const parseMeta = parseMetaMatch ? parseMetaMatch[1] : '';
+  // delegate_to_subagent：子 Agent 委派——标题直接显示执行主体名（谁在干活），
+  // 而非 delegate_to_subagent 工具名；task 摘要挂在标题旁。
+  const isDelegation = entry.toolName === 'delegate_to_subagent';
+  const delegationArgs = (entry.args ?? {}) as { subagent_name?: string; task?: string };
+  const delegatedName = isDelegation ? String(delegationArgs.subagent_name ?? '子 Agent') : '';
+  const delegatedTask = isDelegation ? String(delegationArgs.task ?? '') : '';
   const [expanded, setExpanded] = useState(isChartResult);
   const [resultExpanded, setResultExpanded] = useState(false);
 
