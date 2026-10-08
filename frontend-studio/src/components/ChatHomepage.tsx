@@ -2610,7 +2610,9 @@ function ToolEntryCard({
               </pre>
             </div>
           )}
-          {argsText && (
+          {/* 委派条目不重复展示请求参数——args 即 {subagent_name, task}，
+              已被标题（执行主体名）与「委派任务」块完整覆盖。 */}
+          {!isDelegation && argsText && (
             <div>
               <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
                 请求参数
