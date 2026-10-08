@@ -93,6 +93,9 @@ const EVENT_META: Record<string, { label: string; color: string }> = {
   subagent_delegation: { label: '子 Agent 委派', color: '#8B5CF6' },
   // 工作流级 token 预算耗尽（M3 前置）：data 含 total_tokens/token_budget
   token_budget_exceeded: { label: 'Token 预算耗尽', color: '#EF4444' },
+  // loop 轮次（M3）：data 含 round/max_iterations/converged
+  loop_round_start: { label: '循环轮开始', color: '#A855F7' },
+  loop_round_complete: { label: '循环轮完成', color: '#A855F7' },
 }
 
 /** 审批已完成事件类型集合（用于过滤冗余的 waiting_human / human node_complete） */
@@ -112,6 +115,13 @@ const TERMINAL_LABEL: Record<string, string> = {
 /** 节点事件 → 中文标签（拼类型前缀，如 "Agent 节点开始"） */
 function nodeEventLabel(evt: TimelineEvent): string {
   const meta = EVENT_META[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
+  // loop 轮次：label 直接带轮号（"循环第 2/5 轮"，converged 时带收敛标记）
+  if (evt.event_type === 'loop_round_start' || evt.event_type === 'loop_round_complete') {
+    const round = typeof evt.data?.round === 'number' ? evt.data.round : '?'
+    const max = typeof evt.data?.max_iterations === 'number' ? evt.data.max_iterations : '?'
+    const conv = evt.data?.converged === true ? ' · 已收敛' : ''
+    return `循环第 ${round}/${max} 轮${evt.event_type === 'loop_round_complete' ? conv : ''}`
+  }
   // 子 Agent 委派：直接显示执行主体名（用户一眼看到是谁在干活，而非工具名）
   if (evt.event_type === 'subagent_delegation') {
     const sub = (evt.data?.subagent as string | undefined) ?? ''

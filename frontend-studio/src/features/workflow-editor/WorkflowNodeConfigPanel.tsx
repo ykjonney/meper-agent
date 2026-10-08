@@ -20,6 +20,7 @@ import AgentNodeConfig from './node-config-panels/AgentNodeConfig'
 import ToolNodeConfig from './node-config-panels/ToolNodeConfig'
 import GatewayNodeConfig from './node-config-panels/GatewayNodeConfig'
 import ParallelNodeConfig from './node-config-panels/ParallelNodeConfig'
+import LoopNodeConfig from './node-config-panels/LoopNodeConfig'
 import HumanNodeConfig from './node-config-panels/HumanNodeConfig'
 
 /* ─── Props ─── */
@@ -57,6 +58,15 @@ function NodeConfigPanel({ node, allNodes, onNodeChange }: NodePanelProps) {
       return <GatewayNodeConfig {...commonProps} />
     case 'parallel':
       return <ParallelNodeConfig config={node.config} onChange={handleConfigChange} />
+    case 'loop':
+      return (
+        <LoopNodeConfig
+          config={node.config}
+          onChange={handleConfigChange}
+          allNodes={allNodes}
+          currentNodeId={node.node_id}
+        />
+      )
     case 'human':
       return <HumanNodeConfig {...commonProps} />
     default:

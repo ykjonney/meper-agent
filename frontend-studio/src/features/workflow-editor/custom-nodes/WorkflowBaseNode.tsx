@@ -145,6 +145,12 @@ function getInfoRows(
         ? [{ text: `${conditions.length} 个条件分支` }]
         : [{ text: '未配置条件' }]
     }
+    case 'loop': {
+      const body = config.body as string[] | undefined
+      return body && body.length > 0
+        ? [{ text: `${body.length} 个成员循环` }]
+        : [{ text: '未选择循环体成员' }]
+    }
     case 'parallel': {
       const branches = config.branches as unknown[] | undefined
       return branches && branches.length > 0
@@ -195,8 +201,9 @@ function WorkflowBaseNode({ data, selected }: Props) {
   )
   const incomplete = isIncomplete(nodeType, workflowNode.config as Record<string, unknown>)
 
-  // 左侧 accent 色随状态让位：选中 > 配置不完整 > 类型色。
-  const accentColor = selected ? '#1E5EFF' : incomplete ? '#f59e0b' : typeColor
+  // 左侧 accent 色随状态让位：选中 > 配置不完整 > 循环成员紫 > 类型色。
+  const inLoop = !!data.isInLoop
+  const accentColor = selected ? '#1E5EFF' : incomplete ? '#f59e0b' : inLoop ? '#A855F7' : typeColor
   // hover 全文：主标题 + 各摘要行（必带回退类型名，与卡片所见一致）
   const hoverText = [nodeLabel || typeName, ...rows.map((r) => `${r.text}${r.required ? ' *' : ''}`)]
     .join('\n')
@@ -205,7 +212,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
     <div
       className={`
         relative rounded-md bg-[#18181b] shadow-sm border border-l-2 transition-shadow cursor-pointer
-        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : 'border-[#27272a] hover:shadow-md'}
+        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : inLoop ? 'border-[#A855F7]/60 hover:shadow-md' : 'border-[#27272a] hover:shadow-md'}
       `}
       style={{ width: size, borderLeftColor: accentColor }}
     >
@@ -215,6 +222,15 @@ function WorkflowBaseNode({ data, selected }: Props) {
           title="配置不完整：缺少必填项（如未选择 Agent），执行前校验会拦截"
           className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-amber-500"
         />
+      )}
+      {/* 循环体成员角标（🔁 左上，与 loop 节点同紫色） */}
+      {inLoop && !incomplete && (
+        <span
+          title="循环节点成员（每轮执行）"
+          className="absolute -top-2 -left-1.5 text-[10px] leading-none"
+        >
+          🔁
+        </span>
       )}
       {/* 主体：左侧图标 badge（类型色淡底 + 类型色图标，类型识别第一要素）
           + 右侧文字列。主标题 = 节点名称 || 类型名（二选一，永不并排），

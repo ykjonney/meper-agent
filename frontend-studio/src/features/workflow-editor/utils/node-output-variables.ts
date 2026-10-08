@@ -68,6 +68,11 @@ export const NODE_OUTPUT_VARIABLES: Record<string, NodeOutputField[]> = {
     { name: 'results', label: '检索结果', type: 'object', description: '命中的知识块列表（{{node.results.0.text}} 取第一个的内容）' },
     { name: 'query', label: '查询词', type: 'string', description: '实际使用的检索查询' },
   ],
+  loop: [
+    { name: 'iterations', label: '实际轮数', type: 'number', description: '循环实际执行的轮数（1..max_iterations）' },
+    { name: 'converged', label: '是否收敛', type: 'boolean', description: '收敛表达式是否达成（false=达上限退出）；下游条件边可按 {{node.converged}} 路由（收敛走一支、达上限走另一支）' },
+    { name: 'rounds', label: '逐轮历史', type: 'object', description: '每轮体成员输出的不可变快照（{{node.rounds.1.writer.response}} 回看第 1 轮；体成员裸键 {{writer.response}} 恒为最新轮）' },
+  ],
 }
 
 /* ─── agent response 声明结构 → 平铺输出字段 ─── */

@@ -16,6 +16,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   typeBg: string
   /** 节点标签 */
   label: string
+  /** 是否为某 loop 的 body 成员（画布 🔁 标记） */
+  isInLoop?: boolean
   /** 是否被选中 */
   isSelected?: boolean
 }
@@ -27,6 +29,13 @@ export function toXyflowNodes(
   workflowNodes: WorkflowNode[],
   selectedNodeId?: string | null,
 ): Node<WorkflowNodeData>[] {
+  // loop body 成员集合（画布 🔁 标记用：一眼看出谁在循环里）
+  const loopMembers = new Set<string>()
+  for (const wn of workflowNodes) {
+    if (wn.type === 'loop') {
+      for (const m of (wn.config?.body as string[]) ?? []) loopMembers.add(m)
+    }
+  }
   return workflowNodes.map((wn) => {
     const typeLabel = getTypeLabel(wn.type)
     const typeColor = getTypeColor(wn.type)
@@ -42,6 +51,7 @@ export function toXyflowNodes(
         typeBg,
         label: wn.label || typeLabel,
         isSelected: wn.node_id === selectedNodeId,
+        isInLoop: loopMembers.has(wn.node_id),
       },
     }
   })
