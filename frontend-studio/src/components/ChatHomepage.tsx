@@ -2566,18 +2566,32 @@ function ToolEntryCard({
         />
         {isParseResult ? (
           <FileText className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
+        ) : isDelegation ? (
+          <Bot className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
         ) : (
           <Wrench className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
         )}
         <span className={`text-xs font-semibold truncate ${cfg.icon}`}>
           {isParseResult
             ? `文件解析 · ${parseLabel}`
-            : entry.toolName ||
-              (status === 'pending' || status === 'running' ? '调用工具…' : 'unknown_tool')}
+            : isDelegation
+              ? (status === 'pending' || status === 'running'
+                  ? `${delegatedName} 正在执行子任务…`
+                  : `子 Agent · ${delegatedName}`)
+              : entry.toolName ||
+                (status === 'pending' || status === 'running' ? '调用工具…' : 'unknown_tool')}
         </span>
         {isParseResult && parseMeta && (
           <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium bg-white/5 border border-white/10 ${cfg.icon} opacity-80`}>
             {parseMeta}
+          </span>
+        )}
+        {isDelegation && delegatedTask && (
+          <span
+            className={`text-[10px] truncate opacity-70 ${cfg.icon}`}
+            title={delegatedTask}
+          >
+            {delegatedTask}
           </span>
         )}
         <span className={`text-[10px] ${cfg.icon} opacity-70`}>{cfg.label}</span>
