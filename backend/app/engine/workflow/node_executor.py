@@ -643,6 +643,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
 
                 subagent_bundles, subagent_decls = await load_subagent_bundles(
                     subagents_cfg, node_id=self.node_id,
+                    exclude_agent_id=str(agent_id),
                 )
             else:
                 subagent_bundles = []

@@ -783,7 +783,10 @@ async def _load_chat_subagents(exec_doc: dict) -> tuple[list[dict], list[dict]]:
         return [], []
     from app.engine.harness_integration.context import load_subagent_bundles
 
-    return await load_subagent_bundles(sub_ids, agent_id=str(exec_doc.get("_id", "")))
+    return await load_subagent_bundles(
+        sub_ids, agent_id=str(exec_doc.get("_id", "")),
+        exclude_agent_id=str(exec_doc.get("_id", "")),
+    )
 
 async def _build_system_prompt_checked(
     exec_doc: dict, user_id: str = "", *, execution_context: str = "chat",

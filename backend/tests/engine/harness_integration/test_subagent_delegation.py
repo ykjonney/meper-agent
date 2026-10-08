@@ -272,3 +272,23 @@ class TestLoadSubagentBundles:
         with patch("app.db.mongodb.get_database", new=_db_with_agents(docs)):
             _, decls = await load_subagent_bundles(["a1"])
         assert "helper" in decls[0]["description"]
+
+
+class TestSelfReferenceGuard:
+    """自引用防御：父 agent 自身 id 不进委派池。"""
+
+    @pytest.mark.asyncio
+    async def test_exclude_agent_id_filters_self(self) -> None:
+        from app.engine.harness_integration.context import load_subagent_bundles
+
+        docs = {
+            "me": {"_id": "me", "name": "self", "status": "published"},
+            "other": {"_id": "other", "name": "helper", "status": "published"},
+        }
+        with patch("app.db.mongodb.get_database", new=_db_with_agents(docs)):
+            bundles, decls = await load_subagent_bundles(
+                ["me", "other"], exclude_agent_id="me",
+            )
+
+        assert [b["agent_doc"]["_id"] for b in bundles] == ["other"]
+        assert [d["name"] for d in decls] == ["helper"]

@@ -541,6 +541,8 @@ async def resolve_all_tools(
 async def load_subagent_bundles(
     subagent_cfgs: list,
     logger_event: str = "subagent_unavailable",
+    *,
+    exclude_agent_id: str = "",
     **log_kwargs: Any,
 ) -> tuple[list[dict], list[dict]]:
     """拉取 published 子 agent 文档，组装 bundles + 声明条目（M1/M2 共用）。
@@ -551,6 +553,12 @@ async def load_subagent_bundles(
 
     published-only：draft/archived/不存在/重复声明一律静默跳过（执行照常，
     只是少一个可委派对象）——与 spawn 治理同风格：运行时只信任已发布定义。
+
+    自引用防御：exclude_agent_id（父 agent 自身 id）被跳过——运行时委派
+    深度恒为 1（子 agent 无 delegate 工具），自引用不会死循环，但属配置
+    卫生问题（前端已挡，此处防 API 直改绕过）。互相引用（A↔B）无需防御：
+    subagent_ids 只在该 agent 作为主 agent 时生效，作为子 agent 执行时
+    其配置不参与。
 
     Returns:
         (bundles, decls)——bundles 传 resolve_harness_context 的 subagents
@@ -575,6 +583,8 @@ async def load_subagent_bundles(
             continue
         if not sub_agent_id or sub_agent_id in seen_ids:
             continue
+        if exclude_agent_id and sub_agent_id == exclude_agent_id:
+            continue  # 自引用防御
         seen_ids.add(sub_agent_id)
         sub_doc = await db["agents"].find_one(
             {"_id": sub_agent_id, "status": "published"},
