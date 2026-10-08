@@ -183,7 +183,14 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
   // 运行时 Agent 可用 delegate_to_subagent 把自包含子任务交给它们执行
   //（结论回传、过程隔离）。仅 published Agent 可选（后端拉取同口径）。
   // ui Select 无 multiple 模式——chips 展示已选 + 单选 Select 作添加入口。
+  // 继承语义：节点未配置（undefined）→ 继承 Agent 定义的 subagent_ids；
+  // 配置了 → 覆盖为该子集（收紧）；清空全部 → 回到继承。
   const subagentIds = (config.subagents as { agent_id: string }[] | undefined) ?? []
+  const nodeOverrideActive = config.subagents !== undefined
+  const selectedAgent = agents.find((a) => a.id === (config.agent_id as string))
+  const inheritedSubagents = (selectedAgent?.subagent_ids ?? []).filter(
+    (id) => id !== (config.agent_id as string),
+  )
   const addSubagent = (agentId: string) => {
     if (agentId === (config.agent_id as string)) return
     if (subagentIds.some((s) => s.agent_id === agentId)) return
@@ -411,12 +418,22 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         )}
       </div>
 
-      {/* 可委派子 Agent（可选）：声明后 Agent 运行时可用委派工具 */}
+      {/* 可委派子 Agent（继承 + 节点收紧）：默认继承 Agent 定义，此处配置即收紧 */}
       <div>
         <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
           可委派子 Agent
-          <HelpHint text="声明后，此 Agent 执行中可把自包含的子任务委派给所选 Agent（各自独立上下文与工具，只回传结论）。适合需要动态分解的探索型任务；固定工序请直接用多个 Agent 节点串联。委派为同步调用且有超时，不宜委派长耗时任务。" />
+          <HelpHint text={`此 Agent 执行中可把自包含的子任务委派给子 Agent（各自独立上下文与工具，只回传结论）。默认继承该 Agent 定义的可委派子 Agent（在 Agent 编辑页配置）；此处添加即收紧为所选子集，清空则回到继承。委派为同步调用且有超时，不宜委派长耗时任务。`} />
         </label>
+        {!nodeOverrideActive && inheritedSubagents.length > 0 && (
+          <div className="mb-1.5 text-[11px] text-slate-500">
+            继承 Agent 配置（{inheritedSubagents.length} 个），添加即收紧范围
+          </div>
+        )}
+        {nodeOverrideActive && (
+          <div className="mb-1.5 text-[11px] text-slate-500">
+            已收紧为本节点配置（{subagentIds.length} 个），清空全部恢复继承
+          </div>
+        )}
         {subagentIds.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {subagentIds.map((s) => {
@@ -444,7 +461,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           value={null}
           onChange={(val) => val && addSubagent(val)}
           options={subagentAddOptions}
-          placeholder={subagentAddOptions.length > 0 ? '添加子 Agent（可选）...' : '无可选 Agent'}
+          placeholder={subagentAddOptions.length > 0 ? '添加子 Agent（收紧范围，可选）...' : '无可选 Agent'}
           allowClear
         />
       </div>
