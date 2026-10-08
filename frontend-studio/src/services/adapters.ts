@@ -137,7 +137,7 @@ export function fromStudioAgent(a: Agent): {
     else if (s.startsWith('builtin:')) builtin_config.push(s.slice(8))
     else if (s.startsWith('workflow:')) workflow_ids.push(s.slice(9))
     else if (s.startsWith('kb:')) knowledge_base_ids.push(s.slice(3))
-    else if (s.startsWith('subagent:')) subagent_ids.push(s.slice(10))
+    else if (s.startsWith('subagent:')) subagent_ids.push(s.slice('subagent:'.length))
     else skill_ids.push(s)
   }
   return {
