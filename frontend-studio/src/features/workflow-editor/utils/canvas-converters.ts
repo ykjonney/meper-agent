@@ -127,6 +127,8 @@ function getTypeBg(type: string): string {
  */
 export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
   const edges: Edge[] = []
+  // loop 节点 id 集合——指向 loop 的边 = 回边（循环闭合），渲染层加 ↻ 标记
+  const loopNodeIds = new Set(nodes.filter((n) => n.type === 'loop').map((n) => n.node_id))
 
   for (const node of nodes) {
     const config = (node.config ?? {}) as Record<string, unknown>
@@ -177,6 +179,13 @@ export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
     }
   }
 
+  // 回边（target=loop）统一标记：label ↻ + 标记类（渲染层给紫色虚线）
+  for (const e of edges) {
+    if (loopNodeIds.has(String(e.target))) {
+      e.label = '↻ 循环'
+      e.className = `${e.className ?? ''} workflow-edge--loop-return`.trim()
+    }
+  }
   return edges
 }
 

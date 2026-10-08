@@ -113,11 +113,19 @@ class TestLoopValidation:
         assert "LOOP_STRUCTURAL_NODE_IN_BODY" in _codes(result.issues)
 
     def test_body_not_closed(self) -> None:
-        # critic 的下游 escape 在 body 之外
-        result = validate_workflow(_wf(_body_pair() + [
+        # 体成员连到 body 之外的非 loop 节点 → 违规
+        wf = _wf([
+            {"node_id": "research", "type": "agent", "config": {"next_nodes": [{"target": "loop1"}]}},
+            _loop_node(["writer", "critic"], "writer"),
+            {"node_id": "writer", "type": "agent", "config": {"next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent", "config": {"next_nodes": [{"target": "escape"}]}},
             {"node_id": "escape", "type": "agent", "config": {}},
-        ]))
-        # 给 critic 加外部下游
+        ])
+        result = validate_workflow(wf)
+        assert "LOOP_BODY_NOT_CLOSED" in _codes(result.issues)
+
+    def test_return_edge_to_loop_is_legal(self) -> None:
+        """回边（体尾 → 所属 loop）合法——连线驱动交互的循环闭合表达。"""
         wf = _wf([
             {"node_id": "research", "type": "agent", "config": {"next_nodes": [{"target": "loop1"}]}},
             _loop_node(["writer", "critic"], "writer"),
@@ -125,7 +133,7 @@ class TestLoopValidation:
             {"node_id": "critic", "type": "agent", "config": {"next_nodes": [{"target": "loop1"}]}},
         ])
         result = validate_workflow(wf)
-        assert "LOOP_BODY_NOT_CLOSED" in _codes(result.issues)
+        assert "LOOP_BODY_NOT_CLOSED" not in _codes(result.issues)
 
     def test_body_cycle_detected(self) -> None:
         # writer ↔ critic 互指（体内环）

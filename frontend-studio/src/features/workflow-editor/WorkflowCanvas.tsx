@@ -141,14 +141,17 @@ export default function WorkflowCanvas({
       deriveXyflowEdgesFromNodes(workflowNodes).map((e) => {
         const isSelected = selectedEdgeIds.has(e.id)
         const isCondition = e.className?.includes('workflow-edge--condition')
+        const isLoopReturn = e.className?.includes('workflow-edge--loop-return')
         return {
           ...e,
           selected: isSelected,
           style: isSelected
             ? { stroke: '#3B82F6', strokeWidth: 1.8 }
-            : isCondition
-              ? { stroke: '#8B5CF6', strokeWidth: 1.2 }
-              : { stroke: '#94A3B8', strokeWidth: 0.8 },
+            : isLoopReturn
+              ? { stroke: '#A855F7', strokeWidth: 1.6, strokeDasharray: '5 3' }
+              : isCondition
+                ? { stroke: '#8B5CF6', strokeWidth: 1.2 }
+                : { stroke: '#94A3B8', strokeWidth: 0.8 },
         }
       }),
     [workflowNodes, selectedEdgeIds],

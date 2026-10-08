@@ -512,16 +512,17 @@ class WorkflowValidator:
                         node_id=node_id, context={"member": member},
                     ))
 
-            # 封闭性：体成员的所有出边 target 必须仍在 body 内
+            # 封闭性：体成员的所有出边 target 必须仍在 body 内——唯一例外是
+            # 回边（体尾 → 所属 loop，连线驱动交互的循环闭合表达）。
             for member in body:
                 for edge in self._out_edges.get(member, []):
                     tgt = edge.get("target", "")
-                    if tgt and tgt not in body_set:
+                    if tgt and tgt not in body_set and tgt != node_id:
                         issues.append(ValidationIssue(
                             severity=ValidationSeverity.ERROR, code="LOOP_BODY_NOT_CLOSED",
                             message=(
-                                f"循环体成员 '{member}' 的下游 '{tgt}' 在 body 之外——"
-                                "循环出口由 loop 节点的下游接线接管，体成员不得旁路"
+                                f"循环体成员 '{member}' 的下游 '{tgt}' 在循环之外——"
+                                "循环里的节点不能连到循环外（要结束循环请由循环节点向下连线）"
                             ),
                             node_id=member, context={"target": tgt, "loop": node_id},
                         ))

@@ -31,6 +31,7 @@ import {
   type AgentInfo,
 } from '../features/workflow-editor/agent-info'
 import type { WorkflowNode } from '../services/types'
+import { materializeLoopBodies } from '../features/workflow-editor/utils/loop-derive'
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution'
 import { usePermission } from '../hooks/use-permission'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
@@ -202,7 +203,9 @@ export function WorkflowDesigner({
       // (Workflow.name has min_length=1).
       name: nameDraft.trim() || workflowDetail.name,
       description: workflowDetail.description,
-      nodes,
+      // loop 节点的循环体从画布连线自动推导物化（用户零概念配置）：
+      // 体尾连回循环节点 = 回边，推导结果写入 config.body/body_entry
+      nodes: materializeLoopBodies(nodes),
     })
   }, [selectedWorkflowId, workflowDetail, nameDraft, nodes, saveMutation])
 
