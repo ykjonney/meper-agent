@@ -283,3 +283,23 @@ def test_my_new_rule():
 - `backend/app/services/workflow_service.py` — 保存时验证
 - `backend/app/engine/workflow/engine.py` — 执行前验证
 - `backend/tests/test_workflow_validator.py` — 测试用例
+
+## Loop 节点校验（M3，ADR 见 `loop-node-adr.md`）
+
+loop 节点 = 受控循环（闭包子图），config：`{body: [...], body_entry, max_iterations(1..20), converge_expr?}`。
+循环体成员的下游必须封闭在体内（出口由 loop 节点的下游接线接管）；体本身必须是 DAG（循环由 loop 驱动而非回边表达）。
+收敛表达式为 Jinja2 布尔表达式，**比较运算须整体在花括号内**：`{{ critic.verdict == 'approve' }}`（`{{x}} == 'y'` 会被渲染成非空字符串恒真）。
+
+| 错误码 | 级别 | 条件 |
+|---|---|---|
+| `LOOP_BODY_EMPTY` | ERROR | body 为空或成员节点不存在 |
+| `LOOP_ENTRY_NOT_IN_BODY` | ERROR | body_entry 不是 body 成员 |
+| `LOOP_MAX_ITERATIONS_RANGE` | ERROR | max_iterations 不在 1..20 |
+| `LOOP_NESTED_NOT_SUPPORTED` | ERROR | body 成员含 loop 节点（嵌套循环暂不支持） |
+| `LOOP_STRUCTURAL_NODE_IN_BODY` | ERROR | body 成员含 start/end（结构性节点不可入体） |
+| `LOOP_BODY_NOT_CLOSED` | ERROR | 体成员的下游指向 body 之外（不得旁路） |
+| `LOOP_BODY_CYCLE` | ERROR | body 内部存在环（体应是 DAG） |
+| `LOOP_CONVERGE_REF_INVALID` | ERROR | 收敛表达式引用非 body 成员且非 loop 上游 |
+| `LOOP_FORWARD_REF` | ERROR | 体成员引用所属 loop 的输出键（iterations/converged/rounds，循环结束才定稿）；当前轮号用 `{{system.loop_round}}` |
+
+运行时语义：体成员变量引用循环前上游合法（loop→body_entry 虚拟边保证拓扑上游）；体内每轮写裸键（=最新轮）+ `loop.rounds[N]` 不可变历史；每轮完成写 progress checkpoint（崩溃从最后完成轮续跑）。

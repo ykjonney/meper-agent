@@ -54,6 +54,11 @@ class WorkflowEngine:
         self._completed_nodes: set[str] = set()
         # 节点边界取消时记录当前将要执行（但尚未执行）的节点，供 except 保存 checkpoint
         self._pending_node_id: str = ""
+        # 当前正在执行的 loop 节点（体内取消/暂停的 checkpoint 需带 loop 位置）
+        self._active_loop_node: str = ""
+        # resume 时从 checkpoint 恢复的 loop 位置/类型（loop 分支据此续轮）
+        self._checkpoint_loop_state: dict[str, Any] = {}
+        self._checkpoint_kind: str = ""
 
     # ── Public API ──
 
@@ -313,6 +318,15 @@ class WorkflowEngine:
                 timeline_data={"output": _strip_file_content(final_output)},
             )
 
+            # 清除 loop 轮间 progress checkpoint（防止完成后的重投递误入
+            # resume；正常执行本无 checkpoint，loop 引入轮间持久后必须清）
+            from app.db.mongodb import get_database
+
+            await get_database()["tasks"].update_one(
+                {"_id": self._task_id, "checkpoint": {"$ne": None}},
+                {"$set": {"checkpoint": None, "updated_at": utc_now()}},
+            )
+
             return final_output
 
         except WorkflowPausedError:
@@ -494,6 +508,10 @@ class WorkflowEngine:
         self._completed_nodes = set(checkpoint_data.get("completed_nodes", []))
         agent_thread_id = checkpoint_data.get("agent_thread_id", "")
         human_context = checkpoint_data.get("human_context", {})
+        # loop 恢复上下文：kind 区分 progress（轮末进度，恢复起点轮的半成品
+        # 键要清）与 pause（体内暂停，已完成键保留靠轮次键跳过续跑）
+        self._checkpoint_loop_state = checkpoint_data.get("loop_state") or {}
+        self._checkpoint_kind = checkpoint_data.get("kind") or "pause"
         # 判断 checkpoint 类型：
         # - agent_thread_id 非空 → agent 中途取消（需 Command(resume) 续接）
         # - human_context 非空 → Human 节点暂停（节点已完成，恢复下游）
@@ -545,7 +563,32 @@ class WorkflowEngine:
         )
 
         try:
-            if agent_thread_id:
+            loop_node_id = str(self._checkpoint_loop_state.get("loop_node_id") or "")
+            if loop_node_id and loop_node_id in self._node_map:
+                # ── Resume inside a loop body（统一入口，ADR §5）──
+                # 无论 progress（轮末崩溃）/体内 human 审批/体内 agent 取消，
+                # 都重入 loop 节点：轮次由 _checkpoint_loop_state 驱动，体内
+                # 已完成节点靠轮次键跳过，从断点沿 next 链自然续跑。
+                resume_round = max(1, int(self._checkpoint_loop_state.get("round") or 1))
+                if is_human_pause:
+                    # human 已审批：标记完成（轮次键），loop 重入时跳过
+                    self._completed_nodes.add(f"{paused_node_id}#r{resume_round}")
+                if agent_thread_id:
+                    # agent 中断：注入 resume thread flag（executor 用
+                    # Command(resume) 续接完整上下文）
+                    self._pool.set(
+                        "system",
+                        {
+                            **(self._pool.get("system") or {}),
+                            "resume_agent_thread_id": agent_thread_id,
+                        },
+                    )
+                await self._execute_node(loop_node_id)
+                await db["tasks"].update_one(
+                    {"_id": task_id},
+                    {"$set": {"checkpoint": None, "updated_at": utc_now()}},
+                )
+            elif agent_thread_id:
                 # ── Resume after agent cancellation ──
                 # Inject the agent_thread_id into system variables so
                 # AgentNodeExecutor detects it and calls resume_agent()
@@ -734,7 +777,10 @@ class WorkflowEngine:
                     node_id=node_id,
                 )
 
-    async def _save_cancel_checkpoint(self, node_id: str, agent_thread_id: str = "") -> None:
+    async def _save_cancel_checkpoint(
+        self, node_id: str, agent_thread_id: str = "",
+        loop_state: dict[str, Any] | None = None,
+    ) -> None:
         """Persist a checkpoint so the workflow can resume after cancellation.
 
         Records the node that was executing when cancellation was detected,
@@ -750,6 +796,8 @@ class WorkflowEngine:
             completed_nodes=list(self._completed_nodes),
             variable_snapshot=self._pool.snapshot() if self._pool else {},
             agent_thread_id=agent_thread_id,
+            kind="pause",
+            loop_state=loop_state or {},
         )
         safe_snapshot = json.loads(
             json.dumps(
@@ -814,6 +862,44 @@ class WorkflowEngine:
                     raise err
         raise errors[0]
 
+    async def _save_progress_checkpoint(self, loop_node_id: str, next_round: int) -> None:
+        """loop 每轮完成即写的进度 checkpoint（kind=progress）。
+
+        长程稳定性硬规范（ADR loop-node-adr.md）：轮是恢复的最小持久单位，
+        进程崩溃/Celery 重投递后 run_and_persist 见 checkpoint 走
+        resume_from_checkpoint → 重入 loop 节点从 next_round 续跑。
+        正常完成后由 execute_task 完成路径清除，不影响暂停语义。
+        """
+        from app.db.mongodb import get_database
+
+        checkpoint = Checkpoint(
+            kind="progress",
+            paused_at_node=loop_node_id,
+            completed_nodes=list(self._completed_nodes),
+            variable_snapshot=self._pool.snapshot() if self._pool else {},
+            loop_state={"loop_node_id": loop_node_id, "round": next_round},
+        )
+        safe_snapshot = json.loads(
+            json.dumps(
+                self._pool.snapshot() if self._pool else {},
+                default=str, ensure_ascii=False,
+            )
+        )
+        await get_database()["tasks"].update_one(
+            {"_id": self._task_id},
+            {
+                "$set": {
+                    "checkpoint": checkpoint.model_dump(mode="json"),
+                    "variables": safe_snapshot,
+                    "updated_at": utc_now(),
+                }
+            },
+        )
+        logger.debug(
+            "loop_progress_checkpoint_saved",
+            task_id=self._task_id, loop=loop_node_id, next_round=next_round,
+        )
+
     # ── Internal: DAG execution ──
 
     def _find_start_nodes(self) -> list[str]:
@@ -859,15 +945,22 @@ class WorkflowEngine:
             if next_nodes:
                 config["next_nodes"] = next_nodes
 
-    async def _execute_node(self, node_id: str) -> NodeResult | None:
+    async def _execute_node(self, node_id: str, loop_round: int = 0) -> NodeResult | None:
         """Execute a single node and its downstream dependencies.
+
+        Args:
+            node_id: The node to execute.
+            loop_round: 非 0 = 当前在 loop 体的第 N 轮内执行。completed 键
+                用轮次限定形式 ``node_id#rN``（同轮防重入/跨轮可重跑），
+                timeline 事件携带轮次；变量池仍写裸键（=最新轮）。
 
         Returns the node result, or ``None`` if already executed / skipped.
         """
-        # Cooperative cancellation: check DB flag at every node boundary.
+        # Cooperative cancellation + token budget: check DB at every node boundary.
         await self._check_cancelled(node_id)
 
-        if node_id in self._completed_nodes:
+        completed_key = f"{node_id}#r{loop_round}" if loop_round else node_id
+        if completed_key in self._completed_nodes:
             return None
 
         node = self._node_map.get(node_id)
@@ -882,7 +975,10 @@ class WorkflowEngine:
         await TaskService.append_timeline_event(
             task_id=self._task_id,
             event_type="node_start",
-            data={"node_id": node_id, "node_type": node_type},
+            data={
+                "node_id": node_id, "node_type": node_type,
+                **({"round": loop_round} if loop_round else {}),
+            },
         )
 
         # Get executor — system variables (task_id, user_id, etc.) are
@@ -905,7 +1001,10 @@ class WorkflowEngine:
         # can use Command(resume) to continue the agent with full continuity.
         if result.error_code == "AGENT_INTERRUPTED":
             agent_thread_id = getattr(executor, "agent_thread_id", "")
-            await self._save_cancel_checkpoint(node_id, agent_thread_id)
+            await self._save_cancel_checkpoint(
+                node_id, agent_thread_id,
+                loop_state={"loop_node_id": self._active_loop_node, "round": loop_round or 1},
+            )
             self._cancel_checkpoint_saved = True  # prevent double-save in except
             raise WorkflowCancelledError(node_id=node_id, node_type=node_type)
 
@@ -914,14 +1013,19 @@ class WorkflowEngine:
             if self._pool is not None:
                 self._pool.set(node_id, result.output)
 
-            self._completed_nodes.add(node_id)
+            self._completed_nodes.add(completed_key)
 
             # Record node complete (include agent token usage for timeline display)
             node_usage = result.output.get("usage") or {}
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_complete",
-                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output), "usage": node_usage},
+                data={
+                    "node_id": node_id, "node_type": node_type,
+                    "output_summary": _summarise_output(result.output),
+                    "usage": node_usage,
+                    **({"round": loop_round} if loop_round else {}),
+                },
             )
             # Accumulate task-level token total onto the Task document immediately
             # ($inc per agent node, so pause/resume doesn't lose pre-pause usage).
@@ -955,6 +1059,11 @@ class WorkflowEngine:
                     paused_at_node=node_id,
                     completed_nodes=list(self._completed_nodes),
                     variable_snapshot=self._pool.snapshot() if self._pool else {},
+                    kind="pause",
+                    loop_state=(
+                        {"loop_node_id": self._active_loop_node, "round": loop_round or 1}
+                        if self._active_loop_node else {}
+                    ),
                     human_context={
                         "node_id": node_id,
                         "title": result.output.get("title", ""),
@@ -1012,7 +1121,7 @@ class WorkflowEngine:
             # gateway 按条件选路；agent 节点配置了 insufficient_branch 时
             # abort_workflow 触发同样走 selected_branch（澄清分支而非硬失败）。
             if result.selected_branch:
-                await self._execute_node(result.selected_branch)
+                await self._execute_node(result.selected_branch, loop_round=loop_round)
                 return result
 
             # Handle parallel: execute all branch start nodes
@@ -1022,7 +1131,10 @@ class WorkflowEngine:
                 join_count = result.output.get("join_count")
                 branch_ids = result.output.get("branches", [])
 
-                coros = [self._execute_node(sn) for sn in start_nodes.values() if sn]
+                coros = [
+                    self._execute_node(sn, loop_round=loop_round)
+                    for sn in start_nodes.values() if sn
+                ]
 
                 # race 是 any 的别名（取最快结果 = 任一完成即可）
                 effective_strategy = "any" if join_strategy == "race" else join_strategy
@@ -1065,6 +1177,108 @@ class WorkflowEngine:
                 )
                 return result
 
+            # ── Loop：受控循环（ADR docs/loop-node-adr.md §5）──
+            # 闭包子图由 body_entry 递归执行（_execute_node 透传 loop_round，
+            # completed 键 node#rN 同轮防重入/跨轮可重跑）；变量池写裸键
+            # （=最新轮），每轮末快照进 loop.rounds[N]（不可变历史）。
+            # 恢复：loop_state.round = 需要开始/继续的轮（progress 存下一轮
+            # 起点；体内暂停存当前轮——该轮已完成节点靠轮次键跳过）。
+            # 长程稳定性硬规范：每轮完成即写 progress checkpoint，崩溃/重
+            # 投递从最后完成轮续跑，绝不从头重跑。
+            if node_type == "loop":
+                body = [m for m in (node_config.get("body") or []) if isinstance(m, str) and m]
+                body_set = set(body)
+                body_entry = str(node_config.get("body_entry") or "").strip()
+                try:
+                    max_iterations = int(node_config.get("max_iterations") or 1)
+                except (TypeError, ValueError):
+                    max_iterations = 1
+                converge_expr = str(node_config.get("converge_expr") or "").strip()
+
+                # 恢复起点：checkpoint.loop_state 匹配本 loop 时取其 round，
+                # 并清掉 start_round 及之后的半成品轮次键（该轮重跑）
+                start_round = 1
+                saved_loop = self._pool.get(node_id)
+                loop_output: dict[str, Any] = (
+                    dict(saved_loop) if isinstance(saved_loop, dict) else {}
+                )
+                loop_output.setdefault("rounds", {})
+                restored = self._checkpoint_loop_state or {}
+                if restored.get("loop_node_id") == node_id:
+                    start_round = max(1, int(restored.get("round") or 1))
+                    if self._checkpoint_kind == "progress":
+                        # progress（轮末崩溃恢复）：清 start_round 及之后的
+                        # 半成品轮次键（该轮重跑）。pause 不清——体内已完成的
+                        # 节点（如已审批的 human）靠轮次键跳过续跑。
+                        stale = {
+                            k for k in self._completed_nodes
+                            if "#r" in k and int(k.rsplit("#r", 1)[-1] or 0) >= start_round
+                        }
+                        self._completed_nodes -= stale
+
+                self._active_loop_node = node_id
+                try:
+                    rnd = start_round
+                    while rnd <= max_iterations:
+                        await TaskService.append_timeline_event(
+                            task_id=self._task_id,
+                            event_type="loop_round_start",
+                            data={"node_id": node_id, "round": rnd, "max_iterations": max_iterations},
+                        )
+                        # 当前轮号注入 system（体内 agent 的 fresh
+                        # thread_policy 据此构建 _rN thread）
+                        sys_vars = self._pool.get("system") or {}
+                        self._pool.set("system", {**sys_vars, "loop_round": rnd, "loop_node": node_id})
+
+                        await self._execute_node(body_entry, loop_round=rnd)
+
+                        # 轮末：rounds 快照（不可变历史）+ loop 键更新（裸键）
+                        loop_output["iterations"] = rnd
+                        loop_output["rounds"][str(rnd)] = {
+                            m: self._pool.get(m)
+                            for m in body_set if self._pool.get(m) is not None
+                        }
+                        # 收敛判定（求值失败视为未收敛，跑满上限诚实结束）
+                        converged = False
+                        if converge_expr:
+                            try:
+                                converged = ExpressionEngine(
+                                    self._pool.get_all() if self._pool else {},
+                                ).resolve_bool(converge_expr)
+                            except Exception as exc:
+                                logger.warning(
+                                    "loop_converge_eval_failed",
+                                    task_id=self._task_id, node_id=node_id,
+                                    round=rnd, error=str(exc),
+                                )
+                        loop_output["converged"] = converged
+                        if self._pool is not None:
+                            self._pool.set(node_id, dict(loop_output))
+
+                        await TaskService.append_timeline_event(
+                            task_id=self._task_id,
+                            event_type="loop_round_complete",
+                            data={
+                                "node_id": node_id, "round": rnd,
+                                "converged": converged,
+                            },
+                        )
+                        # 每轮完成即写 progress checkpoint（round=下一轮起点）
+                        await self._save_progress_checkpoint(node_id, rnd + 1)
+                        if converged:
+                            break
+                        rnd += 1
+                finally:
+                    self._active_loop_node = ""
+
+                logger.debug(
+                    "loop_complete",
+                    node_id=node_id,
+                    iterations=loop_output.get("iterations", 0),
+                    converged=loop_output.get("converged", False),
+                )
+                return result
+
             # Follow outgoing edges — prefer config.next_nodes, fallback to legacy edges
             next_nodes = node_config.get("next_nodes")
             if next_nodes:
@@ -1076,7 +1290,7 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
-                    await self._execute_node(target_id)
+                    await self._execute_node(target_id, loop_round=loop_round)
             else:
                 # Legacy fallback: read from workflow-level edges
                 outgoing = self._out_edges.get(node_id, [])
@@ -1087,11 +1301,11 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
-                    await self._execute_node(target_id)
+                    await self._execute_node(target_id, loop_round=loop_round)
 
         else:
             # Node failed — propagate error
-            self._completed_nodes.add(node_id)
+            self._completed_nodes.add(completed_key)
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_failed",

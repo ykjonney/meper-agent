@@ -686,7 +686,14 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # 避免残留消息导致 "multiple non-consecutive system messages"。
         import time as _time
 
-        _thread_id = f"{task_id}_{self.node_id}"
+        # loop_thread_policy（仅体内生效）：continue=跨轮同 thread 续接
+        # （记得每稿与批评，辩论 writer 默认）；fresh=每轮新 thread（critic
+        # 不被自己上轮发言锚定）。轮号由引擎注入 system.loop_round。
+        _loop_round = int(sys_vars.get("loop_round") or 0)
+        if self.node_config.get("loop_thread_policy") == "fresh" and _loop_round:
+            _thread_id = f"{task_id}_{self.node_id}_r{_loop_round}"
+        else:
+            _thread_id = f"{task_id}_{self.node_id}"
 
         # ── 恢复路径：若 checkpoint 中有 agent_thread_id，说明此 agent 节点
         # 之前被取消（interrupt 挂起），用 Command(resume) 续接 REACT 循环，
@@ -1853,6 +1860,38 @@ class ParallelNodeExecutor(BaseNodeExecutor):
         )
 
 
+# ── Loop ──
+
+
+class LoopNodeExecutor(BaseNodeExecutor):
+    """Loop 节点执行器——仅校验并回显配置，循环由引擎驱动（同 parallel 模式）。
+
+    Config（ADR docs/loop-node-adr.md §3）::
+
+        {
+            "body": ["writer", "critic"],   # 体成员
+            "body_entry": "writer",          # 体入口
+            "max_iterations": 5,             # 硬上限 1..20
+            "converge_expr": "..." | null,   # 收敛表达式（null=跑满轮数）
+        }
+
+    轮次循环/轮次键/rounds 快照/progress checkpoint 全部在
+    WorkflowEngine._execute_node 的 loop 分支实现。
+    """
+
+    async def execute(self, variables: dict[str, Any]) -> NodeResult:
+        body = [m for m in (self.node_config.get("body") or []) if isinstance(m, str) and m]
+        return NodeResult(
+            success=True,
+            output={
+                "body": body,
+                "body_entry": str(self.node_config.get("body_entry") or ""),
+                "max_iterations": self.node_config.get("max_iterations", 1),
+                "converge_expr": self.node_config.get("converge_expr"),
+            },
+        )
+
+
 # ── Subflow ──
 
 
@@ -1990,6 +2029,7 @@ _NODE_EXECUTOR_MAP: dict[str, type[BaseNodeExecutor]] = {
     "agent": AgentNodeExecutor,
     "tool": ToolNodeExecutor,
     "gateway": GatewayNodeExecutor,
+    "loop": LoopNodeExecutor,
     "human": None,  # lazy-loaded in get_node_executor to avoid circular import
     "parallel": ParallelNodeExecutor,
     "subflow": SubflowNodeExecutor,

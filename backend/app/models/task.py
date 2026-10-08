@@ -81,6 +81,12 @@ class Checkpoint(BaseModel):
     # 取消（暂停）时被中断的 Agent 节点的 LangGraph thread_id。
     # 恢复时用 Command(resume) 续接该 thread，保持 REACT 循环上下文连贯。
     agent_thread_id: str = ""
+    # checkpoint 类型：pause=暂停（human/取消，等待干预，默认兼容旧数据）；
+    # progress=loop 轮间进度（每轮完成即写，崩溃/重投递后从最后完成轮续跑，
+    # 绝不从头重跑——ADR loop-node-adr.md 长程稳定性硬规范）。
+    kind: str = "pause"
+    # progress 专属：当前 loop 的续跑位置 {loop_node_id, round=最后完整轮}。
+    loop_state: dict[str, Any] = Field(default_factory=dict)
 
 
 class Task(BaseModel):
