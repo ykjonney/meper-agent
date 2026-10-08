@@ -719,6 +719,46 @@ class WorkflowEngine:
             agent_thread_id=agent_thread_id,
         )
 
+    async def _propagate_branch_exceptions(
+        self,
+        done: set[asyncio.Task],
+        pending: set[asyncio.Task] | None = None,
+    ) -> None:
+        """Propagate exceptions raised inside parallel branch coroutines.
+
+        ``asyncio.wait`` / ``gather(return_exceptions=True)`` 都不会主动抛出
+        分支协程的异常——分支失败（WorkflowNodeError）、并行分支内 human 暂停
+        （WorkflowPausedError）、取消（WorkflowCancelledError）若不在此显式传播
+        会被静默吞掉，导致 Task 状态与实际执行不一致：如暂停被吞后 Task 已转
+        WAITING_HUMAN 却继续执行 join 下游、最终又被覆盖为 COMPLETED；分支失败
+        被吞则工作流以"成功"收场（静默丢结果）。
+
+        传播优先级：Cancelled > Paused > 分支失败。暂停优先于失败是因为 human
+        分支已把 Task 转为 WAITING_HUMAN 并写入 checkpoint，若先抛失败，外层
+        会把状态覆盖成 FAILED，与已持久化的暂停现场冲突。
+
+        Args:
+            done: 已完成的分支任务集合，检查其中的异常。
+            pending: 抛出异常前需要 cancel 的未完成分支，防止孤儿协程在异常
+                传播后继续执行并写库。默认无。
+        """
+        errors: list[BaseException] = []
+        for t in done:
+            if t.cancelled():
+                continue
+            exc = t.exception()
+            if exc is not None:
+                errors.append(exc)
+        if not errors:
+            return
+        for t in pending or ():
+            t.cancel()
+        for priority_type in (WorkflowCancelledError, WorkflowPausedError):
+            for err in errors:
+                if isinstance(err, priority_type):
+                    raise err
+        raise errors[0]
+
     # ── Internal: DAG execution ──
 
     def _find_start_nodes(self) -> list[str]:
@@ -932,15 +972,19 @@ class WorkflowEngine:
                 # race 是 any 的别名（取最快结果 = 任一完成即可）
                 effective_strategy = "any" if join_strategy == "race" else join_strategy
 
+                # 分支异常（失败/暂停/取消）由 _propagate_branch_exceptions 统一
+                # 传播——asyncio.wait 与 gather(return_exceptions=True) 都不会
+                # 主动抛出分支协程的异常，不显式传播会被静默吞掉。
                 if effective_strategy == "any":
                     # any: wait for first completion, cancel the rest
                     tasks = [asyncio.ensure_future(c) for c in coros]
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     for t in pending:
                         t.cancel()
-                    list(done)  # consume results
+                    await self._propagate_branch_exceptions(done, pending)
                 elif effective_strategy == "n-of-m" and join_count and join_count > 0:
-                    # n-of-m: wait until join_count branches complete
+                    # n-of-m: wait until join_count branches complete.
+                    # 异常完成的分支即时传播（不计入 join_count）。
                     tasks = [asyncio.ensure_future(c) for c in coros]
                     done_tasks: set[asyncio.Task] = set()
                     pending_tasks = set(tasks)
@@ -949,12 +993,14 @@ class WorkflowEngine:
                             pending_tasks, return_when=asyncio.FIRST_COMPLETED,
                         )
                         done_tasks.update(newly_done)
+                        await self._propagate_branch_exceptions(newly_done, pending_tasks)
                     for t in pending_tasks:
                         t.cancel()
-                    list(done_tasks)
                 else:
                     # all (default): wait for all branches
-                    await asyncio.gather(*coros, return_exceptions=True)
+                    tasks = [asyncio.ensure_future(c) for c in coros]
+                    await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+                    await self._propagate_branch_exceptions(set(tasks))
 
                 logger.debug(
                     "parallel_complete",
