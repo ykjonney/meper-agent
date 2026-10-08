@@ -136,6 +136,23 @@ gateway 分支，甚至嵌套 parallel）；**封闭性由校验保证**（体�
 # {{loop.converged}} / {{loop.iterations}}）。
 ```
 
+**body 成员类型约束**（writer/critic 仅为辩论示例，非固定）：
+
+| 类型 | 可入 body | 说明 |
+|---|---|---|
+| `agent` | ✅ | 主力：辩论/迭代改进（thread_policy 差异化续接/隔离） |
+| `tool` / `kb_search` | ✅ | 每轮加工/检索（映射式场景） |
+| `gateway` | ✅ | 体内条件路由（如按上轮结果走不同加工分支） |
+| `parallel` | ✅ | 体内并行（ADR §7.3 需测试确认收敛表达式取值） |
+| `human` | ✅ | 每轮人工审核（恢复语义已设计：`paused_at_node#rN` + loop_state） |
+| `subflow` | ✅ | 每轮调用一次子工作流（每轮独立 Task/超时，语义自洽） |
+| `loop` | ❌ | 嵌套循环（`LOOP_NESTED_NOT_SUPPORTED`，M3 禁） |
+| `start` / `end` | ❌ | 结构性节点：start 全局唯一入口；end 在体内会提前终止工作流，语义混乱，禁 |
+
+典型组合示例：辩论 `agent→agent`；迭代加工 `agent→tool→agent`；
+带人审的迭代 `agent→human`；批量映射 `agent`（converge_expr=None 跑满轮数，
+每轮输入由表达式从外部数据源按 `{{loop.iterations}}` 取不同项）。
+
 **输出**（写入变量池 `loop` 键）：
 `{iterations: int, converged: bool, rounds: {N: {<node_id>: <output>}}}`
 
