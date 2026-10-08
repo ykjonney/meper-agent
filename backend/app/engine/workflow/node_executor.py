@@ -627,22 +627,18 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
-            # ── 子 agent 委派池（M1/M2 合并语义：继承 + 节点收紧）──
-            # 委派池是 agent 定义级能力（subagent_ids，chat/工作流一致）；
-            # 节点 config.subagents 仅在需要收紧时显式配置（覆盖为子集），
-            # 与 context 卡槽/temperature 的"agent 决定默认、节点可覆盖"同模式。
-            # 未配置 → 继承 agent.subagent_ids，零重复配置。
+            # ── 子 agent 委派池：agent 定义级（subagent_ids），节点不单独配置 ──
+            # 能力跟随 agent 定义（与工具/KB/MCP 同模式），chat/工作流行为一致；
+            # 治理入口在 Agent 编辑页（published-only、自引用排除）。
             # 公共拉取（load_subagent_bundles）：draft/archived/不存在/重复
             # 静默跳过（节点照常执行）。bundles 传 invoke（装配 SubAgentContext
             # + 注入 delegate 工具），decls 传工具声明（同源防漂移）。
-            subagents_cfg = self.node_config.get("subagents")
-            if subagents_cfg is None:
-                subagents_cfg = agent_doc.get("subagent_ids") or []
-            if isinstance(subagents_cfg, list) and subagents_cfg:
+            sub_ids = agent_doc.get("subagent_ids") or []
+            if isinstance(sub_ids, list) and sub_ids:
                 from app.engine.harness_integration.context import load_subagent_bundles
 
                 subagent_bundles, subagent_decls = await load_subagent_bundles(
-                    subagents_cfg, node_id=self.node_id,
+                    sub_ids, node_id=self.node_id,
                     exclude_agent_id=str(agent_id),
                 )
             else:

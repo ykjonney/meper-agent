@@ -135,7 +135,7 @@ Orchestrator-Workers、Evaluator-Optimizer**，外加"workflows（预定义路�
 | 范式 | chat 模式 | workflow 模式 |
 |---|---|---|
 | 1 接力流水线 | ✗（chat 是单 agent 对话） | ✓ 现有能力 |
-| 2 分层委派 | **P0a：Claude Code 式子代理**——主 agent 会话内委派，过程折叠卡片、可中断 | **P0b：agent 节点 config.subagents**，输出契约约束、超时治理 |
+| 2 分层委派 | **P0a：Claude Code 式子代理**——主 agent 会话内委派，过程折叠卡片、可中断 | **P0b：同 agent 定义（subagent_ids）**，输出契约约束、超时治理（实现演进：原设计为节点 config.subagents，落地后简化为 agent 定义级唯一声明——能力跟随 agent 定义，与工具/KB/MCP 同模式，节点零配置） |
 | 3 迭代辩论 | 涌现式：agent 自主连续两次委派（writer→critic），无工程化收敛保证 | **P1：loop 节点**——工程化收敛表达式 + 轮次 checkpoint 恢复 |
 | 4 并行竞争+评审 | 弱形态：`dispatch_workflow` 并行派发 + `task_query`（禁轮询约束下靠确认回调） | **P2：parallel + 黑板 + judge**——工程化 best-of-N |
 | 5 动态编排 | **已有雏形**：`_TASK_TOOLS`，人是实时监督者 | **P3：supervisor 节点** = loop + 泛化委派 |
@@ -464,7 +464,10 @@ harness 已实现 90%，app 层接线。**P0b（workflow 侧）**：
 
 ### 9.2 M1（P0b）：workflow 侧委派接线
 
-**config schema 先行冻结**（前端依赖）：`config.subagents: [{agent_id, max_turns?, timeout_ms?}]`。
+> **实现演进**（落地后修正）：委派池最终简化为 **agent 定义级唯一声明**（`Agent.subagent_ids`，
+> chat/workflow 同源，节点零配置）——原设计的节点级 `config.subagents` 与继承/收紧语义被移除，
+> 理由：agent 的其他能力（工具/KB/MCP/模型）均为定义级，委派池不应例外；治理入口收敛到
+> Agent 编辑页（published-only + 自引用排除）。以下小节保留原设计推演供回溯。
 
 harness 侧（改动跑 `backend/packages/harness/tests/`，不得 import `app.*`）：
 - delegate 返回值携带子图 usage（UsageMiddleware summary 冒泡）
