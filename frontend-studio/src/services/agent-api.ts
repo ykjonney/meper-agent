@@ -37,6 +37,8 @@ export interface Agent {
   builtin_config: string[]
   workflow_ids: string[]
   knowledge_base_ids: string[]
+  /** 可委派子 Agent 池（chat 会话中 delegate_to_subagent 可委派的 published Agent） */
+  subagent_ids: string[]
   /** 自定义工具绑定（openapi/code 官方工具，携带 user_args） */
   custom_tools: CustomToolBinding[]
   default_model: string
@@ -80,6 +82,8 @@ export interface AgentUpdateInput {
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
+  /** 可委派子 Agent 池（仅 published 生效） */
+  subagent_ids?: string[]
   default_model?: string
   /** Enable realtime voice conversations for this Agent. */
   voice_enabled?: boolean

@@ -60,6 +60,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
   const skillsFromBuiltin = (a.builtin_config ?? []).map((b) => `builtin:${b}`)
   const skillsFromWorkflows = (a.workflow_ids ?? []).map((id) => `workflow:${id}`)
   const skillsFromKb = (a.knowledge_base_ids ?? []).map((id) => `kb:${id}`)
+  const skillsFromSubagents = (a.subagent_ids ?? []).map((id) => `subagent:${id}`)
   return {
     id: a.id,
     name: a.name,
@@ -91,7 +92,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
     systemPrompt: a.prompt_slots?.system ?? a.prompt_slots?.system_prompt ?? '',
     status: agentStatusToDisplay(a.status),
     iconColor: DEFAULT_AGENT_ICON_COLOR,
-    skills: [...skillsFromSkillIds, ...skillsFromMcp, ...skillsFromBuiltin, ...skillsFromWorkflows, ...skillsFromKb],
+    skills: [...skillsFromSkillIds, ...skillsFromMcp, ...skillsFromBuiltin, ...skillsFromWorkflows, ...skillsFromKb, ...skillsFromSubagents],
     customTools: (a.custom_tools ?? []).map((b) => ({
       tool_id: b.tool_id,
       user_args: b.user_args ?? {},
@@ -118,6 +119,7 @@ export function fromStudioAgent(a: Agent): {
   builtin_config?: string[]
   workflow_ids?: string[]
   knowledge_base_ids?: string[]
+  subagent_ids?: string[]
   custom_tools?: { tool_id: string; user_args: Record<string, unknown> }[]
   avatar?: string
   max_retry?: number
@@ -129,11 +131,13 @@ export function fromStudioAgent(a: Agent): {
   const builtin_config: string[] = []
   const workflow_ids: string[] = []
   const knowledge_base_ids: string[] = []
+  const subagent_ids: string[] = []
   for (const s of a.skills ?? []) {
     if (s.startsWith('mcp:')) mcp_connection_ids.push(s.slice(4))
     else if (s.startsWith('builtin:')) builtin_config.push(s.slice(8))
     else if (s.startsWith('workflow:')) workflow_ids.push(s.slice(9))
     else if (s.startsWith('kb:')) knowledge_base_ids.push(s.slice(3))
+    else if (s.startsWith('subagent:')) subagent_ids.push(s.slice(10))
     else skill_ids.push(s)
   }
   return {
@@ -169,6 +173,7 @@ export function fromStudioAgent(a: Agent): {
     builtin_config,
     ...(workflow_ids.length ? { workflow_ids } : {}),
     ...(knowledge_base_ids.length ? { knowledge_base_ids } : {}),
+    ...(subagent_ids.length ? { subagent_ids } : {}),
     custom_tools: (a.customTools ?? []).map((b) => ({
       tool_id: b.tool_id,
       user_args: b.user_args ?? {},

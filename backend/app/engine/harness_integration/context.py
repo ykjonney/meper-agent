@@ -538,6 +538,67 @@ async def resolve_all_tools(
     return all_tools, errors
 
 
+async def load_subagent_bundles(
+    subagent_cfgs: list,
+    logger_event: str = "subagent_unavailable",
+    **log_kwargs: Any,
+) -> tuple[list[dict], list[dict]]:
+    """拉取 published 子 agent 文档，组装 bundles + 声明条目（M1/M2 共用）。
+
+    输入兼容两种形态（workflow 节点 config.subagents / chat 侧 agent.subagent_ids）：
+    - [{"agent_id": str, "timeout_ms"?: int}, ...]
+    - ["agent_id", ...]
+
+    published-only：draft/archived/不存在/重复声明一律静默跳过（执行照常，
+    只是少一个可委派对象）——与 spawn 治理同风格：运行时只信任已发布定义。
+
+    Returns:
+        (bundles, decls)——bundles 传 resolve_harness_context 的 subagents
+        参数（装配 SubAgentContext + 注入 delegate 工具）；decls 传
+        build_system_prompt/render_system_prompt_full 的 subagents 参数
+        （工具声明与 registry 同源，防双路径漂移）。
+    """
+    from app.db.mongodb import get_database
+
+    bundles: list[dict] = []
+    decls: list[dict] = []
+    seen_ids: set[str] = set()
+    db = get_database()
+    for item in subagent_cfgs:
+        if isinstance(item, dict):
+            sub_agent_id = str(item.get("agent_id") or "").strip()
+            timeout_ms = int(item.get("timeout_ms") or 120_000)
+        elif isinstance(item, str):
+            sub_agent_id = item.strip()
+            timeout_ms = 120_000
+        else:
+            continue
+        if not sub_agent_id or sub_agent_id in seen_ids:
+            continue
+        seen_ids.add(sub_agent_id)
+        sub_doc = await db["agents"].find_one(
+            {"_id": sub_agent_id, "status": "published"},
+        )
+        if sub_doc is None:
+            logger.warning(
+                logger_event,
+                sub_agent_id=sub_agent_id,
+                reason="not_found_or_not_published",
+                **log_kwargs,
+            )
+            continue
+        sub_name = str(sub_doc.get("name") or "").strip()
+        if not sub_name:
+            continue
+        bundles.append({"agent_doc": sub_doc, "timeout_ms": timeout_ms})
+        sub_desc = str(sub_doc.get("description") or "").strip()
+        decls.append({
+            "name": sub_name,
+            "description": sub_desc or f"专门执行特定任务的子 Agent（{sub_name}）",
+        })
+    return bundles, decls
+
+
 async def _build_subagent_environment(
     subagent_bundles: list[dict],
     state: dict,

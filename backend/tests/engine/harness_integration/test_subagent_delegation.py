@@ -200,3 +200,75 @@ class TestMergeSubagentUsage:
         _merge_subagent_usage(usage, {"subagent_usage": None})
         _merge_subagent_usage(usage, {})
         assert usage == {"total_tokens": 100}
+
+
+# ── load_subagent_bundles（M1/M2 共用拉取，chat 侧 agent.subagent_ids 形态）──
+
+
+def _db_with_agents(docs_by_id: dict) -> MagicMock:
+    """Mongo mock：agents.find_one 按 _id 返回预置文档（模拟 status 查询条件）。"""
+    mock_db = MagicMock()
+    mock_col = MagicMock()
+
+    async def _find(q: dict) -> dict | None:
+        doc = docs_by_id.get(q.get("_id"))
+        if doc is None:
+            return None
+        if "status" in q and doc.get("status") != q["status"]:
+            return None  # 模拟真实查询的 status 过滤（draft 不命中）
+        return doc
+
+    mock_col.find_one = AsyncMock(side_effect=_find)
+    mock_db.return_value.__getitem__.return_value = mock_col
+    return mock_db
+
+
+class TestLoadSubagentBundles:
+    """published-only 拉取 + 两种输入形态兼容。"""
+
+    @pytest.mark.asyncio
+    async def test_dict_and_str_forms_both_supported(self) -> None:
+        from app.engine.harness_integration.context import load_subagent_bundles
+
+        docs = {
+            "a1": {"_id": "a1", "name": "researcher", "description": "查资料", "status": "published"},
+            "a2": {"_id": "a2", "name": "checker", "description": "核事实", "status": "published"},
+        }
+        with patch("app.db.mongodb.get_database", new=_db_with_agents(docs)):
+            bundles, decls = await load_subagent_bundles(
+                [{"agent_id": "a1", "timeout_ms": 60_000}, "a2"],
+            )
+
+        assert [b["agent_doc"]["name"] for b in bundles] == ["researcher", "checker"]
+        assert bundles[0]["timeout_ms"] == 60_000
+        assert bundles[1]["timeout_ms"] == 120_000  # str 形态默认
+        assert [d["name"] for d in decls] == ["researcher", "checker"]
+
+    @pytest.mark.asyncio
+    async def test_published_only_and_dedup(self) -> None:
+        """draft 跳过、不存在跳过、重复声明去重；空名跳过。"""
+        from app.engine.harness_integration.context import load_subagent_bundles
+
+        docs = {
+            "pub": {"_id": "pub", "name": "ok", "status": "published"},
+            "draft": {"_id": "draft", "name": "nope", "status": "draft"},
+            "blank": {"_id": "blank", "name": "", "status": "published"},
+        }
+        with patch("app.db.mongodb.get_database", new=_db_with_agents(docs)):
+            bundles, decls = await load_subagent_bundles(
+                ["pub", "draft", "missing", "blank", "pub"],
+            )
+
+        assert [b["agent_doc"]["_id"] for b in bundles] == ["pub"]
+        assert len(decls) == 1
+        # 空 description 兜底（委派声明里没有说明的子 agent 会被 LLM 冷落）
+        assert decls[0]["description"]
+
+    @pytest.mark.asyncio
+    async def test_empty_description_falls_back(self) -> None:
+        from app.engine.harness_integration.context import load_subagent_bundles
+
+        docs = {"a1": {"_id": "a1", "name": "helper", "description": "", "status": "published"}}
+        with patch("app.db.mongodb.get_database", new=_db_with_agents(docs)):
+            _, decls = await load_subagent_bundles(["a1"])
+        assert "helper" in decls[0]["description"]

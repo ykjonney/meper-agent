@@ -81,6 +81,13 @@ class Agent(BaseModel):
     builtin_config: list[str] = Field(default_factory=list)
     workflow_ids: list[str] = Field(default_factory=list)
     knowledge_base_ids: list[str] = Field(default_factory=list)
+    subagent_ids: list[str] = Field(
+        default_factory=list,
+        description="chat 侧可委派子 Agent 池（分层委派，M2）：会话中本 Agent 可用 "
+        "delegate_to_subagent 把自包含子任务委派给这些 published Agent（结论回传、"
+        "过程隔离、子图 usage 计入会话账本）。仅 published 可用；workflow 侧的"
+        "委派池由 agent 节点 config.subagents 单独声明",
+    )
     default_model: str = Field(default="", description="Model reference (model_xxx ULID or plain name)")
     voice_enabled: bool = Field(
         default=False,

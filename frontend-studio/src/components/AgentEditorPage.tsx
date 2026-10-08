@@ -102,6 +102,16 @@ export function AgentEditorPage({
   });
   const knowledgeBases = kbData?.items ?? [];
 
+  // 可委派子 Agent 候选：published Agents（排除自身——委派池只信任已发布
+  // 定义，运行时 load_subagent_bundles 同口径过滤）。
+  const { data: subagentsData } = useQuery({
+    queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
+    queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
+  });
+  const subagentCandidates = (subagentsData?.items ?? []).filter(
+    (a) => a.id !== agentId,
+  );
+
   // 自定义工具候选：组织库「已开启」工具全集（官方 active + uto_ published&enabled）。
   // 凭证为工具级统一配置（admin 维护），绑定只需选工具——勾选即绑。
   const { data: enabledToolsData } = useQuery({
@@ -866,6 +876,17 @@ export function AgentEditorPage({
           <ToolGroup title="知识库 (Knowledge Base)" hint={knowledgeBases.length === 0 ? '无知识库' : undefined}>
             {knowledgeBases.map((kb) => (
               <ToolChip key={`kb:${kb.id}`} label={kb.name} checked={form.skills.includes(`kb:${kb.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `kb:${kb.id}`) })} />
+            ))}
+          </ToolGroup>
+          <ToolGroup
+            title="可委派子 Agent (Sub-Agents)"
+            hint={subagentCandidates.length === 0 ? '无可选的已发布 Agent' : undefined}
+          >
+            <div className="w-full text-[11px] text-[#71717a] mb-1">
+              勾选后，对话中该 Agent 可把自包含子任务委派给所选 Agent（独立上下文与工具、只回传结论、子任务消耗计入本会话 Token）。仅已发布 Agent 可选。
+            </div>
+            {subagentCandidates.map((a) => (
+              <ToolChip key={`subagent:${a.id}`} label={a.name} checked={form.skills.includes(`subagent:${a.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `subagent:${a.id}`) })} />
             ))}
           </ToolGroup>
           <ToolGroup title="自定义工具 (OpenAPI / Code)" hint={customToolCandidates.length === 0 ? '暂无已开启的工具——需在工具库中开启' : undefined}>

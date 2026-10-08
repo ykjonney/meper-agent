@@ -167,6 +167,10 @@ class AgentUpdate(BaseModel):
         default_factory=list,
         description="绑定的知识库 ID",
     )
+    subagent_ids: list[str] = Field(
+        default_factory=list,
+        description="可委派子 Agent 池（chat 会话中可用 delegate_to_subagent 委派；仅 published 生效）",
+    )
     default_model: str = Field(
         default="",
         description="绑定的 Model ID（model_xxx ULID 或纯模型名）",
@@ -238,6 +242,7 @@ class AgentResponse(BaseModel):
     mcp_connection_ids: list[str]
     builtin_config: list[str]
     workflow_ids: list[str]
+    subagent_ids: list[str] = Field(default_factory=list, description="可委派子 Agent 池")
     custom_tool_ids: list[str] = Field(default_factory=list)
     custom_tools: list[CustomToolBinding] = Field(
         default_factory=list,
