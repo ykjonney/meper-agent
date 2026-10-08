@@ -134,6 +134,7 @@ async def create_task(
         created_by=current_user.id,
         created_by_type="user",
         scheduled_at=body.scheduled_at,
+        token_budget=body.token_budget,
     )
     return _doc_to_full_response(doc)
 

@@ -121,6 +121,7 @@ class TaskService:
         skip_execution: bool = False,
         source: str = "manual",
         trigger_id: str | None = None,
+        token_budget: int = 0,
     ) -> dict:
         """Create a new Task in pending status.
 
@@ -190,6 +191,7 @@ class TaskService:
             scheduled_at=scheduled_at,
             source=source,
             trigger_id=trigger_id,
+            token_budget=token_budget,
             timeline=[e.model_dump() for e in initial_timeline],
             created_at=now,
             updated_at=now,

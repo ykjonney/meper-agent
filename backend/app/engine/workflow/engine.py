@@ -320,6 +320,47 @@ class WorkflowEngine:
             logger.info("workflow_paused", task_id=self._task_id)
             return self._pool.get_all() if self._pool else {}
 
+        except WorkflowTokenBudgetExceededError as exc:
+            # 预算耗尽 → 诚实失败（人工可 intervene retry/resume；retry 清零
+            # 重跑前应调大 token_budget）。timeline 记专属事件供前端标注。
+            logger.warning(
+                "workflow_token_budget_exceeded",
+                task_id=self._task_id,
+                total_tokens=exc.total_tokens,
+                token_budget=exc.token_budget,
+                node_id=exc.node_id,
+            )
+            with contextlib.suppress(Exception):
+                await TaskService.append_timeline_event(
+                    task_id=self._task_id,
+                    event_type="token_budget_exceeded",
+                    data={
+                        "total_tokens": exc.total_tokens,
+                        "token_budget": exc.token_budget,
+                        "node_id": exc.node_id,
+                    },
+                )
+            try:
+                await TaskService.transition_task(
+                    task_id=self._task_id,
+                    to_status=TaskStatus.FAILED,
+                    triggered_by="system",
+                    triggered_by_type="system",
+                    timeline_event_type="failed",
+                    timeline_data={"error": str(exc)},
+                    error_info={
+                        "node_id": exc.node_id,
+                        "node_type": None,
+                        "error_message": str(exc),
+                        "error_code": "TASK_TOKEN_BUDGET_EXCEEDED",
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "budget_fail_transition_failed", task_id=self._task_id,
+                )
+            return self._pool.get_all() if self._pool else {}
+
         except WorkflowCancelledError:
             # Task was cancelled. Two cases:
             # 1. Agent node interrupted → checkpoint already saved by the
@@ -673,11 +714,25 @@ class WorkflowEngine:
         if node_id:
             self._pending_node_id = node_id
 
+        # 同一次查询顺带取 token 预算字段——每个节点边界做工作流级预算
+        # 检查（跨节点累计的护栏；节点内 REACT 循环由 agent 会话级
+        # max_tokens guard 兜底，两者互补）。
         doc = await get_database()["tasks"].find_one(
-            {"_id": self._task_id}, {"status": 1},
+            {"_id": self._task_id},
+            {"status": 1, "total_tokens": 1, "token_budget": 1},
         )
         if doc and doc.get("status") == TaskStatus.CANCELLED.value:
             raise WorkflowCancelledError()
+        budget = int(doc.get("token_budget") or 0) if doc else 0
+        if budget > 0:
+            spent = int(doc.get("total_tokens") or 0) if doc else 0
+            if spent >= budget:
+                raise WorkflowTokenBudgetExceededError(
+                    task_id=self._task_id,
+                    total_tokens=spent,
+                    token_budget=budget,
+                    node_id=node_id,
+                )
 
     async def _save_cancel_checkpoint(self, node_id: str, agent_thread_id: str = "") -> None:
         """Persist a checkpoint so the workflow can resume after cancellation.
@@ -1121,6 +1176,26 @@ class WorkflowPausedError(Exception):
         self.node_type = node_type
         self.pause_message = message
         super().__init__(message)
+
+
+class WorkflowTokenBudgetExceededError(Exception):
+    """工作流级 token 预算耗尽（节点边界检查，诚实终止）。
+
+    与 agent 会话级 TokenBudgetGuard 互补：会话级管单节点 REACT 循环，
+    本预算管跨节点累计（多 agent/委派场景的成本护栏——多 agent ≈ 聊天
+    15x token，预算是必需品而非优化项）。
+    """
+
+    def __init__(
+        self, task_id: str, total_tokens: int, token_budget: int, node_id: str = "",
+    ) -> None:
+        self.task_id = task_id
+        self.total_tokens = total_tokens
+        self.token_budget = token_budget
+        self.node_id = node_id
+        super().__init__(
+            f"Token budget exceeded: {total_tokens}/{token_budget}"
+        )
 
 
 class WorkflowCancelledError(Exception):

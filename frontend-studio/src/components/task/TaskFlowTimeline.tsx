@@ -91,6 +91,8 @@ const EVENT_META: Record<string, { label: string; color: string }> = {
   rewoun: { label: '已退回重跑', color: '#F59E0B' },
   // 子 Agent 委派（M2.1 委派可观测）：data 含 subagent/task/status/rounds
   subagent_delegation: { label: '子 Agent 委派', color: '#8B5CF6' },
+  // 工作流级 token 预算耗尽（M3 前置）：data 含 total_tokens/token_budget
+  token_budget_exceeded: { label: 'Token 预算耗尽', color: '#EF4444' },
 }
 
 /** 审批已完成事件类型集合（用于过滤冗余的 waiting_human / human node_complete） */

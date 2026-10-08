@@ -113,6 +113,10 @@ class Task(BaseModel):
     celery_task_id: str = ""
     # 本次 task 所有 agent 节点累计 token 用量（engine 完成时写回）
     total_tokens: int = Field(default=0, ge=0)
+    # 工作流级 token 预算（跨节点累计，0=不限制）。节点边界检查，超限诚实
+    # 终止（M3 前置：loop 是 token 大户，无预算控制不敢上线迭代范式）。
+    # 与 agent 会话级 max_tokens 互补：那是单节点 REACT 循环内的护栏。
+    token_budget: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

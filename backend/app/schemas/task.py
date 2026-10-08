@@ -17,6 +17,8 @@ class TaskCreate(BaseModel):
     workflow_id: str = Field(..., min_length=1, max_length=100)
     input: dict[str, Any] = Field(default_factory=dict)
     scheduled_at: datetime | None = None
+    # 工作流级 token 预算（0=不限制）：跨节点累计检查，超限任务诚实终止
+    token_budget: int = Field(default=0, ge=0)
 
 
 class TaskIntervene(BaseModel):
