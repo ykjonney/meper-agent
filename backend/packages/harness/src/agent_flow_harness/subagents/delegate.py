@@ -72,6 +72,42 @@ class _DelegateArgs(BaseModel):
     task: str = Field(..., description="委派给子 Agent 的任务描述")
 
 
+_TRACE_TASK_MAX = 200      # task 摘要截断
+_TRACE_ARG_MAX = 150       # 工具参数摘要截断
+_TRACE_RESULT_MAX = 200    # 工具结果摘要截断
+_TRACE_ROUNDS_CAP = 50     # rounds 条数封顶（防 trace 成为膨胀源）
+
+
+def _summarize_delegation_rounds(messages: "list[Any]") -> "list[dict[str, Any]]":
+    """从子图终态 messages 提取过程摘要（LLM 轮次 + 工具调用/结果）。
+
+    子图会话即用即弃（无 checkpointer），终态 messages 是子 agent 过程的
+    唯一载体——在丢弃前提取摘要，供宿主落库审计（委派树可观测）。
+    """
+    rounds: "list[dict[str, Any]]" = []
+    for m in messages:
+        cls = m.__class__.__name__
+        if cls == "AIMessage":
+            tool_calls = getattr(m, "tool_calls", None) or []
+            if tool_calls:
+                for tc in tool_calls:
+                    rounds.append({
+                        "t": "tool_call",
+                        "tool": str(tc.get("name", "")),
+                        "args": str(tc.get("args", {}))[:_TRACE_ARG_MAX],
+                    })
+            else:
+                rounds.append({"t": "llm"})
+        elif cls == "ToolMessage":
+            content = m.content if isinstance(m.content, str) else str(m.content)
+            rounds.append({
+                "t": "tool_result",
+                "tool": str(getattr(m, "name", "") or ""),
+                "result": content[:_TRACE_RESULT_MAX],
+            })
+    return rounds[:_TRACE_ROUNDS_CAP]
+
+
 async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
     """委派子任务给子 Agent，返回其最终输出文本。
 
@@ -80,13 +116,23 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
     父 graph 执行结束后读取并入父级 usage（账本冒泡，防子图消耗无人回收）。
     超时按 spec.timeout_ms wall-clock 控制：同步委派阻塞在父 REACT 的一轮里，
     超时必须诚实返回错误字符串而非卡死父节点。
+
+    委派留痕：finally 提交结构化 trace 进 ctx.delegation_traces（ok/timeout/
+    error 全路径）——子图会话即用即弃，这是子 agent 过程的唯一审计通道。
     """
     import asyncio
+    import time as _time
 
     from agent_flow_harness.middleware.builtin.usage import UsageMiddleware
     from agent_flow_harness.subagents.context import get_subagent_context
 
     timeout_ms = 0.0
+    started = _time.monotonic()
+    ctx = None
+    status = "error"
+    error_msg = ""
+    usage_summary: "dict[str, Any]" = {}
+    final_messages: "list[Any]" = []
     try:
         ctx = get_subagent_context()
         spec = ctx.registry.get(subagent_name)
@@ -112,18 +158,38 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
             graph.ainvoke(state, config=config),  # type: ignore[call-overload]
             timeout=spec.timeout_ms / 1000,
         )
-        ctx.accumulate_usage(usage_mw.summary)
+        usage_summary = usage_mw.summary
+        ctx.accumulate_usage(usage_summary)
         final_messages = result_state.get("messages", [])
+        status = "ok"
         return extract_final_text(final_messages)
     except asyncio.TimeoutError:
+        status = "timeout"
+        error_msg = f"timed out after {timeout_ms / 1000:.0f}s"
         return (
             f"Error: subagent '{subagent_name}' timed out after "
             f"{timeout_ms / 1000:.0f}s — task not completed. "
             "Consider delegating a narrower task."
         )
     except Exception as exc:
+        error_msg = str(exc)
         logger.warning("delegate_to_subagent failed: %s", exc, exc_info=True)
         return f"Error: {exc}"
+    finally:
+        # 留痕失败不影响委派主流程（trace 是旁路审计）。
+        if ctx is not None:
+            try:
+                ctx.record_delegation({
+                    "subagent": subagent_name,
+                    "task": (task or "")[:_TRACE_TASK_MAX],
+                    "duration_ms": int((_time.monotonic() - started) * 1000),
+                    "status": status,
+                    "error": error_msg,
+                    "usage": usage_summary,
+                    "rounds": _summarize_delegation_rounds(final_messages),
+                })
+            except Exception:
+                logger.debug("delegation_trace_submit_failed", exc_info=True)
 
 
 delegate_to_subagent = StructuredTool.from_function(

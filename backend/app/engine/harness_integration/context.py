@@ -978,6 +978,10 @@ async def resolve_harness_context(
         # 构建工具声明（与 SubAgentRegistry 同源）。
         "subagent_token": subagent_token,
         "subagent_usage": subagent_ctx_obj.usage_totals if subagent_ctx_obj else None,
+        # 委派执行 trace（delegate finally 提交）——execution.py 在 run 结束
+        # 后消费：chat 语义 mark 进 recorder(→execution_log)，workflow 语义
+        # 经 result 透传给 AgentNodeExecutor 落 Task timeline。
+        "subagent_traces": subagent_ctx_obj.delegation_traces if subagent_ctx_obj else None,
         "subagents": subagent_decls,
         # DEBUG 分段计时（关闭时为 None；execution.py 汇总进 agent_phase_timing 日志）
         "_timing_phases": timing_phases,

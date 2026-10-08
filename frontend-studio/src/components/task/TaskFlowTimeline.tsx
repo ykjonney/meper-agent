@@ -89,6 +89,8 @@ const EVENT_META: Record<string, { label: string; color: string }> = {
   intervene_retry: { label: '人工重试', color: '#F59E0B' },
   // rewind 退回重跑（后端事件名即 rewoun）：data 含 rewound_nodes
   rewoun: { label: '已退回重跑', color: '#F59E0B' },
+  // 子 Agent 委派（M2.1 委派可观测）：data 含 subagent/task/status/rounds
+  subagent_delegation: { label: '子 Agent 委派', color: '#8B5CF6' },
 }
 
 /** 审批已完成事件类型集合（用于过滤冗余的 waiting_human / human node_complete） */
@@ -108,6 +110,14 @@ const TERMINAL_LABEL: Record<string, string> = {
 /** 节点事件 → 中文标签（拼类型前缀，如 "Agent 节点开始"） */
 function nodeEventLabel(evt: TimelineEvent): string {
   const meta = EVENT_META[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
+  // 子 Agent 委派：直接显示执行主体名（用户一眼看到是谁在干活，而非工具名）
+  if (evt.event_type === 'subagent_delegation') {
+    const sub = (evt.data?.subagent as string | undefined) ?? ''
+    const status = (evt.data?.status as string | undefined) ?? ''
+    const dur = typeof evt.data?.duration_ms === 'number' ? `${(evt.data.duration_ms / 1000).toFixed(1)}s` : ''
+    const tail = [status === 'ok' ? '' : status, dur].filter(Boolean).join(' · ')
+    return sub ? `子 Agent ${sub}${tail ? `（${tail}）` : ''}` : meta.label
+  }
   const nodeType = evt.data?.node_type as string | undefined
   const isNodeEvent = !!nodeType && (
     evt.event_type === 'node_start' ||

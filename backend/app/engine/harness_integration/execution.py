@@ -93,6 +93,25 @@ def _merge_subagent_usage(usage: dict, hctx: dict) -> None:
             continue
         usage[key] = usage.get(key, 0) + value
 
+
+def _emit_subagent_traces(result: dict | None, hctx: dict) -> None:
+    """委派 trace 双通道落点（M2.1 委派可观测）。
+
+    - chat 语义：mark 进父 recorder → 随 execution_log.events 落库
+      （ExecutionLogsPage 可查）；
+    - workflow 语义：塞进 result 透传给 AgentNodeExecutor 落 Task timeline
+      （节点输出契约固定，节点层消费时 pop 掉不外泄）。
+    """
+    traces = hctx.get("subagent_traces")
+    if not traces:
+        return
+    rec = hctx.get("recorder")
+    if rec is not None:
+        for tr in traces:
+            rec.mark("subagent_delegation", **tr)
+    if result is not None:
+        result["subagent_traces"] = list(traces)
+
 async def _emit_load_errors(hctx, on_event) -> None:
     """把 context 收集的工具/MCP 加载失败作为 error 事件发给前端。
 
@@ -206,6 +225,7 @@ async def stream(
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
         _merge_subagent_usage(usage_summary, hctx)
+        _emit_subagent_traces(None, hctx)
     finally:
         reset_thread_id_context(tid_token)
         release_harness_context(hctx)
@@ -303,6 +323,7 @@ async def invoke(
             if hasattr(mw, "summary"):
                 result["usage"] = mw.summary
         _merge_subagent_usage(result.setdefault("usage", {}), hctx)
+        _emit_subagent_traces(result, hctx)
         timing = clock.as_dict()
         if timing is not None:
             result["timing"] = timing
@@ -383,6 +404,7 @@ async def resume_agent(
             if hasattr(mw, "summary"):
                 result["usage"] = mw.summary
         _merge_subagent_usage(result.setdefault("usage", {}), hctx)
+        _emit_subagent_traces(result, hctx)
         timing = clock.as_dict()
         if timing is not None:
             result["timing"] = timing
@@ -516,6 +538,7 @@ async def resume(
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
         _merge_subagent_usage(usage_summary, hctx)
+        _emit_subagent_traces(None, hctx)
     finally:
         reset_thread_id_context(tid_token)
         release_harness_context(hctx)

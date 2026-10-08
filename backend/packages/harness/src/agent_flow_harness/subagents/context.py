@@ -61,6 +61,19 @@ class SubAgentContext:
         # 累计器 key 与 UsageMiddleware.metrics 同构(total_tokens 等),
         # 数值型累加、计数型累加,由 accumulate_usage 归一。
         self.usage_totals: dict[str, Any] = {}
+        # 委派执行 trace 列表(即用即弃子图的唯一过程审计通道,宿主
+        # 在 run 结束后消费落库——chat 进 execution_log / workflow 进 timeline)。
+        self.delegation_traces: list[dict[str, Any]] = []
+
+    # traces 封顶:防失控委派循环把内存/落库 payload 撑爆(丢最旧保最新)。
+    _DELEGATION_TRACES_CAP = 100
+
+    def record_delegation(self, trace: dict[str, Any]) -> None:
+        """记录一次委派的执行 trace(ok/timeout/error 全路径,由 delegate
+        在 finally 里提交)。封顶丢最旧。"""
+        if len(self.delegation_traces) >= self._DELEGATION_TRACES_CAP:
+            self.delegation_traces.pop(0)
+        self.delegation_traces.append(trace)
 
     def accumulate_usage(self, summary: dict[str, Any]) -> None:
         """把一次委派子图的 usage summary 累加进 totals(数值相加)。"""

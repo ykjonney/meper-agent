@@ -134,6 +134,15 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
       const status = entry.toolStatus ?? 'running'
       const sm = TOOL_STATUS[status]
       const hasDetail = (!!entry.args && Object.keys(entry.args).length > 0) || !!entry.result
+      // 委派子 Agent：标题直接显示执行主体名（用户一眼看到是谁在干活），
+      // 而不是一个叫 delegate_to_subagent 的工具名。
+      const isDelegation = entry.toolName === 'delegate_to_subagent'
+      const delegatedName = isDelegation
+        ? String((entry.args as { subagent_name?: string } | undefined)?.subagent_name ?? '子 Agent')
+        : ''
+      const toolLabel = isDelegation
+        ? (status === 'running' ? `${delegatedName} 正在执行子任务…` : `子 Agent · ${delegatedName}`)
+        : (entry.toolName || 'unknown_tool')
       return (
         <div className={`rounded-lg border ${t.cardBorder} ${t.card} overflow-hidden`}>
           <button
@@ -142,7 +151,7 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
           >
             <span style={{ color: sm.color }}>{sm.icon}</span>
             <span className="text-[11px] font-medium" style={{ color: sm.color }}>
-              {entry.toolName || 'unknown_tool'}
+              {toolLabel}
             </span>
             {status === 'running' && (
               <span className="text-[10px] opacity-70" style={{ color: sm.color }}>执行中…</span>

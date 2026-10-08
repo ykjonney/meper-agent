@@ -825,6 +825,32 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         )
                         pending_messages = None  # 反馈轮只生效一次
 
+                    # ── 委派 trace 落 Task timeline（M2.1 委派可观测）──
+                    # 子 agent 即用即弃（无 checkpointer），trace 是其过程的
+                    # 唯一审计通道；在任何 return/raise 前消费，保证取消/
+                    # 中断路径已完成的委派也留痕。pop 掉不进节点输出契约。
+                    delegation_traces = None
+                    if isinstance(result, dict):
+                        delegation_traces = result.pop("subagent_traces", None)
+                    if delegation_traces:
+                        from app.services.task_service import TaskService
+
+                        for tr in delegation_traces:
+                            await TaskService.append_timeline_event(
+                                task_id=task_id,
+                                event_type="subagent_delegation",
+                                data={
+                                    "node_id": self.node_id,
+                                    "subagent": tr.get("subagent", ""),
+                                    "task": tr.get("task", ""),
+                                    "status": tr.get("status", ""),
+                                    "duration_ms": tr.get("duration_ms", 0),
+                                    "error": tr.get("error", ""),
+                                    "usage": tr.get("usage") or {},
+                                    "rounds": tr.get("rounds") or [],
+                                },
+                            )
+
                     # ── 检测 LangGraph interrupt ──
                     # interrupt() 后 ainvoke 返回的 state 带 __interrupt__ 键。
                     # 区分 payload：cancel_checker 挂起的是 {"reason": "cancelled"}
