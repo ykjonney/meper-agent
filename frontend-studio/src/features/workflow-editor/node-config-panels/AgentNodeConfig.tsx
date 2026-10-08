@@ -179,6 +179,26 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     })
   }
 
+  // ── 可委派子 Agent（M1 委派）── config.subagents: [{agent_id}]，
+  // 运行时 Agent 可用 delegate_to_subagent 把自包含子任务交给它们执行
+  //（结论回传、过程隔离）。仅 published Agent 可选（后端拉取同口径）。
+  // ui Select 无 multiple 模式——chips 展示已选 + 单选 Select 作添加入口。
+  const subagentIds = (config.subagents as { agent_id: string }[] | undefined) ?? []
+  const addSubagent = (agentId: string) => {
+    if (agentId === (config.agent_id as string)) return
+    if (subagentIds.some((s) => s.agent_id === agentId)) return
+    onChange({ ...config, subagents: [...subagentIds, { agent_id: agentId }] })
+  }
+  const removeSubagent = (agentId: string) => {
+    const next = subagentIds.filter((s) => s.agent_id !== agentId)
+    onChange({ ...config, subagents: next.length > 0 ? next : undefined })
+  }
+  const subagentAddOptions = agentOptions.filter(
+    (o) =>
+      o.value !== (config.agent_id as string) &&
+      !subagentIds.some((s) => s.agent_id === o.value),
+  )
+
   // 查询内容变更（作为 user message）
   const handleInputQueryChange = (val: string) => {
     onChange({ ...config, input_query: val })
@@ -389,6 +409,44 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
             allowClear
           />
         )}
+      </div>
+
+      {/* 可委派子 Agent（可选）：声明后 Agent 运行时可用委派工具 */}
+      <div>
+        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+          可委派子 Agent
+          <HelpHint text="声明后，此 Agent 执行中可把自包含的子任务委派给所选 Agent（各自独立上下文与工具，只回传结论）。适合需要动态分解的探索型任务；固定工序请直接用多个 Agent 节点串联。委派为同步调用且有超时，不宜委派长耗时任务。" />
+        </label>
+        {subagentIds.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-1.5">
+            {subagentIds.map((s) => {
+              const a = agents.find((x) => x.id === s.agent_id)
+              return (
+                <span
+                  key={s.agent_id}
+                  className="inline-flex items-center gap-1 rounded bg-[#27272a] px-1.5 py-0.5 text-xs text-slate-200"
+                >
+                  {a?.name ?? s.agent_id.substring(0, 8)}
+                  <button
+                    type="button"
+                    className="text-slate-500 hover:text-red-400"
+                    onClick={() => removeSubagent(s.agent_id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              )
+            })}
+          </div>
+        )}
+        <Select
+          className="w-full"
+          value={null}
+          onChange={(val) => val && addSubagent(val)}
+          options={subagentAddOptions}
+          placeholder={subagentAddOptions.length > 0 ? '添加子 Agent（可选）...' : '无可选 Agent'}
+          allowClear
+        />
       </div>
 
       {/* 查询（必填）→ user message */}

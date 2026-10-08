@@ -32,6 +32,14 @@ class SubAgentContext:
         tool_registry: 解析子 agent tools 的工具注册中心。
         build_llm: 按 spec.llm_config 构建 LLM 的工厂。
         parent_llm: 主 Agent 的 LLM；model="inherit" 时复用。
+        tools_provider: 可选,宿主预解析工具集的注入通道(spec -> 工具列表)。
+            app 层工具(MCP/KB/skill/自定义)是动态解析的,静态 tool_registry
+            取不到;宿主在装配期预解析后经此注入,优先于 tool_registry。
+        llm_provider: 可选,宿主预构建 LLM 的注入通道(spec -> LLM)。同上,
+            优先于 build_llm/parent_llm。
+        usage_totals: 委派子图 usage 的累计器。delegate 每次执行后把子图
+            UsageMiddleware.summary 累加进来,宿主在父 graph 执行结束后读取
+            并入父级 usage——子图消耗不冒泡则 token 账本有缺口。
     """
 
     def __init__(
@@ -40,14 +48,31 @@ class SubAgentContext:
         tool_registry: "ToolRegistry",
         build_llm: "Callable[[dict[str, Any]], BaseChatModel]",
         parent_llm: "BaseChatModel | None",
+        *,
+        tools_provider: "Callable[[SubAgentSpec], list[BaseTool]] | None" = None,
+        llm_provider: "Callable[[SubAgentSpec], BaseChatModel] | None" = None,
     ) -> None:
         self.registry = registry
         self.tool_registry = tool_registry
         self.build_llm = build_llm
         self.parent_llm = parent_llm
+        self.tools_provider = tools_provider
+        self.llm_provider = llm_provider
+        # 累计器 key 与 UsageMiddleware.metrics 同构(total_tokens 等),
+        # 数值型累加、计数型累加,由 accumulate_usage 归一。
+        self.usage_totals: dict[str, Any] = {}
+
+    def accumulate_usage(self, summary: dict[str, Any]) -> None:
+        """把一次委派子图的 usage summary 累加进 totals(数值相加)。"""
+        for key, value in summary.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            self.usage_totals[key] = self.usage_totals.get(key, 0) + value
 
     def resolve_llm(self, spec: "SubAgentSpec") -> "BaseChatModel":
-        """解析子 Agent 的 LLM。model='inherit' 复用 parent_llm。"""
+        """解析子 Agent 的 LLM。宿主 llm_provider 优先;model='inherit' 复用 parent_llm。"""
+        if self.llm_provider is not None:
+            return self.llm_provider(spec)
         model = spec.llm_config.get("model", "inherit")
         if model == "inherit":
             if self.parent_llm is None:
@@ -59,13 +84,17 @@ class SubAgentContext:
     def resolve_tools(self, spec: "SubAgentSpec") -> "list[BaseTool]":
         """解析 spec.tools 为 BaseTool 实例，排除 delegate_to_subagent (AC7)。
 
-        构造一个临时 agent_doc 走 TOOL_REGISTRY.resolve，再过滤掉 delegate。
-        未知工具名被 silently skip（与 TOOL_REGISTRY 行为一致）。
+        宿主 tools_provider 优先(app 层动态工具集);否则构造临时 agent_doc
+        走 TOOL_REGISTRY.resolve。两种路径都过滤 delegate——子 Agent 物理上
+        无法递归(深度=1)。
         """
-        agent_doc: dict[str, Any] = {
-            "tools": [{"name": n, "enabled": True} for n in spec.tools]
-        }
-        resolved = self.tool_registry.resolve(agent_doc)
+        if self.tools_provider is not None:
+            resolved = self.tools_provider(spec)
+        else:
+            agent_doc: dict[str, Any] = {
+                "tools": [{"name": n, "enabled": True} for n in spec.tools]
+            }
+            resolved = self.tool_registry.resolve(agent_doc)
         # AC7: 工具排除——子 Agent 不能拿到 delegate 工具。
         return [t for t in resolved if t.name != _DELEGATE_TOOL_NAME]
 

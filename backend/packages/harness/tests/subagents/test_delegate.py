@@ -5,6 +5,9 @@ delegate 工具本身在 Task 5 追加测试到本文件。
 """
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -219,3 +222,84 @@ def test_delegate_tool_is_structured_tool():
     from langchain_core.tools import BaseTool
     assert isinstance(delegate_to_subagent, BaseTool)
     assert delegate_to_subagent.name == "delegate_to_subagent"
+
+
+# --- usage 冒泡 + timeout (M1) ---
+
+
+@pytest.mark.asyncio
+async def test_delegate_accumulates_subagent_usage(monkeypatch):
+    """委派完成后把子图 UsageMiddleware.summary 累加进 ctx.usage_totals
+    （账本冒泡——子图 token 消耗必须回收到父级，否则账本有缺口）。"""
+    ctx = _setup_context_with_mock_subagent()
+
+    async def _fake_ainvoke(state, config=None):
+        return {"messages": [AIMessage(content="ok")]}
+
+    fake_graph = MagicMock()
+    fake_graph.ainvoke = _fake_ainvoke
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        lambda agent_doc, **kw: fake_graph,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config",
+        lambda *a, **kw: {"configurable": {}},
+    )
+    token = set_subagent_context(ctx)
+    try:
+        await delegate_to_subagent.ainvoke(
+            {"subagent_name": "coder", "task": "compute"}
+        )
+        ctx.accumulate_usage.assert_called_once()
+    finally:
+        reset_subagent_context(token)
+
+
+@pytest.mark.asyncio
+async def test_delegate_times_out_honestly(monkeypatch):
+    """超时按 spec.timeout_ms wall-clock 控制：诚实返回错误字符串，
+    不阻塞父 REACT 循环（同步委派的已知瓶颈治理）。"""
+    spec = SubAgentSpec(
+        name="slow", description="slow sub", system_prompt="x",
+        tools=[], timeout_ms=1_000,  # pydantic 下限 1s
+    )
+    ctx = _setup_context_with_mock_subagent()
+    ctx.registry.get = MagicMock(return_value=spec)
+
+    async def _slow_ainvoke(state, config=None):
+        await asyncio.sleep(2.0)
+        return {"messages": [AIMessage(content="late")]}
+
+    fake_graph = MagicMock()
+    fake_graph.ainvoke = _slow_ainvoke
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        lambda agent_doc, **kw: fake_graph,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config",
+        lambda *a, **kw: {"configurable": {}},
+    )
+    token = set_subagent_context(ctx)
+    try:
+        started = time.monotonic()
+        result = await delegate_to_subagent.ainvoke(
+            {"subagent_name": "slow", "task": "x"}
+        )
+        elapsed = time.monotonic() - started
+        assert "timed out" in result
+        assert elapsed < 1.8  # 1s 超时生效，而非等满 2s
+    finally:
+        reset_subagent_context(token)
+
+
+def test_spec_timeout_validation():
+    """timeout_ms 默认 120s；下限 1s（ge=1000）。"""
+    assert SubAgentSpec(
+        name="a", description="d", system_prompt="s",
+    ).timeout_ms == 120_000
+    with pytest.raises(Exception):
+        SubAgentSpec(
+            name="a", description="d", system_prompt="s", timeout_ms=500,
+        )

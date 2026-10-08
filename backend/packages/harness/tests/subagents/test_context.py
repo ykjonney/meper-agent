@@ -86,3 +86,37 @@ def test_resolve_tools_unknown_name_skipped():
     tools = ctx.resolve_tools(spec)
     names = [t.name for t in tools]
     assert names == ["bash"]
+
+
+# --- usage 累计器 + provider 注入通道 (M1) ---
+
+
+def test_accumulate_usage_sums_numeric_and_skips_others():
+    """数值型 key 累加；bool/字符串等非数值跳过（metrics 同构 key 才入账）。"""
+    ctx = _make_context()
+    ctx.accumulate_usage({"total_tokens": 100, "llm_calls": 2, "note": "x"})
+    ctx.accumulate_usage({"total_tokens": 30, "llm_calls": 1, "flag": True})
+    assert ctx.usage_totals == {"total_tokens": 130, "llm_calls": 3}
+
+
+def test_tools_provider_overrides_registry_and_filters_delegate():
+    """宿主 tools_provider 优先于 tool_registry（app 层动态工具集注入通道），
+    且 provider 路径同样过滤 delegate（AC7 深度=1 不可绕过）。"""
+    delegate_tool = _make_tool("delegate_to_subagent")
+    dynamic_tool = _make_tool("mcp_search")
+    ctx = _make_context(subagent_tool=delegate_tool)
+    ctx.tools_provider = lambda spec: [delegate_tool, dynamic_tool]
+    spec = SubAgentSpec(name="x", description="d", system_prompt="p", tools=[])
+    tools = ctx.resolve_tools(spec)
+    names = [t.name for t in tools]
+    assert names == ["mcp_search"]
+    assert "delegate_to_subagent" not in names
+
+
+def test_llm_provider_overrides_inherit():
+    """宿主 llm_provider 优先于 build_llm/parent_llm。"""
+    sentinel = object()
+    ctx = _make_context()
+    ctx.llm_provider = lambda spec: sentinel
+    spec = SubAgentSpec(name="x", description="d", system_prompt="p")
+    assert ctx.resolve_llm(spec) is sentinel

@@ -76,27 +76,48 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
     """委派子任务给子 Agent，返回其最终输出文本。
 
     依赖从 ContextVar 获取。异常被 catch 转错误字符串返回（AC10 异常隔离）。
+    子图挂 UsageMiddleware 采集 token 消耗并累加进 ctx.usage_totals——宿主在
+    父 graph 执行结束后读取并入父级 usage（账本冒泡，防子图消耗无人回收）。
+    超时按 spec.timeout_ms wall-clock 控制：同步委派阻塞在父 REACT 的一轮里，
+    超时必须诚实返回错误字符串而非卡死父节点。
     """
+    import asyncio
+
+    from agent_flow_harness.middleware.builtin.usage import UsageMiddleware
     from agent_flow_harness.subagents.context import get_subagent_context
 
+    timeout_ms = 0.0
     try:
         ctx = get_subagent_context()
         spec = ctx.registry.get(subagent_name)
+        timeout_ms = spec.timeout_ms
         tools = ctx.resolve_tools(spec)               # AC7: 已排除 delegate
         llm = ctx.resolve_llm(spec)
         state = ctx.build_subagent_state(spec, task)  # AC8: 全新隔离 state
         # 延迟构建子 agent graph（AC5）。
         graph = build_agent_graph(_DELEGATE_AGENT_DOC)
+        usage_mw = UsageMiddleware()
         config = build_config(
             _DELEGATE_AGENT_DOC, llm, tools=tools, recursion_limit=spec.max_turns,
+            middlewares=[usage_mw],
         )
         # 打 subagent tag：嵌套子图的 LLM/工具事件会经 contextvar 回调冒泡进
         # 父图 astream_events，app 层适配器 stream_events_to_app_events 按此
         # tag 过滤（游离 text/thinking 与无法配对的 tool_result 不进父对话流）。
         config["tags"] = [*config.get("tags", []), "subagent"]
-        result_state = await graph.ainvoke(state, config=config)  # type: ignore[call-overload]
+        result_state = await asyncio.wait_for(
+            graph.ainvoke(state, config=config),  # type: ignore[call-overload]
+            timeout=spec.timeout_ms / 1000,
+        )
+        ctx.accumulate_usage(usage_mw.summary)
         final_messages = result_state.get("messages", [])
         return extract_final_text(final_messages)
+    except asyncio.TimeoutError:
+        return (
+            f"Error: subagent '{subagent_name}' timed out after "
+            f"{timeout_ms / 1000:.0f}s — task not completed. "
+            "Consider delegating a narrower task."
+        )
     except Exception as exc:
         logger.warning("delegate_to_subagent failed: %s", exc, exc_info=True)
         return f"Error: {exc}"

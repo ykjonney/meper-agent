@@ -78,6 +78,7 @@ async def build_tool_declaration(
     execution_context: str = "chat",
     response_schema: dict | None = None,
     output_schema: list[dict] | None = None,
+    subagents: list[dict] | None = None,
 ) -> str:
     """Build the complete tool declaration text for the system prompt.
 
@@ -88,6 +89,7 @@ async def build_tool_declaration(
     - Workflow list (listed for reference, triggered via propose/dispatch)
     - Built-in tools (directly callable)
     - Task tools (always available)
+    - Sub-agent delegation (when the host wired delegate_to_subagent)
 
     execution_context="workflow"（工作流 agent 节点，无人值守）时：
     - Workflow 列表与 Task Management 段不生成（这些工具运行时已剥离，
@@ -131,6 +133,11 @@ async def build_tool_declaration(
         if mcp_decl:
             sections.append(mcp_decl)
 
+    # 委派声明与运行时工具集同口径：宿主装配了 delegate_to_subagent 才传
+    # subagents（防双路径漂移——声明列表与 SubAgentRegistry 同源构建）。
+    if subagents:
+        sections.append("\n".join(_build_subagent_delegation_section(subagents)))
+
     if execution_context not in ("workflow", "plan"):
         # Workflow 列表是给 chat 语义的 dispatch_workflow 用的；
         # 工作流/计划上下文没有该工具，声明一并省略。
@@ -171,6 +178,45 @@ async def build_tool_declaration(
         sections.append(_build_chart_tool_declaration())
 
     return "\n".join(sections) if sections else ""
+
+
+
+def _build_subagent_delegation_section(subagents: list[dict]) -> list[str]:
+    """Build the delegate_to_subagent declaration section (M1 委派接线).
+
+    subagents entries: {name, description}——与 SubAgentRegistry 同源。
+    声明内嵌资源预算纪律（Anthropic 式：简单任务自己做，专门能力/独立
+    上下文才委派），并提示同步语义与自包含任务四要素。
+    """
+    lines = [
+        "",
+        "## Sub-Agent Delegation",
+        "",
+        "You can delegate self-contained subtasks to specialized sub-agents via",
+        "`delegate_to_subagent(subagent_name, task)`. Each sub-agent runs with its",
+        "own isolated context and toolset; only its final answer returns to you as",
+        "the tool result — its intermediate process is NOT visible to you.",
+        "",
+        "Available sub-agents:",
+        "",
+    ]
+    for entry in subagents:
+        name = entry.get("name", "unknown")
+        desc = entry.get("description", "")
+        lines.append(f"- **{name}**: {desc}")
+    lines.extend([
+        "",
+        "Delegation discipline:",
+        "- The task you write is the ONLY thing the sub-agent sees. Make it",
+        "  self-contained: goal, expected output format, tool/source hints and",
+        "  clear boundaries. Vague tasks cause duplicated or off-target work.",
+        "- Handle simple subtasks yourself; delegate only when a sub-agent's",
+        "  specialty or an isolated context genuinely helps.",
+        "- Delegation is synchronous — each call blocks until the sub-agent",
+        "  finishes or times out. Do not fan out trivial work.",
+        "",
+    ])
+    return lines
 
 
 def _build_chart_tool_declaration() -> str:

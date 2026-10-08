@@ -78,6 +78,21 @@ def _make_event_callback(on_event):
     return _on_event_dict
 
 
+
+def _merge_subagent_usage(usage: dict, hctx: dict) -> None:
+    """把委派子图的 usage 累计并入父级 usage（M1 账本冒泡）。
+
+    数值型 key 相加（total_tokens/llm_calls/...），与 UsageMiddleware.metrics
+    同构；子图消耗不并入则 Task total_tokens 有缺口。
+    """
+    sub_usage = hctx.get("subagent_usage")
+    if not sub_usage:
+        return
+    for key, value in sub_usage.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        usage[key] = usage.get(key, 0) + value
+
 async def _emit_load_errors(hctx, on_event) -> None:
     """把 context 收集的工具/MCP 加载失败作为 error 事件发给前端。
 
@@ -106,6 +121,7 @@ async def stream(
     user_token: str | None = None,
     recorder_sink: dict | None = None,
     execution_context: str = "chat",
+    subagents: list[dict] | None = None,
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。
 
@@ -128,6 +144,7 @@ async def stream(
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
         execution_context=execution_context,
+        subagents=subagents,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -188,6 +205,7 @@ async def stream(
         for mw in hctx["middlewares"]:
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
+        _merge_subagent_usage(usage_summary, hctx)
     finally:
         reset_thread_id_context(tid_token)
         release_harness_context(hctx)
@@ -211,6 +229,7 @@ async def invoke(
     require_user_credentials: bool = False,
     execution_context: str = "chat",
     recorder_sink: dict | None = None,
+    subagents: list[dict] | None = None,
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
@@ -225,6 +244,9 @@ async def invoke(
             无人值守——剥离交互式/任务编排工具,注入 abort_workflow)。
         recorder_sink: 可选字典出参(语义同 stream;workflow 节点不落
             execution_log,不传)。
+        subagents: 可选,节点 config.subagents 声明的子 agent bundles
+            ([{agent_doc, timeout_ms}])——装配 SubAgentContext 并注入
+            delegate_to_subagent 工具(M1 委派)。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
@@ -234,6 +256,7 @@ async def invoke(
         user_token=user_token,
         require_user_credentials=require_user_credentials,
         execution_context=execution_context,
+        subagents=subagents,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -279,6 +302,7 @@ async def invoke(
         for mw in hctx["middlewares"]:
             if hasattr(mw, "summary"):
                 result["usage"] = mw.summary
+        _merge_subagent_usage(result.setdefault("usage", {}), hctx)
         timing = clock.as_dict()
         if timing is not None:
             result["timing"] = timing
@@ -300,6 +324,7 @@ async def resume_agent(
     user_token: str | None = None,
     require_user_credentials: bool = False,
     execution_context: str = "chat",
+    subagents: list[dict] | None = None,
 ) -> dict:
     """恢复被 interrupt() 挂起的 agent（非流式，供工作流恢复使用）。
 
@@ -316,6 +341,7 @@ async def resume_agent(
         user_token=user_token,
         require_user_credentials=require_user_credentials,
         execution_context=execution_context,
+        subagents=subagents,
     )
     clock.attach(hctx)
     # thread 上下文:resume_agent 用显式 thread_id 参数(工作流恢复路径)。
@@ -352,6 +378,11 @@ async def resume_agent(
         clock.exec_start()
         result = await graph.ainvoke(Command(resume=resume_value), config=config)
         clock.exec_done()
+        # 与 invoke 同构：恢复轮的 usage 含委派子图冒泡（若有新委派发生）
+        for mw in hctx["middlewares"]:
+            if hasattr(mw, "summary"):
+                result["usage"] = mw.summary
+        _merge_subagent_usage(result.setdefault("usage", {}), hctx)
         timing = clock.as_dict()
         if timing is not None:
             result["timing"] = timing
@@ -399,6 +430,7 @@ async def resume(
     user_token: str | None = None,
     recorder_sink: dict | None = None,
     execution_context: str = "chat",
+    subagents: list[dict] | None = None,
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。
 
@@ -421,6 +453,7 @@ async def resume(
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
         execution_context=execution_context,
+        subagents=subagents,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -482,6 +515,7 @@ async def resume(
         for mw in hctx["middlewares"]:
             if hasattr(mw, "summary"):
                 usage_summary = mw.summary
+        _merge_subagent_usage(usage_summary, hctx)
     finally:
         reset_thread_id_context(tid_token)
         release_harness_context(hctx)

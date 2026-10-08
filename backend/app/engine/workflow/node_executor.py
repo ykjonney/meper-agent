@@ -627,6 +627,47 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
+            # ── 子 agent 委派池（M1）：config.subagents 声明，published-only ──
+            # draft/archived/不存在/重复声明一律静默跳过（节点照常执行，
+            # 只是少一个可委派对象）——与 spawn 治理同风格：运行时只信任
+            # 已发布定义。bundles 传 invoke（装配 SubAgentContext + 注入
+            # delegate 工具），decls 传工具声明（与 registry 同源，防漂移）。
+            subagent_bundles: list[dict] = []
+            subagent_decls: list[dict] = []
+            subagents_cfg = self.node_config.get("subagents") or []
+            if isinstance(subagents_cfg, list) and subagents_cfg:
+                seen_sub_ids: set[str] = set()
+                for item in subagents_cfg:
+                    if not isinstance(item, dict):
+                        continue
+                    sub_agent_id = str(item.get("agent_id") or "").strip()
+                    if not sub_agent_id or sub_agent_id in seen_sub_ids:
+                        continue
+                    seen_sub_ids.add(sub_agent_id)
+                    sub_doc = await db["agents"].find_one(
+                        {"_id": sub_agent_id, "status": "published"},
+                    )
+                    if sub_doc is None:
+                        logger.warning(
+                            "subagent_unavailable",
+                            node_id=self.node_id,
+                            sub_agent_id=sub_agent_id,
+                            reason="not_found_or_not_published",
+                        )
+                        continue
+                    sub_name = str(sub_doc.get("name") or "").strip()
+                    if not sub_name:
+                        continue
+                    subagent_bundles.append({
+                        "agent_doc": sub_doc,
+                        "timeout_ms": int(item.get("timeout_ms") or 120_000),
+                    })
+                    sub_desc = str(sub_doc.get("description") or "").strip()
+                    subagent_decls.append({
+                        "name": sub_name,
+                        "description": sub_desc or f"专门执行特定任务的子 Agent（{sub_name}）",
+                    })
+
             # harness 的 invoke 内部会自己 build graph,这里不需要构造。
 
             # Build system prompt via slot renderer (context override + variable pool)
@@ -642,6 +683,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 variable_pool=variables,
                 execution_context="workflow",
                 response_schema=response_schema,
+                subagents=subagent_decls or None,
             )
         except Exception as exc:
             # 展开 ExceptionGroup 以显示真正原因
@@ -772,6 +814,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 user_token=user_token,
                                 require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
+                                subagents=subagent_bundles or None,
                             ),
                             timeout=timeout_ms / 1000,
                         )
@@ -799,6 +842,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 user_token=user_token,
                                 require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
+                                subagents=subagent_bundles or None,
                             ),
                             timeout=timeout_ms / 1000,
                         )
