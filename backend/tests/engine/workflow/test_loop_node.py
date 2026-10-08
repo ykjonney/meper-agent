@@ -383,3 +383,42 @@ class TestLoopExecution:
         last = checkpoint_sets[-1].args[1]["$set"]["checkpoint"]
         assert last["kind"] == "progress"
         assert last["loop_state"] == {"loop_node_id": "loop1", "round": 3}
+
+
+class TestReturnEdgeExecution:
+    """回边（体成员 next→loop）在执行层被跳过——不重入 loop 分支。"""
+
+    @pytest.mark.asyncio
+    async def test_return_edge_skipped_during_round(self) -> None:
+        """体成员残留回边（旧数据）时，轮末由链耗尽决定而非重入 loop。"""
+        nodes = [
+            _loop_node(["worker", "checker"], "worker", max_iter=2,
+                       converge=None),
+            # worker 的 next 同时指向 checker 和 loop1（回边）——回边应被跳过
+            {"node_id": "worker", "type": "agent",
+             "config": {"next_nodes": [{"target": "checker"}, {"target": "loop1"}]}},
+            {"node_id": "checker", "type": "agent", "config": {}},
+        ]
+        calls: list[str] = []
+
+        def _get(node_type, node_id, cfg):
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            else:
+                async def _track(variables):
+                    calls.append(node_id)
+                    return NodeResult(success=True, output={"ok": True})
+                ex.execute = _track
+            return ex
+
+        engine = _engine(nodes)
+        with patch("app.engine.workflow.engine.get_node_executor", side_effect=_get), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+
+        # 2 轮 × (worker, checker) 各一次，loop1 执行器仅 1 次（无重入）
+        assert calls.count("worker") == 2
+        assert calls.count("checker") == 2
+        assert engine._pool.get("loop1")["iterations"] == 2

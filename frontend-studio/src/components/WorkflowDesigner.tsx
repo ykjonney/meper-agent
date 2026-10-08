@@ -82,6 +82,9 @@ export function WorkflowDesigner({
     if (controlledWorkflowId === undefined) setInternalWorkflowId(id)
   }
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
+  // 循环内部编辑模式：当前进入的 loop 节点 id（null=主画布）。
+  // 主画布隐藏所有循环体成员（物理边界）；内部模式只显示该循环的成员。
+  const [loopEditingId, setLoopEditingId] = useState<string | null>(null)
   const [nodes, setNodes] = useState<WorkflowNode[]>([])
   // Editable workflow name draft. Initialized from the loaded detail and reset
   // on workflow switch (same effect that resets `nodes`). handleSave reads this
@@ -138,6 +141,29 @@ export function WorkflowDesigner({
     setDirtySinceLoad(true)
   }, [])
 
+  // 循环体成员归属（node_id → 所属 loop id）
+  const loopMembership = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const n of nodes) {
+      if (n.type !== 'loop') continue
+      for (const m of ((n.config as Record<string, unknown>).body as string[] | undefined) ?? []) {
+        map.set(m, n.node_id)
+      }
+    }
+    return map
+  }, [nodes])
+
+  // 画布视图节点：主模式隐藏循环成员；内部模式只显示该循环成员
+  const canvasNodes = useMemo(() => {
+    if (loopEditingId) return nodes.filter((n) => loopMembership.get(n.node_id) === loopEditingId)
+    return nodes.filter((n) => !loopMembership.has(n.node_id))
+  }, [nodes, loopMembership, loopEditingId])
+
+  const editingLoopNode = useMemo(
+    () => (loopEditingId ? nodes.find((n) => n.node_id === loopEditingId && n.type === 'loop') : undefined),
+    [nodes, loopEditingId],
+  )
+
   const handleNodeChange = useCallback((updated: WorkflowNode) => {
     setNodes((prev) => prev.map((n) => (n.node_id === updated.node_id ? updated : n)))
     setSelectedNode(updated)
@@ -174,13 +200,22 @@ export function WorkflowDesigner({
           if (config.insufficient_branch === nodeId) {
             config.insufficient_branch = null
           }
+          // 循环体成员被删：从所属 loop 的 body/起点同步移除
+          if (n.type === 'loop' && Array.isArray(config.body)) {
+            config.body = (config.body as string[]).filter((m) => m !== nodeId)
+            if (config.body_entry === nodeId) {
+              config.body_entry = ((config.body as string[])[0] ?? '')
+            }
+          }
           return { ...n, config }
         })
     })
+    // 删除的是循环节点本身 → 退出内部编辑模式
+    setLoopEditingId((cur) => (nodes.find((n) => n.node_id === cur)?.type === 'loop' && cur === nodeId ? null : cur))
     setSelectedNode(null)
     setHasUnsavedChanges(true)
     setDirtySinceLoad(true)
-  }, [])
+  }, [nodes])
 
   /* ─── 保存 ─── */
   const saveMutation = useMutation({
@@ -405,12 +440,35 @@ export function WorkflowDesigner({
                   {exec.executing ? '执行中' : '执行'}
                 </Button>
               </div>
+              {/* 循环内部模式面包屑 */}
+              {loopEditingId && editingLoopNode && (
+                <div className="absolute top-14 left-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#A855F7]/15 backdrop-blur border border-[#A855F7]/40 shadow-lg">
+                  <button
+                    onClick={() => {
+                      setLoopEditingId(null)
+                      setSelectedNode(null)
+                    }}
+                    className="flex items-center gap-1 text-xs text-[#d8b4fe] hover:text-white cursor-pointer"
+                  >
+                    ← 返回主流程
+                  </button>
+                  <span className="text-[#71717a]">/</span>
+                  <span className="text-xs text-[#d8b4fe] font-medium">
+                    🔁 {editingLoopNode.label || '循环'} 内部（每轮执行这些步骤）
+                  </span>
+                </div>
+              )}
               <WorkflowCanvas
-                workflowNodes={nodes}
+                workflowNodes={canvasNodes}
                 selectedNodeId={selectedNode?.node_id ?? null}
                 onNodesChange={handleNodesChange}
                 onSelectNode={setSelectedNode}
                 theme={theme}
+                onOpenLoop={(id) => {
+                  setLoopEditingId(id)
+                  setSelectedNode(null)
+                }}
+                activeLoopId={loopEditingId}
               />
             </div>
 

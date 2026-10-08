@@ -1,13 +1,9 @@
 /**
- * loop-derive — 从画布连线自动推导循环体（用户零概念配置的核心）。
+ * loop-derive — 循环节点内部编辑模式的辅助工具。
  *
- * 约定（所见即所得）：
- * - 体尾节点连回 loop 节点的边 = 回边（画布上一个环 = 循环）
- * - loop 的出边中，沿链可达回边的 = 循环体（链头 = 每轮起点）
- * - loop 的其余出边 = 循环结束后的出口
- *
- * 保存时由 WorkflowDesigner 物化推导结果进 loop 节点 config（引擎照旧
- * 按 config.body 执行，校验器按 body 校验——推导层只服务交互）。
+ * 交互模式（M3.2）：循环体在循环节点内部编辑（双击进入），body 由交互
+ * 层显式维护（内部加节点/删节点），保存时轻量物化（入口默认/清死成员）。
+ * deriveLoopChain 按 config.body + 成员连线推导链序（面板展示用）。
  */
 import type { WorkflowNode } from '../../../services/workflows-api'
 
@@ -57,7 +53,8 @@ export function buildEdgeIndex(nodes: WorkflowNode[]): {
 
 /**
  * 推导某个 loop 节点的循环体。
- * 返回 null + reason 时，调用方给用户中文引导（见 LoopNodeConfig）。
+ * body 已有成员时直接用（内部编辑模式维护）；为空时按回边推导一次
+ * （旧数据/主画布模式兼容）。返回 reason 时调用方给中文引导。
  */
 export function deriveLoopBody(
   nodes: WorkflowNode[],
@@ -65,6 +62,13 @@ export function deriveLoopBody(
 ): { ok: true; result: LoopBodyDeriveResult } | { ok: false; reason: LoopBodyDeriveError } {
   const { out } = buildEdgeIndex(nodes)
   const nodeIds = new Set(nodes.map((n) => n.node_id))
+  const loopNode = nodes.find((n) => n.node_id === loopNodeId)
+  const existingBody = (((loopNode?.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []
+  const validBody = existingBody.filter((m) => nodeIds.has(m))
+  if (validBody.length > 0) {
+    const entry = String(((loopNode?.config ?? {}) as Record<string, unknown>).body_entry ?? '') || validBody[0]
+    return { ok: true, result: { body: validBody, bodyEntry: entry } }
+  }
   const loopOutTargets = (out.get(loopNodeId) ?? []).filter((t) => nodeIds.has(t) && t !== loopNodeId)
   if (loopOutTargets.length === 0) {
     return { ok: false, reason: 'no-return-edge' }
@@ -98,22 +102,51 @@ export function deriveLoopBody(
   return { ok: true, result: { body: hitChain!.members, bodyEntry: hitChain!.entry } }
 }
 
-/** 对全部节点物化 loop 推导结果（保存前调用）。返回更新后的节点数组。 */
+/** 保存前轻量物化：body 由内部编辑显式维护（不动），仅补默认入口 +
+ * 清理已删除成员；body 为空的旧数据按回边推导一次。 */
 export function materializeLoopBodies(nodes: WorkflowNode[]): WorkflowNode[] {
+  const nodeIds = new Set(nodes.map((n) => n.node_id))
   return nodes.map((n) => {
     if (n.type !== 'loop') return n
-    const derived = deriveLoopBody(nodes, n.node_id)
-    if (!derived.ok) {
-      // 推导失败保留现状（校验器按 LOOP_* 码拦截，面板给中文引导）
-      return n
+    const cfg = (n.config ?? {}) as Record<string, unknown>
+    const rawBody = (cfg.body as string[] | undefined) ?? []
+    const body = rawBody.filter((m) => nodeIds.has(m))
+    if (body.length === 0) {
+      // 旧数据/主画布模式：按回边推导一次
+      const derived = deriveLoopBody(nodes, n.node_id)
+      if (derived.ok) {
+        return { ...n, config: { ...cfg, body: derived.result.body, body_entry: derived.result.bodyEntry } }
+      }
+      return { ...n, config: { ...cfg, body: [], body_entry: '' } }
     }
-    return {
-      ...n,
-      config: {
-        ...n.config,
-        body: derived.result.body,
-        body_entry: derived.result.bodyEntry,
-      },
-    }
+    const entry = String(cfg.body_entry ?? '')
+    return { ...n, config: { ...cfg, body, body_entry: entry && body.includes(entry) ? entry : body[0] } }
   })
+}
+
+/** 链序推导：按 body_entry 起点沿成员间连线 BFS 得展示序（面板"每轮执行"）。 */
+export function deriveLoopChain(nodes: WorkflowNode[], loopNodeId: string): string[] {
+  const loopNode = nodes.find((n) => n.node_id === loopNodeId)
+  if (!loopNode) return []
+  const cfg = (loopNode.config ?? {}) as Record<string, unknown>
+  const body = new Set(((cfg.body as string[] | undefined) ?? []).filter(Boolean))
+  const entry = String(cfg.body_entry ?? '') || [...body][0] || ''
+  if (!entry || !body.has(entry)) return [...body]
+  const { out } = buildEdgeIndex(nodes)
+  const visited = new Set<string>([entry])
+  const chain: string[] = []
+  const queue = [entry]
+  while (queue.length) {
+    const cur = queue.shift()!
+    chain.push(cur)
+    for (const tgt of out.get(cur) ?? []) {
+      if (body.has(tgt) && !visited.has(tgt)) {
+        visited.add(tgt)
+        queue.push(tgt)
+      }
+    }
+  }
+  // 环外成员（不可达）附后，保证全部展示
+  for (const m of body) if (!visited.has(m)) chain.push(m)
+  return chain
 }

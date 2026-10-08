@@ -1290,6 +1290,10 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
+                    # 回边（体成员 → 所属 loop）是循环闭合的表达，执行层跳过
+                    # ——轮末由体链耗尽决定；不跳过会轮内重入 loop 分支。
+                    if loop_round and target_id == self._active_loop_node:
+                        continue
                     await self._execute_node(target_id, loop_round=loop_round)
             else:
                 # Legacy fallback: read from workflow-level edges
@@ -1301,6 +1305,10 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
+                    # 回边（体成员 → 所属 loop）是循环闭合的表达，执行层跳过
+                    # ——轮末由体链耗尽决定；不跳过会轮内重入 loop 分支。
+                    if loop_round and target_id == self._active_loop_node:
+                        continue
                     await self._execute_node(target_id, loop_round=loop_round)
 
         else:
