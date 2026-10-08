@@ -313,19 +313,21 @@ function SubagentCard({ tool }: { tool: ToolRun }) {
               {statusIcon(tool)}
               <RobotOutlined />
               <span>{running ? `${name} 正在执行子任务…` : `子 Agent · ${name}`}</span>
-              {task ? (
-                <Typography.Text
-                  type="secondary"
-                  ellipsis={{ tooltip: task }}
-                  style={{ maxWidth: 320, margin: 0 }}
-                >
-                  {task}
-                </Typography.Text>
-              ) : null}
             </div>
           ),
           children: (
             <div className="tool-details">
+              {task ? (
+                <div className="tool-delegation-task">
+                  <Typography.Text type="secondary">委派任务</Typography.Text>
+                  <Typography.Paragraph
+                    style={{ marginBottom: 8, whiteSpace: 'pre-wrap' }}
+                    ellipsis={{ rows: 6, expandable: true, symbol: '展开全部' }}
+                  >
+                    {task}
+                  </Typography.Paragraph>
+                </div>
+              ) : null}
               <div className="tool-result-body">
                 <Markdown>{tool.result ?? ''}</Markdown>
               </div>

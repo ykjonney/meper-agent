@@ -2586,14 +2586,6 @@ function ToolEntryCard({
             {parseMeta}
           </span>
         )}
-        {isDelegation && delegatedTask && (
-          <span
-            className={`text-[10px] truncate opacity-70 ${cfg.icon}`}
-            title={delegatedTask}
-          >
-            {delegatedTask}
-          </span>
-        )}
         <span className={`text-[10px] ${cfg.icon} opacity-70`}>{cfg.label}</span>
         {hasDetail && (
           <span className={`ml-auto flex items-center gap-1 text-[10px] ${cfg.icon} opacity-70`}>
@@ -2608,6 +2600,16 @@ function ToolEntryCard({
       {/* Detail pane */}
       {expanded && hasDetail && (
         <div className="border-t border-[#27272a] px-3.5 pb-3 pt-2.5 space-y-2.5">
+          {isDelegation && delegatedTask && (
+            <div>
+              <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
+                委派任务
+              </div>
+              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-[#121214] border border-[#27272a] text-[#a1a1aa] font-mono max-h-48 overflow-y-auto">
+                {delegatedTask}
+              </pre>
+            </div>
+          )}
           {argsText && (
             <div>
               <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
