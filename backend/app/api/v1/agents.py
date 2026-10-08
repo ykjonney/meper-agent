@@ -98,6 +98,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
             for b in custom_tools_raw
         ],
         knowledge_base_ids=doc.get("knowledge_base_ids", []),
+        subagent_ids=doc.get("subagent_ids", []),
         default_model=default_model,
         voice_enabled=bool(doc.get("voice_enabled", False)),
         max_retry=max_retry,
@@ -207,6 +208,7 @@ async def update_agent(
         custom_tool_ids=body.custom_tool_ids,
         custom_tools=[b.model_dump() for b in body.custom_tools],
         knowledge_base_ids=body.knowledge_base_ids,
+        subagent_ids=body.subagent_ids,
         default_model=body.default_model,
         voice_enabled=body.voice_enabled,
         max_retry=body.max_retry,
