@@ -303,3 +303,40 @@ def test_spec_timeout_validation():
         SubAgentSpec(
             name="a", description="d", system_prompt="s", timeout_ms=500,
         )
+
+
+@pytest.mark.asyncio
+async def test_delegate_passes_tools_to_graph_builder(monkeypatch):
+    """回归锁：tools 必须传 build_agent_graph——ToolNode 执行表在编译期
+    决定（config 的 tools 只供 llm bind），不传则子 agent 所有工具调用
+    报 "not a valid tool, try one of []"。"""
+    ctx = _setup_context_with_mock_subagent()
+    captured: dict = {}
+
+    def _capture_build(agent_doc, **kw):
+        captured["tools"] = kw.get("tools")
+        fake_graph = MagicMock()
+
+        async def _ok(state, config=None):
+            return {"messages": [AIMessage(content="ok")]}
+
+        fake_graph.ainvoke = _ok
+        return fake_graph
+
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        _capture_build,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config",
+        lambda *a, **kw: {"configurable": {}},
+    )
+    token = set_subagent_context(ctx)
+    try:
+        await delegate_to_subagent.ainvoke(
+            {"subagent_name": "coder", "task": "x"}
+        )
+        # resolve_tools 的结果（ctx.resolve_tools 的返回值）必须原样进入图构建
+        assert captured["tools"] == ctx.resolve_tools.return_value
+    finally:
+        reset_subagent_context(token)

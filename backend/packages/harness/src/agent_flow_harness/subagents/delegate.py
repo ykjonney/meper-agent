@@ -94,8 +94,11 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
         tools = ctx.resolve_tools(spec)               # AC7: 已排除 delegate
         llm = ctx.resolve_llm(spec)
         state = ctx.build_subagent_state(spec, task)  # AC8: 全新隔离 state
-        # 延迟构建子 agent graph（AC5）。
-        graph = build_agent_graph(_DELEGATE_AGENT_DOC)
+        # 延迟构建子 agent graph（AC5）。tools 必须传给 build_agent_graph：
+        # ToolNode 的执行表在图编译期决定（config 里的 tools 只供 llm_node
+        # bind）——不传则 ToolNode 按空 agent_doc 静态解析出空表，LLM 声明
+        # 并调用的每个工具都会 "not a valid tool, try one of []"。
+        graph = build_agent_graph(_DELEGATE_AGENT_DOC, tools=tools)
         usage_mw = UsageMiddleware()
         config = build_config(
             _DELEGATE_AGENT_DOC, llm, tools=tools, recursion_limit=spec.max_turns,
