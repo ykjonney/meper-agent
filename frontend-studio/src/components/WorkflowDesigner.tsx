@@ -32,6 +32,7 @@ import {
 } from '../features/workflow-editor/agent-info'
 import type { WorkflowNode } from '../services/types'
 import { materializeLoopBodies } from '../features/workflow-editor/utils/loop-derive'
+import LoopStepsEditor from '../features/workflow-editor/LoopStepsEditor'
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution'
 import { usePermission } from '../hooks/use-permission'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
@@ -367,8 +368,11 @@ export function WorkflowDesigner({
           <AgentInfoContext.Provider value={resolvedAgentInfoMap}>
           <ToolNameContext.Provider value={toolNameMap}>
           <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
-            {/* 左：Palette（可收缩）*/}
-            <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`}>
+            {/* 左：Palette（可收缩；循环内部模式隐藏——步骤添加在内部编辑器） */}
+            <div
+              className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} ${loopEditingId ? 'hidden' : 'flex'} flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`
+              }
+            >
               <button
                 onClick={() => setPaletteCollapsed((v) => !v)}
                 title={paletteCollapsed ? '展开节点类型' : '收起节点类型'}
@@ -440,23 +444,22 @@ export function WorkflowDesigner({
                   {exec.executing ? '执行中' : '执行'}
                 </Button>
               </div>
-              {/* 循环内部模式面包屑 */}
               {loopEditingId && editingLoopNode && (
-                <div className="absolute top-14 left-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#A855F7]/15 backdrop-blur border border-[#A855F7]/40 shadow-lg">
-                  <button
-                    onClick={() => {
-                      setLoopEditingId(null)
-                      setSelectedNode(null)
-                    }}
-                    className="flex items-center gap-1 text-xs text-[#d8b4fe] hover:text-white cursor-pointer"
-                  >
-                    ← 返回主流程
-                  </button>
-                  <span className="text-[#71717a]">/</span>
-                  <span className="text-xs text-[#d8b4fe] font-medium">
-                    🔁 {editingLoopNode.label || '循环'} 内部（每轮执行这些步骤）
-                  </span>
-                </div>
+                <LoopStepsEditor
+                  loopNode={editingLoopNode}
+                  allNodes={nodes}
+                  selectedNodeId={selectedNode?.node_id ?? null}
+                  onSelectNode={setSelectedNode}
+                  onNodesChange={(next) => {
+                    setNodes(next)
+                    setHasUnsavedChanges(true)
+                    setDirtySinceLoad(true)
+                  }}
+                  onExit={() => {
+                    setLoopEditingId(null)
+                    setSelectedNode(null)
+                  }}
+                />
               )}
               <WorkflowCanvas
                 workflowNodes={canvasNodes}
