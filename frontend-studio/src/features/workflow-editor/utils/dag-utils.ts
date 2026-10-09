@@ -54,6 +54,13 @@ function buildReverseAdjacency(nodes: WorkflowNode[]): Map<string, string[]> {
  * 计算指定节点的所有上游节点（拓扑顺序）。
  *
  * 从 nodes 推导关系，不再依赖独立的 edges 数组。
+ *
+ * 循环体成员补边（与后端 validator 的边索引语义对齐，否则变量选择器
+ * 里选不到合法变量）：体成员可引用 ① 所属 loop 的全部上游（虚拟进入
+ * 边，"循环前变量"如 input/start）② 其他体成员（回边成环——本轮
+ * 下游 = 下轮上游）③ 自身（上一轮的值）。注意不并入 loop 节点本身：
+ * 体内引用 loop 输出键（iterations/converged/rounds 轮内未定稿）会被
+ * 后端 LOOP_FORWARD_REF 拦截。
  */
 export function computeUpstreamNodes(
   nodeId: string,
@@ -65,8 +72,21 @@ export function computeUpstreamNodes(
   const visited = new Set<string>()
   const queue: string[] = []
 
-  // 初始入队：直接上游
-  for (const src of rev.get(nodeId) ?? []) {
+  // 循环体成员的额外引用源
+  const extraSources: string[] = []
+  const ownerLoop = nodes.find(
+    (n) =>
+      n.type === 'loop' &&
+      ((((n.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []).includes(nodeId),
+  )
+  if (ownerLoop) {
+    const body =
+      (((ownerLoop.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []
+    extraSources.push(...body, ...(rev.get(ownerLoop.node_id) ?? []))
+  }
+
+  // 初始入队：直接上游 + 循环补充源
+  for (const src of [...(rev.get(nodeId) ?? []), ...extraSources]) {
     if (!visited.has(src)) {
       visited.add(src)
       queue.push(src)
