@@ -95,21 +95,59 @@ export default function WorkflowCanvas({
   theme = 'dark',
 }: WorkflowCanvasProps) {
   const rfInstance = useRef<ReactFlowInstance | null>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
-  /* ─── xyflow nodes: 从 workflowNodes 同步 ─── */
-  const [xyflowNodes, setXyflowNodes] = useState<Node[]>(
-    () => toXyflowNodes(workflowNodes, selectedNodeId) as Node[],
+  /* ─── 循环体成员不在主画布渲染（循环是节点的内部实现，成员在循环节点
+     面板里管理）。注意：结构性变更（拖拽/连线/落点）必须基于全量
+     workflowNodes 重建——用渲染子集整体替换会把隐藏成员全部抹掉，
+     body 引用悬空后面板表现为"步骤列表丢失"。 ─── */
+  const memberIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const n of workflowNodes) {
+      if (n.type !== 'loop') continue
+      for (const m of (((n.config as Record<string, unknown>).body as string[] | undefined) ?? [])) {
+        s.add(m)
+      }
+    }
+    return s
+  }, [workflowNodes])
+  const canvasNodes = useMemo(
+    () => workflowNodes.filter((n) => !memberIds.has(n.node_id)),
+    [workflowNodes, memberIds],
   )
 
-  // 同步外部 workflowNodes 到内部 xyflowNodes
+  /* ─── 画布容器尺寸变化 → 重新 fitView。配置面板开合/左侧 Palette 收展
+     都会改变画布宽度，React Flow 不会自动重排，节点会滑到面板容器下面
+     （面板是后绘制的 flex 兄弟节点，透明区域也吞点击）导致"点不中"。 ─── */
+  const prevWidthRef = useRef(0)
+  useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (prevWidthRef.current && Math.abs(w - prevWidthRef.current) > 1) {
+        rfInstance.current?.fitView({ padding: 0.2, duration: 200 })
+      }
+      prevWidthRef.current = w
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  /* ─── xyflow nodes: 从 canvasNodes 同步 ─── */
+  const [xyflowNodes, setXyflowNodes] = useState<Node[]>(
+    () => toXyflowNodes(canvasNodes, selectedNodeId) as Node[],
+  )
+
+  // 同步外部 canvasNodes 到内部 xyflowNodes
   const prevSyncHashRef = useRef('')
   useEffect(() => {
-    const hash = workflowNodes
+    const hash = canvasNodes
       .map((n) => `${n.node_id}:${n.label}:${JSON.stringify(n.config)}`)
       .join('|')
     if (hash !== prevSyncHashRef.current) {
       prevSyncHashRef.current = hash
-      const newNodes = toXyflowNodes(workflowNodes, selectedNodeId) as Node[]
+      const newNodes = toXyflowNodes(canvasNodes, selectedNodeId) as Node[]
       setXyflowNodes((prev) =>
         newNodes.map((nn) => {
           const existing = prev.find((p) => p.id === nn.id)
@@ -117,7 +155,7 @@ export default function WorkflowCanvas({
         }),
       )
     }
-  }, [workflowNodes, selectedNodeId])
+  }, [canvasNodes, selectedNodeId])
 
   /* ─── 追踪选中的边（受控模式下 React Flow 不会回写 selected 属性） ─── */
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())
@@ -136,10 +174,11 @@ export default function WorkflowCanvas({
     setSelectedEdgeIds(new Set())
   }, [onSelectNode])
 
-  /* ─── xyflow edges: 从 workflowNodes 的 config 推导，注入 selected 样式 ─── */
+  /* ─── xyflow edges: 从 canvasNodes 的 config 推导（隐藏成员的回边/进体边
+     端点不在渲染集，deriveXyflowEdgesFromNodes 自带悬空过滤），注入 selected 样式 ─── */
   const xyflowEdges = useMemo<Edge[]>(
     () =>
-      deriveXyflowEdgesFromNodes(workflowNodes).map((e) => {
+      deriveXyflowEdgesFromNodes(canvasNodes).map((e) => {
         const isSelected = selectedEdgeIds.has(e.id)
         const isCondition = e.className?.includes('workflow-edge--condition')
         return {
@@ -152,7 +191,7 @@ export default function WorkflowCanvas({
               : { stroke: '#94A3B8', strokeWidth: 0.8 },
         }
       }),
-    [workflowNodes, selectedEdgeIds],
+    [canvasNodes, selectedEdgeIds],
   )
 
   /* ─── 内部节点位置变更（包括拖拽） ─── */
@@ -301,7 +340,7 @@ export default function WorkflowCanvas({
   }, [selectedEdgeIds, workflowNodes, xyflowEdges, onWorkflowNodesChange])
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full" ref={wrapperRef}>
       <ReactFlow
         nodes={xyflowNodes}
         edges={xyflowEdges}

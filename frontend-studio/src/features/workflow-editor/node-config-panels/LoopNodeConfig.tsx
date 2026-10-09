@@ -13,7 +13,7 @@ import { Input, Select } from '../../../components/ui'
 import HelpHint from '../HelpHint'
 import { NODE_TYPE_CONFIGS } from '../utils/node-type-configs'
 import { generateNodeId, getDefaultNodeConfig } from '../utils/node-defaults'
-import { deriveLoopChain } from '../utils/loop-derive'
+import { deriveLoopChain, applyLinearBodySteps } from '../utils/loop-derive'
 import type { WorkflowNode } from '../../../services/workflows-api'
 
 /** 可添加的线性步骤类型（分支类不提供，保持步骤流线性语义） */
@@ -87,60 +87,20 @@ export default function LoopNodeConfig({
     )
   }
 
-  /** 结构性变更：更新 body + 重建线性链（steps[i].next = steps[i+1]） */
-  const applySteps = (steps: string[]) => {
-    const stepSet = new Set(steps)
-    let nodes = allNodes.map((n) => {
-      if (n.node_id === currentNodeId) {
-        const c = { ...(n.config as Record<string, unknown>) }
-        c.body = steps
-        c.body_entry = steps[0] ?? ''
-        return { ...n, config: c }
-      }
-      if (stepSet.has(n.node_id)) {
-        const idx = steps.indexOf(n.node_id)
-        const nextTarget = idx >= 0 && idx < steps.length - 1 ? steps[idx + 1] : null
-        return { ...n, config: { ...n.config, next_nodes: nextTarget ? [{ target: nextTarget }] : [] } }
-      }
-      // 非成员节点指向旧成员的残留边清掉
-      const nexts = ((n.config as Record<string, unknown>).next_nodes as { target?: string }[] | undefined) ?? []
-      const cleaned = nexts.filter((nn) => !stepSet.has(String(nn?.target ?? '')))
-      if (cleaned.length !== nexts.length) {
-        return { ...n, config: { ...n.config, next_nodes: cleaned } }
-      }
-      return n
-    })
-    onNodesChange(nodes)
-  }
-
   const editable = !!onNodesChange
 
   const handleAddStep = (type: string) => {
     if (!onNodesChange) return
+    // 新节点即尾步：next_nodes 直接连回循环节点（回边，引擎轮内推进依赖）
     const newNode: WorkflowNode = {
       node_id: generateNodeId(),
       type,
       label: NODE_TYPE_CONFIGS[type]?.label ?? type,
-      config: getDefaultNodeConfig(type),
+      config: { ...getDefaultNodeConfig(type), next_nodes: [{ target: currentNodeId }] },
       position: { x: 200 + ((body.length % 3) * 40), y: 150 + body.length * 110 },
     }
     const steps = [...chain, newNode.node_id]
-    const stepSet = new Set(steps)
-    let nodes = allNodes.map((n) => {
-      if (n.node_id === currentNodeId) {
-        const c = { ...(n.config as Record<string, unknown>) }
-        c.body = steps
-        c.body_entry = (c.body_entry as string | undefined) || steps[0]
-        return { ...n, config: c }
-      }
-      if (stepSet.has(n.node_id)) {
-        const idx = steps.indexOf(n.node_id)
-        const nextTarget = idx >= 0 && idx < steps.length - 1 ? steps[idx + 1] : null
-        return { ...n, config: { ...n.config, next_nodes: nextTarget ? [{ target: nextTarget }] : [] } }
-      }
-      return n
-    })
-    nodes = [...nodes, newNode]
+    const nodes = [...applyLinearBodySteps(allNodes, currentNodeId, steps), newNode]
     onNodesChange(nodes)
     // 不自动切到新节点配置——连续添加多个步骤时不打断；完成后点步骤行配置
   }
@@ -152,24 +112,14 @@ export default function LoopNodeConfig({
     if (idx < 0 || j < 0 || j >= chain.length) return
     const steps = chain.slice()
     ;[steps[idx], steps[j]] = [steps[j], steps[idx]]
-    applySteps(steps)
+    onNodesChange(applyLinearBodySteps(allNodes, currentNodeId, steps))
   }
 
   const handleRemoveStep = (id: string) => {
     if (!onNodesChange) return
     const steps = chain.filter((x) => x !== id)
-    const nodes = allNodes
-      .filter((n) => n.node_id !== id)
-      .map((n) => {
-        if (n.node_id === currentNodeId) {
-          const c = { ...(n.config as Record<string, unknown>) }
-          c.body = steps
-          c.body_entry = (c.body_entry as string | undefined) === id ? (steps[0] ?? '') : c.body_entry
-          return { ...n, config: c }
-        }
-        return n
-      })
-    onNodesChange(nodes)
+    const nodesLeft = allNodes.filter((n) => n.node_id !== id)
+    onNodesChange(applyLinearBodySteps(nodesLeft, currentNodeId, steps))
   }
 
   const parsed = parseConverge(convergeExpr)

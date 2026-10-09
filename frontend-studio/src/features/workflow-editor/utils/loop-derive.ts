@@ -102,11 +102,13 @@ export function deriveLoopBody(
   return { ok: true, result: { body: hitChain!.members, bodyEntry: hitChain!.entry } }
 }
 
-/** 保存前轻量物化：body 由内部编辑显式维护（不动），仅补默认入口 +
- * 清理已删除成员；body 为空的旧数据按回边推导一次。 */
+/** 保存前轻量物化：body 由内部编辑显式维护（仅做卫生），body 为空的旧
+ * 数据按回边推导一次；线性体补齐成员间连线 + 尾步回边（引擎按真实边
+ * 推进轮内执行；旧数据/早期面板版本只写 body 不写边，每轮只会执行入口
+ * 一个节点）。分支体不动。 */
 export function materializeLoopBodies(nodes: WorkflowNode[]): WorkflowNode[] {
   const nodeIds = new Set(nodes.map((n) => n.node_id))
-  return nodes.map((n) => {
+  let next = nodes.map((n) => {
     if (n.type !== 'loop') return n
     const cfg = (n.config ?? {}) as Record<string, unknown>
     const rawBody = (cfg.body as string[] | undefined) ?? []
@@ -121,6 +123,64 @@ export function materializeLoopBodies(nodes: WorkflowNode[]): WorkflowNode[] {
     }
     const entry = String(cfg.body_entry ?? '')
     return { ...n, config: { ...cfg, body, body_entry: entry && body.includes(entry) ? entry : body[0] } }
+  })
+  // 边修复按 loop 逐个叠加（applyLinearBodySteps 返回全量数组）
+  for (const n of nodes) {
+    if (n.type !== 'loop') continue
+    const body = (((n.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []
+    const valid = body.filter((m) => nodeIds.has(m))
+    if (valid.length > 0 && !isBranchyBody(nodes, valid)) {
+      next = applyLinearBodySteps(next, n.node_id, valid)
+    }
+  }
+  return next
+}
+
+/**
+ * 按给定步骤序重排循环体的线性连线（面板步骤管理的唯一写路径）。
+ *
+ * 边契约（引擎按真实边推进轮内执行，engine.py `_execute_node`：
+ * 进体走 config.body_entry，成员间走 next_nodes，尾步 → loop 的回边
+ * 在 `_active_loop_node` 命中时跳过重入）：
+ * - 成员 i：next_nodes = [{ target: steps[i+1] }]；尾步 = [{ target: loop }]
+ * - loop 节点：body = steps，body_entry = steps[0]（next_nodes 保持
+ *   "循环结束后的下游"语义，不得指向体内）
+ * - 非成员节点：清掉指向成员的残留边（成员只能从循环进出）
+ */
+export function applyLinearBodySteps(
+  nodes: WorkflowNode[],
+  loopId: string,
+  steps: string[],
+): WorkflowNode[] {
+  const stepSet = new Set(steps)
+  return nodes.map((n) => {
+    const cfg = (n.config ?? {}) as Record<string, unknown>
+    if (n.node_id === loopId) {
+      return { ...n, config: { ...cfg, body: steps, body_entry: steps[0] ?? '' } }
+    }
+    if (stepSet.has(n.node_id)) {
+      const idx = steps.indexOf(n.node_id)
+      const nextTarget = idx >= 0 && idx < steps.length - 1 ? steps[idx + 1] : loopId
+      return { ...n, config: { ...cfg, next_nodes: [{ target: nextTarget }] } }
+    }
+    const nexts = (cfg.next_nodes as { target?: string }[] | undefined) ?? []
+    const cleaned = nexts.filter((nn) => !stepSet.has(String(nn?.target ?? '')))
+    if (cleaned.length !== nexts.length) {
+      return { ...n, config: { ...cfg, next_nodes: cleaned } }
+    }
+    return n
+  })
+}
+
+/** 体是否含分支结构（gateway/parallel 或成员在体内出度 > 1）——分支体不可线性化 */
+function isBranchyBody(nodes: WorkflowNode[], body: string[]): boolean {
+  const bodySet = new Set(body)
+  const { out } = buildEdgeIndex(nodes)
+  return body.some((m) => {
+    const n = nodes.find((x) => x.node_id === m)
+    if (!n) return false
+    if (n.type === 'gateway' || n.type === 'parallel') return true
+    return (out.get(m) ?? []).filter((t) => bodySet.has(t)).length > 1
   })
 }
 

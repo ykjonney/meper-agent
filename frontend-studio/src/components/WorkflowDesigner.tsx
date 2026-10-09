@@ -148,24 +148,9 @@ export function WorkflowDesigner({
     setDirtySinceLoad(true)
   }, [])
 
-  // 循环体成员归属（node_id → 所属 loop id）
-  const loopMembership = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const n of nodes) {
-      if (n.type !== 'loop') continue
-      for (const m of ((n.config as Record<string, unknown>).body as string[] | undefined) ?? []) {
-        map.set(m, n.node_id)
-      }
-    }
-    return map
-  }, [nodes])
-
-  // 画布视图节点：循环体成员不在主画布显示（循环是节点的内部实现，
-  // 成员在右侧循环节点面板里管理）
-  const canvasNodes = useMemo(
-    () => nodes.filter((n) => !loopMembership.has(n.node_id)),
-    [nodes, loopMembership],
-  )
+  // 画布视图过滤（循环体成员隐藏）已移入 WorkflowCanvas 内部：渲染用过滤
+  // 子集、结构性变更用全量集，两套节点集不再可能漂移（曾因拖拽/落点基于
+  // 渲染子集重建而抹除隐藏成员，面板表现为"步骤列表丢失"）。
 
   const handleNodeChange = useCallback((updated: WorkflowNode) => {
     setNodes((prev) => prev.map((n) => (n.node_id === updated.node_id ? updated : n)))
@@ -443,7 +428,7 @@ export function WorkflowDesigner({
                 </Button>
               </div>
               <WorkflowCanvas
-                workflowNodes={canvasNodes}
+                workflowNodes={nodes}
                 selectedNodeId={selectedNode?.node_id ?? null}
                 onNodesChange={handleNodesChange}
                 onSelectNode={setSelectedNode}
