@@ -29,11 +29,15 @@ interface NodePanelProps {
   node: WorkflowNode
   allNodes: WorkflowNode[]
   onNodeChange: (updated: WorkflowNode) => void
+  /** 结构性变更（加/删节点）——loop 步骤管理用 */
+  onNodesChange?: (nodes: WorkflowNode[]) => void
+  /** 选中节点（面板切换）——loop 步骤点击进入配置用 */
+  onSelectNode?: (n: WorkflowNode) => void
 }
 
 /* ─── Node Config Panel ─── */
 
-function NodeConfigPanel({ node, allNodes, onNodeChange }: NodePanelProps) {
+function NodeConfigPanel({ node, allNodes, onNodeChange, onNodesChange, onSelectNode }: NodePanelProps) {
   const handleConfigChange = (newConfig: Record<string, unknown>) => {
     onNodeChange({ ...node, config: newConfig })
   }
@@ -94,6 +98,10 @@ interface WorkflowNodeConfigPanelProps {
   allNodes: WorkflowNode[]
   onNodeChange: (updated: WorkflowNode) => void
   onNodeDelete?: (nodeId: string) => void
+  /** 结构性变更（加/删节点）——loop 步骤管理用 */
+  onNodesChange?: (nodes: WorkflowNode[]) => void
+  /** 选中节点（面板切换）——loop 步骤点击进入配置用 */
+  onSelectNode?: (n: WorkflowNode) => void
 }
 
 export default function WorkflowNodeConfigPanel({
@@ -101,6 +109,8 @@ export default function WorkflowNodeConfigPanel({
   allNodes,
   onNodeChange,
   onNodeDelete,
+  onNodesChange,
+  onSelectNode,
 }: WorkflowNodeConfigPanelProps) {
   if (selectedNode) {
     const nt = NODE_TYPE_CONFIGS[selectedNode.type]
@@ -133,7 +143,9 @@ export default function WorkflowNodeConfigPanel({
           node={selectedNode}
           allNodes={allNodes}
           onNodeChange={onNodeChange}
-        />
+        onNodesChange={onNodesChange}
+        onSelectNode={onSelectNode}
+      />
         {onNodeDelete && selectedNode.node_id && (
           <div className="mt-4 pt-3 border-t border-[#27272a]">
             <Popconfirm

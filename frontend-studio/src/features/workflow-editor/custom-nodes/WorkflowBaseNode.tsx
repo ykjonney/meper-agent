@@ -148,8 +148,8 @@ function getInfoRows(
     case 'loop': {
       const body = config.body as string[] | undefined
       return body && body.length > 0
-        ? [{ text: `每轮 ${body.length} 步 · 双击编辑内部` }]
-        : [{ text: '双击进入内部添加步骤' }]
+        ? [{ text: `每轮 ${body.length} 步 · 选中配置` }]
+        : [{ text: '选中后在右侧添加步骤' }]
     }
     case 'parallel': {
       const branches = config.branches as unknown[] | undefined

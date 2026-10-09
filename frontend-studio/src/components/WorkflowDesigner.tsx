@@ -32,7 +32,6 @@ import {
 } from '../features/workflow-editor/agent-info'
 import type { WorkflowNode } from '../services/types'
 import { materializeLoopBodies } from '../features/workflow-editor/utils/loop-derive'
-import LoopStepsEditor from '../features/workflow-editor/LoopStepsEditor'
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution'
 import { usePermission } from '../hooks/use-permission'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
@@ -83,9 +82,6 @@ export function WorkflowDesigner({
     if (controlledWorkflowId === undefined) setInternalWorkflowId(id)
   }
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
-  // 循环内部编辑模式：当前进入的 loop 节点 id（null=主画布）。
-  // 主画布隐藏所有循环体成员（物理边界）；内部模式只显示该循环的成员。
-  const [loopEditingId, setLoopEditingId] = useState<string | null>(null)
   const [nodes, setNodes] = useState<WorkflowNode[]>([])
   // Editable workflow name draft. Initialized from the loaded detail and reset
   // on workflow switch (same effect that resets `nodes`). handleSave reads this
@@ -154,15 +150,11 @@ export function WorkflowDesigner({
     return map
   }, [nodes])
 
-  // 画布视图节点：主模式隐藏循环成员；内部模式只显示该循环成员
-  const canvasNodes = useMemo(() => {
-    if (loopEditingId) return nodes.filter((n) => loopMembership.get(n.node_id) === loopEditingId)
-    return nodes.filter((n) => !loopMembership.has(n.node_id))
-  }, [nodes, loopMembership, loopEditingId])
-
-  const editingLoopNode = useMemo(
-    () => (loopEditingId ? nodes.find((n) => n.node_id === loopEditingId && n.type === 'loop') : undefined),
-    [nodes, loopEditingId],
+  // 画布视图节点：循环体成员不在主画布显示（循环是节点的内部实现，
+  // 成员在右侧循环节点面板里管理）
+  const canvasNodes = useMemo(
+    () => nodes.filter((n) => !loopMembership.has(n.node_id)),
+    [nodes, loopMembership],
   )
 
   const handleNodeChange = useCallback((updated: WorkflowNode) => {
@@ -211,9 +203,8 @@ export function WorkflowDesigner({
           return { ...n, config }
         })
     })
-    // 删除的是循环节点本身 → 退出内部编辑模式
-    setLoopEditingId((cur) => (nodes.find((n) => n.node_id === cur)?.type === 'loop' && cur === nodeId ? null : cur))
-    setSelectedNode(null)
+    // 删除循环节点 → 若面板正选中它则关闭
+    setSelectedNode((cur) => (cur?.node_id === nodeId ? null : cur))
     setHasUnsavedChanges(true)
     setDirtySinceLoad(true)
   }, [nodes])
@@ -368,11 +359,8 @@ export function WorkflowDesigner({
           <AgentInfoContext.Provider value={resolvedAgentInfoMap}>
           <ToolNameContext.Provider value={toolNameMap}>
           <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
-            {/* 左：Palette（可收缩；循环内部模式隐藏——步骤添加在内部编辑器） */}
-            <div
-              className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} ${loopEditingId ? 'hidden' : 'flex'} flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`
-              }
-            >
+            {/* 左：Palette（可收缩） */}
+            <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`}>
               <button
                 onClick={() => setPaletteCollapsed((v) => !v)}
                 title={paletteCollapsed ? '展开节点类型' : '收起节点类型'}
@@ -444,34 +432,12 @@ export function WorkflowDesigner({
                   {exec.executing ? '执行中' : '执行'}
                 </Button>
               </div>
-              {loopEditingId && editingLoopNode && (
-                <LoopStepsEditor
-                  loopNode={editingLoopNode}
-                  allNodes={nodes}
-                  selectedNodeId={selectedNode?.node_id ?? null}
-                  onSelectNode={setSelectedNode}
-                  onNodesChange={(next) => {
-                    setNodes(next)
-                    setHasUnsavedChanges(true)
-                    setDirtySinceLoad(true)
-                  }}
-                  onExit={() => {
-                    setLoopEditingId(null)
-                    setSelectedNode(null)
-                  }}
-                />
-              )}
               <WorkflowCanvas
                 workflowNodes={canvasNodes}
                 selectedNodeId={selectedNode?.node_id ?? null}
                 onNodesChange={handleNodesChange}
                 onSelectNode={setSelectedNode}
                 theme={theme}
-                onOpenLoop={(id) => {
-                  setLoopEditingId(id)
-                  setSelectedNode(null)
-                }}
-                activeLoopId={loopEditingId}
               />
             </div>
 
@@ -483,6 +449,12 @@ export function WorkflowDesigner({
                   allNodes={nodes}
                   onNodeChange={handleNodeChange}
                   onNodeDelete={handleNodeDelete}
+                  onNodesChange={(next) => {
+                    setNodes(next)
+                    setHasUnsavedChanges(true)
+                    setDirtySinceLoad(true)
+                  }}
+                  onSelectNode={setSelectedNode}
                 />
               </div>
             )}

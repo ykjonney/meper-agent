@@ -82,11 +82,7 @@ export interface WorkflowCanvasProps {
   workflowNodes: WorkflowNode[]
   selectedNodeId: string | null
   onNodesChange: (nodes: WorkflowNode[]) => void
-  /** 双击循环节点 → 进入内部编辑（Designer 切换视图） */
-  onOpenLoop?: (loopNodeId: string) => void
-  /** 循环内部编辑模式：当前 loop 节点 id（null=主画布）。内部拖入的新节点
-   *  自动加入该 loop 的循环体 */
-  activeLoopId?: string | null
+
   onSelectNode: (node: WorkflowNode | null) => void
   theme?: 'dark' | 'light'
 }
@@ -95,8 +91,6 @@ export default function WorkflowCanvas({
   workflowNodes,
   selectedNodeId,
   onNodesChange: onWorkflowNodesChange,
-  onOpenLoop,
-  activeLoopId,
   onSelectNode,
   theme = 'dark',
 }: WorkflowCanvasProps) {
@@ -239,11 +233,6 @@ export default function WorkflowCanvas({
         toast.warning('start 节点只能有一个')
         return
       }
-      // 循环内部编辑模式：结构性节点与嵌套 loop 禁入（与校验器口径一致）
-      if (activeLoopId && (type === 'start' || type === 'end' || type === 'loop')) {
-        toast.warning('循环内不能放入开始/结束/循环节点')
-        return
-      }
 
       const instance = rfInstance.current
       if (!instance) return
@@ -261,22 +250,10 @@ export default function WorkflowCanvas({
         position: { x: Math.round(position.x), y: Math.round(position.y) },
       }
 
-      let updatedNodes: WorkflowNode[] = [...workflowNodes, newNode]
-      // 内部模式：新节点自动加入循环体（config.body），首个成员自动成为起点
-      if (activeLoopId) {
-        updatedNodes = updatedNodes.map((n) => {
-          if (n.node_id !== activeLoopId || n.type !== 'loop') return n
-          const cfg = { ...(n.config as Record<string, unknown>) }
-          const body = ((cfg.body as string[] | undefined) ?? []).slice()
-          const entry = (cfg.body_entry as string | undefined) ?? ''
-          if (!body.includes(newNode.node_id)) body.push(newNode.node_id)
-          return { ...n, config: { ...cfg, body, body_entry: entry || newNode.node_id } }
-        })
-      }
-      onWorkflowNodesChange(updatedNodes)
+      onWorkflowNodesChange([...workflowNodes, newNode])
       onSelectNode(newNode)
     },
-    [workflowNodes, onWorkflowNodesChange, onSelectNode, activeLoopId],
+    [workflowNodes, onWorkflowNodesChange, onSelectNode],
   )
 
   /* ─── 删除边 → 从 source 节点的 next_nodes 中移除 ─── */
@@ -334,10 +311,6 @@ export default function WorkflowCanvas({
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
-        onNodeDoubleClick={(_, node) => {
-          const wn = (node.data as { workflowNode?: WorkflowNode } | undefined)?.workflowNode
-          if (wn?.type === 'loop') onOpenLoop?.(wn.node_id)
-        }}
         onNodeClick={handleNodeClick}
         onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
