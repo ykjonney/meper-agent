@@ -463,6 +463,10 @@ export function WorkflowDesigner({
                     setNodes(next)
                     setHasUnsavedChanges(true)
                     setDirtySinceLoad(true)
+                    // 结构性变更后同步选中节点对象（config 已变，防面板持旧快照）
+                    setSelectedNode((cur) =>
+                      cur ? (next.find((n) => n.node_id === cur.node_id) ?? null) : cur,
+                    )
                   }}
                   onSelectNode={setSelectedNode}
                 />

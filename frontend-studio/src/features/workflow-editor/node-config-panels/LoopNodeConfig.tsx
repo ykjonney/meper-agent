@@ -40,12 +40,20 @@ function parseConverge(expr: string): { source: string; field: string; op: strin
 export default function LoopNodeConfig({
   config, onChange, allNodes, currentNodeId, onNodesChange, onSelectNode,
 }: Props) {
-  const maxIter = (config.max_iterations as number) ?? 5
-  const convergeExpr = (config.converge_expr as string) ?? ''
+  // 单一事实源：永远读 allNodes 里的最新循环节点——props config 可能是
+  // selectedNode 的过期快照（结构变更后 Designer 未同步选中对象时，读旧
+  // 快照会显示"步骤全没了"）。config prop 仅在节点暂不可见时兜底。
+  const liveConfig = useMemo(
+    () =>
+      ((allNodes.find((n) => n.node_id === currentNodeId)?.config ?? config) as Record<string, unknown>),
+    [allNodes, currentNodeId, config],
+  )
+  const maxIter = (liveConfig.max_iterations as number) ?? 5
+  const convergeExpr = (liveConfig.converge_expr as string) ?? ''
   const body = useMemo(
-    () => (((config.body as string[] | undefined) ?? []).filter((id) =>
+    () => (((liveConfig.body as string[] | undefined) ?? []).filter((id) =>
       allNodes.some((n) => n.node_id === id))),
-    [config.body, allNodes],
+    [liveConfig.body, allNodes],
   )
   const chain = useMemo(() => deriveLoopChain(allNodes, currentNodeId), [allNodes, currentNodeId])
   const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.node_id, n])), [allNodes])
@@ -171,7 +179,7 @@ export default function LoopNodeConfig({
   const setConvergePart = (patch: Partial<typeof convergeParts>) => {
     const next = { ...convergeParts, ...patch }
     onChange({
-      ...config,
+      ...liveConfig,
       converge_expr: `{{ ${next.source}.${next.field} ${next.op} '${next.value}' }}`,
     })
   }
@@ -277,7 +285,7 @@ export default function LoopNodeConfig({
             value={String(maxIter)}
             onChange={(e) =>
               onChange({
-                ...config,
+                ...liveConfig,
                 max_iterations: Math.min(20, Math.max(1, parseInt(e.target.value) || 5)),
               })
             }
@@ -298,7 +306,7 @@ export default function LoopNodeConfig({
             checked={convergeEnabled}
             onChange={(e) =>
               onChange({
-                ...config,
+                ...liveConfig,
                 converge_expr: e.target.checked
                   ? `{{ ${convergeParts.source}.${convergeParts.field} ${convergeParts.op} '${convergeParts.value}' }}`
                   : '',
