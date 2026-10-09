@@ -68,19 +68,32 @@ function parseConverge(expr: string): ConvergeParts {
   return { source: '', field: '', op: '==', value: '' }
 }
 
-/** 读取 agent 步骤的可选条件字段：固定输出契约 + response_schema 自定义字段 */
+/** 读取步骤的可选条件字段——按节点类型的真实输出契约给地址：
+ * agent 的 response_schema 字段是 response 的内容（object 模式解析后
+ * 写池在 response.<name>，node_executor.py 契约注释），不是顶层键。 */
 function convergeFieldOptions(node: WorkflowNode | undefined): { value: string; label: string }[] {
   if (!node) return []
   const cfg = (node.config ?? {}) as Record<string, unknown>
-  const opts = [
-    { value: 'response', label: 'response · 回答全文' },
-    { value: 'files', label: 'files · 产出文件' },
-  ]
-  const schema = cfg.response_schema as { fields?: Array<{ name?: string }> } | undefined
-  for (const f of schema?.fields ?? []) {
-    if (f?.name) opts.push({ value: f.name, label: f.name })
+  if (node.type === 'agent') {
+    const opts = [{ value: 'response', label: 'response · 回答全文' }]
+    const schema = cfg.response_schema as { fields?: Array<{ name?: string }> } | undefined
+    for (const f of schema?.fields ?? []) {
+      if (f?.name) opts.push({ value: `response.${f.name}`, label: `${f.name} · 契约字段` })
+    }
+    opts.push({ value: 'files', label: 'files · 产出文件' })
+    return opts
   }
-  return opts
+  if (node.type === 'tool') {
+    return [
+      { value: 'result', label: 'result · 工具返回' },
+      { value: 'files', label: 'files · 产出文件' },
+    ]
+  }
+  if (node.type === 'kb_search') {
+    return [{ value: 'results', label: 'results · 检索结果' }]
+  }
+  // human 是暂停审批点，其输出不适用作收敛条件源
+  return []
 }
 
 /** 收敛条件的变量选择器：按步骤分组点选字段（与 agent 输入的「选择变量」同交互语言） */
@@ -103,29 +116,36 @@ function ConvergeVarPicker({
       title={<span className="text-xs">选择变量</span>}
       content={
         <div className="w-64 max-h-64 overflow-y-auto scrollbar-custom">
-          {body.map((id) => (
-            <div key={id} className="mb-2.5 last:mb-0">
-              <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#A855F7] shrink-0" />
-                <span className="text-xs font-medium text-[#fafafa] truncate">{nodeLabel(id)}</span>
+          {body.map((id) => {
+            const fields = convergeFieldOptions(nodeById.get(id))
+            return (
+              <div key={id} className="mb-2.5 last:mb-0">
+                <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#A855F7] shrink-0" />
+                  <span className="text-xs font-medium text-[#fafafa] truncate">{nodeLabel(id)}</span>
+                </div>
+                {fields.length === 0 ? (
+                  <div className="text-[10px] text-[#71717a] px-0.5">该步骤类型不适用作条件源</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {fields.map((o) => (
+                      <Tag
+                        key={o.value}
+                        className="!m-0 !cursor-pointer !text-[11px] !px-1.5 !py-0.5 !rounded hover:!opacity-80 transition-opacity"
+                        color="purple"
+                        onClick={() => {
+                          onPick(id, o.value)
+                          setOpen(false)
+                        }}
+                      >
+                        {o.label}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap gap-1">
-                {convergeFieldOptions(nodeById.get(id)).map((o) => (
-                  <Tag
-                    key={o.value}
-                    className="!m-0 !cursor-pointer !text-[11px] !px-1.5 !py-0.5 !rounded hover:!opacity-80 transition-opacity"
-                    color="purple"
-                    onClick={() => {
-                      onPick(id, o.value)
-                      setOpen(false)
-                    }}
-                  >
-                    {o.label}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       }
     >
@@ -241,7 +261,7 @@ export default function LoopNodeConfig({
     const schemaFields = convergeFieldOptions(nodeById.get(defaultSource)).filter(
       (o) => o.value !== 'response' && o.value !== 'files',
     )
-    return schemaFields[0]?.value ?? 'verdict'
+    return schemaFields[0]?.value ?? 'response'
   }, [parsed.field, defaultSource, nodeById])
   const convergeParts: ConvergeParts = {
     source: defaultSource,
