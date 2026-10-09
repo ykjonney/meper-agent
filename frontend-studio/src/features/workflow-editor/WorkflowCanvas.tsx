@@ -134,20 +134,23 @@ export default function WorkflowCanvas({
     return () => ro.disconnect()
   }, [])
 
-  /* ─── xyflow nodes: 从 canvasNodes 同步 ─── */
+  /* ─── xyflow nodes: 从 canvasNodes 同步（allNodes=全量集：loop 卡片
+      的步骤行解析需要被隐藏的体成员） ─── */
   const [xyflowNodes, setXyflowNodes] = useState<Node[]>(
-    () => toXyflowNodes(canvasNodes, selectedNodeId) as Node[],
+    () => toXyflowNodes(canvasNodes, selectedNodeId, workflowNodes) as Node[],
   )
 
-  // 同步外部 canvasNodes 到内部 xyflowNodes
+  // 同步外部节点到内部 xyflowNodes。hash 算全量集而非 canvasNodes：
+  // loop 卡片的步骤行（data.loopSteps）引用被隐藏的体成员，成员 config
+  // 变更（如步骤换绑 agent）也必须触发重同步，否则卡片步骤名滞留。
   const prevSyncHashRef = useRef('')
   useEffect(() => {
-    const hash = canvasNodes
+    const hash = workflowNodes
       .map((n) => `${n.node_id}:${n.label}:${JSON.stringify(n.config)}`)
       .join('|')
     if (hash !== prevSyncHashRef.current) {
       prevSyncHashRef.current = hash
-      const newNodes = toXyflowNodes(canvasNodes, selectedNodeId) as Node[]
+      const newNodes = toXyflowNodes(canvasNodes, selectedNodeId, workflowNodes) as Node[]
       setXyflowNodes((prev) =>
         newNodes.map((nn) => {
           const existing = prev.find((p) => p.id === nn.id)
@@ -155,7 +158,7 @@ export default function WorkflowCanvas({
         }),
       )
     }
-  }, [canvasNodes, selectedNodeId])
+  }, [workflowNodes, canvasNodes, selectedNodeId])
 
   /* ─── 追踪选中的边（受控模式下 React Flow 不会回写 selected 属性） ─── */
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())

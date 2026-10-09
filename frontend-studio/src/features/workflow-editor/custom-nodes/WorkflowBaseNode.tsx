@@ -26,8 +26,10 @@ import {
   GitBranch,
   Split,
   UserCheck,
+  Repeat,
 } from 'lucide-react'
 import type { WorkflowNodeData } from '../utils/canvas-converters'
+import type { WorkflowNode } from '../../../services/workflows-api'
 import { useAgentInfo, useToolNames } from '../agent-info'
 
 type Props = NodeProps & { data: WorkflowNodeData }
@@ -41,6 +43,7 @@ const TYPE_ICONS: Record<string, ReactNode> = {
   gateway: <GitBranch size={11} strokeWidth={2} />,
   parallel: <Split size={11} strokeWidth={2} />,
   human: <UserCheck size={11} strokeWidth={2} />,
+  loop: <Repeat size={11} strokeWidth={2} />,
 }
 
 /** 节点类型 → 类别名（上行固定展示） */
@@ -52,10 +55,12 @@ const TYPE_NAMES: Record<string, string> = {
   gateway: '网关',
   parallel: '并行',
   human: '人工审批',
+  loop: '循环',
 }
 
 /** 节点类型 → 固定宽度（按类型实际情况给定，不随内容变化；高度自适应。
- *  紧凑画布密度优先——badge+标题同排已省一行，宽度按文字列实际内容收紧。） */
+ *  紧凑画布密度优先——badge+标题同排已省一行，宽度按文字列实际内容收紧。
+ *  loop 略宽：卡片逐行展示体步骤。 */
 const TYPE_WIDTH: Record<string, number> = {
   start: 125,
   end: 105,
@@ -64,6 +69,7 @@ const TYPE_WIDTH: Record<string, number> = {
   gateway: 100,
   parallel: 100,
   human: 130,
+  loop: 160,
 }
 
 /** 信息区单行（text 必填时可带红色 * 标记） */
@@ -80,11 +86,33 @@ const MAX_VAR_ROWS = 5
  * Agent/工具名称优先经 context 实时解析（列表），降级 config 选择时缓存；
  * 卡片不显示 ID 等不可读内容——名称不可得时用可读占位。
  */
+/** 循环体步骤的显示名——与 LoopNodeConfig.nodeLabel 同规则：
+ * 实时解析的 Agent/工具名 > config 缓存名 > 节点 label > 类型名 */
+function stepDisplayName(
+  n: WorkflowNode,
+  agentInfoMap: Record<string, { name: string; model: string }>,
+  toolNameMap: Record<string, string>,
+): string {
+  const cfg = (n.config ?? {}) as Record<string, unknown>
+  if (n.type === 'agent') {
+    const id = cfg.agent_id as string | undefined
+    const live = id ? agentInfoMap[id] : undefined
+    return String(live?.name || cfg.agent_name || n.label || 'Agent')
+  }
+  if (n.type === 'tool') {
+    const id = cfg.tool_id as string | undefined
+    const live = id ? toolNameMap[id] : undefined
+    return String(live || cfg.tool_name || n.label || '工具')
+  }
+  return String(n.label || TYPE_NAMES[n.type] || n.type)
+}
+
 function getInfoRows(
   type: string,
   config: Record<string, unknown>,
   agentInfoMap: Record<string, { name: string; model: string }>,
   toolNameMap: Record<string, string>,
+  loopSteps?: WorkflowNode[],
 ): InfoRow[] {
   switch (type) {
     case 'start': {
@@ -146,9 +174,19 @@ function getInfoRows(
         : [{ text: '未配置条件' }]
     }
     case 'loop': {
+      // 卡片逐行展示体步骤（成员在画布上隐藏，这里是用户看见循环内容
+      // 的唯一位置）——超出行数折叠 +N，悬停看全文
+      if (loopSteps && loopSteps.length > 0) {
+        const rows: InfoRow[] = loopSteps.slice(0, MAX_VAR_ROWS).map((s, i) => ({
+          text: `${i + 1}. ${stepDisplayName(s, agentInfoMap, toolNameMap)}`,
+        }))
+        const rest = loopSteps.length - MAX_VAR_ROWS
+        if (rest > 0) rows.push({ text: `… +${rest} 步` })
+        return rows
+      }
       const body = config.body as string[] | undefined
       return body && body.length > 0
-        ? [{ text: `每轮 ${body.length} 步 · 选中配置` }]
+        ? [{ text: `每轮 ${body.length} 步` }]
         : [{ text: '选中后在右侧添加步骤' }]
     }
     case 'parallel': {
@@ -197,7 +235,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
   // 节点名称（画布标识，可选）——trim 后为空则不渲染该行
   const nodeLabel = (workflowNode.label || '').trim()
   const rows = getInfoRows(
-    nodeType, workflowNode.config as Record<string, unknown>, agentInfoMap, toolNameMap,
+    nodeType, workflowNode.config as Record<string, unknown>, agentInfoMap, toolNameMap, data.loopSteps,
   )
   const incomplete = isIncomplete(nodeType, workflowNode.config as Record<string, unknown>)
 
