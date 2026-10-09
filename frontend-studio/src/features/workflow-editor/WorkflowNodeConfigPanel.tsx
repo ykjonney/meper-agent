@@ -69,6 +69,8 @@ function NodeConfigPanel({ node, allNodes, onNodeChange, onNodesChange, onSelect
           onChange={handleConfigChange}
           allNodes={allNodes}
           currentNodeId={node.node_id}
+          onNodesChange={onNodesChange}
+          onSelectNode={onSelectNode}
         />
       )
     case 'human':
