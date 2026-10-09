@@ -6,7 +6,10 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   // Allow overriding the API/WS proxy target via env var.
   // Docker compose sets VITE_API_TARGET=http://backend:8000; local dev falls back to localhost.
-  const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:8000';
+  // 127.0.0.1 显式 IPv4：localhost 在 Node 17+ 可能解析为 ::1，而后端
+  // uvicorn --host 0.0.0.0 仅绑 IPv4——vite 代理连 ::1 会被拒
+  // （http proxy error 的根因）。
+  const apiTarget = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000';
   const wsTarget = apiTarget.replace(/^http/, 'ws');
 
   return {
