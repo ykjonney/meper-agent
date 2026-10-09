@@ -30,11 +30,57 @@ interface Props {
   onSelectNode?: (n: WorkflowNode) => void
 }
 
-function parseConverge(expr: string): { source: string; field: string; op: string; value: string } {
-  const m = /\{\{\s*([\w]+)\.([\w.]+)\s*(==|!=)\s*'([^']*)'\s*\}\}/.exec(expr || '')
-  return m
-    ? { source: m[1], field: m[2], op: m[3], value: m[4] }
-    : { source: '', field: '', op: '==', value: '' }
+/* ─── 结束条件（converge）表达式的组装与解析 ───
+ * 形式：{{ src.field op value }}（比较类）或 {{ 'value' in src.field }}（包含）。
+ * 数值裸写（Jinja2 数值比较）、字符串加引号；未定义变量后端 fail-safe 为不收敛。 */
+const CONVERGE_OPS = [
+  { value: '==', label: '等于' },
+  { value: '!=', label: '不等于' },
+  { value: '>', label: '大于' },
+  { value: '>=', label: '大于等于' },
+  { value: '<', label: '小于' },
+  { value: '<=', label: '小于等于' },
+  { value: 'in', label: '包含' },
+] as const
+
+type ConvergeOp = (typeof CONVERGE_OPS)[number]['value']
+interface ConvergeParts { source: string; field: string; op: ConvergeOp; value: string }
+
+/** 值序列化：数字裸写（数值比较），其他加引号（字符串） */
+function fmtConvergeValue(v: string): string {
+  const t = v.trim()
+  return t !== '' && Number.isFinite(Number(t)) ? t : `'${v}'`
+}
+
+function buildConvergeExpr(p: ConvergeParts): string {
+  return p.op === 'in'
+    ? `{{ ${fmtConvergeValue(p.value)} in ${p.source}.${p.field} }}`
+    : `{{ ${p.source}.${p.field} ${p.op} ${fmtConvergeValue(p.value)} }}`
+}
+
+function parseConverge(expr: string): ConvergeParts {
+  // 包含形式：{{ '值' in src.field }}
+  let m = /\{\{\s*'([^']*)'\s+in\s+([\w]+)\.([\w.]+)\s*\}\}/.exec(expr || '')
+  if (m) return { value: m[1], source: m[2], field: m[3], op: 'in' }
+  // 比较形式：{{ src.field op '值'|数字 }}（>= 等在前防被 > 吞掉）
+  m = /\{\{\s*([\w]+)\.([\w.]+)\s*(==|!=|>=|<=|>|<)\s*(?:'([^']*)'|([-+]?\d+(?:\.\d+)?))\s*\}\}/.exec(expr || '')
+  if (m) return { source: m[1], field: m[2], op: m[3] as ConvergeOp, value: m[4] ?? m[5] ?? '' }
+  return { source: '', field: '', op: '==', value: '' }
+}
+
+/** 读取 agent 步骤的可选条件字段：固定输出契约 + response_schema 自定义字段 */
+function convergeFieldOptions(node: WorkflowNode | undefined): { value: string; label: string }[] {
+  if (!node) return []
+  const cfg = (node.config ?? {}) as Record<string, unknown>
+  const opts = [
+    { value: 'response', label: 'response · 回答全文' },
+    { value: 'files', label: 'files · 产出文件' },
+  ]
+  const schema = cfg.response_schema as { fields?: Array<{ name?: string }> } | undefined
+  for (const f of schema?.fields ?? []) {
+    if (f?.name) opts.push({ value: f.name, label: f.name })
+  }
+  return opts
 }
 
 export default function LoopNodeConfig({
@@ -124,20 +170,27 @@ export default function LoopNodeConfig({
 
   const parsed = parseConverge(convergeExpr)
   const tail = chain.length ? chain[chain.length - 1] : ''
-  const convergeParts = {
-    source: parsed.source || tail,
-    field: parsed.field || 'verdict',
+  // 字段默认值从 source 步骤的输出契约取第一个字段（审核场景通常配了
+  // verdict/approve 类字段），无契约回退 verdict——不再让用户盲猜字符串
+  const defaultSource = parsed.source || tail
+  const defaultField = useMemo(() => {
+    if (parsed.field) return parsed.field
+    const schemaFields = convergeFieldOptions(nodeById.get(defaultSource)).filter(
+      (o) => o.value !== 'response' && o.value !== 'files',
+    )
+    return schemaFields[0]?.value ?? 'verdict'
+  }, [parsed.field, defaultSource, nodeById])
+  const convergeParts: ConvergeParts = {
+    source: defaultSource,
+    field: defaultField,
     op: parsed.op || '==',
     value: parsed.value || 'approve',
   }
   const convergeEnabled = convergeExpr !== ''
 
-  const setConvergePart = (patch: Partial<typeof convergeParts>) => {
+  const setConvergePart = (patch: Partial<ConvergeParts>) => {
     const next = { ...convergeParts, ...patch }
-    onChange({
-      ...liveConfig,
-      converge_expr: `{{ ${next.source}.${next.field} ${next.op} '${next.value}' }}`,
-    })
+    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(next) })
   }
 
   return (
@@ -253,52 +306,83 @@ export default function LoopNodeConfig({
 
       <div>
         <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
-          提前结束条件
-          <HelpHint text="每轮结束检查一次，满足就提前结束。最常用：最后一步（审核者）输出 approve 即通过。不勾选 = 固定跑满上面的次数（适合批量处理）。" />
+          结束方式
+          <HelpHint text="两种结束：跑满次数适合批量处理（每个输入处理 N 遍）；满足条件提前结束适合迭代改进（写到审核通过为止）。到上限仍未满足也会结束，下游可按 converged 区分通过/未通过。" />
         </label>
-        <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={convergeEnabled}
-            onChange={(e) =>
-              onChange({
-                ...liveConfig,
-                converge_expr: e.target.checked
-                  ? `{{ ${convergeParts.source}.${convergeParts.field} ${convergeParts.op} '${convergeParts.value}' }}`
-                  : '',
-              })
-            }
-            className="accent-[#A855F7]"
-          />
-          <span className="text-xs text-slate-300">满足条件时提前结束</span>
-        </label>
+        <div className="space-y-1">
+          <label className="flex items-start gap-2 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-2 cursor-pointer hover:border-[#A855F7]/40 transition-colors">
+            <input
+              type="radio"
+              name={`loop-end-${currentNodeId}`}
+              checked={!convergeEnabled}
+              onChange={() => onChange({ ...liveConfig, converge_expr: '' })}
+              className="mt-0.5 accent-[#A855F7]"
+            />
+            <span className="text-xs text-slate-200">
+              跑满上面的次数
+              <span className="block text-[10px] text-slate-500">固定执行，适合批量处理</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-2 cursor-pointer hover:border-[#A855F7]/40 transition-colors">
+            <input
+              type="radio"
+              name={`loop-end-${currentNodeId}`}
+              checked={convergeEnabled}
+              onChange={() =>
+                onChange({ ...liveConfig, converge_expr: buildConvergeExpr(convergeParts) })
+              }
+              className="mt-0.5 accent-[#A855F7]"
+            />
+            <span className="text-xs text-slate-200">
+              满足条件时提前结束
+              <span className="block text-[10px] text-slate-500">每轮结束检查一次，适合迭代改进（如：审核通过即停）</span>
+            </span>
+          </label>
+        </div>
+        {convergeEnabled && body.length === 0 && (
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300 mt-1.5">
+            先添加步骤，再定义结束条件
+          </div>
+        )}
         {convergeEnabled && body.length > 0 && (
-          <div className="grid grid-cols-[1fr_1fr_56px_1fr] gap-1">
-            <Select
-              className="w-full"
-              value={convergeParts.source || null}
-              onChange={(val) => setConvergePart({ source: val ?? '' })}
-              options={body.map((id) => ({ value: id, label: nodeLabel(id) }))}
-            />
-            <Input
-              placeholder="字段"
-              value={convergeParts.field}
-              onChange={(e) => setConvergePart({ field: e.target.value })}
-            />
-            <Select
-              className="w-full"
-              value={convergeParts.op}
-              onChange={(val) => setConvergePart({ op: val ?? '==' })}
-              options={[
-                { value: '==', label: '等于' },
-                { value: '!=', label: '不等于' },
-              ]}
-            />
-            <Input
-              placeholder="值"
-              value={convergeParts.value}
-              onChange={(e) => setConvergePart({ value: e.target.value })}
-            />
+          <div className="mt-2 space-y-1">
+            <div className="grid grid-cols-[1fr_1fr_72px_1fr] gap-1">
+              <Select
+                className="w-full"
+                value={convergeParts.source || null}
+                onChange={(val) => setConvergePart({ source: val ?? '' })}
+                options={body.map((id) => ({ value: id, label: nodeLabel(id) }))}
+              />
+              {convergeFieldOptions(nodeById.get(convergeParts.source)).length > 2 ? (
+                <Select
+                  className="w-full"
+                  value={convergeParts.field || null}
+                  onChange={(val) => setConvergePart({ field: val ?? '' })}
+                  options={convergeFieldOptions(nodeById.get(convergeParts.source))}
+                />
+              ) : (
+                <Input
+                  placeholder="字段"
+                  value={convergeParts.field}
+                  onChange={(e) => setConvergePart({ field: e.target.value })}
+                />
+              )}
+              <Select
+                className="w-full"
+                value={convergeParts.op}
+                onChange={(val) => setConvergePart({ op: (val ?? '==') as ConvergeOp })}
+                options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
+              />
+              <Input
+                placeholder="值，如 approve 或 8"
+                value={convergeParts.value}
+                onChange={(e) => setConvergePart({ value: e.target.value })}
+              />
+            </div>
+            {/* 生成的表达式原文：透明可核对，也教用户语法 */}
+            <div className="text-[10px] text-slate-500 font-mono truncate" title={convergeExpr}>
+              {convergeExpr}
+            </div>
           </div>
         )}
       </div>

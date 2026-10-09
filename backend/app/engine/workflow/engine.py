@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -1241,16 +1242,34 @@ class WorkflowEngine:
                         # 收敛判定（求值失败视为未收敛，跑满上限诚实结束）
                         converged = False
                         if converge_expr:
-                            try:
-                                converged = ExpressionEngine(
-                                    self._pool.get_all() if self._pool else {},
-                                ).resolve_bool(converge_expr)
-                            except Exception as exc:
+                            # 未定义防护：引用的 source.field 不在池中（如
+                            # text 模式 agent 无自定义字段）时 Jinja2 的
+                            # Undefined 参与 != 会返回 True 造成假收敛——
+                            # 一律视为未收敛 + 告警，跑满上限诚实结束。
+                            _ref = re.search(
+                                r"\{\{\s*(?:'[^']*'\s+in\s+)?([\w]+)\.([\w.]+)",
+                                converge_expr,
+                            )
+                            if _ref and (
+                                self._pool is None
+                                or self._pool.get(f"{_ref.group(1)}.{_ref.group(2)}") is None
+                            ):
                                 logger.warning(
-                                    "loop_converge_eval_failed",
+                                    "loop_converge_ref_undefined",
                                     task_id=self._task_id, node_id=node_id,
-                                    round=rnd, error=str(exc),
+                                    round=rnd, ref=f"{_ref.group(1)}.{_ref.group(2)}",
                                 )
+                            else:
+                                try:
+                                    converged = ExpressionEngine(
+                                        self._pool.get_all() if self._pool else {},
+                                    ).resolve_bool(converge_expr)
+                                except Exception as exc:
+                                    logger.warning(
+                                        "loop_converge_eval_failed",
+                                        task_id=self._task_id, node_id=node_id,
+                                        round=rnd, error=str(exc),
+                                    )
                         loop_output["converged"] = converged
                         if self._pool is not None:
                             self._pool.set(node_id, dict(loop_output))
