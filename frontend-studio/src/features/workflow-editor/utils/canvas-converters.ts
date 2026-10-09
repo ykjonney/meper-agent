@@ -128,8 +128,6 @@ function getTypeBg(type: string): string {
 export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
   const edges: Edge[] = []
   const nodeIds = new Set(nodes.map((n) => n.node_id))
-  // loop 节点 id 集合——指向 loop 的边 = 回边（循环闭合），渲染层加 ↻ 标记
-  const loopNodeIds = new Set(nodes.filter((n) => n.type === 'loop').map((n) => n.node_id))
 
   for (const node of nodes) {
     const config = (node.config ?? {}) as Record<string, unknown>
@@ -180,17 +178,8 @@ export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
     }
   }
 
-  // 过滤端点不在当前视图的边（循环内部模式：成员→loop 的回边、成员→外部
-  // 的边等，端点节点不在视图内则不渲染，防 React Flow 悬空边）
-  const visible = edges.filter((e) => nodeIds.has(String(e.source)) && nodeIds.has(String(e.target)))
-  // 回边（target=loop）统一标记：label ↻ + 标记类（渲染层给紫色虚线）
-  for (const e of visible) {
-    if (loopNodeIds.has(String(e.target))) {
-      e.label = '↻ 循环'
-      e.className = `${e.className ?? ''} workflow-edge--loop-return`.trim()
-    }
-  }
-  return visible
+  // 过滤端点不在当前节点集的边（防悬空边）
+  return edges.filter((e) => nodeIds.has(String(e.source)) && nodeIds.has(String(e.target)))
 }
 
 /** 创建一条推导出的 xyflow Edge */

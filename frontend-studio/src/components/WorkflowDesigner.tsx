@@ -88,6 +88,16 @@ export function WorkflowDesigner({
   // instead of the stale workflowDetail.name so the workflow can be renamed.
   const [nameDraft, setNameDraft] = useState('')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  // 未保存刷新/关闭保护——循环步骤在主画布不可见，丢改动尤其难察觉
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasUnsavedChanges])
   // 左侧节点类型面板收缩态（收缩后仅图标列 + Tooltip）
   const [paletteCollapsed, setPaletteCollapsed] = useState(true)
   const [dirtySinceLoad, setDirtySinceLoad] = useState(false)

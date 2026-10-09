@@ -116,8 +116,23 @@ export default function WorkflowNodeConfigPanel({
 }: WorkflowNodeConfigPanelProps) {
   if (selectedNode) {
     const nt = NODE_TYPE_CONFIGS[selectedNode.type]
+    // 循环成员的面板顶部加返回入口（成员在主画布隐藏，用户无处点回循环）
+    const ownerLoop = allNodes.find(
+      (ln) =>
+        ln.type === 'loop' &&
+        ((ln.config as Record<string, unknown>).body as string[] | undefined)?.includes(selectedNode.node_id),
+    )
     return (
       <div className="border border-[#27272a] rounded-xl bg-[#18181b] p-4">
+        {ownerLoop && onSelectNode && (
+          <button
+            type="button"
+            onClick={() => onSelectNode(ownerLoop)}
+            className="mb-2 flex items-center gap-1 text-[11px] text-[#d8b4fe] hover:text-white cursor-pointer"
+          >
+            ← 返回循环配置
+          </button>
+        )}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: nt?.color }} />

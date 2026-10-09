@@ -65,7 +65,12 @@ export default function LoopNodeConfig({
 
   const nodeLabel = (id: string): string => {
     const n = nodeById.get(id)
-    return String(n?.label || (n?.config as Record<string, unknown>).agent_name || NODE_TYPE_CONFIGS[n?.type ?? '']?.label || id)
+    const cfg = (n?.config ?? {}) as Record<string, unknown>
+    // agent_name/tool_name（选中后缓存）优先于节点 label——类型默认 label
+    // （"Agent"/"工具"）无法区分多个同类步骤
+    return String(
+      cfg.agent_name || cfg.tool_name || n?.label || NODE_TYPE_CONFIGS[n?.type ?? '']?.label || id,
+    )
   }
 
   /** 结构性变更：更新 body + 重建线性链（steps[i].next = steps[i+1]） */
