@@ -27,24 +27,29 @@ import {
   Split,
   UserCheck,
   Repeat,
+  type LucideIcon,
 } from 'lucide-react'
-import type { WorkflowNodeData } from '../utils/canvas-converters'
+import { getTypeColor, type WorkflowNodeData } from '../utils/canvas-converters'
 import type { WorkflowNode } from '../../../services/workflows-api'
 import { useAgentInfo, useToolNames } from '../agent-info'
 
 type Props = NodeProps & { data: WorkflowNodeData }
 
-/** 节点类型 → 图标组件映射（直接在渲染时创建，避免序列化问题；badge 内 11px） */
-const TYPE_ICONS: Record<string, ReactNode> = {
-  start: <PlayCircle size={11} strokeWidth={2} />,
-  end: <StopCircle size={11} strokeWidth={2} />,
-  agent: <Workflow size={11} strokeWidth={2} />,
-  tool: <Wrench size={11} strokeWidth={2} />,
-  gateway: <GitBranch size={11} strokeWidth={2} />,
-  parallel: <Split size={11} strokeWidth={2} />,
-  human: <UserCheck size={11} strokeWidth={2} />,
-  loop: <Repeat size={11} strokeWidth={2} />,
+/** 节点类型 → 图标组件映射（badge 11px / 循环步骤行 8px 复用同源） */
+const TYPE_ICON_COMPS: Record<string, LucideIcon> = {
+  start: PlayCircle,
+  end: StopCircle,
+  agent: Workflow,
+  tool: Wrench,
+  gateway: GitBranch,
+  parallel: Split,
+  human: UserCheck,
+  loop: Repeat,
 }
+
+const TYPE_ICONS: Record<string, ReactNode> = Object.fromEntries(
+  Object.entries(TYPE_ICON_COMPS).map(([k, C]) => [k, <C key={k} size={11} strokeWidth={2} />]),
+)
 
 /** 节点类型 → 类别名（上行固定展示） */
 const TYPE_NAMES: Record<string, string> = {
@@ -72,10 +77,12 @@ const TYPE_WIDTH: Record<string, number> = {
   loop: 160,
 }
 
-/** 信息区单行（text 必填时可带红色 * 标记） */
+/** 信息区单行（text 必填时可带红色 * 标记；循环步骤行带节点类型小图标） */
 interface InfoRow {
   text: string
   required?: boolean
+  /** 循环步骤行的节点类型（渲染 8px 类型色小图标） */
+  iconType?: string
 }
 
 /** start 节点输入变量最多展示行数，超出折叠为 +N（悬停看全文）。 */
@@ -175,10 +182,11 @@ function getInfoRows(
     }
     case 'loop': {
       // 卡片逐行展示体步骤（成员在画布上隐藏，这里是用户看见循环内容
-      // 的唯一位置）——超出行数折叠 +N，悬停看全文
+      // 的唯一位置）——行序即执行序，行首带节点类型小图标；超出折叠 +N
       if (loopSteps && loopSteps.length > 0) {
-        const rows: InfoRow[] = loopSteps.slice(0, MAX_VAR_ROWS).map((s, i) => ({
-          text: `${i + 1}. ${stepDisplayName(s, agentInfoMap, toolNameMap)}`,
+        const rows: InfoRow[] = loopSteps.slice(0, MAX_VAR_ROWS).map((s) => ({
+          text: stepDisplayName(s, agentInfoMap, toolNameMap),
+          iconType: s.type,
         }))
         const rest = loopSteps.length - MAX_VAR_ROWS
         if (rest > 0) rows.push({ text: `… +${rest} 步` })
@@ -287,16 +295,27 @@ function WorkflowBaseNode({ data, selected }: Props) {
           </div>
           {rows.length > 0 && (
             <div className="mt-0.5 space-y-px">
-              {rows.map((row, i) => (
-                <div key={i} className="flex items-baseline leading-snug">
-                  <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
-                    {row.text}
-                  </span>
-                  {row.required && (
-                    <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
-                  )}
-                </div>
-              ))}
+              {rows.map((row, i) => {
+                const StepIcon = row.iconType ? TYPE_ICON_COMPS[row.iconType] : null
+                return (
+                  <div key={i} className="flex items-center gap-0.5 leading-snug">
+                    {StepIcon && (
+                      <StepIcon
+                        size={8}
+                        strokeWidth={2}
+                        color={getTypeColor(row.iconType!)}
+                        className="shrink-0"
+                      />
+                    )}
+                    <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
+                      {row.text}
+                    </span>
+                    {row.required && (
+                      <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

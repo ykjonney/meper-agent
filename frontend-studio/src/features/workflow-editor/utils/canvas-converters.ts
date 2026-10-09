@@ -129,7 +129,7 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string }> = 
 function getTypeLabel(type: string): string {
   return TYPE_META[type]?.label ?? type
 }
-function getTypeColor(type: string): string {
+export function getTypeColor(type: string): string {
   return TYPE_META[type]?.color ?? '#64748B'
 }
 function getTypeBg(type: string): string {
