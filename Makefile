@@ -35,9 +35,10 @@ dev-local:
 	(cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log) & \
 	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd backend && uv run celery -A app.workers.celery_app beat --loglevel=info) & \
- 	(cd frontend && npm run dev) & \
+	(cd frontend && npm run dev) & \
 	(cd frontend-studio && npm run dev) & \
 	(cd frontend-client && npm run dev) & \
+	{ echo '等待后端就绪...'; until curl -s -m 1 -o /dev/null http://127.0.0.1:8000/api/v1/health; do sleep 1; done; echo '后端已就绪'; } & \
 	wait
 
 # Run all tests
