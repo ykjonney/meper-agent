@@ -208,12 +208,13 @@ export default function LoopNodeConfig({
 
   const nodeLabel = (id: string): string => {
     const n = nodeById.get(id)
-    const cfg = (n?.config ?? {}) as Record<string, unknown>
-    // agent_name/tool_name（选中后缓存）优先于节点 label——类型默认 label
-    // （"Agent"/"工具"）无法区分多个同类步骤
-    return String(
-      cfg.agent_name || cfg.tool_name || n?.label || NODE_TYPE_CONFIGS[n?.type ?? '']?.label || id,
-    )
+    if (!n) return id
+    const cfg = (n.config ?? {}) as Record<string, unknown>
+    const typeDefault = NODE_TYPE_CONFIGS[n.type]?.label
+    // 节点名称优先——两个步骤共用同一 agent 时靠节点名区分（如"写手/
+    // 审核"）；label 仍是类型默认名（未改名）时回退 agent/工具显示名
+    const customLabel = n.label && n.label !== typeDefault ? n.label : ''
+    return String(customLabel || cfg.agent_name || cfg.tool_name || typeDefault || id)
   }
 
   const editable = !!onNodesChange

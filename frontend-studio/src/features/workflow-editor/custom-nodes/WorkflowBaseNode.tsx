@@ -94,24 +94,28 @@ const MAX_VAR_ROWS = 5
  * 卡片不显示 ID 等不可读内容——名称不可得时用可读占位。
  */
 /** 循环体步骤的显示名——与 LoopNodeConfig.nodeLabel 同规则：
- * 实时解析的 Agent/工具名 > config 缓存名 > 节点 label > 类型名 */
+ * 节点名称优先（两个步骤共用同一 agent 时靠节点名区分）；未改名
+ * （label=类型默认名）时回退实时解析的 Agent/工具名 > config 缓存名 */
 function stepDisplayName(
   n: WorkflowNode,
   agentInfoMap: Record<string, { name: string; model: string }>,
   toolNameMap: Record<string, string>,
 ): string {
   const cfg = (n.config ?? {}) as Record<string, unknown>
+  const typeDefault = TYPE_NAMES[n.type] ?? n.type
+  const customLabel = (n.label || '') && n.label !== typeDefault ? n.label : ''
+  if (customLabel) return customLabel
   if (n.type === 'agent') {
     const id = cfg.agent_id as string | undefined
     const live = id ? agentInfoMap[id] : undefined
-    return String(live?.name || cfg.agent_name || n.label || 'Agent')
+    return String(live?.name || cfg.agent_name || typeDefault)
   }
   if (n.type === 'tool') {
     const id = cfg.tool_id as string | undefined
     const live = id ? toolNameMap[id] : undefined
-    return String(live || cfg.tool_name || n.label || '工具')
+    return String(live || cfg.tool_name || typeDefault)
   }
-  return String(n.label || TYPE_NAMES[n.type] || n.type)
+  return typeDefault
 }
 
 function getInfoRows(
