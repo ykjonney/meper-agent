@@ -94,7 +94,10 @@ export default function LoopNodeConfig({
     onNodesChange(nodes)
   }
 
+  const editable = !!onNodesChange
+
   const handleAddStep = (type: string) => {
+    if (!onNodesChange) return
     const newNode: WorkflowNode = {
       node_id: generateNodeId(),
       type,
@@ -120,10 +123,11 @@ export default function LoopNodeConfig({
     })
     nodes = [...nodes, newNode]
     onNodesChange(nodes)
-    onSelectNode(newNode)
+    // 不自动切到新节点配置——连续添加多个步骤时不打断；完成后点步骤行配置
   }
 
   const handleMove = (id: string, dir: -1 | 1) => {
+    if (!onNodesChange) return
     const idx = chain.indexOf(id)
     const j = idx + dir
     if (idx < 0 || j < 0 || j >= chain.length) return
@@ -133,6 +137,7 @@ export default function LoopNodeConfig({
   }
 
   const handleRemoveStep = (id: string) => {
+    if (!onNodesChange) return
     const steps = chain.filter((x) => x !== id)
     const nodes = allNodes
       .filter((n) => n.node_id !== id)
@@ -231,11 +236,12 @@ export default function LoopNodeConfig({
           })}
         </div>
 
-        {!isBranchy ? (
+        {!isBranchy && editable ? (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {ADDABLE_TYPES.map((t) => (
               <button
                 key={t}
+                type="button"
                 onClick={() => handleAddStep(t)}
                 className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
               >
@@ -244,6 +250,8 @@ export default function LoopNodeConfig({
               </button>
             ))}
           </div>
+        ) : !isBranchy && !editable ? (
+          <div className="text-[10px] text-slate-500 mt-2">编辑不可用（请刷新页面重试）</div>
         ) : (
           <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300 mt-2">
             此循环包含分支/并行结构，步骤只读（调整顺序会破坏分支）
