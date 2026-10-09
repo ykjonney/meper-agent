@@ -55,7 +55,13 @@ export default function LoopNodeConfig({
       allNodes.some((n) => n.node_id === id))),
     [liveConfig.body, allNodes],
   )
-  const chain = useMemo(() => deriveLoopChain(allNodes, currentNodeId), [allNodes, currentNodeId])
+  const chainRaw = useMemo(() => deriveLoopChain(allNodes, currentNodeId), [allNodes, currentNodeId])
+  // 显示/操作序列以 body 为准：chain 仅作拓扑排序，推导异常（空/缺成员）
+  // 时退回 body 原序——列表永远显示全部成员
+  const chain = useMemo(() => {
+    const missing = body.filter((id) => !chainRaw.includes(id))
+    return chainRaw.length >= body.length ? chainRaw : [...chainRaw, ...missing]
+  }, [chainRaw, body])
   const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.node_id, n])), [allNodes])
 
   const bodySet = useMemo(() => new Set(body), [body])
