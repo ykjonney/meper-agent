@@ -7,9 +7,9 @@
  *
  * 分支保护：循环体含分支结构时步骤列表只读（防线性化抹平分支语义）。
  */
-import { useMemo } from 'react'
-import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
-import { Input, Select } from '../../../components/ui'
+import { useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, Plus, X } from 'lucide-react'
+import { Input, Popover, Select, Tag } from '../../../components/ui'
 import HelpHint from '../HelpHint'
 import { NODE_TYPE_CONFIGS } from '../utils/node-type-configs'
 import { generateNodeId, getDefaultNodeConfig } from '../utils/node-defaults'
@@ -81,6 +81,69 @@ function convergeFieldOptions(node: WorkflowNode | undefined): { value: string; 
     if (f?.name) opts.push({ value: f.name, label: f.name })
   }
   return opts
+}
+
+/** 收敛条件的变量选择器：按步骤分组点选字段（与 agent 输入的「选择变量」同交互语言） */
+function ConvergeVarPicker({
+  body, nodeLabel, nodeById, value, onPick,
+}: {
+  body: string[]
+  nodeLabel: (id: string) => string
+  nodeById: Map<string, WorkflowNode>
+  value: { source: string; field: string }
+  onPick: (source: string, field: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = value.source && value.field
+  return (
+    <Popover
+      trigger="click"
+      open={open}
+      onOpenChange={setOpen}
+      title={<span className="text-xs">选择变量</span>}
+      content={
+        <div className="w-64 max-h-64 overflow-y-auto scrollbar-custom">
+          {body.map((id) => (
+            <div key={id} className="mb-2.5 last:mb-0">
+              <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#A855F7] shrink-0" />
+                <span className="text-xs font-medium text-[#fafafa] truncate">{nodeLabel(id)}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {convergeFieldOptions(nodeById.get(id)).map((o) => (
+                  <Tag
+                    key={o.value}
+                    className="!m-0 !cursor-pointer !text-[11px] !px-1.5 !py-0.5 !rounded hover:!opacity-80 transition-opacity"
+                    color="purple"
+                    onClick={() => {
+                      onPick(id, o.value)
+                      setOpen(false)
+                    }}
+                  >
+                    {o.label}
+                  </Tag>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        className={`w-full min-w-0 h-8 px-2 flex items-center gap-1 rounded-md border text-xs transition-colors cursor-pointer ${
+          selected
+            ? 'border-[#A855F7]/50 bg-[#A855F7]/10 text-[#c4b5fd] hover:border-[#A855F7]'
+            : 'border-[#27272a] bg-[#18181b] text-[#71717a] hover:border-[#A855F7]/40'
+        }`}
+      >
+        <span className="truncate flex-1 text-left">
+          {selected ? `${nodeLabel(value.source)} · ${value.field}` : '选择变量'}
+        </span>
+        <ChevronDown size={12} className="shrink-0 opacity-60" />
+      </button>
+    </Popover>
+  )
 }
 
 export default function LoopNodeConfig({
@@ -346,27 +409,16 @@ export default function LoopNodeConfig({
         )}
         {convergeEnabled && body.length > 0 && (
           <div className="mt-2 space-y-1">
-            <div className="grid grid-cols-[1fr_1fr_72px_1fr] gap-1">
-              <Select
-                className="w-full"
-                value={convergeParts.source || null}
-                onChange={(val) => setConvergePart({ source: val ?? '' })}
-                options={body.map((id) => ({ value: id, label: nodeLabel(id) }))}
+            <div className="grid grid-cols-[1fr_72px_1fr] gap-1">
+              {/* 变量选择：与 agent 输入的「选择变量」同交互语言——按步骤
+                  分组点选字段，按钮上显示 chip 样式的"步骤 · 字段" */}
+              <ConvergeVarPicker
+                body={body}
+                nodeLabel={nodeLabel}
+                nodeById={nodeById}
+                value={{ source: convergeParts.source, field: convergeParts.field }}
+                onPick={(source, field) => setConvergePart({ source, field })}
               />
-              {convergeFieldOptions(nodeById.get(convergeParts.source)).length > 2 ? (
-                <Select
-                  className="w-full"
-                  value={convergeParts.field || null}
-                  onChange={(val) => setConvergePart({ field: val ?? '' })}
-                  options={convergeFieldOptions(nodeById.get(convergeParts.source))}
-                />
-              ) : (
-                <Input
-                  placeholder="字段"
-                  value={convergeParts.field}
-                  onChange={(e) => setConvergePart({ field: e.target.value })}
-                />
-              )}
               <Select
                 className="w-full"
                 value={convergeParts.op}
