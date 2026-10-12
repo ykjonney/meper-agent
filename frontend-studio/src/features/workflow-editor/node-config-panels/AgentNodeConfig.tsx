@@ -156,6 +156,15 @@ interface Props {
 }
 
 export default function AgentNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
+  // 所属循环（节点是某 loop 的体成员时，显示「跨轮记忆」策略项）
+  const ownerLoopId = allNodes.find(
+    (n) =>
+      n.type === 'loop' &&
+      ((((n.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []).includes(
+        currentNodeId,
+      ),
+  )?.node_id
+
   const { data: agentsData, isLoading } = useQuery({
     queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
     queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
@@ -434,6 +443,33 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           step={1000}
         />
       </div>
+
+      {/* 循环上下文策略（仅循环体成员显示）：跨轮记忆保留还是每轮失忆。
+          node_executor 按 loop_thread_policy 构建 thread——continue 同线程
+          续接（记得读过什么/试过什么），fresh 每轮新线程（评审独立不被
+          上轮发言锚定）；工作台模式下注入随之全量/增量。 */}
+      {ownerLoopId && (
+        <div>
+          <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+            跨轮记忆
+            <HelpHint text="这个步骤跨轮怎么记住上下文。跨轮续接：保留之前轮次的对话（读过的资料、失败的尝试都在）——适合执行者；每轮独立：每轮全新视角不被上一轮发言锚定——适合评审者。循环外的节点无此概念。" />
+          </label>
+          <Select
+            className="w-full"
+            value={(config.loop_thread_policy as string) ?? 'continue'}
+            onChange={(val) =>
+              onChange({
+                ...config,
+                loop_thread_policy: val === 'fresh' ? 'fresh' : 'continue',
+              })
+            }
+            options={[
+              { value: 'continue', label: '跨轮续接（执行者）' },
+              { value: 'fresh', label: '每轮独立（评审者）' },
+            ]}
+          />
+        </div>
+      )}
 
       {/* 输出变量：全部引擎输出变量一览（用户知道下游可用什么）。
           仅 response 可编辑（弹窗内查看/编辑结构），其余为固定只读。 */}
