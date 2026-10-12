@@ -14,6 +14,7 @@ import HelpHint from '../HelpHint'
 import { NODE_TYPE_CONFIGS } from '../utils/node-type-configs'
 import { generateNodeId, getDefaultNodeConfig } from '../utils/node-defaults'
 import { deriveLoopChain, applyLinearBodySteps } from '../utils/loop-derive'
+import VariableSelector from '../VariableSelector'
 import type { WorkflowNode } from '../../../services/workflows-api'
 
 /** 可添加的线性步骤类型（分支类不提供，保持步骤流线性语义） */
@@ -179,6 +180,8 @@ export default function LoopNodeConfig({
   )
   const maxIter = (liveConfig.max_iterations as number) ?? 5
   const convergeExpr = (liveConfig.converge_expr as string) ?? ''
+  const wsGoal = (liveConfig.workspace_goal as string | undefined) ?? ''
+  const wsEnabled = wsGoal !== ''
   const body = useMemo(
     () => (((liveConfig.body as string[] | undefined) ?? []).filter((id) =>
       allNodes.some((n) => n.node_id === id))),
@@ -362,6 +365,42 @@ export default function LoopNodeConfig({
           <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300 mt-2">
             此循环包含分支/并行结构，步骤只读（调整顺序会破坏分支）
           </div>
+        )}
+      </div>
+
+      {/* 循环工作台（refine 模板）：共享状态台——目标只此一份、待解决问题
+          双向流转、产物带版本。启用后步骤每轮自动收到工作台视图/增量
+          （引擎注入，步骤侧零配置），input_query 只写本轮动作指令。 */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer mb-1">
+          <input
+            type="checkbox"
+            checked={wsEnabled}
+            onChange={(e) => {
+              if (e.target.checked) {
+                onChange({ ...liveConfig, workspace_goal: wsGoal || '（描述这个循环要完成的目标，可插入 {{变量}}）' })
+              } else {
+                const next = { ...liveConfig }
+                delete next.workspace_goal
+                onChange(next)
+              }
+            }}
+            className="accent-[#A855F7]"
+          />
+          <span className="text-xs text-slate-300">共享工作台</span>
+          <HelpHint text="各步骤围绕同一个状态台工作：任务目标只此一份（不再每轮重复）、待解决问题谁提的谁关、产物带版本可追踪。步骤每轮自动收到工作台视图，input_query 只需写本轮做什么。适合多轮打磨/审核类循环。" />
+        </label>
+        {wsEnabled && (
+          <VariableSelector
+            label="任务目标"
+            required
+            value={wsGoal}
+            onChange={(v) => onChange({ ...liveConfig, workspace_goal: v })}
+            currentNodeId={currentNodeId}
+            allNodes={allNodes}
+            placeholder="这个循环要完成什么（每轮注入工作台，只此一份），如：围绕主题写一段80字文案。主题：{{开始节点.topic}}"
+            rows={2}
+          />
         )}
       </div>
 

@@ -83,8 +83,19 @@ class LoopWorkspace:
         self.round = rnd
         delta: list[str] = [f"【第 {rnd} 轮工作台变化】"]
 
-        # 产物：draft 优先（object 模式契约字段），response 兜底（text 模式）
-        content = output.get("draft")
+        # v3 输出契约的两种形态统一取值：text 模式 response=str（产物）；
+        # object 模式 response=契约 dict（verdict/comment 等在内层）。
+        # pick：顶层优先，response 内层兜底。
+        inner = output.get("response") if isinstance(output.get("response"), dict) else {}
+
+        def pick(key: str) -> Any:
+            if key in output:
+                return output[key]
+            return inner.get(key) if isinstance(inner, dict) else None
+
+        # 产物：draft（object 模式契约字段）优先，response 为 str 时（text
+        # 模式）全文即产物
+        content = pick("draft")
         if not isinstance(content, str) or not content.strip():
             content = output.get("response")
         if isinstance(content, str) and content.strip():
@@ -96,7 +107,7 @@ class LoopWorkspace:
                 delta.append(f"当前{node_label}与上轮相同（v{a['version']}）")
 
         # 评审轨迹 + approve 隐式全关
-        verdict = output.get("verdict")
+        verdict = pick("verdict")
         if isinstance(verdict, str) and verdict.strip():
             self.verdicts.append(
                 {"round": rnd, "by": node_label, "verdict": verdict.strip()}
@@ -112,8 +123,21 @@ class LoopWorkspace:
                 if closed:
                     delta.append(f"approve 隐式关闭 {closed} 个待解决项")
 
-        # issues / resolved / fixes（issue 双向流转：fixes 声明，resolved 确认）
-        opened = _as_str_list(output.get("issues"))
+        # issues / resolved / fixes（issue 双向流转：fixes 声明，resolved 确认）。
+        # 兜底：无结构化 issues 但 verdict 非 approve 且带 comment → 整条
+        # comment 作为一个待解决项（"修改意见"即问题，不强行拆解）。
+        opened = _as_str_list(pick("issues"))
+        if not opened:
+            comment = pick("comment")
+            if (
+                not opened
+                and isinstance(verdict, str)
+                and verdict.strip()
+                and verdict.strip() != "approve"
+                and isinstance(comment, str)
+                and comment.strip()
+            ):
+                opened = [comment.strip()]
         for t in opened:
             self.issues.append(
                 {
@@ -127,14 +151,14 @@ class LoopWorkspace:
             )
         if opened:
             delta.append(f"新增待解决：{'；'.join(opened)}")
-        resolved_ids = [i for i in _as_int_list(output.get("resolved")) if self._set_issue(i, "resolved", rnd)]
+        resolved_ids = [i for i in _as_int_list(pick("resolved")) if self._set_issue(i, "resolved", rnd)]
         if resolved_ids:
             delta.append(f"已确认解决：{resolved_ids}")
-        fixed_ids = [i for i in _as_int_list(output.get("fixes")) if self._set_issue(i, "claimed", rnd)]
+        fixed_ids = [i for i in _as_int_list(pick("fixes")) if self._set_issue(i, "claimed", rnd)]
         if fixed_ids:
             delta.append(f"声明已修（待评审确认）：{fixed_ids}")
 
-        notes = output.get("notes")
+        notes = pick("notes")
         if isinstance(notes, str) and notes.strip():
             self.notes = notes.strip()
             delta.append(f"要点笔记已更新：{self.notes[:80]}")

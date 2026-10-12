@@ -116,6 +116,25 @@ class TestAbsorbConventions:
         ws.absorb("写手", {"draft": "第二稿内容"}, 4)
         assert ws.is_stalled() is True  # 连续 2 轮无变化
 
+    def test_object_contract_fields_inside_response(self) -> None:
+        """v3 契约 object 模式：verdict/comment 等在 response 内层（首跑实测
+        发现的映射缺口）；revise + comment 兜底成一个待解决项。"""
+        ws = LoopWorkspace("目标")
+        ws.absorb("审核", {
+            "response": {"verdict": "revise", "comment": "开头钩子太弱，缺具体场景"},
+        }, 1)
+        # verdict 从内层取到
+        assert ws.verdicts[-1]["verdict"] == "revise"
+        # comment 兜底为单个待解决项（不强行拆解）
+        assert len(ws.issues) == 1
+        assert "钩子太弱" in ws.issues[0]["text"]
+        # approve（内层）隐式关闭
+        ws.absorb("审核", {"response": {"verdict": "approve", "comment": "无"}}, 2)
+        assert ws.issues[0]["status"] == "resolved"
+        # text 模式（response=str）不受内层查找影响，全文即产物
+        ws.absorb("写手", {"response": "初稿全文"}, 1)
+        assert ws.artifacts["写手"]["version"] == 1
+
     def test_issue_lifecycle_fixes_then_resolved(self) -> None:
         ws = LoopWorkspace("目标")
         ws.absorb("审核", {"verdict": "revise", "issues": ["钩子太弱", "缺数据"]}, 1)

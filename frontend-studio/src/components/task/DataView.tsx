@@ -72,6 +72,12 @@ const FIELD_LABEL: Record<string, string> = {
   error: '错误', error_message: '错误信息', error_code: '错误码',
   branches: '分支', join_strategy: '汇聚策略', join_count: '汇聚数', scope: '作用域', start_nodes: '起始节点',
   status: '状态', timestamp: '时间',
+  // 循环节点输出（engine loop 分支 / loop_workspace.py）
+  iterations: '执行轮数', converged: '是否收敛', stalled: '空转提前结束',
+  rounds: '各轮快照', workspace: '循环工作台',
+  goal: '目标', artifacts: '当前产物', issues: '待解决问题', verdicts: '评审轨迹',
+  notes: '要点笔记', raised_by: '提出者', raised_round: '提出轮次',
+  resolved_round: '解决轮次', version: '版本', verdict: '结论', text: '内容', id: '编号',
   created_at: '创建时间', updated_at: '更新时间', paused_at: '暂停时间', paused_at_node: '暂停节点',
   title: '标题', description: '描述',
   child_task_id: '子任务', workflow_id: '工作流', created_by: '创建者',
@@ -596,6 +602,66 @@ function matchKnownField(
       >
         {fmt(total)} tokens（入 {fmt(input)} / 出 {fmt(output)}）
       </span>
+    )
+  }
+
+  // workspace（循环工作台，loop_workspace.py）→ 状态台摘要卡：
+  // 目标/当前产物/待解决问题（开闭状态）/评审轨迹 一屏可读
+  if (k === 'workspace' && isPlainObject(value)) {
+    const ws = value as Record<string, unknown>
+    const goal = typeof ws.goal === 'string' ? ws.goal : ''
+    const artifacts = (ws.artifacts ?? {}) as Record<string, Record<string, unknown>>
+    const issues = Array.isArray(ws.issues) ? (ws.issues as Record<string, unknown>[]) : []
+    const verdicts = Array.isArray(ws.verdicts) ? (ws.verdicts as Record<string, unknown>[]) : []
+    const notes = typeof ws.notes === 'string' && ws.notes ? ws.notes : ''
+    const ISSUE_STYLE: Record<string, { color: string; mark: string }> = {
+      open: { color: 'text-amber-300', mark: '待处理' },
+      claimed: { color: 'text-sky-300', mark: '已修复待确认' },
+      resolved: { color: 'text-emerald-400', mark: '已解决' },
+    }
+    return (
+      <div className="rounded border border-[#A855F7]/30 bg-[#A855F7]/5 p-2 space-y-1.5">
+        {goal && (
+          <div className="text-[11px] text-[#fafafa] leading-snug">
+            <span className="text-[#a78bfa] font-medium">目标：</span>{goal}
+          </div>
+        )}
+        {Object.entries(artifacts).map(([name, a]) => (
+          <div key={name} className="text-[11px] text-[#d4d4d8] leading-snug">
+            <span className="text-[#a78bfa] font-medium">当前{name}：</span>
+            v{String(a.version)}（{String(a.chars)}字）{String(a.head ?? '')}
+          </div>
+        ))}
+        {issues.length > 0 && (
+          <div className="space-y-0.5">
+            <div className="text-[10px] text-[#71717a] font-medium">待解决问题</div>
+            {issues.map((i) => {
+              const st = ISSUE_STYLE[String(i.status)] ?? ISSUE_STYLE.open
+              return (
+                <div key={String(i.id)} className="text-[11px] leading-snug flex items-baseline gap-1.5">
+                  <span className={st.color}>#{String(i.id)}</span>
+                  <span className="text-[#d4d4d8] flex-1 min-w-0">{String(i.text)}</span>
+                  <span className={`shrink-0 text-[10px] ${st.color}`}>
+                    {st.mark}
+                    {i.resolved_round != null ? `（第${String(i.resolved_round)}轮）` : ''}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {verdicts.length > 0 && (
+          <div className="text-[11px] text-[#d4d4d8]">
+            <span className="text-[#a78bfa] font-medium">评审轨迹：</span>
+            {verdicts.map((v) => String(v.verdict)).join(' → ')}
+          </div>
+        )}
+        {notes && (
+          <div className="text-[11px] text-[#d4d4d8] leading-snug">
+            <span className="text-[#a78bfa] font-medium">要点笔记：</span>{notes}
+          </div>
+        )}
+      </div>
     )
   }
 
