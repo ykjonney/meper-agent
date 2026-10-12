@@ -206,6 +206,20 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     return map
   }, [wf])
 
+  // 体成员的跨轮记忆策略（wf 节点 config.loop_thread_policy）——决定
+  // 循环详情里哪些成员单独展示（continue）哪些已并入工作台（fresh）
+  const threadPolicyMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const n of wf?.nodes ?? []) {
+      if (n.node_id) {
+        map.set(n.node_id, String(
+          ((n.config ?? {}) as Record<string, unknown>).loop_thread_policy ?? 'continue',
+        ))
+      }
+    }
+    return map
+  }, [wf])
+
   // 生命周期里程碑：创建 / 终态（完成·失败·取消）
   const createdEvt = task.timeline.find((e) => e.event_type === 'created' || e.event_type === 'started')
   const terminalEvt = task.timeline.find((e) =>
@@ -364,14 +378,15 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                     )}
                   </div>
 
-                  {/* 循环体成员：按轮嵌套展示（循环是节点的内部实现，
-                      成员不在顶层平铺）；每成员含状态/耗时/输出/执行明细 */}
-                  {stage.nodeType === 'loop' && stage.rounds && stage.rounds.length > 0 && (
-                    <LoopRounds
-                      rounds={stage.rounds}
+                  {/* 循环体成员（角色视角）：跨轮续接成员完整会话；每轮
+                      独立成员的产出已在工作台（轮次轨迹），不单独展示 */}
+                  {stage.nodeType === 'loop' && stage.members && stage.members.length > 0 && (
+                    <LoopMembers
+                      members={stage.members}
                       task={task}
                       theme={theme}
                       nodeNameMap={nodeNameMap}
+                      threadPolicyMap={threadPolicyMap}
                     />
                   )}
 
@@ -399,87 +414,80 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
   )
 }
 
-/* ─── 子组件：循环体成员按轮嵌套展示 ─── */
+/* ─── 子组件：循环体成员（角色视角） ─── */
 
-function LoopRounds({
-  rounds, task, theme, nodeNameMap,
+/**
+ * 只展示「跨轮续接」的成员（每个一条完整会话，不按轮重复——各轮都在
+ * 同一 thread 里）；「每轮独立」的成员不展示——其轮次产出（verdict/
+ * issues/评分轨迹）已被工作台吸收，在工作台卡片查看。wf 拉取失败时
+ * 无法判定策略，兜底全部展示。
+ */
+function LoopMembers({
+  members, task, theme, nodeNameMap, threadPolicyMap,
 }: {
-  rounds: Array<{ round: number; stages: NodeStageInfo[]; converged?: boolean }>
+  members: NodeStageInfo[]
   task: TaskDetail
   theme: 'light' | 'dark'
   nodeNameMap: Map<string, string>
+  threadPolicyMap: Map<string, string>
 }) {
   const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  const shown = members.filter(
+    (m) => (threadPolicyMap.get(m.nodeId) ?? 'continue') !== 'fresh',
+  )
+  if (shown.length === 0) return null
   return (
     <div onClick={(e) => e.stopPropagation()}>
-      <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>循环明细（按轮）</div>
-      <div className="space-y-2">
-        {rounds.map(({ round, stages, converged }) => (
-          <div
-            key={round}
-            className={`rounded-lg border p-2 ${theme === 'dark' ? 'border-[#A855F7]/25 bg-[#A855F7]/5' : 'border-purple-200 bg-purple-50/50'}`}
-          >
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="w-4 h-4 rounded bg-[#A855F7]/20 text-[#a78bfa] text-[9px] font-bold flex items-center justify-center shrink-0">
-                {round}
-              </span>
-              <span className="text-[11px] font-medium text-[#c4b5fd]">第 {round} 轮</span>
-              {converged && (
-                <span className="text-[9px] text-emerald-400 bg-emerald-400/10 rounded px-1 py-0.5">收敛 ✓</span>
+      <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>跨轮续接 Agent（完整会话）</div>
+      <div className="space-y-1.5">
+        {shown.map((ms) => {
+          const mMeta = STATE_META[ms.state]
+          const mLabel = nodeNameMap.get(ms.nodeId) || ms.label || (NODE_TYPE_LABEL[ms.nodeType] ?? ms.nodeType)
+          const mOutput = task.variables?.[ms.nodeId] ?? task.output?.[ms.nodeId]
+          // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
+          // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
+          const mVerdict =
+            mOutput && typeof mOutput === 'object'
+              ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
+              : undefined
+          const verdictBadge =
+            mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+            : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+            : null
+          return (
+            <div
+              key={ms.nodeId}
+              className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'}`}
+            >
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[ms.nodeType] ?? <Flag size={11} />}</span>
+                <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{mLabel}</span>
+                {verdictBadge && (
+                  <span className="text-[9px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+                    {verdictBadge.text}
+                  </span>
+                )}
+                <span className="text-[9px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+                {(ms.duration || ms.tokenTotal) && (
+                  <span className={`text-[9px] font-mono ml-auto shrink-0 ${mutedText}`}>
+                    {ms.duration}
+                    {ms.duration && ms.tokenTotal ? ' · ' : ''}
+                    {ms.tokenTotal ? `${ms.tokenTotal.toLocaleString()} tk` : ''}
+                  </span>
+                )}
+              </div>
+              {/* 成员输出（response/结果——DataView 按类型渲染） */}
+              {mOutput !== undefined && (
+                <div className="mt-1.5 rounded border border-[#27272a] bg-[#09090b] p-2">
+                  <DataView value={mOutput} context="node_output" nodeType={ms.nodeType} showRaw={false} />
+                </div>
+              )}
+              {ms.nodeType === 'agent' && ms.state !== 'pending' && (
+                <NodeAgentTrace taskId={task.id} nodeId={ms.nodeId} theme={theme} />
               )}
             </div>
-            <div className="space-y-1.5">
-              {stages.map((ms) => {
-                const mMeta = STATE_META[ms.state]
-                const mLabel = nodeNameMap.get(ms.nodeId) || ms.label || (NODE_TYPE_LABEL[ms.nodeType] ?? ms.nodeType)
-                const mOutput = task.variables?.[ms.nodeId] ?? task.output?.[ms.nodeId]
-                // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
-                // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
-                const mVerdict =
-                  mOutput && typeof mOutput === 'object'
-                    ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
-                    : undefined
-                const verdictBadge =
-                  mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
-                  : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
-                  : null
-                return (
-                  <div
-                    key={ms.nodeId}
-                    className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'}`}
-                  >
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[ms.nodeType] ?? <Flag size={11} />}</span>
-                      <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{mLabel}</span>
-                      {verdictBadge && (
-                        <span className="text-[9px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
-                          {verdictBadge.text}
-                        </span>
-                      )}
-                      <span className="text-[9px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
-                      {(ms.duration || ms.tokenTotal) && (
-                        <span className={`text-[9px] font-mono ml-auto shrink-0 ${mutedText}`}>
-                          {ms.duration}
-                          {ms.duration && ms.tokenTotal ? ' · ' : ''}
-                          {ms.tokenTotal ? `${ms.tokenTotal.toLocaleString()} tk` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {/* 成员输出（response/结果——DataView 按类型渲染） */}
-                    {mOutput !== undefined && (
-                      <div className="mt-1.5 rounded border border-[#27272a] bg-[#09090b] p-2">
-                        <DataView value={mOutput} context="node_output" nodeType={ms.nodeType} showRaw={false} />
-                      </div>
-                    )}
-                    {ms.nodeType === 'agent' && ms.state !== 'pending' && (
-                      <NodeAgentTrace taskId={task.id} nodeId={ms.nodeId} theme={theme} />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -689,46 +697,36 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     if (nodeType) typeByNode.set(nodeId, nodeType)
   })
 
-  // ── 顶层 stages（成员已剔除；loop stage 附 rounds 分组） ──
-  const roundsByLoop = new Map<string, Array<{ round: number; stages: NodeStageInfo[] }>>()
+  // ── 顶层 stages（成员已剔除；loop stage 附跨轮聚合的 members）──
+  // 成员按 (loop, node) 聚合全部轮次事件：continue 成员一条完整会话展示
+  // 一次；fresh 成员的轮次产出已被工作台吸收（verdict/issues 轨迹），
+  // 前端按 wf 的 loop_thread_policy 决定是否单独展示。token 取各轮汇总
+  // （continue 成员跨轮的总消耗）。
+  const membersByLoop = new Map<string, NodeStageInfo[]>()
   for (const [key, evts] of memberEvents) {
-    const [loopId, roundStr, nodeId] = key.split('|')
-    const round = Number(roundStr)
+    const [loopId, , nodeId] = key.split('|')
     const nodeType = typeByNode.get(nodeId) ?? 'agent'
     const sub = buildStage(nodeId, nodeType, evts)
-    const arr = roundsByLoop.get(loopId) ?? []
-    arr.push({ round, stages: [sub] })
-    roundsByLoop.set(loopId, arr)
-  }
-  // 同轮多成员合并 + 按轮号排序 + 附该轮收敛标记（loop_round_complete
-  // 事件的 converged——轮分组头展示"收敛"，一眼看出哪轮通过的）
-  for (const [loopId, arr] of roundsByLoop) {
-    const byRound = new Map<number, NodeStageInfo[]>()
-    for (const { round, stages } of arr) {
-      byRound.set(round, [...(byRound.get(round) ?? []), ...stages])
+    sub.tokenTotal = evts.reduce((sum, e) => {
+      const u = e.event_type === 'node_complete' ? (e.data?.usage as { total_tokens?: number } | undefined) : undefined
+      return sum + (typeof u?.total_tokens === 'number' ? u.total_tokens : 0)
+    }, 0) || sub.tokenTotal
+    const arr = membersByLoop.get(loopId) ?? []
+    const existing = arr.find((m) => m.nodeId === nodeId)
+    if (existing) {
+      existing.events = [...existing.events, ...evts]
+    } else {
+      arr.push(sub)
     }
-    const convergedByRound = new Map<number, boolean>()
-    for (const e of eventsByNode.get(loopId) ?? []) {
-      if (e.event_type === 'loop_round_complete') {
-        convergedByRound.set(Number(e.data?.round ?? 0), e.data?.converged === true)
-      }
-    }
-    roundsByLoop.set(
-      loopId,
-      [...byRound.entries()].sort((a, b) => a[0] - b[0]).map(([round, stages]) => ({
-        round,
-        stages,
-        converged: convergedByRound.get(round) === true,
-      })),
-    )
+    membersByLoop.set(loopId, arr)
   }
 
   return order.map((nodeId) => {
     const evts = eventsByNode.get(nodeId)!
     const nodeType = typeByNode.get(nodeId) ?? 'agent'
     const stage = buildStage(nodeId, nodeType, evts, supersededByNode.get(nodeId))
-    const rounds = roundsByLoop.get(nodeId)
-    if (nodeType === 'loop' && rounds) stage.rounds = rounds
+    const members = membersByLoop.get(nodeId)
+    if (nodeType === 'loop' && members) stage.members = members
     return stage
   })
 }

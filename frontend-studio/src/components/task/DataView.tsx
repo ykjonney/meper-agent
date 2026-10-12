@@ -650,12 +650,43 @@ function matchKnownField(
             })}
           </div>
         )}
-        {verdicts.length > 0 && (
-          <div className="text-[11px] text-[#d4d4d8]">
-            <span className="text-[#a78bfa] font-medium">评审轨迹：</span>
-            {verdicts.map((v) => String(v.verdict)).join(' → ')}
-          </div>
-        )}
+        {(() => {
+          // 轮次轨迹：每轮的产物版本 / 各评审结论 / 问题开闭——「每轮独立」
+          // 成员的产出（verdict/issues）已被工作台吸收，在此一屏查看
+          const roundSet = new Set<number>()
+          for (const v of verdicts) roundSet.add(Number(v.round))
+          for (const i of issues) {
+            roundSet.add(Number(i.raised_round))
+            if (i.resolved_round != null) roundSet.add(Number(i.resolved_round))
+          }
+          for (const a of Object.values(artifacts)) roundSet.add(Number(a.round))
+          const rows = [...roundSet].filter((r) => r > 0).sort((a, b) => a - b).map((r) => {
+            const parts: string[] = []
+            for (const [name, a] of Object.entries(artifacts)) {
+              if (Number(a.round) === r) parts.push(`${name} v${String(a.version)}`)
+            }
+            for (const v of verdicts) {
+              if (Number(v.round) === r) parts.push(`${String(v.by)} ${String(v.verdict)}`)
+            }
+            const opened = issues.filter((i) => Number(i.raised_round) === r)
+            if (opened.length) parts.push(`新增 ${opened.map((i) => `#${String(i.id)}`).join(' ')}`)
+            const resolved = issues.filter((i) => Number(i.resolved_round) === r)
+            if (resolved.length) parts.push(`${resolved.map((i) => `#${String(i.id)}`).join(' ')} 已解决`)
+            return { round: r, text: parts.join(' · ') }
+          }).filter((r) => r.text)
+          if (rows.length === 0) return null
+          return (
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-[#71717a] font-medium">轮次轨迹</div>
+              {rows.map((r) => (
+                <div key={r.round} className="text-[11px] text-[#d4d4d8] leading-snug flex items-baseline gap-1.5">
+                  <span className="text-[#a78bfa] shrink-0">第 {r.round} 轮</span>
+                  <span className="flex-1 min-w-0">{r.text}</span>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
         {notes && (
           <div className="text-[11px] text-[#d4d4d8] leading-snug">
             <span className="text-[#a78bfa] font-medium">要点笔记：</span>{notes}

@@ -98,8 +98,10 @@ export interface NodeStageInfo {
   label?: string
   /** 节点 token 消耗（agent 节点 node_complete 事件 data.usage.total_tokens） */
   tokenTotal?: number
-  /** 循环节点专属：按轮分组的体成员执行（成员不进顶层，在循环卡片内查看） */
-  rounds?: Array<{ round: number; stages: NodeStageInfo[] }>
+  /** 循环节点专属：体成员（跨轮聚合，不进顶层，在循环卡片内查看）。
+   *  continue 成员完整会话显示一次；fresh 成员内容已被工作台吸收
+   *  （verdict/issues 轨迹），由前端按 wf 的 loop_thread_policy 决定展示。 */
+  members?: NodeStageInfo[]
 }
 
 /**
