@@ -161,6 +161,10 @@ function filterEventData(evt: TimelineEvent, nodeOutputExists: boolean): Record<
   for (const [k, v] of Object.entries(evt.data ?? {})) {
     if (REDUNDANT_EVENT_DATA_KEYS.has(k)) continue
     if (k === 'output_summary' && nodeOutputExists) continue
+    // 循环轮事件：round/max_iterations/converged 已被事件标签（"循环第
+    // N/M 轮·已收敛"）完整消费，剩余 data 纯冗余
+    if ((evt.event_type === 'loop_round_start' || evt.event_type === 'loop_round_complete') &&
+        (k === 'round' || k === 'max_iterations' || k === 'converged')) continue
     out[k] = v
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -231,7 +235,16 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
         const nodeLabel = nodeNameMap.get(stage.nodeId) || stage.label || (NODE_TYPE_LABEL[stage.nodeType] ?? stage.nodeType)
         // 节点完整输出：variables（暂停/干预时写入）优先，正常完成的任务回落到
         // output（完成时写入的完整变量池快照，同样按 node_id 取）。
-        const output = task.variables?.[stage.nodeId] ?? task.output?.[stage.nodeId]
+        const rawOutput = task.variables?.[stage.nodeId] ?? task.output?.[stage.nodeId]
+        // 循环节点：配置回显与 rounds 原始快照属实现细节（工作台已投影），
+        // 只展示轮数/收敛/工作台
+        const output = stage.nodeType === 'loop' && rawOutput && typeof rawOutput === 'object'
+          ? Object.fromEntries(
+              Object.entries(rawOutput as Record<string, unknown>).filter(
+                ([k]) => ['iterations', 'converged', 'stalled', 'workspace'].includes(k),
+              ),
+            )
+          : rawOutput
         return (
           <div key={stage.nodeId} className="relative py-1.5">
             {/* 左侧状态圆点 */}
@@ -350,6 +363,17 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                     )}
                   </div>
 
+                  {/* 循环体成员：按轮嵌套展示（循环是节点的内部实现，
+                      成员不在顶层平铺）；每成员含状态/耗时/输出/执行明细 */}
+                  {stage.nodeType === 'loop' && stage.rounds && stage.rounds.length > 0 && (
+                    <LoopRounds
+                      rounds={stage.rounds}
+                      task={task}
+                      theme={theme}
+                      nodeNameMap={nodeNameMap}
+                    />
+                  )}
+
                   {/* Agent 节点执行明细：stage 展开即自动加载（每节点独立缓存，互不干扰） */}
                   {stage.nodeType === 'agent' && state !== 'pending' && (
                     <NodeAgentTrace taskId={task.id} nodeId={stage.nodeId} theme={theme} />
@@ -370,6 +394,74 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
           subText={subText}
         />
       )}
+    </div>
+  )
+}
+
+/* ─── 子组件：循环体成员按轮嵌套展示 ─── */
+
+function LoopRounds({
+  rounds, task, theme, nodeNameMap,
+}: {
+  rounds: Array<{ round: number; stages: NodeStageInfo[] }>
+  task: TaskDetail
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+}) {
+  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>循环明细（按轮）</div>
+      <div className="space-y-2">
+        {rounds.map(({ round, stages }) => (
+          <div
+            key={round}
+            className={`rounded-lg border p-2 ${theme === 'dark' ? 'border-[#A855F7]/25 bg-[#A855F7]/5' : 'border-purple-200 bg-purple-50/50'}`}
+          >
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="w-4 h-4 rounded bg-[#A855F7]/20 text-[#a78bfa] text-[9px] font-bold flex items-center justify-center shrink-0">
+                {round}
+              </span>
+              <span className="text-[11px] font-medium text-[#c4b5fd]">第 {round} 轮</span>
+            </div>
+            <div className="space-y-1.5">
+              {stages.map((ms) => {
+                const mMeta = STATE_META[ms.state]
+                const mLabel = nodeNameMap.get(ms.nodeId) || ms.label || (NODE_TYPE_LABEL[ms.nodeType] ?? ms.nodeType)
+                const mOutput = task.variables?.[ms.nodeId] ?? task.output?.[ms.nodeId]
+                return (
+                  <div
+                    key={ms.nodeId}
+                    className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'}`}
+                  >
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[ms.nodeType] ?? <Flag size={11} />}</span>
+                      <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{mLabel}</span>
+                      <span className="text-[9px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+                      {(ms.duration || ms.tokenTotal) && (
+                        <span className={`text-[9px] font-mono ml-auto shrink-0 ${mutedText}`}>
+                          {ms.duration}
+                          {ms.duration && ms.tokenTotal ? ' · ' : ''}
+                          {ms.tokenTotal ? `${ms.tokenTotal.toLocaleString()} tk` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* 成员输出（response/结果——DataView 按类型渲染） */}
+                    {mOutput !== undefined && (
+                      <div className="mt-1.5 rounded border border-[#27272a] bg-[#09090b] p-2">
+                        <DataView value={mOutput} context="node_output" nodeType={ms.nodeType} showRaw={false} />
+                      </div>
+                    )}
+                    {ms.nodeType === 'agent' && ms.state !== 'pending' && (
+                      <NodeAgentTrace taskId={task.id} nodeId={ms.nodeId} theme={theme} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -493,16 +585,69 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
   // 展示保留（标记「已废弃」），状态推导 / 耗时 / token 剔除，避免旧轮误导
   const supersededIdxs = computeSupersededEventIdxs(timeline)
 
+  // ── 循环体成员归属：loop_round_start..loop_round_complete 窗口内带
+  // round 的节点事件属于该 loop（引擎 engine.py 注入 round）。成员不进
+  // 顶层 stage——在循环节点卡片内按轮查看（用户视角：循环是节点的内部
+  // 实现，成员平铺在顶层是泄漏实现细节）。
+  type MemberKey = `${string}|${number}|${string}` // loopId|round|nodeId
+  const memberEvents = new Map<MemberKey, TimelineEvent[]>()
+  let curLoop: string | null = null
+
   // 收集每个节点的相关事件 + 首次出现顺序（全量收集，不做状态相关过滤）
   const order: string[] = []
   const eventsByNode = new Map<string, TimelineEvent[]>()
   const supersededByNode = new Map<string, Set<TimelineEvent>>()
   const typeByNode = new Map<string, string>()
 
+  const buildStage = (
+    nodeId: string, nodeType: string, evts: TimelineEvent[], superseded?: Set<TimelineEvent>,
+  ): NodeStageInfo => {
+    const liveEvts = superseded ? evts.filter((e) => !superseded.has(e)) : evts
+    const nodeVars = task.variables?.[nodeId]
+    const decision =
+      nodeVars && typeof nodeVars === 'object' && typeof (nodeVars as { decision?: unknown }).decision === 'string'
+        ? (nodeVars as { decision: string }).decision
+        : undefined
+    const state = getNodeExecState(liveEvts, nodeId === pausedNode, decision, taskRejected)
+    const startEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_start')
+    const endEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_complete' || e.event_type === 'node_failed')
+    const duration = (startEvt && endEvt) ? humanDuration(startEvt.timestamp, endEvt.timestamp) : undefined
+    const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
+    const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
+    const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
+    const displayEvents = hasAnyApproval && nodeType === 'human'
+      ? evts.filter((e) => e.event_type !== 'node_complete')
+      : evts
+    return { nodeId, nodeType, state, events: displayEvents, superseded, duration, label, tokenTotal }
+  }
+
   timeline.forEach((evt, idx) => {
     const nodeId = typeof evt.data?.node_id === 'string' ? evt.data.node_id : undefined
     const nodeType = typeof evt.data?.node_type === 'string' ? evt.data.node_type : undefined
     if (!nodeId) return
+
+    // 循环轮窗口开合（loop_round_* 事件归属 loop 自身的 stage）
+    if (evt.event_type === 'loop_round_start') {
+      curLoop = nodeId
+    } else if (evt.event_type === 'loop_round_complete') {
+      curLoop = null
+    }
+
+    // 体成员事件（带 round 且处于轮窗口内）→ 按轮聚合，不进顶层
+    const evtRound = Number(evt.data?.round ?? 0)
+    if (curLoop && evtRound > 0 && nodeId !== curLoop) {
+      const key = `${curLoop}|${evtRound}|${nodeId}` as MemberKey
+      const list = memberEvents.get(key) ?? []
+      list.push(evt)
+      memberEvents.set(key, list)
+      // 循环节点首次出现顺序兜底登记（正常其 node_start 已在窗口前登记）
+      if (!order.includes(curLoop)) order.push(curLoop)
+      if (!eventsByNode.has(curLoop)) eventsByNode.set(curLoop, [])
+      if (nodeType) typeByNode.set(nodeId, nodeType)
+      if (!typeByNode.has(curLoop)) typeByNode.set(curLoop, 'loop')
+      return
+    }
+
     if (!eventsByNode.has(nodeId)) {
       eventsByNode.set(nodeId, [])
       order.push(nodeId)
@@ -518,35 +663,36 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     if (nodeType) typeByNode.set(nodeId, nodeType)
   })
 
+  // ── 顶层 stages（成员已剔除；loop stage 附 rounds 分组） ──
+  const roundsByLoop = new Map<string, Array<{ round: number; stages: NodeStageInfo[] }>>()
+  for (const [key, evts] of memberEvents) {
+    const [loopId, roundStr, nodeId] = key.split('|')
+    const round = Number(roundStr)
+    const nodeType = typeByNode.get(nodeId) ?? 'agent'
+    const sub = buildStage(nodeId, nodeType, evts)
+    const arr = roundsByLoop.get(loopId) ?? []
+    arr.push({ round, stages: [sub] })
+    roundsByLoop.set(loopId, arr)
+  }
+  // 同轮多成员合并 + 按轮号排序
+  for (const [loopId, arr] of roundsByLoop) {
+    const byRound = new Map<number, NodeStageInfo[]>()
+    for (const { round, stages } of arr) {
+      byRound.set(round, [...(byRound.get(round) ?? []), ...stages])
+    }
+    roundsByLoop.set(
+      loopId,
+      [...byRound.entries()].sort((a, b) => a[0] - b[0]).map(([round, stages]) => ({ round, stages })),
+    )
+  }
+
   return order.map((nodeId) => {
     const evts = eventsByNode.get(nodeId)!
-    const superseded = supersededByNode.get(nodeId)
-    const liveEvts = superseded ? evts.filter((e) => !superseded.has(e)) : evts
     const nodeType = typeByNode.get(nodeId) ?? 'agent'
-    // 决策兜底：存量任务的 reject 事件不带 node_id，无法归属到节点，
-    // 用 variables 里的 decision 字段识别被拒绝的 human 节点
-    const nodeVars = task.variables?.[nodeId]
-    const decision =
-      nodeVars && typeof nodeVars === 'object' && typeof (nodeVars as { decision?: unknown }).decision === 'string'
-        ? (nodeVars as { decision: string }).decision
-        : undefined
-    // 任务级拒绝兜底：存量超时事件（timeout auto_reject/fail）同样不带 node_id，
-    // 暂停节点凭任务级信号判为已拒绝（超时 fail 不清空 checkpoint）
-    const state = getNodeExecState(liveEvts, nodeId === pausedNode, decision, taskRejected)
-    // 耗时取「最新一轮」（过滤废弃后最后一个 start / end）——rewind 多轮重跑下，
-    // 旧轮起点配新轮终点会把耗时算成跨轮总长
-    const startEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_start')
-    const endEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_complete' || e.event_type === 'node_failed')
-    const duration = (startEvt && endEvt) ? humanDuration(startEvt.timestamp, endEvt.timestamp) : undefined
-    const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
-    // 节点 token 用量（仅 agent 节点的 node_complete 事件 data.usage 携带）
-    const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
-    const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
-    // 展示事件：审批完成后隐藏 human 节点的 node_complete（语义被审批事件取代），仅影响列表
-    const displayEvents = hasAnyApproval && nodeType === 'human'
-      ? evts.filter((e) => e.event_type !== 'node_complete')
-      : evts
-    return { nodeId, nodeType, state, events: displayEvents, superseded, duration, label, tokenTotal }
+    const stage = buildStage(nodeId, nodeType, evts, supersededByNode.get(nodeId))
+    const rounds = roundsByLoop.get(nodeId)
+    if (nodeType === 'loop' && rounds) stage.rounds = rounds
+    return stage
   })
 }
 

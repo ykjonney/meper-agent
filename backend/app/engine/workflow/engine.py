@@ -988,6 +988,7 @@ class WorkflowEngine:
             event_type="node_start",
             data={
                 "node_id": node_id, "node_type": node_type,
+                "node_label": str(node.get("label") or ""),
                 **({"round": loop_round} if loop_round else {}),
             },
         )
@@ -1033,6 +1034,7 @@ class WorkflowEngine:
                 event_type="node_complete",
                 data={
                     "node_id": node_id, "node_type": node_type,
+                    "node_label": str(node.get("label") or ""),
                     "output_summary": _summarise_output(result.output),
                     "usage": node_usage,
                     **({"round": loop_round} if loop_round else {}),
@@ -1413,7 +1415,11 @@ class WorkflowEngine:
                 data={
                     "node_id": node_id,
                     "node_type": node_type,
+                    "node_label": str(node.get("label") or ""),
                     "error": result.error_message,
+                    # round 让前端把循环体内失败的成员正确归属到轮分组
+                    #（TaskFlowTimeline 按 loop_round 窗口+round 聚合成员）
+                    **({"round": loop_round} if loop_round else {}),
                 },
             )
             raise WorkflowNodeError(
