@@ -30,15 +30,19 @@ from typing import Any
 
 
 def _as_str_list(v: Any) -> list[str]:
-    """issues 字段宽容解析：["文本"] / [{text}] / 单条 str。"""
-    if isinstance(v, str) and v.strip():
-        return [v.strip()]
+    """issues 字段宽容解析：["文本"] / [{text}] / 单条 str。
+
+    单条 str 按「每条一行」约定拆解（输出契约 schema 只有 string 类型，
+    多条意见用换行表达）；分号不拆——意见文本本身可能含分号。
+    """
+    if isinstance(v, str):
+        return [ln.strip() for ln in v.splitlines() if ln.strip()]
     if not isinstance(v, list):
         return []
     out: list[str] = []
     for item in v:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip())
+        if isinstance(item, str):
+            out.extend(ln.strip() for ln in item.splitlines() if ln.strip())
         elif isinstance(item, dict):
             t = str(item.get("text") or "").strip()
             if t:

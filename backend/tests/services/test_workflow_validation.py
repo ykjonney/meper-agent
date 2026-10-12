@@ -320,7 +320,9 @@ class TestValidateForPublish:
         error_codes = [e["code"] for e in errors]
         assert "AGENT_MISSING_ID" in error_codes
         assert "TOOL_MISSING_ID" in error_codes
-        assert len(errors) == 2
+        # 发布闸门现附完整引擎校验（WorkflowValidator）——同一问题会同时
+        # 出现手搓码与引擎码，只保证下限，不断言精确数量
+        assert len(errors) >= 2
 
 
 # ── publish() integration tests ──
