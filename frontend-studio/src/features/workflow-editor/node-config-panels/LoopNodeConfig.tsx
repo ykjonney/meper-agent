@@ -45,7 +45,7 @@ const CONVERGE_OPS = [
 ] as const
 
 type ConvergeOp = (typeof CONVERGE_OPS)[number]['value']
-interface ConvergeParts { source: string; field: string; op: ConvergeOp; value: string }
+interface ConvergeCondition { source: string; field: string; op: ConvergeOp; value: string }
 
 /** 值序列化：数字裸写（数值比较），其他加引号（字符串） */
 function fmtConvergeValue(v: string): string {
@@ -53,20 +53,42 @@ function fmtConvergeValue(v: string): string {
   return t !== '' && Number.isFinite(Number(t)) ? t : `'${v}'`
 }
 
-function buildConvergeExpr(p: ConvergeParts): string {
-  return p.op === 'in'
-    ? `{{ ${fmtConvergeValue(p.value)} in ${p.source}.${p.field} }}`
-    : `{{ ${p.source}.${p.field} ${p.op} ${fmtConvergeValue(p.value)} }}`
+/** 单条件 → 表达式片段（无花括号；列表用 and 连接后再包） */
+function buildCondExpr(c: ConvergeCondition): string {
+  return c.op === 'in'
+    ? `${fmtConvergeValue(c.value)} in ${c.source}.${c.field}`
+    : `${c.source}.${c.field} ${c.op} ${fmtConvergeValue(c.value)}`
 }
 
-function parseConverge(expr: string): ConvergeParts {
-  // 包含形式：{{ '值' in src.field }}
-  let m = /\{\{\s*'([^']*)'\s+in\s+([\w]+)\.([\w.]+)\s*\}\}/.exec(expr || '')
+/** 组装收敛表达式：多条件以 and 连接（"全部满足才结束"，如双审都 approve） */
+function buildConvergeExpr(cs: ConvergeCondition[]): string {
+  return `{{ ${cs.map(buildCondExpr).join(' and ')} }}`
+}
+
+/** 表达式片段 → 单条件；不匹配返回 null */
+function parseCondExpr(str: string): ConvergeCondition | null {
+  // 包含形式：'值' in src.field
+  let m = /^'([^']*)'\s+in\s+([\w]+)\.([\w.]+)$/.exec(str)
   if (m) return { value: m[1], source: m[2], field: m[3], op: 'in' }
-  // 比较形式：{{ src.field op '值'|数字 }}（>= 等在前防被 > 吞掉）
-  m = /\{\{\s*([\w]+)\.([\w.]+)\s*(==|!=|>=|<=|>|<)\s*(?:'([^']*)'|([-+]?\d+(?:\.\d+)?))\s*\}\}/.exec(expr || '')
+  // 比较形式：src.field op '值'|数字（>= 等在前防被 > 吞掉）
+  m = /^([\w]+)\.([\w.]+)\s*(==|!=|>=|<=|>|<)\s*(?:'([^']*)'|([-+]?\d+(?:\.\d+)?))$/.exec(str)
   if (m) return { source: m[1], field: m[2], op: m[3] as ConvergeOp, value: m[4] ?? m[5] ?? '' }
-  return { source: '', field: '', op: '==', value: '' }
+  return null
+}
+
+/** 解析收敛表达式 → 条件列表。按 and 切分逐条解析；任何一条不认识
+ *  （or / 复杂表达式）返回 null——调用方显示原文与提示，绝不用表单
+ *  默认值覆盖用户手写的表达式。 */
+function parseConvergeList(expr: string): ConvergeCondition[] | null {
+  const m = /\{\{([\s\S]+)\}\}/.exec((expr || '').trim())
+  if (!m) return null
+  const out: ConvergeCondition[] = []
+  for (const part of m[1].split(/\s+and\s+/i)) {
+    const c = parseCondExpr(part.trim())
+    if (!c) return null
+    out.push(c)
+  }
+  return out.length ? out : null
 }
 
 /** 读取步骤的可选条件字段——按节点类型的真实输出契约给地址：
@@ -255,29 +277,40 @@ export default function LoopNodeConfig({
     onNodesChange(applyLinearBodySteps(nodesLeft, currentNodeId, steps))
   }
 
-  const parsed = parseConverge(convergeExpr)
   const tail = chain.length ? chain[chain.length - 1] : ''
-  // 字段默认值从 source 步骤的输出契约取第一个字段（审核场景通常配了
-  // verdict/approve 类字段），无契约回退 verdict——不再让用户盲猜字符串
-  const defaultSource = parsed.source || tail
-  const defaultField = useMemo(() => {
-    if (parsed.field) return parsed.field
-    const schemaFields = convergeFieldOptions(nodeById.get(defaultSource)).filter(
-      (o) => o.value !== 'response' && o.value !== 'files',
-    )
-    return schemaFields[0]?.value ?? 'response'
-  }, [parsed.field, defaultSource, nodeById])
-  const convergeParts: ConvergeParts = {
-    source: defaultSource,
-    field: defaultField,
-    op: parsed.op || '==',
-    value: parsed.value || 'approve',
-  }
+  // 条件列表：and 链逐条解析。解析不了（or/复杂表达式）→ 自定义模式，
+  // 显示原文+提示，表单不覆盖
+  const conditions = parseConvergeList(convergeExpr)
+  const isCustomExpr = convergeExpr !== '' && conditions === null
   const convergeEnabled = convergeExpr !== ''
 
-  const setConvergePart = (patch: Partial<ConvergeParts>) => {
-    const next = { ...convergeParts, ...patch }
+  /** 新条件的默认值：从尾步（或指定步骤）的输出契约取第一个字段 */
+  const defaultCond = useMemo((): ConvergeCondition => {
+    const schemaFields = convergeFieldOptions(nodeById.get(tail)).filter(
+      (o) => o.value !== 'response' && o.value !== 'files',
+    )
+    return {
+      source: tail,
+      field: schemaFields[0]?.value ?? 'response',
+      op: '==',
+      value: 'approve',
+    }
+  }, [tail, nodeById])
+
+  const setCondition = (idx: number, patch: Partial<ConvergeCondition>) => {
+    if (!conditions) return
+    const next = conditions.map((c, i) => (i === idx ? { ...c, ...patch } : c))
     onChange({ ...liveConfig, converge_expr: buildConvergeExpr(next) })
+  }
+  const removeCondition = (idx: number) => {
+    if (!conditions) return
+    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(conditions.filter((_, i) => i !== idx)) })
+  }
+  const addCondition = () => {
+    onChange({
+      ...liveConfig,
+      converge_expr: buildConvergeExpr([...(conditions ?? []), { ...defaultCond, source: tail }]),
+    })
   }
 
   return (
@@ -452,7 +485,7 @@ export default function LoopNodeConfig({
               name={`loop-end-${currentNodeId}`}
               checked={convergeEnabled}
               onChange={() =>
-                onChange({ ...liveConfig, converge_expr: buildConvergeExpr(convergeParts) })
+                onChange({ ...liveConfig, converge_expr: buildConvergeExpr([defaultCond]) })
               }
               className="mt-0.5 accent-[#A855F7]"
             />
@@ -467,32 +500,68 @@ export default function LoopNodeConfig({
             先添加步骤，再定义结束条件
           </div>
         )}
-        {convergeEnabled && body.length > 0 && (
-          <div className="mt-2 space-y-1">
-            <div className="grid grid-cols-[1fr_72px_1fr] gap-1">
-              {/* 变量选择：与 agent 输入的「选择变量」同交互语言——按步骤
-                  分组点选字段，按钮上显示 chip 样式的"步骤 · 字段" */}
-              <ConvergeVarPicker
-                body={body}
-                nodeLabel={nodeLabel}
-                nodeById={nodeById}
-                value={{ source: convergeParts.source, field: convergeParts.field }}
-                onPick={(source, field) => setConvergePart({ source, field })}
-              />
-              <Select
-                className="w-full"
-                value={convergeParts.op}
-                onChange={(val) => setConvergePart({ op: (val ?? '==') as ConvergeOp })}
-                options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
-              />
-              <Input
-                placeholder="值，如 approve 或 8"
-                value={convergeParts.value}
-                onChange={(e) => setConvergePart({ value: e.target.value })}
-              />
+        {convergeEnabled && body.length > 0 && conditions && (
+          <div className="mt-2 space-y-1.5">
+            <div className="text-[10px] text-slate-500">
+              以下条件{conditions.length > 1 ? '全部' : ''}满足时提前结束{conditions.length > 1 ? '（且）' : ''}
             </div>
+            {conditions.map((c, i) => (
+              <div key={i}>
+                {i > 0 && <div className="text-[10px] text-[#a78bfa] text-center leading-none py-0.5">且</div>}
+                <div className="grid grid-cols-[1fr_66px_1fr_20px] gap-1">
+                  {/* 变量选择：与 agent 输入的「选择变量」同交互语言——按步骤
+                      分组点选字段，按钮上显示 chip 样式的"步骤 · 字段" */}
+                  <ConvergeVarPicker
+                    body={body}
+                    nodeLabel={nodeLabel}
+                    nodeById={nodeById}
+                    value={{ source: c.source, field: c.field }}
+                    onPick={(source, field) => setCondition(i, { source, field })}
+                  />
+                  <Select
+                    className="w-full"
+                    value={c.op}
+                    onChange={(val) => setCondition(i, { op: (val ?? '==') as ConvergeOp })}
+                    options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
+                  />
+                  <Input
+                    placeholder="值，如 approve 或 8"
+                    value={c.value}
+                    onChange={(e) => setCondition(i, { value: e.target.value })}
+                  />
+                  {conditions.length > 1 ? (
+                    <button
+                      type="button"
+                      title="删除该条件"
+                      onClick={() => removeCondition(i)}
+                      className="flex items-center justify-center rounded text-[#71717a] hover:text-red-400 hover:bg-[#27272a] cursor-pointer"
+                    >
+                      <X size={11} />
+                    </button>
+                  ) : <span />}
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addCondition}
+              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
+            >
+              <Plus size={11} />
+              添加条件（且）
+            </button>
             {/* 生成的表达式原文：透明可核对，也教用户语法 */}
-            <div className="text-[10px] text-slate-500 font-mono truncate" title={convergeExpr}>
+            <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
+              {convergeExpr}
+            </div>
+          </div>
+        )}
+        {convergeEnabled && body.length > 0 && isCustomExpr && (
+          <div className="mt-2 space-y-1">
+            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300">
+              当前为自定义表达式（含表单不支持的结构，如 or），表单不覆盖、仅展示原文
+            </div>
+            <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
               {convergeExpr}
             </div>
           </div>
