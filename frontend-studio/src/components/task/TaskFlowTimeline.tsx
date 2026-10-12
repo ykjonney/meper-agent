@@ -404,7 +404,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 function LoopRounds({
   rounds, task, theme, nodeNameMap,
 }: {
-  rounds: Array<{ round: number; stages: NodeStageInfo[] }>
+  rounds: Array<{ round: number; stages: NodeStageInfo[]; converged?: boolean }>
   task: TaskDetail
   theme: 'light' | 'dark'
   nodeNameMap: Map<string, string>
@@ -414,7 +414,7 @@ function LoopRounds({
     <div onClick={(e) => e.stopPropagation()}>
       <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>循环明细（按轮）</div>
       <div className="space-y-2">
-        {rounds.map(({ round, stages }) => (
+        {rounds.map(({ round, stages, converged }) => (
           <div
             key={round}
             className={`rounded-lg border p-2 ${theme === 'dark' ? 'border-[#A855F7]/25 bg-[#A855F7]/5' : 'border-purple-200 bg-purple-50/50'}`}
@@ -424,12 +424,25 @@ function LoopRounds({
                 {round}
               </span>
               <span className="text-[11px] font-medium text-[#c4b5fd]">第 {round} 轮</span>
+              {converged && (
+                <span className="text-[9px] text-emerald-400 bg-emerald-400/10 rounded px-1 py-0.5">收敛 ✓</span>
+              )}
             </div>
             <div className="space-y-1.5">
               {stages.map((ms) => {
                 const mMeta = STATE_META[ms.state]
                 const mLabel = nodeNameMap.get(ms.nodeId) || ms.label || (NODE_TYPE_LABEL[ms.nodeType] ?? ms.nodeType)
                 const mOutput = task.variables?.[ms.nodeId] ?? task.output?.[ms.nodeId]
+                // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
+                // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
+                const mVerdict =
+                  mOutput && typeof mOutput === 'object'
+                    ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
+                    : undefined
+                const verdictBadge =
+                  mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+                  : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+                  : null
                 return (
                   <div
                     key={ms.nodeId}
@@ -438,6 +451,11 @@ function LoopRounds({
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[ms.nodeType] ?? <Flag size={11} />}</span>
                       <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{mLabel}</span>
+                      {verdictBadge && (
+                        <span className="text-[9px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+                          {verdictBadge.text}
+                        </span>
+                      )}
                       <span className="text-[9px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
                       {(ms.duration || ms.tokenTotal) && (
                         <span className={`text-[9px] font-mono ml-auto shrink-0 ${mutedText}`}>
@@ -682,15 +700,26 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     arr.push({ round, stages: [sub] })
     roundsByLoop.set(loopId, arr)
   }
-  // 同轮多成员合并 + 按轮号排序
+  // 同轮多成员合并 + 按轮号排序 + 附该轮收敛标记（loop_round_complete
+  // 事件的 converged——轮分组头展示"收敛"，一眼看出哪轮通过的）
   for (const [loopId, arr] of roundsByLoop) {
     const byRound = new Map<number, NodeStageInfo[]>()
     for (const { round, stages } of arr) {
       byRound.set(round, [...(byRound.get(round) ?? []), ...stages])
     }
+    const convergedByRound = new Map<number, boolean>()
+    for (const e of eventsByNode.get(loopId) ?? []) {
+      if (e.event_type === 'loop_round_complete') {
+        convergedByRound.set(Number(e.data?.round ?? 0), e.data?.converged === true)
+      }
+    }
     roundsByLoop.set(
       loopId,
-      [...byRound.entries()].sort((a, b) => a[0] - b[0]).map(([round, stages]) => ({ round, stages })),
+      [...byRound.entries()].sort((a, b) => a[0] - b[0]).map(([round, stages]) => ({
+        round,
+        stages,
+        converged: convergedByRound.get(round) === true,
+      })),
     )
   }
 
