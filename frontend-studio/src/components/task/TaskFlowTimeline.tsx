@@ -118,9 +118,10 @@ function nodeEventLabel(evt: TimelineEvent): string {
   // loop 轮次：label 直接带轮号（"循环第 2/5 轮"，converged 时带收敛标记）
   if (evt.event_type === 'loop_round_start' || evt.event_type === 'loop_round_complete') {
     const round = typeof evt.data?.round === 'number' ? evt.data.round : '?'
-    const max = typeof evt.data?.max_iterations === 'number' ? evt.data.max_iterations : '?'
+    // 存量 loop_round_complete 事件不带 max_iterations——省略分母而非显示 "?"
+    const max = typeof evt.data?.max_iterations === 'number' ? `/${evt.data.max_iterations}` : ''
     const conv = evt.data?.converged === true ? ' · 已收敛' : ''
-    return `循环第 ${round}/${max} 轮${evt.event_type === 'loop_round_complete' ? conv : ''}`
+    return `循环第 ${round}${max} 轮${evt.event_type === 'loop_round_complete' ? conv : ''}`
   }
   // 子 Agent 委派：直接显示执行主体名（用户一眼看到是谁在干活，而非工具名）
   if (evt.event_type === 'subagent_delegation') {
@@ -615,9 +616,16 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
     const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
     const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
-    const displayEvents = hasAnyApproval && nodeType === 'human'
+    let displayEvents = hasAnyApproval && nodeType === 'human'
       ? evts.filter((e) => e.event_type !== 'node_complete')
       : evts
+    // 循环节点：轮事件（循环第 N 轮）已承载执行语义，节点自身的
+    // node_start/node_complete 是执行器回显的管道事件，展示纯噪声
+    if (nodeType === 'loop' && evts.some((e) => e.event_type.startsWith('loop_round_'))) {
+      displayEvents = displayEvents.filter(
+        (e) => e.event_type !== 'node_start' && e.event_type !== 'node_complete',
+      )
+    }
     return { nodeId, nodeType, state, events: displayEvents, superseded, duration, label, tokenTotal }
   }
 

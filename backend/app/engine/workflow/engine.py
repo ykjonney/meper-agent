@@ -1338,6 +1338,7 @@ class WorkflowEngine:
                             event_type="loop_round_complete",
                             data={
                                 "node_id": node_id, "round": rnd,
+                                "max_iterations": max_iterations,
                                 "converged": converged,
                             },
                         )
