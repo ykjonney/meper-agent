@@ -235,7 +235,7 @@ class AgentService:
     async def update_agent(
         agent_id: str,
         name: str,
-        description: str = "",
+        description: str | None = None,
         prompt_slots: dict[str, str] | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
@@ -245,15 +245,15 @@ class AgentService:
         custom_tools: list[dict] | None = None,
         knowledge_base_ids: list[str] | None = None,
         subagent_ids: list[str] | None = None,
-        default_model: str = "",
-        voice_enabled: bool = False,
-        max_retry: int = 3,
-        max_tokens: int = 0,
-        welcome_message: str = "",
+        default_model: str | None = None,
+        voice_enabled: bool | None = None,
+        max_retry: int | None = None,
+        max_tokens: int | None = None,
+        welcome_message: str | None = None,
         recommended_items: list[dict] | None = None,
         recommended_groups: list[dict] | None = None,
-        avatar: str = "",
-        can_spawn_agents: bool = False,
+        avatar: str | None = None,
+        can_spawn_agents: bool | None = None,
     ) -> dict | None:
         """Update an existing Agent's configuration.
 
@@ -311,31 +311,53 @@ class AgentService:
         await AgentSnapshotService.take_snapshot(existing_doc, label="update")
         current_version = int(existing_doc.get("version", 1) or 1)
 
-        resolved_custom_tools = await _resolve_custom_tools(custom_tools, custom_tool_ids, encrypt=True)
-
+        # 部分更新语义：None = 保留现值，显式传入（含空列表/False）才替换。
+        # 全量替换语义已两次咬人（API 消费方部分字段 PUT 把 builtin_config/
+        # subagent_ids 洗空——工具白名单清空导致 agent 丢全部文件工具）。
+        # 前端全量提交行为不变（所有字段显式传入）。
         set_fields: dict = {
             "name": name,
-            "description": description,
-            "prompt_slots": prompt_slots or {},
-            "skill_ids": skill_ids or [],
-            "mcp_connection_ids": mcp_connection_ids or [],
-            "builtin_config": builtin_config or [],
-            "workflow_ids": workflow_ids or [],
-            "custom_tools": resolved_custom_tools,
-            "knowledge_base_ids": knowledge_base_ids or [],
-            "subagent_ids": subagent_ids or [],
-            "default_model": default_model,
-            "voice_enabled": voice_enabled,
-            "max_retry": max_retry,
-            "max_tokens": max_tokens,
-            "welcome_message": welcome_message,
-            "recommended_items": recommended_items or [],
-            "recommended_groups": recommended_groups or [],
-            "avatar": avatar,
-            "can_spawn_agents": can_spawn_agents,
             "version": current_version + 1,
             "updated_at": now_iso,
         }
+        if description is not None:
+            set_fields["description"] = description
+        if prompt_slots is not None:
+            set_fields["prompt_slots"] = prompt_slots
+        if skill_ids is not None:
+            set_fields["skill_ids"] = skill_ids
+        if mcp_connection_ids is not None:
+            set_fields["mcp_connection_ids"] = mcp_connection_ids
+        if builtin_config is not None:
+            set_fields["builtin_config"] = builtin_config
+        if workflow_ids is not None:
+            set_fields["workflow_ids"] = workflow_ids
+        if knowledge_base_ids is not None:
+            set_fields["knowledge_base_ids"] = knowledge_base_ids
+        if subagent_ids is not None:
+            set_fields["subagent_ids"] = subagent_ids
+        if default_model is not None:
+            set_fields["default_model"] = default_model
+        if voice_enabled is not None:
+            set_fields["voice_enabled"] = voice_enabled
+        if max_retry is not None:
+            set_fields["max_retry"] = max_retry
+        if max_tokens is not None:
+            set_fields["max_tokens"] = max_tokens
+        if welcome_message is not None:
+            set_fields["welcome_message"] = welcome_message
+        if recommended_items is not None:
+            set_fields["recommended_items"] = recommended_items
+        if recommended_groups is not None:
+            set_fields["recommended_groups"] = recommended_groups
+        if avatar is not None:
+            set_fields["avatar"] = avatar
+        if can_spawn_agents is not None:
+            set_fields["can_spawn_agents"] = can_spawn_agents
+        if custom_tool_ids is not None or custom_tools is not None:
+            set_fields["custom_tools"] = await _resolve_custom_tools(
+                custom_tools or [], custom_tool_ids or [], encrypt=True,
+            )
         await col.update_one(
             {"_id": agent_id},
             {"$set": set_fields},

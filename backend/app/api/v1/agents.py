@@ -196,29 +196,26 @@ async def update_agent(
     body: AgentUpdate,
     _: UserResponse = Depends(require_permission("agent:write")),
 ) -> AgentResponse:
-    doc = await AgentService.update_agent(
-        agent_id=agent_id,
-        name=body.name,
-        description=body.description,
-        prompt_slots=body.prompt_slots,
-        skill_ids=body.skill_ids,
-        mcp_connection_ids=body.mcp_connection_ids,
-        builtin_config=body.builtin_config,
-        workflow_ids=body.workflow_ids,
-        custom_tool_ids=body.custom_tool_ids,
-        custom_tools=[b.model_dump() for b in body.custom_tools],
-        knowledge_base_ids=body.knowledge_base_ids,
-        subagent_ids=body.subagent_ids,
-        default_model=body.default_model,
-        voice_enabled=body.voice_enabled,
-        max_retry=body.max_retry,
-        max_tokens=body.max_tokens,
-        welcome_message=body.welcome_message,
-        recommended_items=[item.model_dump() for item in body.recommended_items],
-        recommended_groups=[group.model_dump() for group in body.recommended_groups],
-        avatar=body.avatar,
-        can_spawn_agents=body.can_spawn_agents,
-    )
+    # 部分更新：只传请求里显式出现的字段（exclude_unset 语义）——
+    # schema 默认值不落地，防止部分字段的 PUT 把未传字段洗成默认值
+    # （builtin_config 清空 → agent 丢全部文件工具，实测复现）。
+    fields = body.model_fields_set
+    kwargs: dict = {"name": body.name}
+    if "custom_tools" in fields:
+        kwargs["custom_tools"] = [b.model_dump() for b in body.custom_tools]
+    if "recommended_items" in fields:
+        kwargs["recommended_items"] = [item.model_dump() for item in body.recommended_items]
+    if "recommended_groups" in fields:
+        kwargs["recommended_groups"] = [group.model_dump() for group in body.recommended_groups]
+    for f in (
+        "description", "prompt_slots", "skill_ids", "mcp_connection_ids",
+        "builtin_config", "workflow_ids", "custom_tool_ids", "knowledge_base_ids",
+        "subagent_ids", "default_model", "voice_enabled", "max_retry",
+        "max_tokens", "welcome_message", "avatar", "can_spawn_agents",
+    ):
+        if f in fields:
+            kwargs[f] = getattr(body, f)
+    doc = await AgentService.update_agent(agent_id=agent_id, **kwargs)
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
     return _doc_to_response(doc)
