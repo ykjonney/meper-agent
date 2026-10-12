@@ -370,3 +370,27 @@ class TestEngineWorkspace:
         assert ws["issues"][0]["status"] == "resolved"
         assert ws["artifacts"]["写手"]["version"] == 2
         assert engine._pool.get("loop1")["iterations"] == 2  # 从第 2 轮起跑
+
+
+class TestJsonBareNewlineRepair:
+    """输出契约解析：LLM 在 JSON 字符串值内输出裸换行（"每条意见一行"
+    约定的副作用）——修复器转义后重试（实测复现：风险审核 issues 字段
+    两次违规导致节点失败）。"""
+
+    def test_bare_newlines_with_escaped_quotes(self) -> None:
+        from app.engine.workflow.node_executor import _extract_json_payload
+
+        raw = (
+            '{"verdict":"revise","issues":"第一条：卖点中\\"最优\\"属绝对化表述。\\n'
+            '第二条：效果承诺缺数据支撑。\\n第三条：案例须授权。"}'
+        )
+        v, err = _extract_json_payload(raw)
+        assert v is not None, err
+        assert len(v["issues"].splitlines()) == 3
+        assert "最优" in v["issues"]  # 转义引号内容保留
+
+    def test_valid_json_untouched(self) -> None:
+        from app.engine.workflow.node_executor import _extract_json_payload
+
+        v, _ = _extract_json_payload('{"a": "x\\ny"}')
+        assert v == {"a": "x\ny"}

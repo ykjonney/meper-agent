@@ -455,12 +455,45 @@ def _validate_field_value(
     return ""
 
 
+def _repair_json_bare_control_chars(text: str) -> str:
+    """修复 JSON 字符串值内的裸控制字符（换行/回车/Tab）。
+
+    LLM 常见行为：契约要求"多条意见每条一行"时，模型在 JSON string 值里
+    输出真实换行——JSON 标准禁止，json.loads 直接失败（实测复现：风险
+    审核的 issues 字段）。状态机扫描：处于字符串内且非转义位置遇到裸
+    \n/\r/\t 时替换为 \\n 等转义序列；合法 JSON（已转义）不受影响。
+    """
+    out: list[str] = []
+    in_str = False
+    escaped = False
+    replacements = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+    for ch in text:
+        if escaped:
+            out.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            out.append(ch)
+            continue
+        if in_str and ch in replacements:
+            out.append(replacements[ch])
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None, str]:
     """从模型输出文本中提取 JSON（对象或数组），返回 (value, error)。
 
     依次尝试：裸 JSON → ```json 围栏块 → 首个 ``{``/``[`` 到最后一个
-    ``}``/``]`` 的子串（容忍 JSON 前后的解释性文字）。标量不符合
-    Output Contract。
+    ``}``/``]`` 的子串（容忍 JSON 前后的解释性文字）。每个候选先按原文
+    解析，失败再修复字符串内裸控制字符重试（LLM 在多行字符串值里的
+    常见违规）。标量不符合 Output Contract。
     """
     raw = (text or "").strip()
     if not raw:
@@ -476,12 +509,13 @@ def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None,
             candidates.append(raw[start : end + 1])
 
     for candidate in candidates:
-        try:
-            value = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, (dict, list)):
-            return value, ""
+        for attempt in (candidate, _repair_json_bare_control_chars(candidate)):
+            try:
+                value = json.loads(attempt)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, (dict, list)):
+                return value, ""
     return None, "无法从输出中解析出 JSON"
 
 
