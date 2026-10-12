@@ -147,12 +147,35 @@ class TestAbsorbConventions:
         assert ws.issues[0]["status"] == "resolved"
         assert ws.issues[2]["text"] == "结尾仓促"
 
-    def test_approve_implicitly_closes_all(self) -> None:
+    def test_approve_closes_only_own_issues(self) -> None:
+        """approve 只关闭本节点提出的 issue——多评审场景下他人 approve
+        不能代替提出者确认（实测 bug：风险审核 approve 关掉了语义审核
+        刚提出的问题，writer 无活可干）。单评审循环行为不变。"""
         ws = LoopWorkspace("目标")
-        ws.absorb("审核", {"verdict": "revise", "issues": ["a", "b", "c"]}, 1)
-        ws.absorb("写手", {"fixes": [1]}, 2)
-        ws.absorb("审核", {"verdict": "approve"}, 2)
+        ws.absorb("语义审核", {"verdict": "revise", "issues": ["a", "b", "c"]}, 1)
+        # 另一个评审 approve：语义审核的问题必须保持 open
+        ws.absorb("风险审核", {"verdict": "approve"}, 1)
+        assert all(i["status"] == "open" for i in ws.issues)
+        # 提出者自己 approve：其问题全部关闭
+        ws.absorb("语义审核", {"verdict": "approve"}, 2)
         assert all(i["status"] == "resolved" for i in ws.issues)
+        assert all(i["resolved_round"] == 2 for i in ws.issues)
+
+    def test_round_delta_accumulates_across_members(self) -> None:
+        """delta 按轮累计：同轮多成员的变化全部保留（按成员覆盖会只剩
+        末位成员——实测 writer 轮 2 只看到风险审核的动静，看不到语义
+        审核新增的待解决问题）。"""
+        ws = LoopWorkspace("目标")
+        ws.absorb("写手", {"draft": "v1"}, 1)
+        ws.absorb("语义审核", {"verdict": "revise", "issues": ["钩子太弱"]}, 1)
+        ws.absorb("风险审核", {"verdict": "approve"}, 1)
+        assert "钩子太弱" in ws.last_delta          # 语义审核的 issue 在
+        assert "写手更新为 v1" in ws.last_delta or "v1" in ws.last_delta
+        assert "风险审核判定：approve" in ws.last_delta
+        # 下一轮重置
+        ws.absorb("写手", {"draft": "v2"}, 2)
+        assert ws.last_delta.startswith("【第 2 轮工作台变化】")
+        assert "钩子太弱" not in ws.last_delta
 
     def test_text_mode_response_becomes_artifact(self) -> None:
         ws = LoopWorkspace("目标")

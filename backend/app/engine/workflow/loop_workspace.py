@@ -74,8 +74,11 @@ class LoopWorkspace:
         self.verdicts: list[dict[str, Any]] = []
         self.notes: str = ""
         self.round: int = 0
-        # 吸收周期产生的变化量（下一轮 continue 注入用）
+        # 变化量（下一轮 continue 注入用）：按轮累计——引擎对每个体成员
+        # 依次调 absorb，逐条聚合到当前轮的 delta，轮末即整轮变化全貌
         self.last_delta: str = ""
+        self._delta_round: int = 0
+        self._delta_lines: list[str] = []
         # open issue 数量轨迹（通胀检测：连续 3 轮严格递增）
         self._open_history: list[int] = []
 
@@ -85,7 +88,11 @@ class LoopWorkspace:
         if not isinstance(output, dict):
             return
         self.round = rnd
-        delta: list[str] = [f"【第 {rnd} 轮工作台变化】"]
+        # 新一轮开始 → 重置 delta；同轮后续成员 → 继续累计（成员级覆盖
+        # 会丢失非末位成员的变化，writer 只看到最后一个评审的动静）
+        if rnd != self._delta_round:
+            self._delta_round = rnd
+            self._delta_lines = [f"【第 {rnd} 轮工作台变化】"]
 
         # v3 输出契约的两种形态统一取值：text 模式 response=str（产物）；
         # object 模式 response=契约 dict（verdict/comment 等在内层）。
@@ -106,9 +113,9 @@ class LoopWorkspace:
             bumped = self._absorb_artifact(node_label, content, rnd)
             a = self.artifacts[node_label]
             if bumped:
-                delta.append(f"当前{node_label}更新为 v{a['version']}（{a['chars']}字）")
+                self._delta_lines.append(f"当前{node_label}更新为 v{a['version']}（{a['chars']}字）")
             else:
-                delta.append(f"当前{node_label}与上轮相同（v{a['version']}）")
+                self._delta_lines.append(f"当前{node_label}与上轮相同（v{a['version']}）")
 
         # 评审轨迹 + approve 隐式全关
         verdict = pick("verdict")
@@ -116,16 +123,18 @@ class LoopWorkspace:
             self.verdicts.append(
                 {"round": rnd, "by": node_label, "verdict": verdict.strip()}
             )
-            delta.append(f"{node_label}判定：{verdict.strip()}")
+            self._delta_lines.append(f"{node_label}判定：{verdict.strip()}")
             if verdict.strip() == "approve":
+                # 只关闭「本节点提出的」issue——多评审场景下他人 approve
+                # 不能代替问题提出者确认解决（单评审循环两者同体，行为不变）
                 closed = 0
                 for i in self.issues:
-                    if i["status"] != "resolved":
+                    if i["status"] != "resolved" and i["raised_by"] == node_label:
                         i["status"] = "resolved"
                         i["resolved_round"] = rnd
                         closed += 1
                 if closed:
-                    delta.append(f"approve 隐式关闭 {closed} 个待解决项")
+                    self._delta_lines.append(f"approve 隐式关闭 {closed} 个待解决项")
 
         # issues / resolved / fixes（issue 双向流转：fixes 声明，resolved 确认）。
         # 兜底：无结构化 issues 但 verdict 非 approve 且带 comment → 整条
@@ -154,22 +163,26 @@ class LoopWorkspace:
                 }
             )
         if opened:
-            delta.append(f"新增待解决：{'；'.join(opened)}")
+            self._delta_lines.append(f"新增待解决：{'；'.join(opened)}")
         resolved_ids = [i for i in _as_int_list(pick("resolved")) if self._set_issue(i, "resolved", rnd)]
         if resolved_ids:
-            delta.append(f"已确认解决：{resolved_ids}")
+            self._delta_lines.append(f"已确认解决：{resolved_ids}")
         fixed_ids = [i for i in _as_int_list(pick("fixes")) if self._set_issue(i, "claimed", rnd)]
         if fixed_ids:
-            delta.append(f"声明已修（待评审确认）：{fixed_ids}")
+            self._delta_lines.append(f"声明已修（待评审确认）：{fixed_ids}")
 
         notes = pick("notes")
         if isinstance(notes, str) and notes.strip():
             self.notes = notes.strip()
-            delta.append(f"要点笔记已更新：{self.notes[:80]}")
+            self._delta_lines.append(f"要点笔记已更新：{self.notes[:80]}")
 
         open_now = self._open_count()
         self._open_history.append(open_now)
-        self.last_delta = "\n".join(delta) if len(delta) > 1 else f"【第 {rnd} 轮工作台变化】（无）"
+        self.last_delta = (
+            "\n".join(self._delta_lines)
+            if len(self._delta_lines) > 1
+            else f"【第 {rnd} 轮工作台变化】（无）"
+        )
 
     def _absorb_artifact(self, label: str, content: str, rnd: int) -> bool:
         """机械 digest（sha/字数/首行，引擎算不信自述）。返回是否版本前进。"""
