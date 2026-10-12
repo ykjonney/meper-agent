@@ -22,6 +22,7 @@ from typing import Any
 from loguru import logger
 
 from app.engine.workflow.expression import ExpressionEngine
+from app.engine.workflow.loop_workspace import LoopWorkspace
 from app.engine.workflow.node_executor import NodeResult, get_node_executor
 from app.engine.workflow.variable_pool import VariablePool
 from app.models.task import Checkpoint, TaskStatus, utc_now
@@ -57,8 +58,11 @@ class WorkflowEngine:
         self._pending_node_id: str = ""
         # 当前正在执行的 loop 节点（体内取消/暂停的 checkpoint 需带 loop 位置）
         self._active_loop_node: str = ""
+        # 当前活跃的循环工作台（体内暂停写 checkpoint 时带出；None=未启用）
+        self._active_workspace: LoopWorkspace | None = None
         # resume 时从 checkpoint 恢复的 loop 位置/类型（loop 分支据此续轮）
         self._checkpoint_loop_state: dict[str, Any] = {}
+        self._checkpoint_workspace: dict[str, Any] = {}
         self._checkpoint_kind: str = ""
 
     # ── Public API ──
@@ -512,6 +516,7 @@ class WorkflowEngine:
         # loop 恢复上下文：kind 区分 progress（轮末进度，恢复起点轮的半成品
         # 键要清）与 pause（体内暂停，已完成键保留靠轮次键跳过续跑）
         self._checkpoint_loop_state = checkpoint_data.get("loop_state") or {}
+        self._checkpoint_workspace = checkpoint_data.get("workspace") or {}
         self._checkpoint_kind = checkpoint_data.get("kind") or "pause"
         # 判断 checkpoint 类型：
         # - agent_thread_id 非空 → agent 中途取消（需 Command(resume) 续接）
@@ -799,6 +804,7 @@ class WorkflowEngine:
             agent_thread_id=agent_thread_id,
             kind="pause",
             loop_state=loop_state or {},
+            workspace=self._active_workspace.to_dict() if self._active_workspace else None,
         )
         safe_snapshot = json.loads(
             json.dumps(
@@ -863,13 +869,16 @@ class WorkflowEngine:
                     raise err
         raise errors[0]
 
-    async def _save_progress_checkpoint(self, loop_node_id: str, next_round: int) -> None:
+    async def _save_progress_checkpoint(
+        self, loop_node_id: str, next_round: int, workspace: LoopWorkspace | None = None,
+    ) -> None:
         """loop 每轮完成即写的进度 checkpoint（kind=progress）。
 
         长程稳定性硬规范（ADR loop-node-adr.md）：轮是恢复的最小持久单位，
         进程崩溃/Celery 重投递后 run_and_persist 见 checkpoint 走
         resume_from_checkpoint → 重入 loop 节点从 next_round 续跑。
         正常完成后由 execute_task 完成路径清除，不影响暂停语义。
+        workspace 随同一次写入折叠持久化（原子性：先吸收后落盘）。
         """
         from app.db.mongodb import get_database
 
@@ -879,6 +888,7 @@ class WorkflowEngine:
             completed_nodes=list(self._completed_nodes),
             variable_snapshot=self._pool.snapshot() if self._pool else {},
             loop_state={"loop_node_id": loop_node_id, "round": next_round},
+            workspace=workspace.to_dict() if workspace is not None else None,
         )
         safe_snapshot = json.loads(
             json.dumps(
@@ -1065,6 +1075,7 @@ class WorkflowEngine:
                         {"loop_node_id": self._active_loop_node, "round": loop_round or 1}
                         if self._active_loop_node else {}
                     ),
+                    workspace=self._active_workspace.to_dict() if self._active_workspace else None,
                     human_context={
                         "node_id": node_id,
                         "title": result.output.get("title", ""),
@@ -1196,6 +1207,18 @@ class WorkflowEngine:
                     max_iterations = 1
                 converge_expr = str(node_config.get("converge_expr") or "").strip()
 
+                # 循环工作台（refine 模板，opt-in）：workspace_goal 模板在
+                # loop 启动时渲染成 goal；未配置 → None，行为与既往完全一致。
+                # 恢复优先：checkpoint 带的工作台（已吸收状态）覆盖新建。
+                workspace: LoopWorkspace | None = None
+                ws_goal_tpl = str(node_config.get("workspace_goal") or "").strip()
+                if ws_goal_tpl:
+                    ws_goal = ExpressionEngine(
+                        self._pool.get_all() if self._pool else {},
+                    ).resolve_str(ws_goal_tpl)
+                    if ws_goal.strip():
+                        workspace = LoopWorkspace(ws_goal)
+
                 # 恢复起点：checkpoint.loop_state 匹配本 loop 时取其 round，
                 # 并清掉 start_round 及之后的半成品轮次键（该轮重跑）
                 start_round = 1
@@ -1216,8 +1239,12 @@ class WorkflowEngine:
                             if "#r" in k and int(k.rsplit("#r", 1)[-1] or 0) >= start_round
                         }
                         self._completed_nodes -= stale
+                    ws_restored = LoopWorkspace.from_dict(self._checkpoint_workspace)
+                    if workspace is not None and ws_restored is not None:
+                        workspace = ws_restored
 
                 self._active_loop_node = node_id
+                self._active_workspace = workspace
                 try:
                     rnd = start_round
                     while rnd <= max_iterations:
@@ -1227,11 +1254,41 @@ class WorkflowEngine:
                             data={"node_id": node_id, "round": rnd, "max_iterations": max_iterations},
                         )
                         # 当前轮号注入 system（体内 agent 的 fresh
-                        # thread_policy 据此构建 _rN thread）
+                        # thread_policy 据此构建 _rN thread）；工作台模式同时
+                        # 注入视图/增量（executor 消费：fresh 或第 1 轮 → 全量，
+                        # continue 后续轮 → 增量——任务说明只此一份）
                         sys_vars = self._pool.get("system") or {}
-                        self._pool.set("system", {**sys_vars, "loop_round": rnd, "loop_node": node_id})
+                        ws_vars: dict[str, Any] = {}
+                        if workspace is not None:
+                            ws_vars = {
+                                "workspace_view": workspace.render_view(),
+                                "workspace_delta": workspace.last_delta or workspace.render_view(),
+                            }
+                        self._pool.set(
+                            "system",
+                            {**sys_vars, "loop_round": rnd, "loop_node": node_id, **ws_vars},
+                        )
 
                         await self._execute_node(body_entry, loop_round=rnd)
+
+                        # 工作台吸收（轮末，按体链序）：约定式字段映射
+                        # （response/draft→产物槽、verdict→轨迹、issues/
+                        # resolved/fixes→问题流转、notes→沉淀）
+                        # 空转检测前置计算：stalled 标记要在下方 pool.set
+                        # 之前进 loop_output，否则提前结束时落不了池。
+                        ws_stalled = False
+                        if workspace is not None:
+                            for m in body:
+                                node_doc = self._node_map.get(m) or {}
+                                workspace.absorb(
+                                    str(node_doc.get("label") or m),
+                                    self._pool.get(m) if self._pool else None,
+                                    rnd,
+                                )
+                            loop_output["workspace"] = workspace.to_dict()
+                            if workspace.is_stalled():
+                                ws_stalled = True
+                                loop_output["stalled"] = True
 
                         # 轮末：rounds 快照（不可变历史）+ loop 键更新（裸键）
                         loop_output["iterations"] = rnd
@@ -1283,12 +1340,29 @@ class WorkflowEngine:
                             },
                         )
                         # 每轮完成即写 progress checkpoint（round=下一轮起点）
-                        await self._save_progress_checkpoint(node_id, rnd + 1)
+                        await self._save_progress_checkpoint(node_id, rnd + 1, workspace=workspace)
                         if converged:
                             break
+                        # 停机检测（工作台模式）：空转（产物连续 2 轮 sha 不变
+                        # ——改无可改/敷衍重交）诚实提前结束；通胀（open issues
+                        # 连续 3 轮递增——吹毛求疵永不收敛）先告警不拦。
+                        if ws_stalled:
+                            await TaskService.append_timeline_event(
+                                task_id=self._task_id,
+                                event_type="loop_stalled",
+                                data={"node_id": node_id, "round": rnd},
+                            )
+                            break
+                        if workspace is not None and workspace.is_diverging():
+                            await TaskService.append_timeline_event(
+                                task_id=self._task_id,
+                                event_type="loop_issues_diverging",
+                                data={"node_id": node_id, "round": rnd},
+                            )
                         rnd += 1
                 finally:
                     self._active_loop_node = ""
+                    self._active_workspace = None
 
                 logger.debug(
                     "loop_complete",

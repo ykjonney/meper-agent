@@ -584,6 +584,15 @@ class AgentNodeExecutor(BaseNodeExecutor):
         input_query = self.node_config.get("input_query", "")
         resolved_query = engine.resolve_str(input_query) if input_query else ""
 
+        # 循环工作台注入（refine 模板，loop_workspace.py）：fresh 策略或
+        # 第 1 轮 → 全量视图（任务说明只此一份）；continue 后续轮 → 增量
+        # （消除每轮重述的重复数据）。组合规则见 compose_workspace_message。
+        from app.engine.workflow.loop_workspace import compose_workspace_message
+
+        _ws_msg = compose_workspace_message(sys_vars, self.node_config)
+        if _ws_msg:
+            resolved_query = f"{_ws_msg}\n\n{resolved_query}" if resolved_query else _ws_msg
+
         # input_prompt → context 卡槽覆盖（注入系统提示，不作为 user message）
         # 向后兼容：也读取 slot_values.context
         input_prompt = self.node_config.get("input_prompt", "")
