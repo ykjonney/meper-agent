@@ -501,7 +501,7 @@ export default function LoopNodeConfig({
             {conditions.map((c, i) => (
               <div
                 key={i}
-                className="relative rounded-lg border border-[#27272a] bg-[#18181b] p-2 pr-7 space-y-1 hover:border-[#A855F7]/40 transition-colors"
+                className="relative rounded-lg bg-[#101014] p-2 pr-7 transition-colors hover:bg-[#14141a]"
               >
                 <button
                   type="button"
@@ -511,8 +511,9 @@ export default function LoopNodeConfig({
                 >
                   <X size={11} />
                 </button>
-                {/* 上行：变量 + 操作符 */}
-                <div className="flex gap-1">
+                {/* 上行：变量 + 操作符（无边框——块本身用微暗底色界定，
+                    突出控件主体） */}
+                <div className="flex gap-1 pb-1.5">
                   <div className="flex-1 min-w-0">
                     <ConvergeVarPicker
                       body={body}
@@ -529,12 +530,14 @@ export default function LoopNodeConfig({
                     options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
                   />
                 </div>
-                {/* 下行：值 */}
-                <Input
-                  placeholder="值，如 approve 或 8"
-                  value={c.value}
-                  onChange={(e) => setCondition(i, { value: e.target.value })}
-                />
+                {/* 下行：值——上下行之间一条隔离线 */}
+                <div className="border-t border-[#27272a]/70 pt-1.5">
+                  <Input
+                    placeholder="值，如 approve 或 8"
+                    value={c.value}
+                    onChange={(e) => setCondition(i, { value: e.target.value })}
+                  />
+                </div>
               </div>
             ))}
 
