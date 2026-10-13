@@ -60,9 +60,10 @@ function buildCondExpr(c: ConvergeCondition): string {
     : `${c.source}.${c.field} ${c.op} ${fmtConvergeValue(c.value)}`
 }
 
-/** 组装收敛表达式：多条件以 and 连接（"全部满足才结束"，如双审都 approve） */
-function buildConvergeExpr(cs: ConvergeCondition[]): string {
-  return `{{ ${cs.map(buildCondExpr).join(' and ')} }}`
+/** 组装收敛表达式：多条件按选定关系（and=全部满足 / or=任一满足）连接 */
+function buildConvergeExpr(cs: ConvergeCondition[], joiner: 'and' | 'or' = 'and'): string {
+  if (cs.length === 0) return ''
+  return `{{ ${cs.map(buildCondExpr).join(joiner === 'or' ? ' or ' : ' and ')} }}`
 }
 
 /** 表达式片段 → 单条件；不匹配返回 null */
@@ -76,19 +77,24 @@ function parseCondExpr(str: string): ConvergeCondition | null {
   return null
 }
 
-/** 解析收敛表达式 → 条件列表。按 and 切分逐条解析；任何一条不认识
- *  （or / 复杂表达式）返回 null——调用方显示原文与提示，绝不用表单
- *  默认值覆盖用户手写的表达式。 */
-function parseConvergeList(expr: string): ConvergeCondition[] | null {
+/** 解析收敛表达式 → {条件列表, 块间关系}。按 and/or 切分逐条解析；
+ *  混合关系（and+or 无括号语义歧义）或不认识的结构返回 null——调用方
+ *  显示原文与提示，绝不用表单默认值覆盖用户手写的表达式。 */
+function parseConvergeList(expr: string): { conds: ConvergeCondition[]; joiner: 'and' | 'or' } | null {
   const m = /\{\{([\s\S]+)\}\}/.exec((expr || '').trim())
   if (!m) return null
+  const body = m[1]
+  const hasAnd = /\s+and\s+/i.test(body)
+  const hasOr = /\s+or\s+/i.test(body)
+  if (hasAnd && hasOr) return null
+  const joiner: 'and' | 'or' = hasOr ? 'or' : 'and'
   const out: ConvergeCondition[] = []
-  for (const part of m[1].split(/\s+and\s+/i)) {
+  for (const part of body.split(/\s+(?:and|or)\s+/i)) {
     const c = parseCondExpr(part.trim())
     if (!c) return null
     out.push(c)
   }
-  return out.length ? out : null
+  return out.length ? { conds: out, joiner } : null
 }
 
 /** 读取步骤的可选条件字段——按节点类型的真实输出契约给地址：
@@ -278,11 +284,12 @@ export default function LoopNodeConfig({
   }
 
   const tail = chain.length ? chain[chain.length - 1] : ''
-  // 条件列表：and 链逐条解析。解析不了（or/复杂表达式）→ 自定义模式，
-  // 显示原文+提示，表单不覆盖
-  const conditions = parseConvergeList(convergeExpr)
-  const isCustomExpr = convergeExpr !== '' && conditions === null
-  const convergeEnabled = convergeExpr !== ''
+  // 条件块：按 and/or 解析。混合关系或复杂结构 → 自定义模式，显示原文，
+  // 表单不覆盖
+  const parsed = parseConvergeList(convergeExpr)
+  const conditions = parsed?.conds ?? []
+  const joiner: 'and' | 'or' = parsed?.joiner ?? 'and'
+  const isCustomExpr = convergeExpr !== '' && parsed === null
 
   /** 新条件的默认值：从尾步（或指定步骤）的输出契约取第一个字段 */
   const defaultCond = useMemo((): ConvergeCondition => {
@@ -298,19 +305,20 @@ export default function LoopNodeConfig({
   }, [tail, nodeById])
 
   const setCondition = (idx: number, patch: Partial<ConvergeCondition>) => {
-    if (!conditions) return
     const next = conditions.map((c, i) => (i === idx ? { ...c, ...patch } : c))
-    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(next) })
+    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(next, joiner) })
   }
   const removeCondition = (idx: number) => {
-    if (!conditions) return
-    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(conditions.filter((_, i) => i !== idx)) })
+    // 删到最后一条 = 回到"无结束条件"（跑满次数），而非空表达式
+    onChange({ ...liveConfig, converge_expr: buildConvergeExpr(conditions.filter((_, i) => i !== idx), joiner) })
   }
   const addCondition = () => {
-    onChange({
-      ...liveConfig,
-      converge_expr: buildConvergeExpr([...(conditions ?? []), { ...defaultCond, source: tail }]),
-    })
+    onChange({ ...liveConfig, converge_expr: buildConvergeExpr([...conditions, { ...defaultCond, source: tail }], joiner) })
+  }
+  const setJoiner = (j: 'and' | 'or') => {
+    if (conditions.length > 0) {
+      onChange({ ...liveConfig, converge_expr: buildConvergeExpr(conditions, j) })
+    }
   }
 
   return (
@@ -462,93 +470,96 @@ export default function LoopNodeConfig({
 
       <div>
         <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
-          结束方式
-          <HelpHint text="两种结束：跑满次数适合批量处理（每个输入处理 N 遍）；满足条件提前结束适合迭代改进（写到审核通过为止）。到上限仍未满足也会结束，下游可按 converged 区分通过/未通过。" />
+          结束条件
+          <HelpHint text={'每轮结束检查一次，满足即提前结束；不添加条件 = 跑满上面的次数。多个条件间可设为「且」（全部满足）或「或」（任一满足）。'} />
         </label>
-        <div className="space-y-1">
-          <label className="flex items-start gap-2 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-2 cursor-pointer hover:border-[#A855F7]/40 transition-colors">
-            <input
-              type="radio"
-              name={`loop-end-${currentNodeId}`}
-              checked={!convergeEnabled}
-              onChange={() => onChange({ ...liveConfig, converge_expr: '' })}
-              className="mt-0.5 accent-[#A855F7]"
-            />
-            <span className="text-xs text-slate-200">
-              跑满上面的次数
-              <span className="block text-[10px] text-slate-500">固定执行，适合批量处理</span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 rounded-lg border border-[#27272a] bg-[#18181b] px-2.5 py-2 cursor-pointer hover:border-[#A855F7]/40 transition-colors">
-            <input
-              type="radio"
-              name={`loop-end-${currentNodeId}`}
-              checked={convergeEnabled}
-              onChange={() =>
-                onChange({ ...liveConfig, converge_expr: buildConvergeExpr([defaultCond]) })
-              }
-              className="mt-0.5 accent-[#A855F7]"
-            />
-            <span className="text-xs text-slate-200">
-              满足条件时提前结束
-              <span className="block text-[10px] text-slate-500">每轮结束检查一次，适合迭代改进（如：审核通过即停）</span>
-            </span>
-          </label>
-        </div>
-        {convergeEnabled && body.length === 0 && (
-          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300 mt-1.5">
+
+        {body.length === 0 && (
+          <div className="rounded border border-dashed border-[#27272a] px-2.5 py-2 text-[10px] text-[#71717a]">
             先添加步骤，再定义结束条件
           </div>
         )}
-        {convergeEnabled && body.length > 0 && conditions && (
-          <div className="mt-2 space-y-1.5">
-            <div className="text-[10px] text-slate-500">
-              以下条件{conditions.length > 1 ? '全部' : ''}满足时提前结束{conditions.length > 1 ? '（且）' : ''}
+
+        {body.length > 0 && conditions.length === 0 && !isCustomExpr && (
+          <div className="space-y-1.5">
+            <div className="rounded border border-dashed border-[#A855F7]/40 bg-[#A855F7]/5 px-2.5 py-2 text-[10px] text-[#a78bfa]">
+              未设置结束条件——循环将跑满上方设定的次数
             </div>
-            {conditions.map((c, i) => (
-              <div key={i}>
-                {i > 0 && <div className="text-[10px] text-[#a78bfa] text-center leading-none py-0.5">且</div>}
-                <div className="grid grid-cols-[1fr_66px_1fr_20px] gap-1">
-                  {/* 变量选择：与 agent 输入的「选择变量」同交互语言——按步骤
-                      分组点选字段，按钮上显示 chip 样式的"步骤 · 字段" */}
-                  <ConvergeVarPicker
-                    body={body}
-                    nodeLabel={nodeLabel}
-                    nodeById={nodeById}
-                    value={{ source: c.source, field: c.field }}
-                    onPick={(source, field) => setCondition(i, { source, field })}
-                  />
-                  <Select
-                    className="w-full"
-                    value={c.op}
-                    onChange={(val) => setCondition(i, { op: (val ?? '==') as ConvergeOp })}
-                    options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
-                  />
-                  <Input
-                    placeholder="值，如 approve 或 8"
-                    value={c.value}
-                    onChange={(e) => setCondition(i, { value: e.target.value })}
-                  />
-                  {conditions.length > 1 ? (
-                    <button
-                      type="button"
-                      title="删除该条件"
-                      onClick={() => removeCondition(i)}
-                      className="flex items-center justify-center rounded text-[#71717a] hover:text-red-400 hover:bg-[#27272a] cursor-pointer"
-                    >
-                      <X size={11} />
-                    </button>
-                  ) : <span />}
-                </div>
-              </div>
-            ))}
             <button
               type="button"
               onClick={addCondition}
               className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
             >
               <Plus size={11} />
-              添加条件（且）
+              添加条件
+            </button>
+          </div>
+        )}
+
+        {body.length > 0 && conditions.length > 0 && (
+          <div className="space-y-1.5">
+            {conditions.map((c, i) => (
+              <div
+                key={i}
+                className="relative rounded-lg border border-[#27272a] bg-[#18181b] p-2 pr-7 space-y-1 hover:border-[#A855F7]/40 transition-colors"
+              >
+                <button
+                  type="button"
+                  title="删除该条件"
+                  onClick={() => removeCondition(i)}
+                  className="absolute top-1.5 right-1.5 p-0.5 rounded text-[#71717a] hover:text-red-400 hover:bg-[#27272a] cursor-pointer"
+                >
+                  <X size={11} />
+                </button>
+                {/* 上行：变量 + 操作符 */}
+                <div className="flex gap-1">
+                  <div className="flex-1 min-w-0">
+                    <ConvergeVarPicker
+                      body={body}
+                      nodeLabel={nodeLabel}
+                      nodeById={nodeById}
+                      value={{ source: c.source, field: c.field }}
+                      onPick={(source, field) => setCondition(i, { source, field })}
+                    />
+                  </div>
+                  <Select
+                    className="w-[76px] shrink-0"
+                    value={c.op}
+                    onChange={(val) => setCondition(i, { op: (val ?? '==') as ConvergeOp })}
+                    options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
+                  />
+                </div>
+                {/* 下行：值 */}
+                <Input
+                  placeholder="值，如 approve 或 8"
+                  value={c.value}
+                  onChange={(e) => setCondition(i, { value: e.target.value })}
+                />
+              </div>
+            ))}
+
+            {conditions.length > 1 && (
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                条件间关系
+                <Select
+                  className="w-32"
+                  value={joiner}
+                  onChange={(val) => setJoiner((val ?? 'and') === 'or' ? 'or' : 'and')}
+                  options={[
+                    { value: 'and', label: '且（全部满足）' },
+                    { value: 'or', label: '或（任一满足）' },
+                  ]}
+                />
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={addCondition}
+              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
+            >
+              <Plus size={11} />
+              添加条件
             </button>
             {/* 生成的表达式原文：透明可核对，也教用户语法 */}
             <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
@@ -556,10 +567,11 @@ export default function LoopNodeConfig({
             </div>
           </div>
         )}
-        {convergeEnabled && body.length > 0 && isCustomExpr && (
-          <div className="mt-2 space-y-1">
+
+        {body.length > 0 && isCustomExpr && (
+          <div className="space-y-1">
             <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300">
-              当前为自定义表达式（含表单不支持的结构，如 or），表单不覆盖、仅展示原文
+              当前为自定义表达式（含表单不支持的结构，如且/或混用），表单不覆盖、仅展示原文
             </div>
             <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
               {convergeExpr}
