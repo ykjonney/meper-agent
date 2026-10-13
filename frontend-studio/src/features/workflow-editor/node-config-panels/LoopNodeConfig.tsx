@@ -182,8 +182,8 @@ function ConvergeVarPicker({
         type="button"
         className={`w-full min-w-0 h-8 px-2 flex items-center gap-1 rounded-md border text-xs transition-colors cursor-pointer ${
           selected
-            ? 'border-[#A855F7]/50 bg-[#A855F7]/10 text-[#c4b5fd] hover:border-[#A855F7]'
-            : 'border-[#27272a] bg-[#18181b] text-[#71717a] hover:border-[#A855F7]/40'
+            ? 'border-[#A855F7]/50 bg-[#18181b] text-[#d6c8ff] hover:border-[#A855F7]'
+            : 'border-[#27272a] bg-[#18181b] text-[#a1a1aa] hover:border-[#A855F7]/40'
         }`}
       >
         <span className="truncate flex-1 text-left">
