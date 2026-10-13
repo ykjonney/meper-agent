@@ -501,7 +501,7 @@ export default function LoopNodeConfig({
             {conditions.map((c, i) => (
               <div
                 key={i}
-                className="relative rounded-lg bg-[#101014] p-2 pr-7 transition-colors hover:bg-[#14141a]"
+                className="relative rounded-lg bg-[#1e1e24] px-1.5 py-2 pr-6 transition-colors hover:bg-[#23232b]"
               >
                 <button
                   type="button"
@@ -524,7 +524,7 @@ export default function LoopNodeConfig({
                     />
                   </div>
                   <Select
-                    className="w-[76px] shrink-0"
+                    className="w-[64px] shrink-0"
                     value={c.op}
                     onChange={(val) => setCondition(i, { op: (val ?? '==') as ConvergeOp })}
                     options={CONVERGE_OPS.map((o) => ({ value: o.value, label: o.label }))}
