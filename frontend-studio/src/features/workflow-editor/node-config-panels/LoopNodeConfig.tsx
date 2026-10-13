@@ -501,7 +501,7 @@ export default function LoopNodeConfig({
             {conditions.map((c, i) => (
               <div
                 key={i}
-                className="relative rounded-lg bg-[#121214] px-1.5 py-2 pr-6 transition-colors hover:bg-[#17171a]"
+                className="relative rounded-lg bg-[#0d0d10] px-1.5 py-2 pr-6 transition-colors hover:bg-[#121216]"
               >
                 <button
                   type="button"
