@@ -531,7 +531,7 @@ export default function LoopNodeConfig({
                   />
                 </div>
                 {/* 下行：值——上下行之间一条隔离线 */}
-                <div className="border-t border-[#27272a]/70 pt-1.5">
+                <div className="border-t border-[#27272a]/40 pt-1.5">
                   <Input
                     placeholder="值，如 approve 或 8"
                     value={c.value}
