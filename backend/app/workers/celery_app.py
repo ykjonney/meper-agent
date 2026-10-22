@@ -1,4 +1,6 @@
 """Celery application instance and configuration."""
+import threading
+
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
 from celery.signals import (  # type: ignore[import-untyped]
@@ -66,6 +68,12 @@ celery_app.conf.update(
             "task": "app.workers.tasks.human_timeout.sweep_timed_out_human_tasks",
             "schedule": 30.0,
         },
+        # 孤儿沙盒容器清扫：进程崩溃遗留的容器按 label 扫描强删。
+        # 频率远高于 SANDBOX_ORPHAN_MAX_AGE（600s），遗留容器最多多活一个周期。
+        "sweep-orphan-sandboxes": {
+            "task": "app.workers.tasks.maintenance.cleanup_orphan_sandboxes",
+            "schedule": 600.0,  # 10 分钟
+        },
     },
 )
 
@@ -87,6 +95,9 @@ def _init_worker(**_kwargs: object) -> None:
        MCP 调用必须以终端用户身份兑换凭证。不注入时 harness 拦截器对
        external_required 的调用按 fail-closed 拒绝（不会静默降级内部凭证，
        但外部任务会全部失败），因此注入失败只记日志、不阻断 worker 启动。
+
+    4. **沙盒镜像预拉取** — 后台 daemon 线程执行（不阻塞 worker 启动），
+       首笔沙盒执行免付整镜像 pull 耗时。失败只记日志。
     """
     # 1. 日志初始化 — 必须在打任何日志之前完成
     from app.core.logging import setup_logging
@@ -109,6 +120,12 @@ def _init_worker(**_kwargs: object) -> None:
         # fail-closed 已兜底：外部任务的 MCP 调用会被拦截器拒绝而非静默
         # 降级为内部静态凭证；内部任务不受影响。
         logger.error("mcp_resolver_init_failed", error=str(exc))
+
+    # 4. 沙盒镜像预拉取 — daemon 线程，不阻塞 worker 启动
+    if settings.SANDBOX_PREPULL_IMAGE:
+        from app.engine.harness_integration.sandbox_prepull import ensure_sandbox_image
+
+        threading.Thread(target=ensure_sandbox_image, name="sandbox-prepull", daemon=True).start()
 
 
 @task_prerun.connect

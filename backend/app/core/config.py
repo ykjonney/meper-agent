@@ -286,6 +286,19 @@ class Settings(BaseSettings):
     SANDBOX_TIMEOUT: int = 120  # seconds
     SANDBOX_MAX_OUTPUT_BYTES: int = 50 * 1024  # 50 KB stdout/stderr cap
 
+    # 每进程最大并发沙盒容器数（harness DockerSandbox 进程级信号量）。
+    # 0 = 不限。按内存估算：每容器 mem_limit（512m）→ 8 ≈ 4GB。注意 Celery
+    # prefork 每并发槽位一个子进程，节点总上限 = worker 并发数 × 本值。
+    SANDBOX_MAX_CONCURRENT_CONTAINERS: int = 8
+
+    # 孤儿沙盒容器强删阈值（秒）。正常路径容器执行完即删；进程崩溃遗留的
+    # 容器由 beat 巡检按此年龄清扫。须大于 SANDBOX_TIMEOUT 留足余量。
+    SANDBOX_ORPHAN_MAX_AGE: int = 600
+
+    # API/worker 启动时后台预拉沙盒镜像（缺失才 pull），首笔沙盒执行免付
+    # 整镜像拉取耗时。失败只记日志不阻断启动。
+    SANDBOX_PREPULL_IMAGE: bool = True
+
     # When True, bash runs inside Docker container.
     # When False (default), bash degrades to host subprocess execution
     # (see SANDBOX_FALLBACK).

@@ -82,6 +82,143 @@ def test_docker_config_defaults():
     assert config.mem_limit == "512m"
     assert config.network_mode == "none"
     assert config.allow_local_fallback is False
+    assert config.max_concurrent == 0
+
+
+# ── 进程级 client 复用 / 并发信号量 / label / stderr 拆分 ────────────────
+# 通过向 sys.modules 注入 fake docker 模块覆盖真实路径（CI 无 Docker daemon）。
+
+
+def _install_fake_docker(monkeypatch, *, wait_seconds: float = 0.0) -> dict:
+    """注入 fake docker 模块并重置 client 单例，返回可断言的 state。"""
+    import sys
+    import threading
+    import time
+    import types
+
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    state: dict = {"from_env_calls": 0, "active": 0, "max_active": 0, "run_kwargs": {}}
+    lock = threading.Lock()
+
+    class _FakeContainer:
+        def wait(self, timeout=None):
+            with lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            if wait_seconds:
+                time.sleep(wait_seconds)
+            with lock:
+                state["active"] -= 1
+            return {"StatusCode": 0}
+
+        def logs(self, stdout=True, stderr=True):
+            if stdout and not stderr:
+                return b"fake-stdout"
+            if stderr and not stdout:
+                return b"fake-stderr"
+            return b""
+
+        def kill(self):
+            pass
+
+        def remove(self, force=False):
+            state["removed"] = True
+
+    class _FakeContainers:
+        def run(self, image=None, command=None, **kwargs):
+            state["run_kwargs"] = kwargs
+            return _FakeContainer()
+
+    class _FakeClient:
+        def __init__(self):
+            with lock:
+                state["from_env_calls"] += 1
+            self.containers = _FakeContainers()
+
+        def ping(self):
+            return True
+
+    fake = types.ModuleType("docker")
+    fake.from_env = lambda timeout=30: _FakeClient()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "docker", fake)
+    docker_mod._reset_docker_client()
+    return state
+
+
+def _make_enabled(tmp_path, **config_kwargs) -> DockerSandbox:
+    config = DockerSandboxConfig(enabled=True, allow_local_fallback=False, **config_kwargs)
+    return DockerSandbox(
+        sandbox_id="t", work_dir=tmp_path, mounts={"tmp": tmp_path},
+        config=config, timeout=10,
+    )
+
+
+def test_docker_client_reused_across_commands(tmp_path, monkeypatch):
+    """两次执行只构造一次 client（from_env+ping 昂贵，进程级复用）。"""
+    state = _install_fake_docker(monkeypatch)
+    sb = _make_enabled(tmp_path)
+    sb.execute_command("a")
+    sb.execute_command("b")
+    assert state["from_env_calls"] == 1
+
+
+def test_max_concurrent_limits_parallel_executions(tmp_path, monkeypatch):
+    """max_concurrent=1 时多线程并发实测 ≤1（信号量串行化）。"""
+    import threading
+
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    state = _install_fake_docker(monkeypatch, wait_seconds=0.3)
+    sb = _make_enabled(tmp_path, max_concurrent=1)
+    threads = [
+        threading.Thread(target=sb.execute_command, args=(f"cmd{i}",)) for i in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert state["max_active"] == 1
+    docker_mod._reset_docker_client()
+
+
+def test_unlimited_concurrency_runs_in_parallel(tmp_path, monkeypatch):
+    """对照组：max_concurrent=0（不限）时多线程真实并行。"""
+    import threading
+
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    state = _install_fake_docker(monkeypatch, wait_seconds=0.3)
+    sb = _make_enabled(tmp_path)
+    threads = [
+        threading.Thread(target=sb.execute_command, args=(f"cmd{i}",)) for i in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert state["max_active"] >= 2
+    docker_mod._reset_docker_client()
+
+
+def test_containers_labeled_for_orphan_sweep(tmp_path, monkeypatch):
+    """容器打 agent-flow.* label（孤儿清扫任务的识别依据）。"""
+    state = _install_fake_docker(monkeypatch)
+    sb = _make_enabled(tmp_path)
+    sb.execute_command("x")
+    labels = state["run_kwargs"]["labels"]
+    assert labels["agent-flow.sandbox"] == "true"
+    assert labels["agent-flow.sandbox-id"] == "t"
+    assert labels["agent-flow.created-at"].isdigit()
+
+
+def test_stdout_stderr_split(tmp_path, monkeypatch):
+    """stdout/stderr 分流回收（合并调用会丢失 stderr）。"""
+    _install_fake_docker(monkeypatch)
+    sb = _make_enabled(tmp_path)
+    result = sb.execute_command("x")
+    assert result.stdout == "fake-stdout"
+    assert result.stderr == "fake-stderr"
 
 
 def test_docker_config_custom():

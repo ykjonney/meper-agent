@@ -41,6 +41,15 @@ async def lifespan(app: FastAPI):
 
     set_credential_resolver(UserCredentialResolver())
 
+    # 沙盒镜像预拉取 — daemon 线程执行（阻塞 I/O 不占事件循环），首笔沙盒
+    # 执行免付整镜像 pull 耗时。内部自捕获异常，失败不阻断启动。
+    if settings.SANDBOX_PREPULL_IMAGE:
+        import threading
+
+        from app.engine.harness_integration.sandbox_prepull import ensure_sandbox_image
+
+        threading.Thread(target=ensure_sandbox_image, name="sandbox-prepull", daemon=True).start()
+
     # Background boot — indexes/schedulers/recovery/channels.
     # Store the task reference on app.state to prevent GC, and to allow
     # graceful shutdown ordering (cancel before closing DB clients).

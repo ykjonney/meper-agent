@@ -12,6 +12,12 @@ DockerSandboxConfig 注入。降级策略 fail-closed：沙箱禁用或 Docker �
 - tmpfs for /tmp
 - 非 root 用户执行
 
+运行时治理：
+- docker client 进程级复用（_get_docker_client，每命令省 from_env+ping）
+- max_concurrent>0 时进程级信号量限并发（含 subprocess 降级路径）
+- 容器打 agent-flow.* label，供外部孤儿清扫任务识别遗留容器
+- stdout/stderr 分流回收
+
 用法：
     config = DockerSandboxConfig(image="agent-sandbox:latest", enabled=True)
     sandbox = DockerSandbox(sandbox_id="s1", work_dir=Path("/workspace"),
@@ -24,15 +30,72 @@ import contextlib
 import os
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
 
 logger = structlog.get_logger(__name__)
+
+
+# ── 进程级共享资源（docker client / 并发信号量）────────────────────────
+# DockerSandbox 每次执行装配都新建实例，但 client 与并发上限是进程级概念，
+# 必须放模块级单例，否则复用/限流失效。
+
+_docker_client: Any = None
+_client_lock = threading.Lock()
+
+
+def _get_docker_client() -> Any:
+    """进程级复用 docker client（每命令 from_env+ping 有百毫秒级开销）。
+
+    失败时清空缓存，下次调用重试（daemon 可能恢复）。线程安全性由
+    docker-py 内部的 urllib3 连接池保证。
+    """
+    global _docker_client
+    if _docker_client is not None:
+        return _docker_client
+    with _client_lock:
+        if _docker_client is not None:
+            return _docker_client
+        try:
+            import docker  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise _DockerUnavailableError("docker package not installed") from exc
+        try:
+            client = docker.from_env(timeout=30)
+            client.ping()
+        except Exception as exc:
+            raise _DockerUnavailableError(str(exc)) from exc
+        _docker_client = client
+        return client
+
+
+def _reset_docker_client() -> None:
+    """清空 client 缓存（测试用；daemon 重启后请求失败会自然重建）。"""
+    global _docker_client
+    with _client_lock:
+        _docker_client = None
+
+
+_semaphore: threading.BoundedSemaphore | None = None
+_semaphore_limit = 0
+_semaphore_lock = threading.Lock()
+
+
+def _get_semaphore(limit: int) -> threading.BoundedSemaphore:
+    """按 limit 取进程级并发信号量（limit 变化时重建——仅测试场景）。"""
+    global _semaphore, _semaphore_limit
+    with _semaphore_lock:
+        if _semaphore is None or _semaphore_limit != limit:
+            _semaphore = threading.BoundedSemaphore(limit)
+            _semaphore_limit = limit
+        return _semaphore
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -64,6 +127,7 @@ class DockerSandboxConfig:
         container_skills_dir: str = "/skills",
         allow_local_fallback: bool = False,
         bind_source_mapper: Callable[[str], str] | None = None,
+        max_concurrent: int = 0,
     ) -> None:
         self.image = image
         self.enabled = enabled
@@ -83,6 +147,11 @@ class DockerSandboxConfig:
         # docker run 的 volumes 源；read/write 等宿主侧文件操作仍用进程
         # 视角路径。默认 None = 同路径（本地开发）。
         self.bind_source_mapper = bind_source_mapper
+        # 进程级最大并发容器数（含 subprocess 降级路径）。0 = 不限（默认，
+        # 向后兼容）。按内存估算：每容器 mem_limit（默认 512m）→ 8 ≈ 4GB。
+        # 注意 Celery prefork 每个并发槽位一个子进程，节点总上限 =
+        # worker 并发数 × 本值。
+        self.max_concurrent = max_concurrent
 
 
 class _DockerUnavailableError(Exception):
@@ -151,9 +220,33 @@ class DockerSandbox(Sandbox):
         """执行命令：Docker（enabled）；本机 subprocess 仅在显式允许时降级。
 
         env 为额外注入的环境变量（凭证等），容器/子进程内可见，宿主进程不受影响。
+        配置了 max_concurrent>0 时，整条命令生命周期（含降级路径）受进程级
+        信号量约束，超限排队等待。
         """
         effective_timeout = timeout if timeout is not None else self._timeout
+        limit = self._config.max_concurrent
+        if limit <= 0:
+            return self._execute_dispatch(command, effective_timeout, env)
+        semaphore = _get_semaphore(limit)
+        queue_start = time.monotonic()
+        semaphore.acquire()
+        try:
+            waited = time.monotonic() - queue_start
+            if waited >= 0.1:
+                logger.info(
+                    "sandbox_queue_wait",
+                    sandbox_id=self._id,
+                    waited_ms=round(waited * 1000),
+                    limit=limit,
+                )
+            return self._execute_dispatch(command, effective_timeout, env)
+        finally:
+            semaphore.release()
 
+    def _execute_dispatch(
+        self, command: str, effective_timeout: int, env: dict[str, str] | None
+    ) -> SandboxResult:
+        """选择执行通道：Docker 优先，禁用/不可用时走 fail-closed 降级闸。"""
         if not self._config.enabled:
             return self._fallback_or_refuse(
                 command, effective_timeout,
@@ -227,16 +320,7 @@ class DockerSandbox(Sandbox):
         self, command: str, timeout: int, env: dict[str, str] | None = None
     ) -> SandboxResult:
         """Docker 容器内执行（从 backend SandboxExecutor 提取）。"""
-        try:
-            import docker  # type: ignore[import-untyped]
-        except ImportError as exc:
-            raise _DockerUnavailableError("docker package not installed") from exc
-
-        try:
-            client = docker.from_env(timeout=30)
-            client.ping()
-        except Exception as exc:
-            raise _DockerUnavailableError(str(exc)) from exc
+        client = _get_docker_client()
 
         volumes = self._build_volumes()
 
@@ -265,7 +349,15 @@ class DockerSandbox(Sandbox):
                 tmpfs={"/tmp": "size=64m,noexec"},
                 detach=True,
                 auto_remove=False,
+                # 孤儿清扫依据（app 侧 beat 任务按 label 扫描强删遗留容器）
+                labels={
+                    "agent-flow.sandbox": "true",
+                    "agent-flow.sandbox-id": self._id,
+                    "agent-flow.created-at": str(int(time.time())),
+                },
             )
+        except _DockerUnavailableError:
+            raise
         except Exception as exc:
             raise _DockerUnavailableError(str(exc)) from exc
 
@@ -280,13 +372,15 @@ class DockerSandbox(Sandbox):
 
         duration = time.monotonic() - start
 
+        # stdout/stderr 分开取（合并调用会把 stderr 混进 stdout，stderr 丢失）
         try:
-            logs = container.logs(stdout=True, stderr=True)
-            stdout_raw = logs if isinstance(logs, bytes) else b""
-            stderr_raw = b""
+            stdout_raw = container.logs(stdout=True, stderr=False)
+            stderr_raw = container.logs(stdout=False, stderr=True)
         except Exception:
             stdout_raw = b""
             stderr_raw = b""
+        stdout_raw = stdout_raw if isinstance(stdout_raw, bytes) else b""
+        stderr_raw = stderr_raw if isinstance(stderr_raw, bytes) else b""
 
         with contextlib.suppress(Exception):
             container.remove(force=True)

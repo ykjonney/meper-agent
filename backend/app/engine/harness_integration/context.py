@@ -813,6 +813,7 @@ async def resolve_harness_context(
         container_skills_dir=settings.SANDBOX_CONTAINER_SKILLS_DIR,
         # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
         bind_source_mapper=sandbox_bind_source_mapper(),
+        max_concurrent=settings.SANDBOX_MAX_CONCURRENT_CONTAINERS,
     )
 
     # 7. workspace

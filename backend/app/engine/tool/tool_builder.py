@@ -321,6 +321,7 @@ def _get_tool_sandbox() -> DockerSandbox:
                 max_output_bytes=settings.SANDBOX_MAX_OUTPUT_BYTES,
                 network_mode=settings.TOOL_SANDBOX_NETWORK_MODE,
                 bind_source_mapper=sandbox_bind_source_mapper(),
+                max_concurrent=settings.SANDBOX_MAX_CONCURRENT_CONTAINERS,
             ),
             timeout=settings.SANDBOX_TIMEOUT,
         )
@@ -368,6 +369,7 @@ def _get_workspace_tool_sandbox(workspace: Any) -> DockerSandbox:
             network_mode=settings.TOOL_SANDBOX_NETWORK_MODE,
             # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
             bind_source_mapper=sandbox_bind_source_mapper(),
+            max_concurrent=settings.SANDBOX_MAX_CONCURRENT_CONTAINERS,
         ),
         timeout=settings.SANDBOX_TIMEOUT,
     )
