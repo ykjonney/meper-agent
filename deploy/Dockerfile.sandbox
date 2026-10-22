@@ -1,78 +1,119 @@
 # agent-sandbox — isolated execution environment for Agent bash/read/write tools.
 #
-# This image is used by SandboxExecutor to run arbitrary shell commands in a
+# This image is used by DockerSandbox to run arbitrary shell commands in a
 # Docker container with strict security isolation:
-#   - network_mode = "none"     (no network access)
+#   - network_mode = "none"     (no network access; governed tool sandboxes
+#                                 may override to "bridge" at runtime)
 #   - read_only root filesystem (only /workspace and /tmp are writable)
 #   - non-root user "sandbox"
 #   - resource limits applied at runtime via docker-py
 #
+# Two variants (multi-stage):
+#   lite (default target) — lean image for dev/test: Python + pandas/numpy/
+#     matplotlib/pillow/openpyxl + small parsers. No Node.js / scipy /
+#     compilers. ~300MB, fast to build & pull.
+#   full (--target full)  — superset of lite: adds Node.js 22, git/jq/curl/
+#     tree, scipy/lxml/tabulate/rich, and a gcc toolchain (runtime pip
+#     source builds). Use when agents need to run JS or heavy scientific
+#     stacks; select at runtime via SANDBOX_IMAGE=agent-sandbox:full.
+#
 # Build:
-#   docker build -t agent-sandbox:latest -f deploy/Dockerfile.sandbox .
+#   docker build -t agent-sandbox:latest -f deploy/Dockerfile.sandbox .          # lite
+#   docker build --target full -t agent-sandbox:full -f deploy/Dockerfile.sandbox .
+#   make build-sandbox / make build-sandbox-full
+#
+# Constrained networks (e.g. deb.debian.org / pypi.org unreachable) can switch
+# mirrors without editing this file:
+#   --build-arg APT_MIRROR=mirrors.aliyun.com \
+#   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 FROM python:3.12-slim AS base
 
-# ── System packages ──────────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    jq \
-    wget \
-    unzip \
-    tree \
+# Mirror overrides (defaults = upstream). PIP_INDEX_URL is a build-time ARG
+# only — never leaked into the runtime image.
+ARG APT_MIRROR=deb.debian.org
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+# ── System packages (minimal — wheels are self-contained, no -dev headers) ───
+# unzip: archive extraction in agent tasks; procps: `ps` (LLM uses it often).
+# APT_MIRROR is a hostname; the scheme is upgraded to https in the same pass
+# (plain-http mirrors get connection-reset on large indexes in some networks).
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i "s|http://deb.debian.org|https://${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    else \
+        sed -i "s|http://deb.debian.org|https://${APT_MIRROR}|g" /etc/apt/sources.list; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    # For compiling some pip packages (e.g. lxml)
-    gcc \
-    libxml2-dev \
-    libxslt1-dev \
-    # Pillow dependencies
-    libjpeg-dev \
-    zlib1g-dev \
+    unzip \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Node.js 22 ───────────────────────────────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && node --version && npm --version
-
-# ── Python packages (common data-science / web libraries) ────────────────────
-RUN pip install --no-cache-dir \
+# ── Python packages (lean common set) ────────────────────────────────────────
+# pandas/numpy/matplotlib/pillow/openpyxl ship manylinux wheels bundling all
+# native deps — no gcc/-dev packages needed at build time.
+# requests/httpx: governed tool sandboxes run with bridge networking and
+# functionally need outbound HTTP(SMTP)/HTTP calls.
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
     pandas \
     numpy \
-    scipy \
     matplotlib \
     openpyxl \
+    pillow \
     requests \
     httpx \
     pyyaml \
     jinja2 \
-    toml \
-    beautifulsoup4 \
-    lxml \
-    pillow \
-    tabulate \
-    rich
+    beautifulsoup4
 
+# ── Runtime tail (shared by all variants) ─────────────────────────────────────
 # Create non-root user (UID 1001 must match backend's appuser UID so that
 # files created by backend in shared volumes are accessible here).
 RUN groupadd -r -g 1001 sandbox && useradd -r -g sandbox -u 1001 -m -s /bin/bash sandbox
 
-# ── Workspace ─────────────────────────────────────────────────────────────────
 # /workspace is the mount point for the session workspace (tmp/ mounted rw).
 # /tmp is used for ephemeral scratch space.
 RUN mkdir -p /workspace /tmp/sandbox && chown sandbox:sandbox /workspace /tmp/sandbox
 
 WORKDIR /workspace
 
-# ── Security hardening ────────────────────────────────────────────────────────
-# Drop all capabilities, keep only what's needed for running scripts.
-# These are runtime defaults; docker-py can override per-container.
-USER sandbox
-
 # Prevent Python from writing .pyc files and buffer stdout for real-time logs.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/home/sandbox/.local/bin:$PATH"
 
+USER sandbox
+
 CMD ["bash"]
+
+# ── full variant: everything the old monolithic image had ────────────────────
+FROM base AS full
+# apt sources already point at APT_MIRROR (sed applied in base, inherited).
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    jq \
+    tree \
+    # Toolchain for runtime `pip install` from source (bridge-network images)
+    gcc \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (removed from the lean default — ~200MB; needed only to run JS)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
+    scipy \
+    lxml \
+    tabulate \
+    rich
+USER sandbox
+
+# ── lite variant (default target — keep last so plain builds are lean) ───────
+FROM base AS lite

@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox deploy deploy-check generate-api help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check generate-api help
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  make lint           - Run linters for all packages"
 	@echo "  make build          - Build all Docker images (excluding sandbox)"
 	@echo "  make build-sandbox  - Build the agent-sandbox image (required for sandboxed bash execution)"
+	@echo "  make build-sandbox-full - Build the full sandbox variant (Node.js/scipy/git superset)"
 	@echo "  make deploy         - Deploy with Docker Compose (production)"
 	@echo "  make deploy-check   - Verify sandbox image exists before deploying"
 	@echo "  make generate-api   - Generate OpenAPI types from backend spec"
@@ -55,11 +56,20 @@ lint:
 build:
 	docker compose -f deploy/docker-compose.yml build
 
-# Build the agent-sandbox image.
+# Build the agent-sandbox image (lean "lite" variant).
 # Required for sandboxed execution of Agent bash commands (SANDBOX_ENABLED=true).
 # Without this image, bash commands silently fall back to insecure subprocess execution.
+# Need Node.js/scipy/git in the sandbox? Build the superset: make build-sandbox-full
 build-sandbox:
 	docker compose -f deploy/docker-compose.yml build sandbox
+
+# Build the full sandbox variant (adds Node.js 22, git/jq, scipy/lxml, gcc).
+# Select at runtime via SANDBOX_IMAGE=agent-sandbox:full.
+# Mirror overrides via env: APT_MIRROR / PIP_INDEX_URL (defaults = upstream).
+build-sandbox-full:
+	docker build -f deploy/Dockerfile.sandbox --target full -t agent-sandbox:full \
+		--build-arg APT_MIRROR=$${APT_MIRROR:-deb.debian.org} \
+		--build-arg PIP_INDEX_URL=$${PIP_INDEX_URL:-https://pypi.org/simple} .
 
 # Deploy instructions (production)
 deploy:
