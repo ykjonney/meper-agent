@@ -73,7 +73,13 @@ class WorkflowEngine:
         Returns:
             Final variable pool snapshot.
         """
+        from app.core.license import ensure_licensed
         from app.db.mongodb import get_database
+
+        # License 分散校验点：任务真正开始执行前独立复核一次（缓存读，
+        # 零 IO）。task_prerun 已拦一道，这里防的是绕过 Celery 直调引擎
+        # 的路径（channel 长连接进程内执行等）。
+        ensure_licensed()
 
         db = get_database()
 

@@ -7,7 +7,7 @@ import {
   Link2, ArrowLeftRight, Store,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
-import { useQuery, useQueries } from '@tanstack/react-query';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { agentApi, agentKeys, type Agent as BackendAgent } from './services/agent-api';
 import { toStudioAgent } from './services/adapters';
 import { authApi } from './services/auth-api';
@@ -43,6 +43,8 @@ import { ModelsPage } from './components/ModelsPage';
 import { TriggersPage } from './components/TriggersPage';
 import { ProfilePage } from './components/ProfilePage';
 import { NotificationCenter } from './components/notification-center';
+import { ActivationWizard } from './components/ActivationWizard';
+import { licenseApi, licenseKeys } from './services/license-api';
 import { useTaskRealtime } from './hooks/use-task-realtime';
 import { wsClient } from './lib/ws-client';
 import { useNotificationStore } from './stores/notification-store';
@@ -139,6 +141,22 @@ export default function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const authUser = useAuthStore((s) => s.user);
+
+  // ── License gate（激活向导闸门，优先于登录）────────────────────
+  // 任意页面加载都会拉一次状态；api-client 拦到 403 LIC_E_* 时派发
+  // agentflow-license-blocked 事件 → 此处 invalidate → 闸门即时生效。
+  const queryClient = useQueryClient();
+  const { data: license } = useQuery({
+    queryKey: licenseKeys.status,
+    queryFn: () => licenseApi.status().then((res) => res.data),
+    staleTime: 60_000,
+    retry: 1,
+  });
+  useEffect(() => {
+    const handler = () => queryClient.invalidateQueries({ queryKey: licenseKeys.status });
+    window.addEventListener('agentflow-license-blocked', handler);
+    return () => window.removeEventListener('agentflow-license-blocked', handler);
+  }, [queryClient]);
 
   // 任务详情全屏 view（看板卡片=full 操作模式；通知中心/Dashboard/Triggers=仅查看）。
   // 由 TaskDetailPage 内部 useQuery 拉取 GET /tasks/{id}，刷新由 WS invalidate 驱动。
@@ -263,6 +281,17 @@ export default function App() {
   // window and the initializing spinner; here we only branch on the resolved
   // auth state. All hooks above must run unconditionally on every render
   // (Rules of Hooks). Return only after the last hook has been called.
+  // License gate：强制模式下未激活/失效 → 全屏激活向导（在登录之前——
+  // 未激活时可能还没有任何账号）。dev_mode（源码轨）不拦截。
+  if (license && license.enforced && !license.activated) {
+    return (
+      <ActivationWizard
+        status={license}
+        onActivated={() => queryClient.invalidateQueries({ queryKey: licenseKeys.status })}
+      />
+    );
+  }
+
   if (!isAuthenticated) return <Login />;
   // ───────────────────────────────────────────────────────────
 
@@ -455,6 +484,13 @@ export default function App() {
           />
         ) : (
         <>
+        {/* 到期警告条：≤30 天（含永久授权为 null 的豁免） */}
+        {license?.activated && license.days_left != null && license.days_left <= 30 && (
+          <div className="h-9 shrink-0 flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-300 text-xs">
+            <Clock className="w-3.5 h-3.5" />
+            授权将于 {license.expires_at ? new Date(license.expires_at).toLocaleDateString() : '—'} 到期（剩 {license.days_left} 天），请联系供应商续费
+          </div>
+        )}
         <header className={`h-16 border-b flex items-center justify-between px-8 shrink-0 ${
           theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-white border-slate-200'
         }`}>

@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox deploy deploy-check generate-api help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox deploy deploy-check generate-api build-backend-bin build-release clean-dist help
 
 # Default target
 help:
@@ -11,6 +11,10 @@ help:
 	@echo "  make lint           - Run linters for all packages"
 	@echo "  make build          - Build all Docker images (excluding sandbox)"
 	@echo "  make build-sandbox  - Build the agent-sandbox image (required for sandboxed bash execution)"
+	@echo "  make build-backend-bin - Cython 编译产物（容器内；RELEASE=1 时为正式构建）"
+	@echo "  make build-release VERSION=x.y.z [RELEASE=1] - 组装单机安装包 .zip（RELEASE=1 正式/license 强制）"
+	@echo "    （每个 <版本-平台> 独立目录 dist/agent-flow-<ver>-<plat>/；rebuild 同 ver-plat 覆盖）"
+	@echo "  make clean-dist      - 清空 dist/ 下所有 build 产物（agent-flow-* 目录与 zip）"
 	@echo "  make deploy         - Deploy with Docker Compose (production)"
 	@echo "  make deploy-check   - Verify sandbox image exists before deploying"
 	@echo "  make generate-api   - Generate OpenAPI types from backend spec"
@@ -59,6 +63,25 @@ build:
 # Without this image, bash commands silently fall back to insecure subprocess execution.
 build-sandbox:
 	docker compose -f deploy/docker-compose.yml build sandbox
+
+# 交付包构建入口：交互选择本机/Docker 与目标平台（前端+后端全流程一条命令）。
+# 产物 dist/agent-flow-<版本>-<平台>.zip，包内含部署指南。
+#   RELEASE=1           正式构建（license 编译期强制）；缺省 dev 构建
+#   正式构建（license 强制）加 RELEASE=1；缺省 dev 构建。非交互：-local / -docker（CI 用）
+RELEASE_FLAG = $(if $(RELEASE),--release,)
+build-release:
+	backend/scripts/build_release.sh "$(VERSION)" $(RELEASE_FLAG)
+
+build-release-local:
+	backend/scripts/build_release.sh "$(VERSION)" $(RELEASE_FLAG) --local
+
+build-release-docker:  # 平台默认 linux/amd64；加 PLATFORM=linux/arm64 覆盖
+	backend/scripts/build_release.sh "$(VERSION)" $(RELEASE_FLAG) --docker --platform $(or $(PLATFORM),linux/amd64)
+
+# 一键清空所有 build 产物（含所有 <版本-平台> 的目录与 zip、wheels-、老式 dist/agent-flow/ 孤儿）
+clean-dist:
+	rm -rf dist/agent-flow-* dist/agent-flow-wheels-* 2>/dev/null || true
+	@echo "✓ dist/ 已清空（保留 dist/ 本身以便 git 跟踪）"
 
 # Deploy instructions (production)
 deploy:

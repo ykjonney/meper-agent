@@ -1,4 +1,9 @@
 """Celery application instance and configuration."""
+# Cython 兼容补丁最先安装（任何 pydantic 模型类创建之前）。
+from app import _cycompat as _cycompat_module
+
+_cycompat_module.install()
+
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
 from celery.signals import (  # type: ignore[import-untyped]
@@ -87,10 +92,23 @@ def _init_worker(**_kwargs: object) -> None:
        MCP 调用必须以终端用户身份兑换凭证。不注入时 harness 拦截器对
        external_required 的调用按 fail-closed 拒绝（不会静默降级内部凭证，
        但外部任务会全部失败），因此注入失败只记日志、不阻断 worker 启动。
+
+    4. **License 校验** — 强制模式下无有效 license 的 worker 直接拒绝启动
+       （SystemExit → 子进程失败，celery 放弃后整个 worker 退出）。未激活
+       降级模式对 backend 是"起服务给激活向导"，对 worker 没有意义——
+       没有 API 就没有任务来源。
     """
     # 1. 日志初始化 — 必须在打任何日志之前完成
     from app.core.logging import setup_logging
     setup_logging()
+
+    # 4. License gate — 无有效 license 不干活（fail closed）。
+    from app.core import license as lic
+
+    _lic = lic.evaluate_license(force=True)
+    if _lic.enforced and not _lic.ok:
+        logger.critical("license_gate_worker_exit code={}", _lic.code)
+        raise SystemExit(78)  # EX_CONFIG：配置类错误，一眼可辨
 
     # 2. Checkpointer 配置 — shared with FastAPI lifespan via app.core.checkpointer
     from app.core.checkpointer import configure_mongo_checkpointer
@@ -112,13 +130,18 @@ def _init_worker(**_kwargs: object) -> None:
 
 
 @task_prerun.connect
-def _inject_request_id(task_id=None, **_kwargs: object) -> None:
-    """在 Celery task 执行前注入 ``request_id`` 到 contextvar。
+def _check_license_and_inject_request_id(task_id=None, **_kwargs: object) -> None:
+    """task 执行前：license 复核（分散校验点）+ ``request_id`` 注入。
 
-    这样 worker 里所有 ``logger.xxx()`` 都能带上 task 关联标识，
-    便于在日志中按 task 反查执行链路。使用 task_id 的前 8 位作为
-    request_id（与 HTTP 请求的 8 位 hex 格式保持一致）。
+    license 复核读 60s TTL 缓存——纯内存判断，单 task 开销可忽略；
+    worker 启动后 license 被撤/到期，下一个 task 即拒绝执行（到期停拉）。
     """
+    from app.core import license as lic
+
+    _lic = lic.evaluate_license()
+    if _lic.enforced and not _lic.ok:
+        raise lic.LicenseError(_lic.code)
+
     from app.api.middleware.request_id import request_id_var
 
     rid = (task_id or "-")[:8]

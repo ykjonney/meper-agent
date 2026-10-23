@@ -11,6 +11,10 @@ export default defineConfig(() => {
 
   return {
     plugins: [react(), tailwindcss()],
+    // 闭源分发：显式禁用 sourcemap（防误开导致源码随 dist 泄露）。
+    build: {
+      sourcemap: false,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

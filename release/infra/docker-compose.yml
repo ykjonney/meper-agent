@@ -1,0 +1,41 @@
+# 内置数据库容器（--with-infra 可选组件）。
+#
+# ⚠ 请通过 ./agent-flow start --with-infra 启动，勿手动 docker compose up：
+#   环境变量（MONGO_ROOT_PASSWORD / AF_DATA_DIR）由启动器从 etc/agent-flow.env
+#   注入；缺省时 MONGO_ROOT_PASSWORD 用默认值 changeme（可在 env 文件改）。
+#
+# 变量：
+#   MONGO_ROOT_USER/PASSWORD  来自 etc/agent-flow.env（首次 --with-infra 时
+#                             由启动器自动生成并回填；密码仅首次初始化数据
+#                             目录时生效，Mongo 机制：此后改 env 不改已有库）
+#   AF_DATA_DIR               数据根目录（启动器固定为包内 data/，bind mount）
+services:
+  mongodb:
+    image: mongo:7.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+      MONGO_INITDB_DATABASE: agent_flow
+    volumes:
+      - ${AF_DATA_DIR:-./data}/mongodb:/data/db
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ${AF_DATA_DIR:-./data}/redis:/data
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    volumes:
+      - ${AF_DATA_DIR:-./data}/qdrant:/qdrant/storage
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"

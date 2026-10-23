@@ -1,0 +1,49 @@
+# Agent Flow 反代 + 静态托管（docker-compose.yml 中 caddy 容器加载此文件）
+# ─────────────────────────────────────────────────────────────────────────
+# 路由：
+#   /api/*       → reverse_proxy app:8000   （API + WebSocket）
+#   /client/*    → file_server              （终端客户端 SPA；fallback → /client/index.html）
+#   /*           → file_server              （Studio + 共享静态；fallback → /index.html）
+#
+# 性能：encode zstd gzip；file_server 比 Python 同步 serve 快 5-10x
+# TLS：本配置仅 HTTP；HTTPS 由前端云 LB / nginx / caddy 自动证书承担
+# 注意：Caddy 启动时会校验 Caddyfile 语法；改完用 `docker compose restart caddy` 生效
+
+{
+    admin off
+}
+
+:80 {
+    root * /srv/web
+    encode zstd gzip
+
+    @api path /api/*
+    handle @api {
+        # flush_interval -1：流式响应（SSE token 流）写出即转发不缓冲——
+        # 缺失会导致对话流式输出卡顿（源项目踩过的坑，勿删）
+        reverse_proxy app:8000 {
+            flush_interval -1
+        }
+    }
+
+    # WebSocket（实时任务状态/通知；缺失时 /ws/* 落到静态 handle → 404 全挂）
+    @ws path /ws/*
+    handle @ws {
+        reverse_proxy app:8000
+    }
+
+    # 终端客户端：路径以 /client/ 开头，文件落在 web/client/
+    # 例：/client/favicon.ico → web/client/favicon.ico
+    #    /client/assets/index-xxx.js → web/client/assets/index-xxx.js
+    #    /client/chat/123（前端路由）→ fallback 到 web/client/index.html
+    handle /client/* {
+        try_files {path} {path}/ /client/index.html
+        file_server
+    }
+
+    # Studio + 共享静态（根路径；前端路由 /agents 等 → fallback 到 web/index.html）
+    handle {
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}

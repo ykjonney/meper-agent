@@ -143,7 +143,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
 
             # Build log fields.
-            log_fields: dict = {
+            # 注意：不可写成 ``log_fields: dict = {...}`` —— Cython 会把 finally
+            # 块内联到正常/异常两条路径，带注解的声明会被判 redeclared
+            # （闭源编译管线见 backend/scripts/build_compiled.py）。
+            log_fields = {
                 "method": request.method,
                 "path": path,
                 "status_code": status_code,

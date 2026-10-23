@@ -1,0 +1,762 @@
+#!/usr/bin/env bash
+# agent-flow —— 一体化启动器（交付包唯一入口）。
+#
+# 用法：
+#   ./agent-flow stop                   停止
+#   ./agent-flow restart
+#   ./agent-flow status                 进程 + 健康 + license 状态
+#   ./agent-flow logs [backend|worker|beat|infra]
+#   ./agent-flow license install <file> | status
+#   ./agent-flow fingerprint            机器指纹（发给供应商签发授权）
+#   ./agent-flow create-admin --username X --password Y --email Z
+#   ./agent-flow start [--with-infra|--docker]  启动：默认手动进程；--docker=compose 全容器
+#   ./agent-flow stop|restart|status|logs|fingerprint|create-admin 加 --docker 切换 Docker 模式
+#   ./agent-flow upgrade <新包.zip>     升级到新版本（授权与数据保留；自动识别 Docker 部署）
+#   ./agent-flow setup [--offline <wheels目录>]  显式初始化环境（离线装依赖用）
+#   ./agent-flow install-service        （可选）注册 systemd 开机自启（sudo 执行）
+#
+# 目录布局（自包含，无 root/无系统安装）：
+#   agent-flow  app/  runtime/  web/  infra/  etc/  data/  logs/  run/
+set -euo pipefail
+
+# 本机健康检查不走系统代理：shell 常见 http_proxy=127.0.0.1:7890（Clash 等），
+# curl 会把 127.0.0.1 的请求也发给代理 → 代理不在线时全部误报"未响应"。
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
+
+BASE="$(cd "$(dirname "$0")" && pwd)"
+export PYTHONPATH="$BASE/app"
+
+# 解析系统中的 Python 3.12：PATH → uv（uv python find）→ uv 安装目录扫描。
+# （uv 装的 Python 不在系统 PATH，开发者机器/uv 用户极其常见，不能让他们手动 export）
+resolve_py312() {
+  local p candidate
+  for p in python3.12 python3; do
+    command -v "$p" >/dev/null 2>&1 || continue
+    if "$p" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
+      command -v "$p"; return 0
+    fi
+  done
+  if command -v uv >/dev/null 2>&1; then
+    candidate="$(uv python find 3.12 2>/dev/null || true)"
+    if [ -n "$candidate" ] && [ -x "$candidate" ] \
+       && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
+      echo "$candidate"; return 0
+    fi
+  fi
+  for candidate in "$HOME"/.local/share/uv/python/cpython-3.12*/bin/python3.12; do
+    [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+  done
+  return 1
+}
+
+# Python 解析：优先级 捆绑 runtime → 包内 .venv（setup 创建）→ 系统 python3.12
+# .so 绑定 cp312 ABI：非 3.12 一律拒绝（版本错 = 加载失败，错误必须明确）
+find_python() {
+  if [ -x "$BASE/runtime/bin/python" ]; then echo "$BASE/runtime/bin/python"; return 0; fi
+  if [ -x "$BASE/.venv/bin/python" ]; then echo "$BASE/.venv/bin/python"; return 0; fi
+  resolve_py312
+}
+if PY="$(find_python)"; then :; else PY=""; fi
+export AGENT_FLOW_SERVE_STATIC="${AGENT_FLOW_SERVE_STATIC:-true}"
+export AGENT_FLOW_WEB_DIR="${AGENT_FLOW_WEB_DIR:-$BASE/web}"
+ENV_FILE="$BASE/etc/agent-flow.env"
+PORT="${AF_BACKEND_PORT:-8000}"
+mkdir -p "$BASE"/{etc,data,logs,run}
+
+say()  { echo -e "\033[1;32m[agent-flow]\033[0m $*"; }
+warn() { echo -e "\033[1;33m[agent-flow]\033[0m $*" >&2; }
+die()  { echo -e "\033[1;31m[agent-flow:错误]\033[0m $*" >&2; exit 1; }
+
+if [ -z "$PY" ]; then
+  # Docker 模式不需要宿主 Python（一切在容器里）——不能在此硬性 die，
+  # 否则纯 Docker 服务器（未装 Python）连 start/stop --docker 都跑不了。
+  # 手动模式用到 $PY 的路径由 need_py() 兜底报错。
+  PY=""
+fi
+need_py() {
+  [ -n "$PY" ] && return 0
+  die "此命令需要宿主 Python 3.12（.so 应用要求 cp3.12）。
+  手动部署：./agent-flow setup 初始化；纯 Docker 部署：加 --docker 参数（无需本地 Python）"
+}
+
+load_env() {
+  # 保留 shell-level AF_DATA_DIR（命令行可能设了：AF_DATA_DIR=/path ./agent-flow start）
+  local _shell_afd="${AF_DATA_DIR:-}"
+  [ -f "$ENV_FILE" ] && { set -a; . "$ENV_FILE"; set +a; }
+  # 命令行值优先于 env 文件里可能为空的 AF_DATA_DIR
+  [ -n "$_shell_afd" ] && AF_DATA_DIR="$_shell_afd"
+  : "${AF_DATA_DIR:=$BASE/data}"
+  export AF_DATA_DIR
+  # 解析 env 文件里 __AF_DATA_DIR__ 占位符（让 AF_DATA_DIR 真正成为"父"，改 env 即生效）
+  for v in WORKSPACES_HOST_DIR SKILLS_HOST_DIR HOMES_HOST_DIR \
+           KB_HOST_DIR AVATARS_HOST_DIR SKILL_AVATARS_HOST_DIR; do
+    if [ -n "${!v:-}" ] && [[ "${!v}" == *__AF_DATA_DIR__* ]]; then
+      export "$v=${!v//__AF_DATA_DIR__/$AF_DATA_DIR}"
+    fi
+  done
+  PORT="${AF_BACKEND_PORT:-8000}"
+  export PORT   # watcher 子进程需要
+  # license 路径交付形态默认值：包内 etc/（代码默认 ~/.agent-flow 是开发态的，
+  # 会命中家目录残留 key 造成"包内无 key 却已激活"的不可预期行为）
+  : "${LICENSE_PATH:=$BASE/etc/jasper.identity}"
+  # env 中相对路径 → 归一为包根绝对路径（.so 解析零歧义）
+  case "${LICENSE_PATH}" in /*) ;; *) LICENSE_PATH="$BASE/${LICENSE_PATH}" ;; esac
+  export LICENSE_PATH
+}
+
+# ── 配置：随包预置（etc/agent-flow.env），密钥已内置默认值 ──
+
+# 内置数据库（mongo）连接串同步默认凭据：仅当用户没改默认无认证 URI 时，
+# 写入 agentflow:<MONGO_ROOT_PASSWORD 默认 changeme>@。改过连接串的用户不动。
+# host 参数：容器模式传服务名 mongodb，混合模式传 127.0.0.1。
+sync_mongo_auth() {
+  local host="$1"
+  if [ "$(_env_get MONGODB_URI)" = "mongodb://127.0.0.1:27017/agent_flow" ]; then
+    _env_set MONGODB_URI "mongodb://agentflow:${MONGO_ROOT_PASSWORD:-changeme}@${host}:27017/agent_flow?authSource=admin"
+    say "连接串已同步内置数据库凭据（默认密码，可改 etc/agent-flow.env）"
+  fi
+}
+template_env() {
+  # 模板随包（env.template）；缺失时内嵌兜底重建
+  # 注意：env 文件保留 __AF_DATA_DIR__ 占位符，由 load_env 运行时按 AF_DATA_DIR 替换
+  # 这样改 AF_DATA_DIR 重启即生效，不必 delete env 文件重跑 template_env
+  if [ -f "$BASE/env.template" ]; then
+    cp "$BASE/env.template" "$ENV_FILE"
+  else
+    : "${AF_DATA_DIR:=$BASE/data}"
+    cat > "$ENV_FILE" <<TMPL
+# Agent Flow 配置（兜底精简版——完整版见 env.template）
+MONGODB_URI=mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin
+MONGO_ROOT_USER=agentflow
+MONGO_ROOT_PASSWORD=changeme
+REDIS_URL=redis://127.0.0.1:6379/0
+CELERY_BROKER_URL=redis://127.0.0.1:6379/1
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
+QDRANT_URL=http://127.0.0.1:6333
+APP_ENV=production
+AF_BACKEND_PORT=8000
+JWT_SECRET_KEY=dev-only-not-for-production-replace-me
+MODEL_ENCRYPTION_KEY=VTVtOuThL1tcQxxrNPkhtlVvrkiDutEiGt+Hje1/Clk=
+AF_DATA_DIR=$AF_DATA_DIR
+WORKSPACES_HOST_DIR=$AF_DATA_DIR/workspaces
+SKILLS_HOST_DIR=$AF_DATA_DIR/skills
+HOMES_HOST_DIR=$AF_DATA_DIR/homes
+KB_HOST_DIR=$AF_DATA_DIR/knowledge_bases
+AVATARS_HOST_DIR=$AF_DATA_DIR/avatars
+SKILL_AVATARS_HOST_DIR=$AF_DATA_DIR/skill_avatars
+SANDBOX_ENABLED=false
+LOG_LEVEL=INFO
+TMPL
+  fi
+  chmod 600 "$ENV_FILE"
+}
+
+# 取【最后一条有值】匹配（env 文件同键多行时 dotenv 语义即后者生效；
+# head -1 曾读到模板空行误判缺失，进而 sed 覆盖掉已注入的真实密钥）
+_env_get() { grep -E "^$1=.+" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-; }
+_env_set() {
+  # 删所有同键行后追加单条（保证文件内键唯一）
+  grep -vE "^$1=" "$ENV_FILE" > "$ENV_FILE.new" || true
+  printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE.new"
+  mv "$ENV_FILE.new" "$ENV_FILE"
+}
+
+ensure_env() {
+  [ -f "$ENV_FILE" ] || { template_env; say "已生成配置 etc/agent-flow.env（按需修改后 start）"; }
+  # 密钥不自动生成（与源项目一致给默认值，用户想改手动改 env）：
+  #   JWT/MODEL 密钥默认值已在 env.template 内置；
+  #   MONGO_ROOT_PASSWORD 默认 changeme（compose 插值兜底），改密码需同步 MONGODB_URI。
+  chmod 600 "$ENV_FILE"
+}
+
+# ── 进程管理（pid 文件，无 systemd 依赖）────────────────────────────
+start_proc() {
+  local name="$1"; shift
+  if [ -f "run/$name.pid" ] && kill -0 "$(cat run/$name.pid)" 2>/dev/null; then
+    say "$name 已在运行（pid $(cat run/$name.pid)）"
+    return 0
+  fi
+  # 记录本次启动前日志行数：报错时只显示本次增量（不被历史错误误导）
+  touch "logs/$name.log"
+  wc -l < "logs/$name.log" > "run/$name.logline" 2>/dev/null || echo 0 > "run/$name.logline"
+  nohup "$@" >> "logs/$name.log" 2>&1 &
+  echo $! > "run/$name.pid"
+  say "$name 启动（pid $!）→ logs/$name.log"
+}
+
+stop_proc() {
+  local name="$1"
+  if [ -f "run/$name.pid" ] && kill -0 "$(cat run/$name.pid)" 2>/dev/null; then
+    kill "$(cat run/$name.pid)" 2>/dev/null || true
+    say "$name 已停止"
+  fi
+  rm -f "run/$name.pid"
+}
+
+wait_port() {
+  local host="$1" port="$2" name="$3" i
+  for ((i = 1; i <= 60; i++)); do
+    (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null && { exec 3>&- 3<&- 2>/dev/null; return 0; }
+    sleep 2
+  done
+  warn "$name (${host}:${port}) 120 秒内未就绪，继续启动（应用层会自动重连）"
+}
+
+# 从连接串解析 host:port（mongodb://user:pw@host:port/db / redis://host:port/n / http://host:port）
+_uri_hostport() {
+  local uri="$1" default_port="$2" hp
+  hp="$(echo "$uri" | sed -E 's#^[a-z+]+://([^/?]+).*$#\1#')"
+  hp="${hp#*@}"                       # 去掉 user:pass@
+  case "$hp" in *:*) echo "$hp" ;; *) echo "${hp}:${default_port}" ;; esac
+}
+
+# 外接数据库前置校验：硬依赖（Mongo/Redis）不可达拒启；可选依赖（Qdrant）仅警告
+db_check() {
+  local failed=() hp h p
+  hp="$(_uri_hostport "$MONGODB_URI" 27017)"; h="${hp%:*}"; p="${hp##*:}"
+  (exec 3<>"/dev/tcp/${h}/${p}") 2>/dev/null || failed+=("MongoDB ${h}:${p}（MONGODB_URI）")
+  hp="$(_uri_hostport "$REDIS_URL" 6379)"; h="${hp%:*}"; p="${hp##*:}"
+  (exec 3<>"/dev/tcp/${h}/${p}") 2>/dev/null || failed+=("Redis ${h}:${p}（REDIS_URL）")
+  if [ "${#failed[@]}" -gt 0 ]; then
+    die "数据库不可达，拒绝启动（问题要在这里暴露，而不是让 backend 挂死）：
+$(printf '  ✗ %s\n' "${failed[@]}")
+  请启动对应数据库服务，或修改 etc/agent-flow.env 连接串后重试。
+  日志: logs/backend.log"
+  fi
+  # Qdrant：仅向量知识库使用，缺失不阻断启动（其余功能正常）
+  hp="$(_uri_hostport "$QDRANT_URL" 6333)"; h="${hp%:*}"; p="${hp##*:}"
+  if (exec 3<>"/dev/tcp/${h}/${p}") 2>/dev/null; then
+    say "数据库可达性 ✓（mongo + redis + qdrant）"
+  else
+    warn "Qdrant ${h}:${p} 不可达（QDRANT_URL）——向量知识库功能将不可用，其余功能不受影响"
+    say "数据库可达性 ✓（mongo + redis；qdrant 缺失已警告）"
+  fi
+}
+
+infra_compose() {
+  command -v docker >/dev/null || die "--with-infra 需要 Docker；或去掉该参数使用外接数据库"
+  [ -f "$BASE/infra/docker-compose.yml" ] || die "分发包缺少 infra/（内置数据库组件）"
+  docker compose -f "$BASE/infra/docker-compose.yml" --project-name agent-flow-infra "$@"
+}
+
+# ── Docker 模式（--docker）：compose 承载全部服务，宿主只做管理 ─────────
+dcompose() {
+  command -v docker >/dev/null || die "--docker 需要 Docker"
+  [ -f "$BASE/docker-compose.yml" ] || die "包内缺少 docker-compose.yml / Dockerfile（Docker 部署组件）"
+  # --env-file：compose 插值（MONGO_ROOT_PASSWORD/AF_DATA_DIR 等 ${...}）从 env 文件读；
+  # env_file 段只注入容器环境，不参与插值——双保险，不依赖 load_env 的 shell 导出
+  docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
+    --env-file "$ENV_FILE" "$@"
+}
+
+dstart() {
+  say "Docker 模式启动（首次自动构建镜像，需几分钟）…"
+  # 容器模式下占位符不可用（容器内进程不会解析 __AF_DATA_DIR__）
+  # → 替换占位符并把结果写回 env 文件（客户看到的是绝对路径，直接可改）
+  # Docker 模式内置 mongo 容器 → 连接串同步默认凭据（见 sync_mongo_auth）
+  ensure_env
+  load_env   # 替换 __AF_DATA_DIR__ 为实际路径（下一循环用 shell 变量）
+  sync_mongo_auth 127.0.0.1   # 先补凭据（下面的主机名替换会连带保留）
+  local _v
+  for _v in WORKSPACES_HOST_DIR SKILLS_HOST_DIR HOMES_HOST_DIR KB_HOST_DIR AVATARS_HOST_DIR SKILL_AVATARS_HOST_DIR; do
+    local _val="${!_v}"
+    case "$_val" in *__AF_DATA_DIR__*) _env_set "$_v" "${_val//__AF_DATA_DIR__/$AF_DATA_DIR}" ;; esac
+  done
+  # 连接串适配：127.0.0.1 → 容器服务名（写回 env，持久化）
+  local _changed=0 _uri
+  for _kv in MONGODB_URI:mongodb REDIS_URL:redis CELERY_BROKER_URL:redis CELERY_RESULT_BACKEND:redis QDRANT_URL:qdrant; do
+    local _k="${_kv%%:*}" _svc="${_kv##*:}"
+    _uri="$(_env_get "$_k")"
+    case "$_uri" in *127.0.0.1*)
+      _env_set "$_k" "${_uri//127.0.0.1/$_svc}"
+      _changed=1
+    ;; esac
+  done
+  [ "$_changed" = 1 ] && say "连接串已适配容器模式（已写回 etc/agent-flow.env）"
+  load_env   # 重新加载改写后的值
+  ensure_data_dirs
+  # 宿主真实网卡 MAC 注入容器（license 绑机）：容器内是 veth 随机 MAC，
+  # 不注入则 MAC 校验必然失败。取第一个非 lo 接口（与 license.py 宿主逻辑一致）
+  local _if
+  if [ "$(uname -s)" = Darwin ]; then
+    # 本机测试用（正式部署在 Linux）：en0 ether
+    HOST_MAC="$(ifconfig en0 2>/dev/null | awk '/ether/{print $2}' | tr a-f A-F | tr ':' '-')" || true
+  else
+    _if="$(ls /sys/class/net 2>/dev/null | grep -v '^lo' | head -1 || true)"
+    [ -n "$_if" ] && [ -r "/sys/class/net/$_if/address" ] \
+      && HOST_MAC="$(tr -d '[:space:]' < "/sys/class/net/$_if/address" | tr a-f A-F | tr ':' '-')"
+  fi
+  [ -n "${HOST_MAC:-}" ] && export HOST_MAC
+  dcompose up -d --build
+  say "访问 http://<服务器IP>/（80 端口，caddy 收口）"
+}
+
+dstop()   { stop_watcher; dcompose down; say "Docker 服务已停止（数据在 data/ 不受影响）"; }
+
+dstatus() {
+  dcompose ps
+  say "访问入口: http://<服务器IP>/（80 端口，caddy 收口；不是 8000）"
+  local lic
+  lic="$(curl -sf http://127.0.0.1:80/api/v1/system/license/status 2>/dev/null || true)"
+  if [ -n "$lic" ]; then
+    # 解析用容器内 python（Docker 模式不要求宿主装 Python）
+    echo "$lic" | dcompose exec -T app python -c 'import json,sys
+d = json.load(sys.stdin)
+if d["activated"]:
+    print("  license ● 已激活 授权方=%s 到期=%s" % (d.get("licensee"), d.get("expires_at") or "永久"))
+else:
+    print("  license ○ 未激活 code=%s" % d["code"])' || echo "  license ○ 解析失败"
+  else
+    echo "  caddy ○ 未响应（http://127.0.0.1:80）"
+  fi
+}
+
+dlogs() {
+  # 无参时不能传空串（compose 报 "no such service: '''"）——区分有无服务名
+  if [ -n "${1:-}" ]; then
+    dcompose logs -f --tail=200 "$1"
+  else
+    dcompose logs -f --tail=200
+  fi
+}
+
+dfingerprint() {
+  dcompose exec -T app python -c 'from app.core.license import get_machine_fingerprint; print(get_machine_fingerprint())'
+}
+
+dlicense() {
+  case "${1:-}" in
+    install)
+      local f="${2:?用法: license install <file> --docker}"
+      curl -sf -X POST --data-binary "@$f" -H "Content-Type: text/plain" \
+        http://127.0.0.1:80/api/v1/system/license/install && echo && say "激活成功" \
+        || die "激活失败（错误码见上方响应）" ;;
+    status) curl -sf http://127.0.0.1:80/api/v1/system/license/status && echo ;;
+  esac
+}
+
+# ── 环境自愈：start 自动保证 .venv 与依赖就绪 ─────────────────────────
+ensure_runtime() {
+  if [ ! -x "$BASE/.venv/bin/python" ] \
+     || ! "$BASE/.venv/bin/python" -c "import fastapi, celery" >/dev/null 2>&1; then
+    warn "运行环境未就绪，自动初始化（首次需几分钟；内网离线场景请用: ./agent-flow setup --offline <wheels目录>）…"
+    cmd_setup
+  fi
+  # setup 新建 .venv 后，PY 需从"系统 3.12"重算为包内环境
+  if [ -x "$BASE/.venv/bin/python" ]; then
+    PY="$BASE/.venv/bin/python"
+  fi
+}
+
+# 数据目录骨架预建：业务子目录按需创建会导致 data/ 布局不完整（如
+# knowledge_bases 首次用到才出现），预建空目录让"拷贝整个 data/ 迁移"结构一目了然
+ensure_data_dirs() {
+  local d
+  for d in workspaces skills homes knowledge_bases avatars skill_avatars; do
+    mkdir -p "${AF_DATA_DIR}/$d"
+  done
+}
+
+# ── 子命令 ───────────────────────────────────────────────────────────
+cmd_start() {
+  ensure_runtime
+  ensure_env "$@"
+  load_env
+  ensure_data_dirs
+  [ -f "$BASE/web/index.html" ] || die "web/ 目录缺少 index.html（产物不完整？重新解压）"
+  if [ "${1:-}" = "--with-infra" ]; then
+    ensure_env
+    sync_mongo_auth 127.0.0.1   # 内置 mongo 容器启用认证 → 连接串补默认凭据
+    load_env
+    # 数据根目录：env 内 AF_DATA_DIR 优先（load_env 已 set -a 导出 env 全量）；
+    # 留空回退到 $BASE/data。AF_DATA_DIR 是 B/C 共用变量 → B↔C 切换零迁移。
+    : "${AF_DATA_DIR:=$BASE/data}"
+    export AF_DATA_DIR
+    say "启动内置数据库容器（数据目录: ${AF_DATA_DIR}）…"
+    # --wait 让 compose 等 mongo/redis healthcheck 通过再返回；
+    # qdrant 无 healthcheck，由应用首次连接时自愈重试。
+    infra_compose up -d --wait
+  else
+    db_check    # 外接数据库：不可达立即报错退出（含具体地址与配置项名）
+    say "数据目录: $AF_DATA_DIR$([ "$AF_DATA_DIR" = "$BASE/data" ] && echo '（AF_DATA_DIR 未设置，用包内默认）')"
+  fi
+  # 端口预检：旧代进程可能仍占着 $PORT（stop 只清 pid 文件命中的进程）。
+  # 不预检则新 backend 绑定失败秒退，而健康检查命中的是旧进程 → 假"启动成功"。
+  local occupy_pid
+  occupy_pid="$(lsof -ti :"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  if [ -n "$occupy_pid" ] && [ "$occupy_pid" != "$(cat run/backend.pid 2>/dev/null || true)" ]; then
+    die "端口 $PORT 已被进程 pid=${occupy_pid} 占用（非本启动器管理，可能是旧版残留）。
+  处理：kill ${occupy_pid} 后重新 ./agent-flow start
+  （若确认是本包旧进程，也可先 ./agent-flow stop）"
+  fi
+  start_proc backend "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --no-server-header
+  # license 感知：未激活时 worker 会按设计 fail-closed 退出（exitcode 78），
+  # 不白启——激活后（install 或下次 start）自动补起（start_proc 幂等）。
+  say "等待 backend 就绪…"
+  wait_backend
+  if license_activated; then
+    start_workers
+    say "访问 http://<服务器IP>:$PORT/"
+  else
+    warn "未激活：仅启动 backend 提供激活向导（worker/beat 在激活后自动补起）"
+    start_watcher
+    say "访问 http://<服务器IP>:$PORT/ 完成激活；指纹: $(cmd_fingerprint)"
+  fi
+}
+
+cmd_stop() {
+  stop_watcher
+  stop_proc beat; stop_proc worker; stop_proc backend
+  # 端口兜底：pid 文件可能被后续秒退进程覆盖，导致端口上的【上一代】
+  # 进程杀不到（多代并存）。按 LISTEN 找端口持有者，仅当其命令行属于
+  # 本包（$BASE 路径）才杀——避免误杀机器上其他服务。
+  local port_pid
+  port_pid="$(lsof -ti :"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  if [ -n "$port_pid" ]; then
+    # 判属看进程 cwd（命令行常不含路径，如 "python -m uvicorn ..."）
+    local pid_cwd
+    pid_cwd="$(lsof -p "$port_pid" 2>/dev/null | awk '$4=="cwd" {print $NF}' | head -1)"
+    case "$pid_cwd" in
+      "$BASE"|"$BASE"/*)
+        kill "$port_pid" 2>/dev/null || true
+        say "端口 $PORT 上的残留进程（pid ${port_pid}，本包）已清理"
+        port_pid=""  # 已清理
+        ;;
+    esac
+  fi
+  [ -f "$BASE/infra/docker-compose.yml" ] && infra_compose stop 2>/dev/null || true
+  if [ -n "$port_pid" ]; then
+    die "端口 $PORT 仍被进程 pid=${port_pid} 占用（cwd=${pid_cwd:-?}）
+  手动处理：kill $port_pid
+  然后重新执行 ./agent-flow stop 确认"
+  fi
+  say "已全部停止"
+}
+
+cmd_status() {
+  load_env
+  for name in backend worker beat; do
+    if [ -f "run/$name.pid" ] && kill -0 "$(cat run/$name.pid)" 2>/dev/null; then
+      echo "  $name  ● 运行中 (pid $(cat run/$name.pid))"
+    else
+      echo "  $name  ○ 未运行"
+    fi
+  done
+  local lic
+  lic="$(curl -sf "http://127.0.0.1:${PORT}/api/v1/system/license/status" 2>/dev/null || true)"
+  if [ -n "$lic" ]; then
+    if [ -n "$PY" ]; then
+      echo "$lic" | "$PY" -c 'import json,sys
+d = json.load(sys.stdin)
+if d["activated"]:
+    print("  license ● 已激活 授权方=%s 到期=%s" % (d.get("licensee"), d.get("expires_at") or "永久"))
+else:
+    print("  license ○ 未激活 code=%s" % d["code"])' || echo "  license ○ 解析失败"
+    else
+      echo "  license ○ $lic"   # 无宿主 Python：原样输出
+    fi
+  else
+    echo "  backend  ○ 未响应（http://127.0.0.1:${PORT}）"
+  fi
+}
+
+cmd_logs() {
+  local name="${1:-backend}"
+  if [ "$name" = infra ]; then
+    exec infra_compose logs -f --tail=200
+  else
+    [ -f "logs/$name.log" ] || die "无日志 logs/$name.log（可选: backend|worker|beat）"
+    exec tail -n 200 -f "logs/$name.log"
+  fi
+}
+
+tail_since_start() {
+  # 只输出本次启动以来的增量日志
+  local skip
+  skip="$(cat "run/$1.logline" 2>/dev/null || echo 0)"
+  tail -n +"$((skip + 1))" "logs/$1.log" 2>/dev/null | tail -n 15
+}
+
+wait_backend() {
+  local i pid
+  pid="$(cat run/backend.pid 2>/dev/null || true)"
+  # macOS 首次启动提示：Gatekeeper 对新解压的 412 个 .so 逐个扫描，可达数分钟
+  # （Linux 无此机制，秒级就绪）。本地测试可用 xattr -dr com.apple.quarantine . 提速。
+  [ "$(uname -s)" = Darwin ] && [ ! -f run/.first_boot_done ]     && warn "macOS 首次启动较慢（Gatekeeper 扫描 .so），最长需 1-3 分钟…"
+  for ((i = 1; i <= 90; i++)); do
+    if curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+      # 防旧进程欺骗：健康检查有响应 ≠ 新进程起来了。确认 $PORT 的
+      # 监听者就是本次启动的 pid；不符说明旧进程在应答而新进程已死/未绑上。
+      local listen_pid
+      listen_pid="$(lsof -ti :"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+      if [ -z "$pid" ] || [ "$listen_pid" = "$pid" ]; then
+        touch run/.first_boot_done; return 0
+      fi
+      echo -e "\033[1;31m[agent-flow:错误]\033[0m 端口 $PORT 上应答的是 pid=${listen_pid}（旧进程），本次启动的 pid=${pid} 已不在监听，本次日志：" >&2
+      tail_since_start backend >&2 || true
+      exit 1
+    fi
+    # 进程秒退检测（端口占用/依赖缺失等）：立刻暴露，不留死 pid 假象
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      rm -f run/backend.pid
+      echo -e "\033[1;31m[agent-flow:错误]\033[0m backend 启动即退出，本次日志：" >&2
+      tail_since_start backend >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  echo -e "\033[1;31m[agent-flow:错误]\033[0m backend 180 秒未就绪，本次日志（完整看 logs/backend.log）：" >&2
+  tail_since_start backend >&2 || true
+  exit 1
+}
+
+license_activated() {
+  curl -sf "http://127.0.0.1:$PORT/api/v1/system/license/status" 2>/dev/null \
+    | "$PY" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["activated"] else 1)' 2>/dev/null
+}
+
+# 激活监听：网页向导激活走 HTTP，启动器不感知——watcher 轮询到已激活后
+# 自动幂等 start 补起 worker/beat 后自退。CLI install 直接补起，两路并存无害。
+start_watcher() {
+  if [ -f run/watcher.pid ] && kill -0 "$(cat run/watcher.pid)" 2>/dev/null; then return 0; fi
+  nohup bash -c '
+    while true; do
+      if curl -sf "http://127.0.0.1:${PORT}/api/v1/system/license/status" 2>/dev/null | grep -q '"activated": *true'; then
+        "$BASE/agent-flow" start >/dev/null 2>&1
+        exit 0
+      fi
+      sleep 15
+    done
+  ' >/dev/null 2>&1 &
+  echo $! > run/watcher.pid
+}
+
+stop_watcher() {
+  [ -f run/watcher.pid ] && kill "$(cat run/watcher.pid)" 2>/dev/null || true
+  rm -f run/watcher.pid
+}
+
+start_workers() {
+  start_proc worker "$PY" -m celery -A app.workers.celery_app worker --loglevel=info --concurrency="${CELERY_CONCURRENCY:-2}"
+  start_proc beat   "$PY" -m celery -A app.workers.celery_app beat --loglevel=info
+}
+
+cmd_license() {
+  load_env
+  case "${1:-}" in
+    install)
+      local f="${2:?用法: ./agent-flow license install <jasper.identity 路径> [--docker]}"
+      if [ "${3:-}" = "--docker" ]; then dlicense install "$f"; return 0; fi
+      wait_backend
+      curl -sf -X POST --data-binary "@$f" -H "Content-Type: text/plain" \
+        "http://127.0.0.1:$PORT/api/v1/system/license/install" \
+        && echo && say "激活成功" || die "激活失败（错误码见上方响应）"
+      # 激活成功 → 补起 worker/beat（未激活期间它们未启动/已 fail-closed 退出）
+      start_workers
+      ;;
+    status)
+      if [ "${2:-}" = "--docker" ]; then
+        curl -sf http://127.0.0.1:80/api/v1/system/license/status && echo
+      else
+        curl -sf "http://127.0.0.1:$PORT/api/v1/system/license/status" && echo
+      fi ;;
+    *) die "用法: license <install <file>|status>" ;;
+  esac
+}
+
+cmd_setup() {
+  # 环境：包内 .venv + requirements.lock.txt（Python 3.12 必须已在系统/uv）
+  local syspy=""
+  syspy="$(resolve_py312 || true)"
+  # uv 存在但 3.12 未装 → 直接用 uv 安装（自动下载 python-build-standalone，最顺滑）
+  if [ -z "$syspy" ] && command -v uv >/dev/null 2>&1; then
+    say "检测到 uv，自动安装 Python 3.12（uv python install，一次性）…"
+    uv python install 3.12 || die "uv python install 3.12 失败（网络？）"
+    syspy="$(resolve_py312 || true)"
+  fi
+  [ -n "$syspy" ] || die "系统缺少 Python 3.12（应用 .so 要求 cp3.12）。安装后重试：
+  Ubuntu/Debian: apt install python3.12 python3.12-venv
+  CentOS/RHEL:   yum/dnf install python3.12；或 https://www.python.org/downloads/
+  有 uv 的机器:  uv python install 3.12（本启动器可自动发现 uv 装的 Python）"
+  say "创建虚拟环境 .venv（${syspy}）…"
+  "$syspy" -m venv "$BASE/.venv"
+  local VPY="$BASE/.venv/bin/python"
+  "$VPY" -m pip install -q --upgrade pip   # 老版 pip 不认部分新 wheel 元数据
+  if [ "${1:-}" = "--offline" ]; then
+    local wh="${2:?用法: setup --offline <wheelhouse 目录>}"
+    say "离线安装依赖（${wh}）…"
+    "$VPY" -m pip install -q --no-index --find-links "$wh" -r "$BASE/requirements.lock.txt"
+  else
+    say "安装依赖（requirements.lock.txt，几分钟）…"
+    "$VPY" -m pip install -q -r "$BASE/requirements.lock.txt"
+  fi
+  # harness 无需安装：.so 版已在 app/ 下，PYTHONPATH 直接加载（且免装出源码版）
+  "$VPY" -c "import fastapi, celery" \
+    && PYTHONPATH="$BASE/app" "$VPY" -c "import agent_flow_harness" \
+    && say "环境就绪 ✓ 执行 ./agent-flow start 启动" \
+    || die "依赖自检失败（网络受限环境可用: setup --offline <wheelhouse 目录>）"
+}
+
+cmd_fingerprint() { need_py; "$PY" -c 'from app.core.license import get_machine_fingerprint; print(get_machine_fingerprint())'; }
+
+cmd_create_admin() {
+  need_py
+  load_env
+  exec "$PY" -c 'from app.cli.__main__ import main; main()' create-admin "$@"
+}
+
+# 前台运行单服务（systemd / 调试用）
+cmd_run() {
+  need_py
+  ensure_env; load_env
+  case "${1:-}" in
+    backend) exec "$PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --no-server-header ;;
+    worker)  exec "$PY" -m celery -A app.workers.celery_app worker --loglevel=info ;;
+    beat)    exec "$PY" -m celery -A app.workers.celery_app beat --loglevel=info ;;
+    *) die "用法: run <backend|worker|beat>" ;;
+  esac
+}
+
+# （可选）注册 systemd：开机自启 + 崩溃自拉
+cmd_install_service() {
+  [ "$(id -u)" = 0 ] || die "请 sudo 执行（写入 /etc/systemd/system）"
+  for unit in backend worker beat; do
+    cat > "/etc/systemd/system/agent-flow-$unit.service" <<EOF
+[Unit]
+Description=Agent Flow $unit
+After=network.target
+
+[Service]
+Type=exec
+WorkingDirectory=$BASE
+EnvironmentFile=$ENV_FILE
+ExecStartPre=$BASE/agent-flow envwait
+ExecStart=$BASE/agent-flow run $unit
+Restart=on-failure
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  done
+  systemctl daemon-reload
+  systemctl enable --now agent-flow-backend agent-flow-worker agent-flow-beat
+  say "systemd 服务已注册并启动（agent-flow-backend/worker/beat）"
+}
+
+# 升级：新 zip → 先删后拷 app/web/runtime/infra（etc/授权、data/数据保留）
+cmd_upgrade() {
+  local zip_path="${1:?用法: ./agent-flow upgrade <新版agent-flow-x.x.x.zip>}"
+  [ -f "$zip_path" ] || die "找不到 $zip_path"
+  command -v unzip >/dev/null || die "缺少 unzip"
+  local stage
+  stage="$(mktemp -d /tmp/agent-flow-upgrade.XXXXXX)"
+  say "解压新版本…"
+  unzip -q "$zip_path" -d "$stage"
+  # zip 顶层目录为 agent-flow[ 版本-平台]（每版本独立目录设计），glob 适配
+  local srcdir
+  srcdir="$(echo "$stage"/agent-flow*/ | head -1)"
+  [ -n "$srcdir" ] && [ -d "$srcdir/app" ] || { rm -rf "$stage"; die "zip 内未找到 agent-flow*/ 目录（请确认是正式交付包）"; }
+  # 部署形态检测：Docker 模式在跑 → 停容器而非宿主进程；升级后还需重建镜像
+  local docker_mode=0
+  if command -v docker >/dev/null 2>&1 && [ -f "$BASE/docker-compose.yml" ] \
+     && [ -n "$(docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
+               --env-file "$ENV_FILE" ps -q app 2>/dev/null)" ]; then
+    docker_mode=1
+  fi
+  say "停止服务…"
+  if [ "$docker_mode" = 1 ]; then dstop >/dev/null 2>&1 || true; else cmd_stop >/dev/null 2>&1 || true; fi
+  # 依赖清单变化检测：变了才需要重跑 setup（省几分钟，也防漏装新依赖）
+  local deps_changed=0
+  if [ -f "$BASE/requirements.lock.txt" ] && [ -f "$srcdir/requirements.lock.txt" ]; then
+    if ! cmp -s "$BASE/requirements.lock.txt" "$srcdir/requirements.lock.txt"; then
+      deps_changed=1
+    fi
+  elif [ -f "$srcdir/requirements.lock.txt" ]; then
+    deps_changed=1
+  fi
+  say "替换 app/web/runtime（etc/ 与 data/ 保留）…"
+  rm -rf "$BASE/app" "$BASE/web" "$BASE/runtime" "$BASE/infra" "$BASE/requirements.lock.txt" "$BASE/env.template" "$BASE/agent-flow-new"
+  cp -a "$srcdir/app" "$srcdir/web" "$BASE/"
+  [ -d "$srcdir/runtime" ] && cp -a "$srcdir/runtime" "$BASE/"
+  [ -d "$srcdir/infra" ] && cp -a "$srcdir/infra" "$BASE/"
+  [ -f "$srcdir/requirements.lock.txt" ] && cp -a "$srcdir/requirements.lock.txt" "$BASE/"
+  [ -f "$srcdir/env.template" ] && cp -a "$srcdir/env.template" "$BASE/"
+  if [ -f "$srcdir/agent-flow" ]; then
+    cp "$srcdir/agent-flow" "$BASE/agent-flow.new" && chmod +x "$BASE/agent-flow.new"
+  fi
+  rm -rf "$stage"
+  # docker-compose.yml / Dockerfile / Caddyfile 也随新版更新（镜像重建时用新定义）
+  for f in docker-compose.yml Dockerfile Caddyfile; do
+    [ -f "$srcdir/$f" ] && cp "$srcdir/$f" "$BASE/$f"
+  done
+  say "升级完成。"
+  if [ "$docker_mode" = 1 ]; then
+    # Docker 模式：镜像里是旧代码，必须 --build 重建（start --docker 自带）
+    say "Docker 部署检测到——执行: ./agent-flow start --docker（自动重建镜像，etc/ 授权与 data/ 数据已保留）"
+  elif [ "$deps_changed" = 1 ]; then
+    warn "依赖清单已变化——需要重跑一次 ./agent-flow setup 更新 .venv（约几分钟）"
+  else
+    say "依赖无变化，无需 setup。执行: ./agent-flow start"
+  fi
+  [ -f "$BASE/agent-flow.new" ] && say "（检测到新版启动器：确认无问题后 mv agent-flow.new agent-flow 以启用）"
+}
+
+# systemd ExecStartPre：等数据库可达
+cmd_envwait() {
+  load_env
+  wait_port 127.0.0.1 27017 mongodb
+  wait_port 127.0.0.1 6379  redis
+}
+
+main() {
+  [ $# -eq 0 ] && { sed -n '2,15p' "$0"; exit 1; }
+  case "$1" in
+    start)
+      shift
+      if [ "${1:-}" = "--docker" ]; then shift; dstart; else cmd_start "$@"; fi ;;
+    stop)
+      shift
+      if [ "${1:-}" = "--docker" ]; then dstop; else cmd_stop; fi ;;
+    restart)
+      shift
+      if [ "${1:-}" = "--docker" ]; then shift; dstop; sleep 1; dstart; else cmd_stop; sleep 1; cmd_start "$@"; fi ;;
+    status)
+      shift
+      if [ "${1:-}" = "--docker" ]; then dstatus; else
+        # 自动识别 Docker 部署：容器在跑而宿主无进程时，status 查 pid 文件必然
+        # 全是"未运行"——误导。检测到容器即转显示容器状态。
+        if command -v docker >/dev/null 2>&1 && [ -f "$BASE/docker-compose.yml" ] && [ -f "$ENV_FILE" ] \
+           && [ -n "$(docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
+                     --env-file "$ENV_FILE" ps -q app 2>/dev/null)" ]; then
+          say "检测到 Docker 部署在运行（显示容器状态）"
+          dstatus
+        else
+          cmd_status
+        fi
+      fi ;;
+    logs)
+      shift
+      if [ "${1:-}" = "--docker" ]; then shift; dlogs "$@"; else cmd_logs "$@"; fi ;;
+    license) shift; cmd_license "$@" ;;
+    setup) shift; cmd_setup "$@" ;;
+    fingerprint)
+      shift
+      if [ "${1:-}" = "--docker" ]; then dfingerprint; else cmd_fingerprint; fi ;;
+    create-admin)
+      shift
+      if [ "${1:-}" = "--docker" ]; then
+        shift
+        dcompose exec -T app python -c 'from app.cli.__main__ import main; main()' create-admin "$@"
+      else cmd_create_admin "$@"; fi ;;
+    run) shift; cmd_run "$@" ;;
+    install-service) cmd_install_service ;;
+    upgrade) shift; cmd_upgrade "$@" ;;
+    envwait) cmd_envwait ;;
+    *) die "未知命令: $1（start|stop|restart|status|logs|license|fingerprint|create-admin|install-service）" ;;
+  esac
+}
+
+main "$@"

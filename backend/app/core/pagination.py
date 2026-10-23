@@ -1,5 +1,9 @@
 """Pagination helpers."""
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel, Field
+
+T = TypeVar("T")
 
 
 class PaginationParams(BaseModel):
@@ -9,7 +13,8 @@ class PaginationParams(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100, description="Items per page (1-100)")
 
 
-class PaginatedResult[T](BaseModel):
+# Generic[T] 传统写法（非 PEP695 `class C[T]`）——Cython 编译管线暂不支持新语法。
+class PaginatedResult(BaseModel, Generic[T]):  # noqa: UP046
     """Standard paginated response envelope."""
 
     total: int = 0

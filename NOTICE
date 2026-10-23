@@ -1,0 +1,1011 @@
+# NOTICE
+
+本产品包含以下第三方开源组件（Python 依赖，pip-licenses 生成；
+各组件著作权归其作者所有，按其原许可条款使用）：
+
+Jinja2
+3.1.6
+BSD License
+UNKNOWN
+https://github.com/pallets/jinja/
+
+MarkupSafe
+3.0.3
+BSD-3-Clause
+UNKNOWN
+https://github.com/pallets/markupsafe/
+
+PyJWT
+2.13.0
+MIT
+Jose Padilla <hello@jpadilla.com>
+https://github.com/jpadilla/pyjwt
+
+PyYAML
+6.0.3
+MIT License
+Kirill Simonov
+https://pyyaml.org/
+
+Pygments
+2.20.0
+BSD-2-Clause
+Georg Brandl <georg@python.org>
+https://pygments.org
+
+SQLAlchemy
+2.0.50
+MIT
+Mike Bayer
+https://www.sqlalchemy.org
+
+agent-flow-backend
+0.1.0
+UNKNOWN
+UNKNOWN
+UNKNOWN
+
+agent-flow-harness
+0.1.0
+Proprietary — All Rights Reserved
+agent-flow team
+UNKNOWN
+
+aiohappyeyeballs
+2.7.1
+Python Software Foundation License
+J. Nick Koston
+https://github.com/aio-libs/aiohappyeyeballs
+
+aiohttp
+3.14.1
+Apache-2.0 AND MIT
+UNKNOWN
+https://github.com/aio-libs/aiohttp
+
+aiosignal
+1.4.0
+Apache Software License
+UNKNOWN
+https://github.com/aio-libs/aiosignal
+
+amqp
+5.3.1
+BSD License
+Barry Pederson
+http://github.com/celery/py-amqp
+
+annotated-doc
+0.0.4
+MIT
+=?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
+https://github.com/fastapi/annotated-doc
+
+annotated-types
+0.7.0
+MIT License
+Adrian Garcia Badaracco <1755071+adriangb@users.noreply.github.com>, Samuel Colvin <s@muelcolvin.com>, Zac Hatfield-Dodds <zac@zhd.dev>
+https://github.com/annotated-types/annotated-types
+
+anthropic
+0.107.1
+MIT License
+Anthropic <support@anthropic.com>
+https://github.com/anthropics/anthropic-sdk-python
+
+anyio
+4.13.0
+MIT
+Alex Grönholm <alex.gronholm@nextday.fi>
+https://anyio.readthedocs.io/en/stable/versionhistory.html
+
+ast_serialize
+0.5.0
+MIT
+Jukka Lehtosalo <jukka.lehtosalo@iki.fi>
+https://github.com/mypyc/ast_serialize
+
+attrs
+26.1.0
+MIT
+Hynek Schlawack <hs@ox.cx>
+https://www.attrs.org/en/stable/changelog.html
+
+bcrypt
+5.0.0
+Apache Software License
+The Python Cryptographic Authority developers <cryptography-dev@python.org>
+https://github.com/pyca/bcrypt/
+
+beautifulsoup4
+4.15.0
+MIT License
+Leonard Richardson <leonardr@segfault.org>
+https://www.crummy.com/software/BeautifulSoup/bs4/
+
+billiard
+4.2.4
+BSD License
+R Oudkerk / Python Software Foundation
+https://github.com/celery/billiard
+
+celery
+5.6.3
+BSD-3-Clause
+Ask Solem
+https://docs.celeryq.dev/
+
+certifi
+2026.5.20
+Mozilla Public License 2.0 (MPL 2.0)
+Kenneth Reitz
+https://github.com/certifi/python-certifi
+
+cffi
+2.0.0
+MIT
+Armin Rigo, Maciej Fijalkowski
+https://cffi.readthedocs.io/en/latest/whatsnew.html
+
+charset-normalizer
+3.4.7
+MIT
+"Ahmed R. TAHRI" <tahri.ahmed@proton.me>
+https://github.com/jawah/charset_normalizer/blob/master/CHANGELOG.md
+
+click
+8.4.1
+BSD-3-Clause
+UNKNOWN
+https://github.com/pallets/click/
+
+click-didyoumean
+0.3.1
+MIT License
+Timo Furrer
+https://github.com/click-contrib/click-didyoumean
+
+click-plugins
+1.1.1.2
+BSD License
+Kevin Wurster, Sean Gillies
+https://github.com/click-contrib/click-plugins
+
+click-repl
+0.3.0
+MIT
+Markus Unterwaditzer
+https://github.com/untitaker/click-repl
+
+croniter
+6.2.3
+MIT
+Matsumoto Taichi <taichino@gmail.com>, kiorky <kiorky@cryptelium.net>, Ash Berlin-Taylor <ash@apache.org>, Jarek Potiuk <jarek@potiuk.com>
+https://github.com/pallets-eco/croniter
+
+cryptography
+48.0.0
+Apache-2.0 OR BSD-3-Clause
+The Python Cryptographic Authority and individual contributors <cryptography-dev@python.org>
+https://github.com/pyca/cryptography
+
+dingtalk-stream
+0.24.3
+MIT License
+Ke Jie
+https://github.com/open-dingtalk/dingtalk-stream-sdk-python
+
+distro
+1.9.0
+Apache Software License
+Nir Cohen
+https://github.com/python-distro/distro
+
+dnspython
+2.8.0
+ISC License (ISCL)
+Bob Halley <halley@dnspython.org>
+https://www.dnspython.org
+
+docker
+7.1.0
+Apache-2.0
+UNKNOWN
+https://github.com/docker/docker-py
+
+docstring_parser
+0.18.0
+MIT License
+Marcin Kurczewski <dash@wind.garden>
+https://github.com/rr-/docstring_parser
+
+et_xmlfile
+2.0.0
+MIT License
+See AUTHORS.txt
+https://foss.heptapod.net/openpyxl/et_xmlfile
+
+fastapi
+0.136.3
+MIT
+=?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
+https://github.com/fastapi/fastapi
+
+filelock
+3.32.2
+MIT
+UNKNOWN
+https://github.com/tox-dev/py-filelock
+
+flatbuffers
+25.12.19
+Apache Software License
+Derek Bailey
+https://google.github.io/flatbuffers/
+
+frozenlist
+1.8.0
+Apache-2.0
+UNKNOWN
+https://github.com/aio-libs/frozenlist
+
+fsspec
+2026.7.0
+BSD-3-Clause
+UNKNOWN
+https://github.com/fsspec/filesystem_spec
+
+grpcio
+1.83.0
+Apache-2.0
+The gRPC Authors <grpc-io@googlegroups.com>
+https://grpc.io
+
+h11
+0.16.0
+MIT License
+Nathaniel J. Smith
+https://github.com/python-hyper/h11
+
+h2
+4.4.0
+MIT
+Cory Benfield <cory@lukasa.co.uk>
+https://github.com/python-hyper/h2/
+
+hpack
+4.2.0
+MIT
+Cory Benfield <cory@lukasa.co.uk>
+https://github.com/python-hyper/hpack/
+
+httpcore
+1.0.9
+BSD-3-Clause
+Tom Christie <tom@tomchristie.com>
+https://www.encode.io/httpcore/
+
+httptools
+0.8.0
+MIT
+Yury Selivanov <yury@magic.io>
+https://github.com/MagicStack/httptools
+
+httpx
+0.28.1
+BSD License
+Tom Christie <tom@tomchristie.com>
+https://github.com/encode/httpx
+
+httpx-sse
+0.4.3
+MIT
+Florimond Manca <florimond.manca@protonmail.com>
+https://github.com/florimondmanca/httpx-sse
+
+hyperframe
+6.1.0
+MIT License
+Cory Benfield <cory@lukasa.co.uk>
+https://github.com/python-hyper/hyperframe/
+
+idna
+3.18
+BSD-3-Clause
+Kim Davies <kim+pypi@gumleaf.org>
+https://github.com/kjd/idna
+
+iniconfig
+2.3.0
+MIT
+Ronny Pfannschmidt <opensource@ronnypfannschmidt.de>, Holger Krekel <holger.krekel@gmail.com>
+https://github.com/pytest-dev/iniconfig
+
+jieba
+0.42.1
+MIT License
+Sun, Junyi
+https://github.com/fxsjy/jieba
+
+jiter
+0.15.0
+MIT
+Samuel Colvin <s@muelcolvin.com>
+https://github.com/pydantic/jiter/
+
+jsonpatch
+1.33
+BSD License
+Stefan Kögl
+https://github.com/stefankoegl/python-json-patch
+
+jsonpointer
+3.1.1
+BSD License
+Stefan Kögl
+https://github.com/stefankoegl/python-json-pointer
+
+jsonschema
+4.26.0
+MIT
+Julian Berman <Julian+jsonschema@GrayVines.com>
+https://github.com/python-jsonschema/jsonschema
+
+jsonschema-specifications
+2025.9.1
+MIT
+Julian Berman <Julian+jsonschema-specifications@GrayVines.com>
+https://github.com/python-jsonschema/jsonschema-specifications
+
+kombu
+5.6.2
+BSD-3-Clause
+Ask Solem
+https://kombu.readthedocs.io
+
+langchain
+1.3.4
+MIT License
+UNKNOWN
+https://docs.langchain.com/
+
+langchain-anthropic
+1.4.4
+MIT License
+UNKNOWN
+https://docs.langchain.com/oss/python/integrations/providers/anthropic
+
+langchain-classic
+1.0.7
+MIT License
+UNKNOWN
+https://docs.langchain.com/
+
+langchain-core
+1.4.1
+MIT License
+UNKNOWN
+https://docs.langchain.com/
+
+langchain-mcp-adapters
+0.2.2
+MIT
+Vadym Barda <19161700+vbarda@users.noreply.github.com>
+https://www.github.com/langchain-ai/langchain-mcp-adapters
+
+langchain-mongodb
+0.11.0
+UNKNOWN
+UNKNOWN
+UNKNOWN
+
+langchain-openai
+1.2.2
+MIT License
+UNKNOWN
+https://docs.langchain.com/oss/python/integrations/providers/openai
+
+langchain-protocol
+0.0.16
+MIT License
+UNKNOWN
+https://github.com/langchain-ai/agent-protocol/tree/main/streaming
+
+langchain-qdrant
+1.1.0
+MIT
+UNKNOWN
+https://docs.langchain.com/oss/python/integrations/providers/qdrant
+
+langchain-text-splitters
+1.1.2
+MIT License
+UNKNOWN
+https://docs.langchain.com/
+
+langgraph
+1.2.4
+MIT
+UNKNOWN
+https://docs.langchain.com/oss/python/langgraph/overview
+
+langgraph-checkpoint
+4.1.1
+MIT
+UNKNOWN
+https://github.com/langchain-ai/langgraph/tree/main/libs/checkpoint
+
+langgraph-checkpoint-mongodb
+0.4.0
+UNKNOWN
+UNKNOWN
+UNKNOWN
+
+langgraph-prebuilt
+1.1.0
+MIT
+UNKNOWN
+https://github.com/langchain-ai/langgraph/tree/main/libs/prebuilt
+
+langgraph-sdk
+0.4.2
+MIT
+UNKNOWN
+https://github.com/langchain-ai/langgraph/tree/main/libs/sdk-py
+
+langsmith
+0.8.9
+MIT
+LangChain <support@langchain.dev>
+https://smith.langchain.com/
+
+lark
+1.3.1
+MIT License
+Erez Shinan <erezshin@gmail.com>
+https://github.com/lark-parser/lark
+
+lark-oapi
+1.7.1
+MIT License
+Wenbo Mao
+https://github.com/larksuite/oapi-sdk-python
+
+librt
+0.11.0
+MIT
+Jukka Lehtosalo <jukka.lehtosalo@iki.fi>, Ivan Levkivskyi <levkivskyi@gmail.com>
+https://github.com/mypyc/librt
+
+loguru
+0.7.3
+MIT License
+Delgan <delgan.py@gmail.com>
+https://github.com/Delgan/loguru
+
+lxml
+6.1.1
+BSD-3-Clause
+lxml dev team
+https://lxml.de/
+
+mcp
+1.27.2
+MIT License
+Anthropic, PBC.
+https://modelcontextprotocol.io
+
+motor
+3.7.1
+Apache Software License
+"A. Jesse Jiryu Davis" <jesse@mongodb.com>
+https://www.mongodb.org
+
+mpmath
+1.3.0
+BSD License
+Fredrik Johansson
+http://mpmath.org/
+
+multidict
+6.7.1
+Apache License 2.0
+Andrew Svetlov
+https://github.com/aio-libs/multidict
+
+mypy
+2.1.0
+MIT
+Jukka Lehtosalo <jukka.lehtosalo@iki.fi>
+https://www.mypy-lang.org/
+
+mypy_extensions
+1.1.0
+MIT
+The mypy developers <jukka.lehtosalo@iki.fi>
+https://github.com/python/mypy_extensions
+
+networkx
+3.6.1
+BSD-3-Clause
+Aric Hagberg <hagberg@lanl.gov>
+https://networkx.org/
+
+nodeenv
+1.10.0
+BSD License
+Eugene Kalinin
+https://github.com/ekalinin/nodeenv
+
+numpy
+2.4.6
+BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+Travis E. Oliphant et al.
+https://numpy.org
+
+onnxruntime
+1.28.0
+MIT License
+Microsoft Corporation
+https://onnxruntime.ai
+
+openai
+2.41.0
+Apache Software License
+OpenAI <support@openai.com>
+https://github.com/openai/openai-python
+
+opencv-python
+5.0.0.93
+Apache Software License
+UNKNOWN
+https://github.com/opencv/opencv-python
+
+openpyxl
+3.1.5
+MIT License
+See AUTHORS
+https://openpyxl.readthedocs.io
+
+orjson
+3.11.9
+MPL-2.0 AND (Apache-2.0 OR MIT)
+UNKNOWN
+https://github.com/ijl/orjson
+
+ormsgpack
+1.12.2
+Apache-2.0 OR MIT
+Aviram Hassan <aviramyhassan@gmail.com>, Emanuele Giaquinta <emanuele.giaquinta@gmail.com>
+https://github.com/ormsgpack/ormsgpack
+
+packaging
+26.2
+Apache-2.0 OR BSD-2-Clause
+Donald Stufft <donald@stufft.io>
+https://github.com/pypa/packaging
+
+pathspec
+1.1.1
+Mozilla Public License 2.0 (MPL 2.0)
+"Caleb P. Burns" <cpburnz@gmail.com>
+https://python-path-specification.readthedocs.io/en/latest/index.html
+
+pillow
+12.3.0
+MIT-CMU
+Jeffrey 'Alex' Clark <aclark@aclark.net>
+https://python-pillow.github.io
+
+pluggy
+1.6.0
+MIT License
+Holger Krekel <holger@merlinux.eu>
+UNKNOWN
+
+portalocker
+3.2.0
+BSD-3-Clause
+Rick van Hattem <wolph@wol.ph>
+https://github.com/wolph/portalocker/
+
+prompt_toolkit
+3.0.52
+BSD License
+Jonathan Slenders
+https://github.com/prompt-toolkit/python-prompt-toolkit
+
+propcache
+0.5.2
+Apache Software License
+Andrew Svetlov
+https://github.com/aio-libs/propcache
+
+protobuf
+7.35.1
+3-Clause BSD License
+protobuf@googlegroups.com
+https://developers.google.com/protocol-buffers/
+
+pyclipper
+1.4.0
+MIT License
+Angus Johnson, Maxime Chalton, Lukas Treyer, Gregor Ratajc
+https://github.com/fonttools/pyclipper
+
+pycparser
+3.0
+BSD-3-Clause
+Eli Bendersky <eliben@gmail.com>
+https://github.com/eliben/pycparser
+
+pycryptodome
+3.23.0
+BSD License; Public Domain
+Helder Eijs
+https://www.pycryptodome.org
+
+pydantic
+2.13.4
+MIT
+Samuel Colvin <s@muelcolvin.com>, Eric Jolibois <em.jolibois@gmail.com>, Hasan Ramezani <hasan.r67@gmail.com>, Adrian Garcia Badaracco <1755071+adriangb@users.noreply.github.com>, Terrence Dorsey <terry@pydantic.dev>, David Montague <david@pydantic.dev>, Serge Matveenko <lig@countzero.co>, Marcelo Trylesinski <marcelotryle@gmail.com>, Sydney Runkle <sydneymarierunkle@gmail.com>, David Hewitt <mail@davidhewitt.dev>, Alex Hall <alex.mojaki@gmail.com>, Victorien Plot <contact@vctrn.dev>
+https://github.com/pydantic/pydantic
+
+pydantic-settings
+2.14.1
+MIT
+Samuel Colvin <s@muelcolvin.com>, Eric Jolibois <em.jolibois@gmail.com>, Hasan Ramezani <hasan.r67@gmail.com>
+https://github.com/pydantic/pydantic-settings
+
+pydantic_core
+2.46.4
+MIT
+Samuel Colvin <s@muelcolvin.com>, Adrian Garcia Badaracco <1755071+adriangb@users.noreply.github.com>, David Montague <david@pydantic.dev>, David Hewitt <mail@davidhewitt.dev>, Sydney Runkle <sydneymarierunkle@gmail.com>, Victorien Plot <contact@vctrn.dev>
+https://github.com/pydantic
+
+pyflakes
+3.4.0
+MIT License
+A lot of people
+https://github.com/PyCQA/pyflakes
+
+pymongo
+4.16.0
+Apache-2.0
+The MongoDB Python Team
+https://www.mongodb.org
+
+pymongo-search-utils
+0.3.0
+BSD License
+Noah Stapp <noah.stapp@mongodb.com>
+http://pymongo-search-utils.readthedocs.org/
+
+pymupdf
+1.28.0
+Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License
+Artifex
+https://github.com/pymupdf/pymupdf
+
+pypdf
+6.14.2
+BSD-3-Clause
+Mathieu Fenniak <biziqe@mathieu.fenniak.net>
+https://github.com/py-pdf/pypdf
+
+pyright
+1.1.410
+MIT
+Robert Craigie
+https://github.com/RobertCraigie/pyright-python
+
+pytest
+9.0.3
+MIT
+Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Freya Bruhin, Others (See AUTHORS)
+https://docs.pytest.org/en/latest/
+
+pytest-asyncio
+1.4.0
+Apache-2.0
+Tin Tvrtković <tinchester@gmail.com>
+https://github.com/pytest-dev/pytest-asyncio
+
+python-dateutil
+2.9.0.post0
+Apache Software License; BSD License
+Gustavo Niemeyer
+https://github.com/dateutil/dateutil
+
+python-docx
+1.2.0
+MIT License
+Steve Canny <stcanny@gmail.com>
+https://github.com/python-openxml/python-docx
+
+python-dotenv
+1.2.2
+BSD-3-Clause
+Saurabh Kumar <me+github@saurabh-kumar.com>
+https://github.com/theskumar/python-dotenv
+
+python-multipart
+0.0.32
+Apache-2.0
+Andrew Dunham <andrew@du.nham.ca>
+https://github.com/Kludex/python-multipart
+
+python-pptx
+1.0.2
+MIT License
+Steve Canny <stcanny@gmail.com>
+https://github.com/scanny/python-pptx
+
+python-socks
+2.8.2
+Apache Software License
+Roman Snegirev <snegiryev@gmail.com>
+https://github.com/romis2012/python-socks
+
+python-ulid
+3.1.0
+MIT
+Martin Domke <mail@martindomke.net>
+https://github.com/mdomke/python-ulid
+
+qdrant-client
+1.18.0
+Apache Software License
+Andrey Vasnetsov
+https://github.com/qdrant/qdrant-client
+
+rapidocr-onnxruntime
+1.4.4
+Apache-2.0
+SWHL
+https://github.com/RapidAI/RapidOCR
+
+redis
+8.0.0
+MIT
+"Redis Inc." <oss@redis.com>
+https://github.com/redis/redis-py
+
+referencing
+0.37.0
+MIT
+Julian Berman <Julian+referencing@GrayVines.com>
+https://github.com/python-jsonschema/referencing
+
+regex
+2026.5.9
+Apache-2.0 AND CNRI-Python
+Matthew Barnett <regex@mrabarnett.plus.com>
+https://github.com/mrabarnett/mrab-regex
+
+reportlab
+5.0.0
+BSD License
+Andy Robinson, Robin Becker, the ReportLab team and the community
+https://www.reportlab.com/
+
+requests
+2.34.2
+Apache Software License
+Kenneth Reitz <me@kennethreitz.org>
+https://github.com/psf/requests
+
+requests-toolbelt
+1.0.0
+Apache Software License
+Ian Cordasco, Cory Benfield
+https://toolbelt.readthedocs.io/
+
+rpds-py
+2026.5.1
+MIT
+Julian Berman <Julian+rpds@GrayVines.com>
+https://github.com/crate-py/rpds
+
+ruff
+0.15.16
+MIT
+"Astral Software Inc." <hey@astral.sh>
+https://docs.astral.sh/ruff
+
+shapely
+2.1.2
+BSD License
+Sean Gillies
+https://github.com/shapely/shapely
+
+silero-vad
+6.2.1
+MIT License
+Silero Team <hello@silero.ai>
+https://github.com/snakers4/silero-vad
+
+six
+1.17.0
+MIT License
+Benjamin Peterson
+https://github.com/benjaminp/six
+
+sniffio
+1.3.1
+Apache Software License; MIT License
+"Nathaniel J. Smith" <njs@pobox.com>
+https://github.com/python-trio/sniffio
+
+soupsieve
+2.9.1
+MIT
+Isaac Muse <Isaac.Muse@gmail.com>
+https://github.com/facelessuser/soupsieve
+
+sse-starlette
+3.4.4
+BSD-3-Clause
+sysid <sysid@gmx.de>
+https://github.com/sysid/sse-starlette
+
+starlette
+1.2.1
+BSD-3-Clause
+Tom Christie <tom@tomchristie.com>
+https://github.com/Kludex/starlette
+
+structlog
+26.1.0
+MIT OR Apache-2.0
+Hynek Schlawack <hs@ox.cx>
+https://github.com/hynek/structlog/blob/main/CHANGELOG.md
+
+sympy
+1.14.0
+BSD License
+SymPy development team
+https://sympy.org
+
+tenacity
+9.1.4
+Apache Software License
+Julien Danjou
+https://github.com/jd/tenacity
+
+tiktoken
+0.13.0
+MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Shantanu Jain
+https://github.com/openai/tiktoken
+
+torch
+2.13.0
+Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+PyTorch Team <packages@pytorch.org>
+https://pytorch.org
+
+torchaudio
+2.11.0
+BSD License
+Soumith Chintala, David Pollack, Sean Naren, Peter Goldsborough, Moto Hira, Caroline Chen, Jeff Hwang, Zhaoheng Ni, Xiaohui Zhang
+https://github.com/pytorch/audio
+
+tqdm
+4.68.1
+MPL-2.0 AND MIT
+UNKNOWN
+https://tqdm.github.io
+
+typing-inspection
+0.4.2
+MIT
+Victorien Plot <contact@vctrn.dev>
+https://github.com/pydantic/typing-inspection
+
+typing_extensions
+4.15.0
+PSF-2.0
+"Guido van Rossum, Jukka Lehtosalo, Łukasz Langa, Michael Lee" <levkivskyi@gmail.com>
+https://github.com/python/typing_extensions
+
+tzdata
+2026.2
+Apache-2.0
+Python Software Foundation
+https://github.com/python/tzdata
+
+tzlocal
+5.3.1
+MIT License
+Lennart Regebro <regebro@gmail.com>
+https://github.com/regebro/tzlocal/blob/master/CHANGES.txt
+
+urllib3
+2.7.0
+MIT
+Andrey Petrov <andrey.petrov@shazow.net>
+https://github.com/urllib3/urllib3/blob/main/CHANGES.rst
+
+uuid_utils
+0.16.0
+BSD-3-Clause
+Amin Alaee <mohammadamin.alaee@gmail.com>
+https://github.com/aminalaee/uuid-utils
+
+uvicorn
+0.49.0
+BSD-3-Clause
+Tom Christie <tom@tomchristie.com>
+https://uvicorn.dev/
+
+uvloop
+0.22.1
+Apache Software License; MIT License
+Yury Selivanov <yury@magic.io>
+UNKNOWN
+
+vine
+5.1.0
+BSD License
+Ask Solem
+https://github.com/celery/vine
+
+watchfiles
+1.2.0
+MIT License
+Samuel Colvin <s@muelcolvin.com>
+https://github.com/samuelcolvin/watchfiles
+
+websockets
+15.0.1
+BSD License
+Aymeric Augustin <aymeric.augustin@m4x.org>
+https://github.com/python-websockets/websockets
+
+xlsxwriter
+3.2.9
+BSD License
+John McNamara
+https://github.com/jmcnamara/XlsxWriter
+
+xxhash
+3.7.0
+BSD License
+Yue Du
+https://github.com/ifduyue/python-xxhash
+
+yarl
+1.24.5
+Apache-2.0
+Andrew Svetlov
+https://github.com/aio-libs/yarl
+
+zstandard
+0.25.0
+BSD-3-Clause
+Gregory Szorc <gregory.szorc@gmail.com>
+https://github.com/indygreg/python-zstandard
+
+

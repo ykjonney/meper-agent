@@ -12,3 +12,6 @@ _bmad
 **/.env
 **/.env.local
 deploy/data
+licensegen
+dist
+**/dist

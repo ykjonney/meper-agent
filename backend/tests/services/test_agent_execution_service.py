@@ -15,6 +15,7 @@ from app.services.agent_execution_service import (
     _duration_metrics,
     _emit_stream_done,
     _now_ms,
+    _persistence_timeline,
     _request_usage,
 )
 
@@ -131,6 +132,57 @@ async def test_emit_stream_done_without_start_keeps_usage_as_is():
     raw = queue.get_nowait()
     u = json.loads(raw.removeprefix("data: ").strip())["usage"]
     assert u == {"total_tokens": 5}
+
+
+@pytest.mark.asyncio
+async def test_emit_stream_done_carries_authoritative_timeline():
+    """done 事件携带 timeline（与落库同源同序）——前端终态整体替换的依据；
+    未提供时不带该字段（旧契约兼容）。"""
+    import json
+
+    queue: asyncio.Queue = asyncio.Queue()
+    timeline = [
+        {"type": "text_delta", "content": "你"},
+        {"type": "text", "content": "你好"},
+        {"type": "tool_call", "id": "tc1", "tool_name": "kb_search", "args": {"q": "x"}},
+        {"type": "tool_result", "tool_call_id": "tc1", "content": "hit"},
+    ]
+    await _emit_stream_done(
+        queue, request_id="req_1", session_id="sess_1", usage=None,
+        timeline_entries=_persistence_timeline(timeline),
+    )
+    payload = json.loads(queue.get_nowait().removeprefix("data: ").strip())
+    # 瞬态事件（text_delta/tool_call_start/interrupt）被过滤，落库事件保留
+    assert payload["timeline"] == [
+        {"type": "text", "content": "你好"},
+        {"type": "tool_call", "id": "tc1", "tool_name": "kb_search", "args": {"q": "x"}},
+        {"type": "tool_result", "tool_call_id": "tc1", "content": "hit"},
+    ]
+
+    queue2: asyncio.Queue = asyncio.Queue()
+    await _emit_stream_done(queue2, request_id="req_2", session_id="sess_1", usage=None)
+    assert "timeline" not in json.loads(queue2.get_nowait().removeprefix("data: ").strip())
+
+
+def test_persistence_timeline_filters_transient_and_extra_types():
+    """过滤视图：瞬态类型 + extra（resume 的 interrupt）被剔除，顺序保持。"""
+    timeline = [
+        {"type": "interrupt", "kind": "clarification", "question": "?"},
+        {"type": "text_delta", "content": "a"},
+        {"type": "text", "content": "ab"},
+        {"type": "tool_call_start", "tool_name": "t"},
+        {"type": "tool_call", "id": "tc1"},
+        {"type": "thinking_delta", "content": "z"},
+    ]
+    assert _persistence_timeline(timeline) == [
+        {"type": "text", "content": "ab"},
+        {"type": "tool_call", "id": "tc1"},
+    ]
+    assert _persistence_timeline(
+        timeline, extra_filter_types=("tool_call",),
+    ) == [{"type": "text", "content": "ab"}]
+    # 原 list 不被修改
+    assert len(timeline) == 6
 
 
 # ── 同 session 并发写 checkpointer 防护（#10）───────────────────────────────

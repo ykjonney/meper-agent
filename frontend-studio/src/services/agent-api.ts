@@ -252,6 +252,21 @@ export interface InterruptEvent {
   interrupt_id: string
 }
 
+/** done 事件携带的权威终态条目（与后端 messages.timeline_entries 落库数据
+ *  同源同序）。字段与 client 端 TimelineEntry 语义一致。 */
+export interface DoneTimelineEntry {
+  type: string
+  content?: string
+  tool_name?: string
+  args?: Record<string, unknown>
+  /** tool_call entry 的唯一 id（AIMessage.tool_calls[i].id）。 */
+  id?: string
+  /** tool_result entry 对应的 tool_call id。 */
+  tool_call_id?: string
+  is_error?: boolean
+  status?: 'success' | 'error'
+}
+
 /** Execution finished */
 export interface StreamDoneEvent {
   done: true
@@ -259,6 +274,9 @@ export interface StreamDoneEvent {
   session_id: string
   /** Token usage for the completed run (backend includes this on the done event). */
   usage?: TokenUsage
+  /** 权威终态 timeline——前端据此整体替换流式累加结果，保证流结束瞬间
+   *  与刷新后加载的持久化消息一致；旧后端不带此字段。 */
+  timeline?: DoneTimelineEntry[]
 }
 
 /** Union of all SSE event types */

@@ -318,8 +318,12 @@ async def upload_avatar(
     if avatars_dir.resolve() not in target.parents:
         raise ValidationError(code="AVATAR_PATH", message="文件路径越界")
     target.write_bytes(content)
-    # 写回 agent.avatar（相对 URL，前端 <img src> 直接用）
-    avatar_url = f"/api/v1/agent-avatars/{agent_id}.png"
+    # 写回 avatar 引用：URL 带内容 hash 版本戳（?v=xxx）——
+    # 同名覆盖更新时 URL 随内容变化，浏览器缓存自然失效（否则永远显示旧图）。
+    # StaticFiles 忽略 query string，服务端行为不变。
+    import hashlib as _hl
+    content_hash = _hl.sha256(content).hexdigest()[:8]
+    avatar_url = f"/api/v1/agent-avatars/{agent_id}.png?v={content_hash}"
     await AgentService.set_avatar(agent_id, avatar_url)
     return {"avatar": avatar_url}
 

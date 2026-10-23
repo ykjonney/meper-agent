@@ -286,6 +286,7 @@ class AgentExecutionService:
                 # mw.summary 的 total_tokens 含 seed 的 session 历史累计，统一
                 # 换算为本轮增量后再落库/回传（防 add_tokens 双重累计指数膨胀）。
                 request_usage = _request_usage(result.get("usage"), session_total_tokens)
+                done_timeline: list[dict] = []
                 if not cancelled:
                     persist_t0 = _now_ms()
                     with contextlib.suppress(Exception):
@@ -294,6 +295,7 @@ class AgentExecutionService:
                             token_usage=request_usage,
                             request_id=request_id,
                         )
+                    done_timeline = _persistence_timeline(collected_timeline)
                     timing["persist_ms"] = _now_ms() - persist_t0
                     # Unified execution log (all channels).
                     with contextlib.suppress(Exception):
@@ -314,6 +316,7 @@ class AgentExecutionService:
                     # 只影响 messages 展示集合，不回流模型上下文（checkpointer
                     # 停在上一个完成步，半截回复从未进入状态）。
                     finalized = _finalize_cancelled_timeline(collected_timeline)
+                    done_timeline = _persistence_timeline(finalized) if finalized else []
                     if finalized:
                         with contextlib.suppress(asyncio.CancelledError, Exception):
                             await asyncio.shield(_persist_agent_message(
@@ -333,6 +336,7 @@ class AgentExecutionService:
                     event_queue, request_id=request_id, session_id=session_id,
                     usage=request_usage, cancelled=cancelled,
                     start_time_ms=start_time_ms, ttft_ms=timing.get("ttft_ms", 0),
+                    timeline_entries=done_timeline,
                 )
 
         # 同 session 的 checkpointer thread 只允许一个写入者：SSE 断连后
@@ -440,6 +444,7 @@ class AgentExecutionService:
                 unregister_run(request_id)
                 # 与 stream 相同：换算为本轮增量，防双重累计（见 stream 内注释）。
                 request_usage = _request_usage(result.get("usage"), session_total_tokens)
+                done_timeline: list[dict] = []
                 if not cancelled:
                     persist_t0 = _now_ms()
                     with contextlib.suppress(Exception):
@@ -450,6 +455,9 @@ class AgentExecutionService:
                             append_to_last_agent=True,
                             request_id=request_id,
                         )
+                    done_timeline = _persistence_timeline(
+                        collected_timeline, extra_filter_types=("interrupt",),
+                    )
                     timing["persist_ms"] = _now_ms() - persist_t0
                     # Unified execution log (all channels).
                     # Failure is non-fatal — must not block the terminal done event.
@@ -473,6 +481,10 @@ class AgentExecutionService:
                     # 只影响 messages 展示集合，不回流模型上下文（checkpointer
                     # 停在上一个完成步，半截回复从未进入状态）。
                     finalized = _finalize_cancelled_timeline(collected_timeline)
+                    done_timeline = (
+                        _persistence_timeline(finalized, extra_filter_types=("interrupt",))
+                        if finalized else []
+                    )
                     if finalized:
                         with contextlib.suppress(asyncio.CancelledError, Exception):
                             await asyncio.shield(_persist_agent_message(
@@ -492,6 +504,7 @@ class AgentExecutionService:
                     event_queue, request_id=request_id, session_id=session_id,
                     usage=request_usage, cancelled=cancelled,
                     start_time_ms=start_time_ms, ttft_ms=timing.get("ttft_ms", 0),
+                    timeline_entries=done_timeline,
                 )
 
         # 与 stream 相同的并发防护：resume 也写同一 checkpointer thread。
@@ -1009,6 +1022,20 @@ async def _emit_stream_error(
     logger.exception(f"{log_tag}_traceback")
 
 
+def _persistence_timeline(
+    collected_timeline: list[dict], *,
+    extra_filter_types: tuple[str, ...] = (),
+) -> list[dict]:
+    """Done 事件与消息落库共用的过滤视图（同源同序）。
+
+    done 里带的 timeline 必须与落库的 timeline_entries 完全一致——前端
+    据此在流结束时整体替换流式消息，保证「流结束瞬间 = 刷新后看到的内容」，
+    从结构上消除流内累加漂移导致的重复显示。
+    """
+    filter_types = _TRANSIENT_EVENT_TYPES + extra_filter_types
+    return [e for e in collected_timeline if e.get("type") not in filter_types]
+
+
 async def _emit_stream_done(
     event_queue: asyncio.Queue,
     *,
@@ -1018,20 +1045,28 @@ async def _emit_stream_done(
     cancelled: bool = False,
     start_time_ms: int | None = None,
     ttft_ms: int = 0,
+    timeline_entries: list[dict] | None = None,
 ) -> None:
     """Push the terminal done event + close sentinel. Shared by stream/resume.
 
     start_time_ms 提供时，把 usage 补齐为毫秒级耗时拆分（total_latency_ms /
     llm_duration_ms / tool_duration_ms / other_duration_ms / ttft_ms），
     前端可直接渲染「慢在哪」而无需换算。
+    timeline_entries 提供时随 done 下发权威终态（_persistence_timeline 的
+    产物），前端整体替换流式消息；取消轮传 _finalize_cancelled_timeline
+    产物过滤后的版本。
     """
     usage = dict(usage or {})
     if start_time_ms is not None:
         m = _duration_metrics(usage, start_time_ms=start_time_ms, ttft_ms=ttft_ms)
         usage.update(m)
-    await event_queue.put(
-        f"data: {safe_json({'done': True, 'cancelled': cancelled, 'request_id': request_id, 'session_id': session_id, 'usage': usage})}\n\n"
-    )
+    payload: dict = {
+        "done": True, "cancelled": cancelled,
+        "request_id": request_id, "session_id": session_id, "usage": usage,
+    }
+    if timeline_entries is not None:
+        payload["timeline"] = timeline_entries
+    await event_queue.put(f"data: {safe_json(payload)}\n\n")
     await event_queue.put(None)
 
 
@@ -1052,11 +1087,9 @@ async def _persist_agent_message(
             tool_result for ask_clarification end up in the same message.
         request_id: 本轮请求 id——消息级反馈（§8.2）的轮次键。
     """
-    filter_types = _TRANSIENT_EVENT_TYPES + extra_filter_types
-    persistence_timeline = [
-        e for e in collected_timeline
-        if e.get("type") not in filter_types
-    ]
+    persistence_timeline = _persistence_timeline(
+        collected_timeline, extra_filter_types=extra_filter_types,
+    )
     if persistence_timeline:
         try:
             if append_to_last_agent:

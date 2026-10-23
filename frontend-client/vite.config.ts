@@ -8,6 +8,10 @@ export default defineConfig({
   base: '/client/',
   plugins: [react()],
   publicDir: '../frontend-studio/public',
+  // 闭源分发：显式禁用 sourcemap（防误开导致源码随 dist 泄露）。
+  build: {
+    sourcemap: false,
+  },
   server: {
     proxy: {
       '/api/': {

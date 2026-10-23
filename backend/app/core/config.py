@@ -401,6 +401,26 @@ class Settings(BaseSettings):
     CHANNEL_EXECUTION_MAX_RETRIES: int = 3
     CHANNEL_MAX_CONCURRENT_EXECUTIONS_PER_CHANNEL: int = 4
 
+    # ── License（离线授权，闭源分发用）─────────────────────────────────
+    # 是否强制校验。最终生效 = build_flags.LICENSE_ENFORCED（构建期注入，
+    # 客户不可改） OR 此 env（只能加强不能削弱）。源码轨默认全 False。
+    LICENSE_ENFORCE_EXTRA: bool = False
+    # license 文件路径（安装包内默认 /opt/agent-flow/etc/license.key）。
+    LICENSE_PATH: str = "etc/jasper.identity"
+    # （新 License 系统不再需要防回拨 state 文件）
+    # 公钥覆盖（raw 32 字节 hex）。仅 APP_ENV != "production" 生效——
+    # 供开发/测试注入测试公钥；生产公钥来自 build 注入或内嵌常量。
+    LICENSE_PUBLIC_KEY_HEX: str = ""
+    # 运行期复验间隔（秒），backend lifespan 循环使用。
+    LICENSE_RECHECK_INTERVAL_SECONDS: int = 30 * 60
+
+    # ── 全原生部署（零 Docker：客户已有数据库，backend 直接托管前端）──
+    # True 时 FastAPI 托管 AGENT_FLOW_WEB_DIR 下的前端产物（studio 在 /、
+    # client 在 /client/，含 SPA fallback），无需 Caddy/nginx 层。
+    AGENT_FLOW_SERVE_STATIC: bool = False
+    # 前端产物目录（安装包内默认 /opt/agent-flow/web）。
+    AGENT_FLOW_WEB_DIR: str = ""
+
 
 
 

@@ -94,22 +94,7 @@ export interface MessageRecord {
   display_text?: string | null
   /** 本轮执行请求 id——消息级反馈（§8.2）的轮次键 */
   request_id?: string
-  timeline_entries?: Array<{
-    type: string
-    content?: string
-    tool_name?: string
-    args?: Record<string, unknown>
-    /** tool_call entry 的唯一 id(来自 AIMessage.tool_calls[i].id)。 */
-    id?: string
-    /** tool_result entry 对应的 tool_call id(来自 ToolMessage.tool_call_id)。 */
-    tool_call_id?: string
-    /** tool_result entry 是否为执行失败(来自 ToolMessage.status == "error")。
-     *  旧数据没有该字段,按 falsy 处理为正常完成。 */
-    is_error?: boolean
-    /** 流式持久化的 tool_result entry 写的是 status 字段(与 SSE 事件一致);
-     *  is_error 仅存在于 invoke/任务 trace 路径,两者都兼容。 */
-    status?: 'success' | 'error'
-  }>
+  timeline_entries?: TimelineEntry[]
   files?: Array<{
     id?: string
     _id?: string
@@ -120,8 +105,26 @@ export interface MessageRecord {
   created_at: string | null
 }
 
-export interface ToolRun {
-  id: string
+/** agent 轮次的持久化 timeline 条目（messages.timeline_entries 元素）。
+ *  历史加载与流 done 事件的权威终态共用此结构。 */
+export interface TimelineEntry {
+  type: string
+  content?: string
+  tool_name?: string
+  args?: Record<string, unknown>
+  /** tool_call entry 的唯一 id(来自 AIMessage.tool_calls[i].id)。 */
+  id?: string
+  /** tool_result entry 对应的 tool_call id(来自 ToolMessage.tool_call_id)。 */
+  tool_call_id?: string
+  /** tool_result entry 是否为执行失败(来自 ToolMessage.status == "error")。
+   *  旧数据没有该字段,按 falsy 处理为正常完成。 */
+  is_error?: boolean
+  /** 流式持久化的 tool_result entry 写的是 status 字段(与 SSE 事件一致);
+   *  is_error 仅存在于 invoke/任务 trace 路径,两者都兼容。 */
+  status?: 'success' | 'error'
+}
+
+export interface ToolRun {  id: string
   name: string
   /** LangGraph tool_call id,用于精确配对 tool_call ↔ tool_result。 */
   toolCallId?: string
@@ -239,6 +242,10 @@ export interface StreamEvent {
   done?: true
   /** done 事件携带——本轮请求 id（消息级反馈轮次键） */
   request_id?: string
+  /** done 事件携带——权威终态 timeline（与落库 timeline_entries 同源同序）。
+   *  前端据此整体替换流式消息，保证流结束瞬间与刷新后显示一致；
+   *  旧后端不带此字段，走原有流式累加结果。 */
+  timeline?: TimelineEntry[]
   content?: string
   tool_name?: string
   args?: Record<string, unknown>

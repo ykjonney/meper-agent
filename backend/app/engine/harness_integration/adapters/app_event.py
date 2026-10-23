@@ -155,7 +155,8 @@ class ErrorEvent(_Base):
     )
 
 
-type AppEvent = (
+# 传统 Union 别名（非 PEP695 `type X = ...`）——Cython 编译管线暂不支持新语法。
+AppEvent = (
     ThinkingDeltaEvent
     | ThinkingEvent
     | TextDeltaEvent

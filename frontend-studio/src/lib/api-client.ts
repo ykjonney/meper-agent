@@ -168,6 +168,13 @@ apiClient.interceptors.response.use(
       redirectToLogin(errorCode)
     }
 
+    // License gate：业务 API 被 license 闸门拦下（403 LIC_E_*）时派发事件，
+    // App 根组件监听后 invalidate license status → 全屏激活向导即时出现。
+    // 不在此处跳转——闸门状态由 react-query 单点驱动，避免双路径漂移。
+    if (status === 403 && errorCode?.startsWith('LIC_E_')) {
+      window.dispatchEvent(new CustomEvent('agentflow-license-blocked', { detail: errorCode }))
+    }
+
     return Promise.reject(normalizeError(error))
   },
 )

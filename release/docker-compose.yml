@@ -1,0 +1,138 @@
+# Agent Flow（.so 包）容器编排——与源项目 deploy/docker-compose.yml 同构：
+# caddy（唯一对外 80/443）+ app/worker/beat（复用同一镜像）+ 数据库。
+#
+# 用法（推荐经启动器，也可直接 docker compose）：
+#   ./agent-flow start --docker        # 自动构建镜像并启动（APP_VERSION 可选）
+#   APP_VERSION=1.0.1 docker compose -f docker-compose.yml up -d --build
+#
+# 镜像 tag：由 APP_VERSION 控制（默认 latest），三个 service 锚点复用同一 tag，
+# 升级时不必改本文件——只需构建时传新版本号。
+x-app-image: &app-image agent-flow-app:${APP_VERSION:-latest}
+
+# 容器内数据路径（覆盖 env_file 中的相对路径）
+# 宿主真实网卡 MAC（license 绑机标识）：容器内是 veth 随机 MAC，
+# 由启动器 start --docker 在宿主算好注入；license.py 优先读 AGENT_FLOW_MAC
+x-host-fp: &host-fp
+  AGENT_FLOW_MAC: ${HOST_MAC:-}
+# 容器内文件路径（Docker 部署特有；手动模式不需要这些变量）
+# 宿主机路径等其余配置均由 env 文件提供，不在此覆盖
+x-data-env: &data-env
+  WORKSPACES_CONTAINER_DIR: /opt/agent-flow/data/workspaces
+  SKILLS_CONTAINER_DIR: /opt/agent-flow/data/skills
+  HOMES_CONTAINER_DIR: /opt/agent-flow/data/homes
+  KB_CONTAINER_DIR: /opt/agent-flow/data/knowledge_bases
+  AVATARS_CONTAINER_DIR: /opt/agent-flow/data/avatars
+  SKILL_AVATARS_CONTAINER_DIR: /opt/agent-flow/data/skill_avatars
+
+# license：容器内固定路径（宿主 etc/ 目录整个挂入，见 volumes）。
+# 必须 rw：网页激活向导的 install API 要写入 jasper.identity。
+x-license-env: &license-env
+  # 固定容器内路径，不受宿主 env 文件里的相对/绝对路径影响
+  LICENSE_PATH: /opt/agent-flow/etc/jasper.identity
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: agent-flow-caddy
+    ports:
+      - "80:80"    # 对外：caddy 收口（与源项目 deploy 一致；https 由 caddy 自动，
+      - "443:443"  #  有域名时 Caddyfile 站点地址改域名即可签证书）
+    volumes:
+      - ./web:/srv/web:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${AF_DATA_DIR:-./data}/caddy:/data
+      - ${AF_DATA_DIR:-./data}/caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags: ["agent-flow-app:${APP_VERSION:-latest}"]
+    image: *app-image
+    container_name: agent-flow-app
+    expose:
+      - "8000"  # 仅 docker 网络内（caddy 通过 app:8000 访问）
+    env_file:
+      - ./etc/agent-flow.env
+    environment:
+      <<: [*data-env, *license-env, *host-fp]
+    volumes:
+      - ./data:/opt/agent-flow/data
+      # etc 整目录挂入（rw）：license 装入后落盘宿主 etc/jasper.identity，
+      # 升级换容器/切手动部署，授权都在
+      - ./etc:/opt/agent-flow/etc
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mongodb
+      - redis
+    restart: unless-stopped
+
+  worker:
+    image: *app-image
+    container_name: agent-flow-worker
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    env_file:
+      - ./etc/agent-flow.env
+    environment:
+      <<: [*data-env, *license-env, *host-fp]
+    volumes:
+      - ./data:/opt/agent-flow/data
+      - ./etc:/opt/agent-flow/etc
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - app
+      - mongodb
+      - redis
+    restart: unless-stopped
+
+  beat:
+    image: *app-image
+    container_name: agent-flow-beat
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    env_file:
+      - ./etc/agent-flow.env
+    environment:
+      <<: [*data-env, *license-env, *host-fp]
+    volumes:
+      - ./data:/opt/agent-flow/data
+      - ./etc:/opt/agent-flow/etc
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mongodb
+      - redis
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    container_name: agent-flow-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+    volumes:
+      - ${AF_DATA_DIR:-./data}/mongodb:/data/db
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"  # 本机工具用（mongosh 等）
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent-flow-redis
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - ${AF_DATA_DIR:-./data}/redis:/data
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: agent-flow-qdrant
+    volumes:
+      - ${AF_DATA_DIR:-./data}/qdrant:/qdrant/storage
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+

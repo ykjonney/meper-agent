@@ -11,7 +11,7 @@ import { userSkillsApi, type SessionFeedbackItem } from '../services/user-skills
 import {
   sessionApi, sessionKeys, type Session, type MessageRecord, type FileRef, getFileId,
 } from '../services/session-api';
-import { agentApi, agentKeys } from '../services/agent-api';
+import { agentApi, agentKeys, type DoneTimelineEntry } from '../services/agent-api';
 import { modelApi, modelKeys } from '../services/model-api';
 import { toStudioAgent } from '../services/adapters';
 import { getFileBlob, downloadFile as downloadFileById } from '../services/file-api';
@@ -99,6 +99,54 @@ export function parseOutputAttachments(text: string): ChatAttachment[] {
     });
   }
   return out;
+}
+
+/** done 事件的权威终态 timeline（与落库同源）→ 展示 entries。流结束时整体
+ *  替换流式累加结果——无论流过程发生何种漂移（resume 重放/事件重复），
+ *  流结束瞬间与刷新后加载的持久化消息必然一致。旧后端不带 timeline 时
+ *  由调用方维持原有行为。 */
+function doneTimelineToEntries(entries: DoneTimelineEntry[], msgId: string): TimelineEntry[] {
+  const tl: TimelineEntry[] = [];
+  let seq = 0;
+  for (const e of entries) {
+    if (e.type === 'thinking' && e.content) {
+      tl.push({ id: `${msgId}-f-think-${seq++}`, type: 'thinking', content: e.content, expanded: false });
+    } else if ((e.type === 'text' || e.type === 'final_answer') && e.content) {
+      tl.push({ id: `${msgId}-f-text-${seq++}`, type: 'text', content: e.content });
+    } else if (e.type === 'error' && e.content) {
+      tl.push({ id: `${msgId}-f-err-${seq++}`, type: 'error', content: `❌ ${e.content}` });
+    } else if (e.type === 'tool_call' || e.type === 'tool') {
+      tl.push({
+        id: `${msgId}-f-tool-${seq++}`,
+        type: 'tool',
+        content: '',
+        toolName: e.tool_name ?? '',
+        args: e.args,
+        toolCallId: e.id ?? '',
+        toolStatus: e.type === 'tool' ? 'success' : 'running',
+      });
+    } else if (e.type === 'tool_result') {
+      const rid = e.tool_call_id ?? '';
+      for (let i = tl.length - 1; i >= 0; i--) {
+        const t = tl[i];
+        if (
+          t.type === 'tool' && t.toolStatus === 'running' &&
+          (rid ? t.toolCallId === rid : t.toolName === e.tool_name)
+        ) {
+          t.result = e.content;
+          t.toolStatus = e.is_error === true || e.status === 'error' ? 'error' : 'success';
+          break;
+        }
+      }
+    }
+  }
+  // 收敛未配对的 running/pending（异常中断）为 success，与下方 done 收敛语义一致。
+  for (const t of tl) {
+    if (t.type === 'tool' && (t.toolStatus === 'running' || t.toolStatus === 'pending')) {
+      t.toolStatus = 'success';
+    }
+  }
+  return tl;
 }
 
 /** Convert a persisted backend agent MessageRecord into a single studio
@@ -1182,12 +1230,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           refreshSessions();
           filesPanelRef.current?.refresh();
           setFeedbackTick((t) => t + 1);  // 本轮可能 load 了技能——刷新反馈态
-          // 收敛残留 pending/running 的 tool entry 为 success（跳过 ask_clarification/
-          // confirm_workflow —— 它们 interrupt 等待用户），并挂 usage。
+          // 权威终态：done 携带与落库同源的 timeline，整体替换流式累加
+          // 结果（防止流内漂移造成重复显示）；旧后端不带 timeline 时走
+          // 原有"收敛 pending/running"路径。
+          const finalTimeline = evt.timeline
+            ? doneTimelineToEntries(evt.timeline, agentMsgId)
+            : null;
           updateLiveMessages((prev) =>
             prev.map((m) => {
               if (m.id !== agentMsgId) return m;
-              const tl = (m.timeline ?? []).map((e) =>
+              const tl = finalTimeline ?? (m.timeline ?? []).map((e) =>
                 e.type === 'tool' &&
                 (e.toolStatus === 'pending' || e.toolStatus === 'running') &&
                 e.toolName !== 'ask_clarification' &&

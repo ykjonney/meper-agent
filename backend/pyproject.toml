@@ -108,6 +108,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
+# 三个进程入口必须在所有 import 之前安装 Cython/pydantic 兼容补丁，
+# import 顺序让位于运行时正确性。
+"app/main.py" = ["E402"]
+"app/workers/celery_app.py" = ["E402"]
+"app/cli/__main__.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"

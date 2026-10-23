@@ -3,6 +3,11 @@ import argparse
 import asyncio
 import sys
 
+# Cython 兼容补丁最先安装（任何 pydantic 模型类创建之前）。
+import app._cycompat
+
+app._cycompat.install()
+
 
 def main() -> None:
     """Parse CLI arguments and dispatch to subcommands."""

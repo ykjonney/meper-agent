@@ -31,6 +31,10 @@ cd backend && uv run ruff check . && uv run mypy app               # 后端 lint
 cd frontend-studio && npm run lint   # = tsc --noEmit（client 同理，build 也是 tsc 前置）
 make build-sandbox        # 构建沙盒镜像；不构建则 bash 静默回退 subprocess 执行
 make generate-api         # 从 OpenAPI 生成前端类型（改 API 后跑）
+# 交付包构建（详见 docs/DISTRIBUTION.md）：
+make build-release VERSION=1.0.6                # dev 构建（license 不强制，内部用）
+make build-release VERSION=1.0.6 RELEASE=1      # 正式构建（license 强制，交付客户）
+make build-release-docker VERSION=1.0.6         # 非交互 Docker 构建（默认 linux/amd64）
 ```
 
 注意：`Makefile`/根 `README` 中部分 `frontend` 引用早于 `frontend-studio` 的引入，以三个包各自的 `package.json` 为准。

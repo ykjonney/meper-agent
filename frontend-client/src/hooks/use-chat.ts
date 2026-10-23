@@ -19,6 +19,7 @@ import {
   type HitlState,
   type MessageRecord,
   type StreamEvent,
+  type TimelineEntry,
   type ToolRun,
 } from '../types'
 
@@ -79,43 +80,19 @@ function userHistoryContent(content: string): {
   return { text: content.replace(FILE_BLOCK_RE, '').trim(), attachments }
 }
 
-function fromHistory(record: MessageRecord): ChatMessage {
-  if (record.role === 'user') {
-    const parsed = userHistoryContent(record.content ?? '')
-    const storedAttachments: AttachmentView[] = (record.files ?? []).map(
-      (file, index) => ({
-        id: file.id || file._id || `history-file-${index}`,
-        name: file.name,
-        contentType: file.mime_type || 'application/octet-stream',
-        kind:
-          file.mime_type?.startsWith('image/') ||
-          /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)
-            ? 'image'
-            : 'file',
-        source: 'upload',
-      }),
-    )
-    return {
-      id: record.id,
-      role: 'user',
-      content: parsed.text ? [{ type: 'text', text: parsed.text }] : [],
-      // 快捷指令消息：气泡优先展示 display_text（label），content 仅为回退
-      displayText: record.display_text || undefined,
-      attachments: storedAttachments.length ? storedAttachments : parsed.attachments,
-      charts: [],
-      status: 'success',
-      createdAt: record.created_at ? new Date(record.created_at) : undefined,
-    }
-  }
-  // 单次线性遍历 timeline_entries,按真实顺序产出 content blocks,
-  // 不再用 filter+join(那会丢失 thinking/text/tool 的交错顺序)。
-  const entries = record.timeline_entries ?? []
+/** 从 timeline entries 重建 assistant 消息内容（单次线性遍历，按真实
+ *  顺序产出 blocks）。历史加载（fromHistory）与流 done 终态替换共用，
+ *  保证两条路径对同一份数据产出完全一致的渲染结构。 */
+function rebuildFromTimeline(entries: TimelineEntry[]): {
+  blocks: ContentBlock[]
+  attachments: Map<string, AttachmentView>
+} {
   const blocks: ContentBlock[] = []
   /** key = tool_call id(entry.id),用于和 tool_result(entry.tool_call_id)精确配对。 */
   const pendingById = new Map<string, ToolRun>()
   /** 退化兜底:key = tool_name,用于旧数据(无 id)按名称配对。 */
   const pendingByName = new Map<string, ToolRun>()
-  let allTools: ToolRun[] = []
+  const allTools: ToolRun[] = []
   for (const [index, entry] of entries.entries()) {
     if (entry.type === 'thinking' && entry.content) {
       blocks.push({ type: 'reasoning', text: entry.content })
@@ -155,17 +132,52 @@ function fromHistory(record: MessageRecord): ChatMessage {
       }
     }
   }
+  // 跨 tool 去重:同名 output 文件常出现在多个 tool_result 里(写文件后被后续
+  // tool/agent 回显路径),用 Map 按 id 收敛,与流式路径(acc.attachments.set)对齐。
+  const attachments = new Map<string, AttachmentView>()
+  for (const tool of allTools) {
+    for (const att of outputAttachments(tool.result ?? '')) {
+      attachments.set(att.id, att)
+    }
+  }
+  return { blocks, attachments }
+}
+
+function fromHistory(record: MessageRecord): ChatMessage {
+  if (record.role === 'user') {
+    const parsed = userHistoryContent(record.content ?? '')
+    const storedAttachments: AttachmentView[] = (record.files ?? []).map(
+      (file, index) => ({
+        id: file.id || file._id || `history-file-${index}`,
+        name: file.name,
+        contentType: file.mime_type || 'application/octet-stream',
+        kind:
+          file.mime_type?.startsWith('image/') ||
+          /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)
+            ? 'image'
+            : 'file',
+        source: 'upload',
+      }),
+    )
+    return {
+      id: record.id,
+      role: 'user',
+      content: parsed.text ? [{ type: 'text', text: parsed.text }] : [],
+      // 快捷指令消息：气泡优先展示 display_text（label），content 仅为回退
+      displayText: record.display_text || undefined,
+      attachments: storedAttachments.length ? storedAttachments : parsed.attachments,
+      charts: [],
+      status: 'success',
+      createdAt: record.created_at ? new Date(record.created_at) : undefined,
+    }
+  }
+  // 单次线性遍历重建 blocks（与流 done 终态替换共用，见 rebuildFromTimeline）。
+  const { blocks, attachments: attachmentMap } = rebuildFromTimeline(
+    record.timeline_entries ?? [],
+  )
   // 兜底:如果没有任何 text block,用 record.content 作为正文(向后兼容旧数据)
   if (!blocks.some((b) => b.type === 'text') && record.content) {
     blocks.push({ type: 'text', text: record.content })
-  }
-  // 跨 tool 去重:同名 output 文件常出现在多个 tool_result 里(写文件后被后续
-  // tool/agent 回显路径),用 Map 按 id 收敛,与流式路径(acc.attachments.set)对齐。
-  const attachmentMap = new Map<string, AttachmentView>()
-  for (const tool of allTools) {
-    for (const att of outputAttachments(tool.result ?? '')) {
-      attachmentMap.set(att.id, att)
-    }
   }
   const attachments = Array.from(attachmentMap.values())
   return {
@@ -465,10 +477,11 @@ export function useChat(
   const process = useCallback(
     async (events: AsyncGenerator<StreamEvent>, acc: AssistantAccumulator) => {
       // 当前 LLM 轮的 reasoning/text 块引用。thinking/text 的 final 事件
-      // （on_chat_model_end）与其增量版之间隔着其他块（事件序：…text_delta →
-      // thinking final → text final），不能靠"末尾块"定位——否则 final 会另起
-      // 新块，把整段思考/正文重复一遍。tool_call 到达即本轮结束，重置引用；
-      // 同轮交错思考块（thinking→text→thinking）也归并到同一 reasoning 块，
+      // （on_chat_model_end）只覆盖本轮引用指向的块；引用失效（tool_call
+      // 重置后/新轮无 delta）时丢弃 final——否则权威全量另起新块会把整段
+      // 重复一遍（历史 bug 根因）。终态权威由 done 事件的 timeline 整体
+      // 对齐（见 done 分支），流内显示只承担过程呈现。tool_call 到达即本
+      // 轮结束，重置引用；同轮交错思考块也归并到同一 reasoning 块，
       // 与后端持久化结构（final 合并全部块）一致。
       let reasoningBlock: { type: 'reasoning'; text: string } | null = null
       let textBlock: { type: 'text'; text: string } | null = null
@@ -485,25 +498,35 @@ export function useChat(
       try {
         for await (const event of events) {
           if ((event.type === 'text_delta' || event.type === 'text') && event.content) {
-            // text_delta 是流式增量 → 追加
-            // text 是 on_chat_model_end 的完整文本 → 覆盖（不追加，避免重复）
-            if (!textBlock) {
-              textBlock = { type: 'text', text: '' }
-              acc.blocks.push(textBlock)
+            // text_delta 是流式增量 → 追加（无本轮块时新建）
+            // text 是 on_chat_model_end 的完整文本 → 覆盖本轮块（不追加）。
+            // 引用已被 tool_call 重置/本轮无 delta 时丢弃 final——它是权威
+            // 全量，另起新块会把整段正文重复一遍（重复显示 bug 的根因）；
+            // 中间显示交由 delta，终态由 done 的 timeline 整体对齐。
+            if (event.type === 'text') {
+              if (textBlock) textBlock.text = event.content
+            } else {
+              if (!textBlock) {
+                textBlock = { type: 'text', text: '' }
+                acc.blocks.push(textBlock)
+              }
+              textBlock.text += event.content
             }
-            if (event.type === 'text') textBlock.text = event.content
-            else textBlock.text += event.content
           } else if (
             (event.type === 'thinking' || event.type === 'thinking_delta') &&
             event.content
           ) {
-            // 同 text：delta 追加 / final 覆盖，按轮内引用定位。
-            if (!reasoningBlock) {
-              reasoningBlock = { type: 'reasoning', text: '' }
-              acc.blocks.push(reasoningBlock)
+            // 同 text：delta 追加 / final 覆盖本轮块；引用失效时丢弃 final
+            //（理由同上，终态由 done 对齐）。
+            if (event.type === 'thinking') {
+              if (reasoningBlock) reasoningBlock.text = event.content
+            } else {
+              if (!reasoningBlock) {
+                reasoningBlock = { type: 'reasoning', text: '' }
+                acc.blocks.push(reasoningBlock)
+              }
+              reasoningBlock.text += event.content
             }
-            if (event.type === 'thinking') reasoningBlock.text = event.content
-            else reasoningBlock.text += event.content
           } else if (event.type === 'tool_call') {
             const toolCallId = event.id || ''
             const id = `tool-${allToolsFromBlocks(acc.blocks).length + 1}`
@@ -642,6 +665,18 @@ export function useChat(
             return
           } else if (event.done) {
             acc.requestId = event.request_id  // §8.2 消息级反馈轮次键
+            // 权威终态对齐：done 携带与落库同源的 timeline，整体替换流式
+            // 累加结果——无论流过程中发生何种漂移（resume 重放/事件重复），
+            // 流结束瞬间与刷新后看到的内容必然一致。旧后端不带 timeline
+            // 时走原有流式累加结果。
+            if (Array.isArray(event.timeline)) {
+              const rebuilt = rebuildFromTimeline(event.timeline)
+              acc.blocks = rebuilt.blocks
+              for (const [id, att] of rebuilt.attachments) {
+                // 保留流式期间已创建的本地 objectURL（重建结果只有文件名）
+                acc.attachments.set(id, { ...att, url: acc.attachments.get(id)?.url })
+              }
+            }
             // 流结束但仍有工具停在 running:说明没收到它的 tool_result(异常中断)。
             // 诚实地标为 error 并补提示文案,而不是伪装成 complete 误导用户。
             for (const block of acc.blocks) {

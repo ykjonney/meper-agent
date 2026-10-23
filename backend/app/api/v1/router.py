@@ -21,6 +21,7 @@ from app.api.v1.my_app_authorizations import router as my_app_authorizations_rou
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.roles import router as roles_router
 from app.api.v1.sessions import router as sessions_router
+from app.api.v1.system import router as system_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.transfer import router as transfer_router
@@ -36,6 +37,7 @@ from app.voice.api import router as voice_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
+api_v1_router.include_router(system_router)
 api_v1_router.include_router(auth_router)
 api_v1_router.include_router(admin_router)
 api_v1_router.include_router(agents_router)

@@ -1,7 +1,9 @@
 """Common Pydantic schemas: pagination, error response."""
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
+
+T = TypeVar("T")
 
 
 class ErrorResponse(BaseModel):
@@ -27,7 +29,8 @@ class PaginationRequest(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
 
 
-class PaginatedResponse[T](BaseModel):
+# Generic[T] 传统写法（非 PEP695 `class C[T]`）——Cython 编译管线暂不支持新语法。
+class PaginatedResponse(BaseModel, Generic[T]):  # noqa: UP046
     """Standard paginated response envelope."""
 
     total: int = 0
