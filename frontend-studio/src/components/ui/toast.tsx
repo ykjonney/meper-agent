@@ -111,13 +111,13 @@ export function Toaster() {
         return (
           <div
             key={t.id}
-            className="pointer-events-auto flex items-start gap-2.5 min-w-[260px] max-w-sm px-3.5 py-3 rounded-lg border border-[#27272a] bg-[#18181b] shadow-2xl animate-fade-in"
+            className="pointer-events-auto flex items-start gap-2.5 min-w-[260px] max-w-sm px-3.5 py-3 rounded-lg border border-line bg-panel shadow-2xl animate-fade-in"
           >
             <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
-            <p className="flex-1 text-xs text-[#fafafa] leading-relaxed break-words">{t.message}</p>
+            <p className="flex-1 text-xs text-ink leading-relaxed break-words">{t.message}</p>
             <button
               onClick={() => dismiss(t.id)}
-              className="shrink-0 text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors"
+              className="shrink-0 text-ink-dim hover:text-ink cursor-pointer transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>

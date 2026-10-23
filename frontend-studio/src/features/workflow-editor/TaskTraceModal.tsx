@@ -7,6 +7,7 @@
 import { X, Clock } from 'lucide-react'
 import { Tag } from '../../components/ui'
 import { type TaskDetail, type TimelineEvent } from '../../services/tasks-api'
+import { formatTimeFull } from '../../lib/formatTime'
 
 const TASK_STATUS_META: Record<string, { text: string; color: string }> = {
   pending: { text: '排队中', color: '#64748B' },
@@ -17,15 +18,6 @@ const TASK_STATUS_META: Record<string, { text: string; color: string }> = {
   cancelled: { text: '已取消', color: '#94A3B8' },
 }
 
-function formatTime(ts: string): string {
-  if (!ts) return ''
-  try {
-    return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-  } catch {
-    return ts
-  }
-}
-
 export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onClose: () => void }) {
   if (!task) return null
   const meta = TASK_STATUS_META[task.status] ?? { text: task.status, color: '#64748B' }
@@ -34,29 +26,29 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="bg-[#18181b] rounded-xl shadow-2xl w-[640px] max-w-[calc(100vw-2rem)] max-h-[80vh] flex flex-col border border-[#27272a]"
+        className="bg-panel rounded-xl shadow-2xl w-[640px] max-w-[calc(100vw-2rem)] max-h-[80vh] flex flex-col border border-line"
       >
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#27272a]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
           <div className="flex items-center gap-2">
-            <Clock size={14} className="text-[#1E5EFF]" />
-            <span className="text-sm font-medium text-[#fafafa]">执行追踪</span>
+            <Clock size={14} className="text-link" />
+            <span className="text-sm font-medium text-ink">执行追踪</span>
             <Tag color={meta.color}>{meta.text}</Tag>
           </div>
-          <X size={16} className="text-[#71717a] cursor-pointer hover:text-[#fafafa]" onClick={onClose} />
+          <X size={16} className="text-ink-dim cursor-pointer hover:text-ink" onClick={onClose} />
         </div>
 
-        <div className="px-5 py-3 border-b border-[#27272a] grid grid-cols-3 gap-3 text-[11px]">
+        <div className="px-5 py-3 border-b border-line grid grid-cols-3 gap-3 text-[11px]">
           <div>
-            <div className="text-[#71717a]">任务 ID</div>
-            <div className="text-[#fafafa] font-mono truncate">{task.id}</div>
+            <div className="text-ink-dim">任务 ID</div>
+            <div className="text-ink font-mono truncate">{task.id}</div>
           </div>
           <div>
-            <div className="text-[#71717a]">版本</div>
-            <div className="text-[#fafafa] font-mono">{task.workflow_version}</div>
+            <div className="text-ink-dim">版本</div>
+            <div className="text-ink font-mono">{task.workflow_version}</div>
           </div>
           <div>
-            <div className="text-[#71717a]">创建时间</div>
-            <div className="text-[#fafafa]">{formatTime(task.created_at)}</div>
+            <div className="text-ink-dim">创建时间</div>
+            <div className="text-ink">{formatTimeFull(task.created_at)}</div>
           </div>
         </div>
 
@@ -70,13 +62,13 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {timeline.length === 0 ? (
-            <p className="text-xs text-[#71717a] text-center py-6">暂无执行事件</p>
+            <p className="text-xs text-ink-dim text-center py-6">暂无执行事件</p>
           ) : (
             <div className="space-y-2">
               {timeline.map((evt, idx) => (
                 <div key={idx} className="flex gap-3 text-[11px] leading-relaxed">
-                  <span className="text-[#71717a] font-mono shrink-0 w-32">
-                    {formatTime(evt.timestamp)}
+                  <span className="text-ink-dim font-mono shrink-0 w-32">
+                    {formatTimeFull(evt.timestamp)}
                   </span>
                   <span
                     className={`shrink-0 w-2 h-2 rounded-full mt-1.5 ${
@@ -86,14 +78,14 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                           ? 'bg-green-500'
                           : evt.event_type === 'node_start'
                             ? 'bg-blue-500'
-                            : 'bg-[#52525b]'
+                            : 'bg-line-strong'
                     }`}
                   />
                   <div className="flex-1 min-w-0">
-                    <span className="text-[#1E5EFF] font-mono">{evt.event_type}</span>
-                    {evt.actor && <span className="text-[#71717a]"> · {evt.actor}</span>}
+                    <span className="text-link font-mono">{evt.event_type}</span>
+                    {evt.actor && <span className="text-ink-dim"> · {evt.actor}</span>}
                     {evt.data && Object.keys(evt.data).length > 0 && (
-                      <pre className="text-[10px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
+                      <pre className="text-[11px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
                         {JSON.stringify(evt.data)}
                       </pre>
                     )}

@@ -261,8 +261,8 @@ function WorkflowBaseNode({ data, selected }: Props) {
   return (
     <div
       className={`
-        relative rounded-md bg-[#18181b] shadow-sm border border-l-2 transition-shadow cursor-pointer
-        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : inLoop ? 'border-[#A855F7]/60 hover:shadow-md' : 'border-[#27272a] hover:shadow-md'}
+        relative rounded-md bg-panel shadow-sm border border-l-2 transition-shadow cursor-pointer
+        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : inLoop ? 'border-[#A855F7]/60 hover:shadow-md' : 'border-line hover:shadow-md'}
       `}
       style={{ width: size, borderLeftColor: accentColor }}
     >
@@ -277,7 +277,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
       {inLoop && !incomplete && (
         <span
           title="循环节点成员（每轮执行）"
-          className="absolute -top-2 -left-1.5 text-[10px] leading-none"
+          className="absolute -top-2 -left-1.5 text-[11px] leading-none"
         >
           🔁
         </span>
@@ -294,7 +294,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
           {icon}
         </div>
         <div className="min-w-0 flex-1" title={hoverText}>
-          <div className="text-[9px] font-medium text-[#fafafa] truncate leading-tight">
+          <div className="text-[11px] font-medium text-ink truncate leading-tight">
             {nodeLabel || typeName}
           </div>
           {rows.length > 0 && (
@@ -311,11 +311,11 @@ function WorkflowBaseNode({ data, selected }: Props) {
                         className="shrink-0"
                       />
                     )}
-                    <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
+                    <span className="flex-1 min-w-0 text-[11px] font-normal text-ink-dim truncate">
                       {row.text}
                     </span>
                     {row.required && (
-                      <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
+                      <span className="shrink-0 text-[11px] leading-none text-red-400">*</span>
                     )}
                   </div>
                 )
@@ -330,7 +330,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-1.5 !h-1.5 !border-[1.5px] !border-[#09090b] !transition-colors"
+          className="!w-1.5 !h-1.5 !border-[1.5px] !border-well !transition-colors"
           style={{ backgroundColor: typeColor }}
         />
       )}
@@ -340,7 +340,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
         <Handle
           type="target"
           position={Position.Left}
-          className="!w-1.5 !h-1.5 !border-[1.5px] !border-[#09090b] !transition-colors"
+          className="!w-1.5 !h-1.5 !border-[1.5px] !border-well !transition-colors"
           style={{ backgroundColor: typeColor }}
         />
       )}

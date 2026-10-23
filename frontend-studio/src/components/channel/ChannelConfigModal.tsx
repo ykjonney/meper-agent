@@ -140,16 +140,16 @@ export default function ChannelConfigModal({
       <div className="space-y-4">
         {/* 平台准备步骤引导 */}
         {PROVIDER_GUIDES[provider] && (
-          <div className="rounded-md border border-[#27272a] bg-[#121214] px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+          <div className="rounded-md border border-line bg-page px-3 py-2 text-[11px] leading-relaxed text-slate-400">
             {PROVIDER_GUIDES[provider]}
           </div>
         )}
 
         {/* 绑定智能体 */}
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-[#fafafa]">绑定智能体</div>
+          <div className="text-xs font-medium text-ink">绑定智能体</div>
           {agentsQuery.isLoading ? (
-            <div className="flex items-center gap-2 text-[11px] text-[#71717a] py-1.5">
+            <div className="flex items-center gap-2 text-[11px] text-ink-dim py-1.5">
               <Loader2 size={13} className="animate-spin" /> 加载智能体...
             </div>
           ) : agents.length === 0 ? (
@@ -164,14 +164,14 @@ export default function ChannelConfigModal({
               options={agents.map((a) => ({ value: a.id, label: a.name }))}
             />
           )}
-          <p className="text-[10px] text-[#71717a]">
+          <p className="text-[11px] text-ink-dim">
             平台内收到的新消息将由该智能体自动处理并回复。
           </p>
         </div>
 
         {/* 必填凭据（schema 驱动：飞书 App ID/Secret，钉钉 App Key/Secret） */}
         {schemaQuery.isLoading ? (
-          <div className="flex items-center gap-2 text-[11px] text-[#71717a] py-1.5">
+          <div className="flex items-center gap-2 text-[11px] text-ink-dim py-1.5">
             <Loader2 size={13} className="animate-spin" /> 加载配置项...
           </div>
         ) : (
@@ -179,7 +179,7 @@ export default function ChannelConfigModal({
             const masked = isEdit ? channel?.credentials?.[f.key] : undefined
             return (
               <div key={f.key} className="space-y-1.5">
-                <div className="text-xs font-medium text-[#fafafa]">{f.label}</div>
+                <div className="text-xs font-medium text-ink">{f.label}</div>
                 <Input
                   type={f.type === 'secret' ? 'password' : 'text'}
                   autoComplete="new-password"
@@ -200,7 +200,7 @@ export default function ChannelConfigModal({
           })
         )}
 
-        <p className="text-[10px] text-[#71717a]">
+        <p className="text-[11px] text-ink-dim">
           采用长连接模式接入，无需公网回调地址；保存后服务端即刻建立连接。
         </p>
       </div>

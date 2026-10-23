@@ -127,7 +127,7 @@ gateway 分支，甚至嵌套 parallel）；**封闭性由校验保证**（体�
 {
     "body": ["writer", "critic"],            # 体成员（node_id 列表，无序）
     "body_entry": "writer",                   # 体入口（显式，避免无入边启发式歧义）
-    "max_iterations": 5,                      # 硬上限，必填，1..20
+    "max_iterations": 5,                      # 防呆上限 1..100，必填（默认 5）
     "converge_expr": "{{critic.verdict}} == 'approve'",  # 可选；None=跑满轮数
 }
 # 体成员的 config.next_nodes：内部路由照常（可含 gateway/parallel）；
@@ -164,7 +164,7 @@ gateway 分支，甚至嵌套 parallel）；**封闭性由校验保证**（体�
 |---|---|---|
 | `LOOP_BODY_EMPTY` | ERROR | body 为空或含非 exist 节点 |
 | `LOOP_ENTRY_NOT_IN_BODY` | ERROR | body_entry ∉ body |
-| `LOOP_MAX_ITERATIONS_RANGE` | ERROR | max_iterations ∉ [1, 20] |
+| `LOOP_MAX_ITERATIONS_RANGE` | ERROR | max_iterations ∉ [1, 100] |
 | `LOOP_BODY_NOT_CLOSED` | ERROR | 体节点的 next 指向 body 外（出口由 loop 接管，不允许旁路） |
 | `LOOP_BODY_CYCLE` | ERROR | body 内部存在环（体是 DAG，循环由 loop 驱动） |
 | `LOOP_NESTED_NOT_SUPPORTED` | ERROR | body 内含 loop 节点（M3 禁嵌套） |
@@ -239,3 +239,18 @@ execute_node(loop):
 4. 前端：面板 + 画布标记 + 运行视图轮次渲染 + 注册表三处同步
 5. subflow 前端面板（顺手）
 6. 端到端：debate 示例工作流（writer continue / critic fresh / converge 收敛）
+
+
+## 2026-10 工作台退役（LoopWorkspace 移除）
+
+多轮评审后的化繁为简结论：循环内数据流回归**纯变量引用**——
+「前引后 = 取上一轮值」（变量池裸键=最新值的天然语义），跨轮记忆由
+loop_thread_policy 承担，历史由 rounds 快照承担。
+
+- 移除：LoopWorkspace（absorb 约定字段解析 / issue 状态机 / delta /
+  view 注入 / workspace_goal 结构化语义）。
+- 保留为极简机制：`note`（可选「循环说明」，每轮前置注入各体成员任务
+  前，恒定文本；兼容旧键 workspace_goal）+ 值级 sha 空转检测（成员输出
+  连续 2 轮不变 → stalled 提前结束，从变量池直接比对）。
+- 语义全部归用户：输出结构（response_schema 自由）、收敛条件
+  （converge_expr 自写）、数据流向（任务里 {{引用}} 自连）。

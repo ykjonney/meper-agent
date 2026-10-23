@@ -137,7 +137,7 @@ function MarketplaceTab({ theme, isAdmin }: {
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜索技能名称/描述…"
           className={`flex-1 max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200'
+            theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200'
           }`}
         />
       </div>
@@ -175,9 +175,9 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
   onUninstall: () => void;
   onFork: () => void;
 }) {
-  const card = theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-100';
+  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
 
   const qc = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
@@ -203,14 +203,14 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
             : 'bg-amber-50 border-amber-300'
           : isOfficial
             ? 'border-amber-500/40 border-t-2 border-t-amber-500/70 hover:border-amber-400'
-            : `hover:border-[#71717a] ${card}`
+            : `hover:border-line-strong ${card}`
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           {/* 头像（官方技能 avatar；个人技能用图标占位）——对齐旧 SkillsStore 观感 */}
           <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-            isOfficial ? 'border-amber-500/50' : theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+            isOfficial ? 'border-amber-500/50' : theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
           }`}>
             {/* 与旧 SkillsStore 一致：AvatarRender 空值回退 /AFLogo.png 占位 */}
             <AvatarRender value={item.avatar ?? ''} className="w-full h-full p-1.5" />
@@ -219,10 +219,10 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-sm font-bold truncate flex-1 min-w-0" title={item.name}>{item.name}</span>
               {item.is_own && (
-                <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${chip} text-blue-400`}>我的</span>
+                <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded ${chip} text-blue-400`}>我的</span>
               )}
               {item.installed && (
-                <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${chip} text-emerald-500`}>已安装</span>
+                <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded ${chip} text-emerald-500`}>已安装</span>
               )}
             </div>
             <p className={`text-[11px] ${textMuted}`}>
@@ -233,11 +233,11 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           {/* 来源徽章固定右上——卡片间严格对齐 */}
           {isOfficial ? (
-            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-500 font-semibold">
+            <span className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-500 font-semibold">
               <Crown size={10} /> 官方
             </span>
           ) : (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip} ${textMuted}`}>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted}`}>
               用户创作
             </span>
           )}
@@ -272,7 +272,7 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
             placeholder="驳回理由（会反馈给提交者）"
             autoFocus
             className={`flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border outline-none ${
-              theme === 'dark' ? 'bg-[#0f0f10] border-[#27272a] text-[#fafafa]' : 'bg-slate-50 border-slate-200'
+              theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
             }`}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && reason.trim()) {
@@ -306,7 +306,7 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
             placeholder="驳回理由（会反馈给提交者）"
             autoFocus
             className={`flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border outline-none ${
-              theme === 'dark' ? 'bg-[#0f0f10] border-[#27272a] text-[#fafafa]' : 'bg-slate-50 border-slate-200'
+              theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
             }`}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && reason.trim()) {
@@ -393,7 +393,7 @@ function PreviewModal({ item, theme, onClose }: {
     queryKey: ['usk-preview', item.id],
     queryFn: () => userSkillsApi.get(item.id),
   });
-  const box = theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200 text-slate-800';
+  const box = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200 text-slate-800';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
@@ -537,9 +537,9 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
     e.currentTarget.value = '';
   };
 
-  const card = theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-100';
+  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
 
 
   return (
@@ -592,13 +592,13 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
               <div key={m.id} className={`rounded-xl border p-4 flex flex-col gap-2 ${card}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-                theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+                theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
               }`}>
                 <AvatarRender value={m.avatar ?? ''} className="w-full h-full p-1.5" />
               </div>
                   <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
                     <span className="text-sm font-bold truncate">{m.name}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`}>官方</span>
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`}>官方</span>
                   </div>
                 </div>
                 <p className={`text-xs line-clamp-2 ${textMuted}`}>{m.description}</p>
@@ -628,12 +628,12 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                   {s.source === 'own' ? (
                     <label
                       className="relative w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border cursor-pointer group ${
-                        theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+                        theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
                       }"
                       title="点击更换头像（PNG/JPEG/WEBP ≤2MB）"
                     >
                       <AvatarRender value={s.avatar ?? ''} className="w-full h-full p-1.5" />
-                      <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50 text-[9px] text-white">
+                      <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50 text-[11px] text-white">
                         换头像
                       </span>
                       <input
@@ -645,7 +645,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                     </label>
                   ) : (
                     <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-                      theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+                      theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
                     }`}>
                       <AvatarRender value={s.avatar ?? ''} className="w-full h-full p-1.5" />
                     </div>
@@ -654,15 +654,15 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="text-sm font-bold truncate">{s.alias || s.name}</span>
                       {s.derived_from_name && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`} title={`fork 自 ${s.derived_from_name}`}>
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`} title={`fork 自 ${s.derived_from_name}`}>
                           fork
                         </span>
                       )}
                     </div>
                     {s.source === 'installed' ? (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip} text-emerald-500 shrink-0`}>已安装</span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} text-emerald-500 shrink-0`}>已安装</span>
                     ) : (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`}>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`}>
                         {STATUS_LABEL[s.status] ?? s.status}
                       </span>
                     )}
@@ -753,9 +753,9 @@ function SkillEditModal({ theme, target, onClose, onSaved }: {
     onError: (e) => toast.error(getErrorMessage(e, '保存失败')),
   });
 
-  const box = theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200 text-slate-800';
+  const box = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200 text-slate-800';
   const inputCls = `w-full px-3 py-1.5 rounded-lg text-sm border outline-none ${
-    theme === 'dark' ? 'bg-[#0f0f10] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+    theme === 'dark' ? 'bg-[#0f0f10] border-line' : 'bg-slate-50 border-slate-200'
   }`;
 
   return (
@@ -819,10 +819,10 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
   });
 
   const entries = memory?.entries ?? [];
-  const box = theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
+  const box = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
   const inputCls = `flex-1 px-3 py-1.5 rounded-lg text-sm border outline-none ${
-    theme === 'dark' ? 'bg-[#0f0f10] border-[#27272a] text-[#fafafa]' : 'bg-slate-50 border-slate-200'
+    theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
   }`;
 
   return (

@@ -6,7 +6,7 @@
 ``builtin_config`` 白名单（opt-in）决定。
 
 三层工具模型：
-- 第一层（能力型）：delegate_to_subagent / ask_clarification / tool_search
+- 第一层（能力型）：delegate_to_subagent / ask_clarification
 - 第二层（文件/shell）：bash / read / write / edit / glob / grep（委托 Sandbox）
 - 编排层：run_code（代码即工具编排 — 代码内经 tools.call 批量/链式
   调用其他工具，工具表由宿主经 ToolBridgeContext 注入）
@@ -49,7 +49,6 @@ def _load_builtin_tools() -> dict[str, "BaseTool"]:
     from agent_flow_harness.interaction import (
         ask_clarification,
         request_app_authorization,
-        tool_search,
     )
     from agent_flow_harness.subagents.delegate import delegate_to_subagent
 
@@ -57,7 +56,6 @@ def _load_builtin_tools() -> dict[str, "BaseTool"]:
         delegate_to_subagent,
         ask_clarification,
         request_app_authorization,
-        tool_search,
     ):
         tools[t.name] = t
 

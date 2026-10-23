@@ -50,8 +50,8 @@ _LLM_ERROR_KINDS = ("on_llm_error", "on_chat_model_error")
 _TOOL_ERROR_KINDS = ("on_tool_error",)
 
 # 抑制 tag：带这些 tag 的事件不属于主对话链路，不得进入 SSE / timeline——
-# - "llm_summary"：后台压缩摘要的 LLM 调用（llm_summary.compress_history_with_llm
-#   已同时传 callbacks=[] 隔离，此处是第二道防线）；
+# - "llm_summary"：压缩摘要的 LLM 调用（llm_summary.run_summary 已同时传
+#   callbacks=[] 隔离，此处是第二道防线）；
 # - "subagent"：delegate_to_subagent 嵌套子图（其 LLM/工具事件冒泡进来会成为
 #   游离 text/thinking 与无法配对的 tool_result）。
 _SUPPRESSED_EVENT_TAGS = frozenset({"llm_summary", "subagent"})
@@ -64,37 +64,6 @@ _run_id_to_tool_call_id: dict[str, str] = {}
 _pending_tool_calls: list[dict[str, str]] = []
 # 已发出 ToolResultEvent 的 tool_call_id（防 on_tool_error + on_tool_end 重复发）
 _sent_tool_results: set[str] = set()
-
-
-def _extract_tool_call_id_from_event(event: dict[str, Any]) -> str:
-    """从 on_tool_error 事件里尽量提取 tool_call_id。
-
-    LangGraph 的 on_tool_error 事件结构不保证有 tool_call_id，
-    尝试多种路径：data.input.tool_calls / event metadata / tags。
-    """
-    data = event.get("data") or {}
-    # 路径1：data.input 是 AIMessage，其 tool_calls 有 id
-    inp = data.get("input")
-    if inp is not None:
-        # ToolCallRequest 对象
-        tc = getattr(inp, "tool_call", None)
-        if isinstance(tc, dict) and tc.get("id"):
-            return tc["id"]
-        # 可能是 dict 形式
-        if isinstance(inp, dict):
-            calls = inp.get("tool_calls") or inp.get("tool_call")
-            if isinstance(calls, list):
-                for c in calls:
-                    if isinstance(c, dict) and c.get("id"):
-                        return c["id"]
-            if isinstance(calls, dict) and calls.get("id"):
-                return calls["id"]
-    # 路径2：metadata 里可能有
-    meta = event.get("metadata") or {}
-    for v in meta.values():
-        if isinstance(v, dict) and v.get("tool_call_id"):
-            return v["tool_call_id"]
-    return ""
 
 
 def _extract_interrupt(error: Any) -> dict[str, Any] | None:

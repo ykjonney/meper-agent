@@ -487,6 +487,52 @@ def _repair_json_bare_control_chars(text: str) -> str:
     return "".join(out)
 
 
+def _repair_unescaped_inner_quotes(candidate: str) -> str:
+    """修复 JSON 字符串值内部未转义的英文双引号。
+
+    LLM 高频错误（实测复现：评审意见里引用策划原文）：契约 string 值
+    含内嵌英文双引号——"仅锁定"某某"，建议…"——内嵌引号提前闭合字符串
+    导致整段 JSON 非法，且重试同样失败（模型看不到自己的引号问题）。
+
+    状态机 + lookahead 启发式：处于字符串内遇到 `"` 时，向后看下一个
+    非空白字符——是 `: , } ]` 之一则视为结构性闭合（保持原样），否则
+    视为内容性引号转义为 `\"`。对中文意见引用原文的场景几乎总是正确
+    （内容引号后跟中文文本，不跟结构字符）。
+    """
+    out: list[str] = []
+    in_str = False
+    i, n = 0, len(candidate)
+    while i < n:
+        ch = candidate[i]
+        if not in_str:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            out.append(ch)
+            if i + 1 < n:
+                out.append(candidate[i + 1])
+            i += 2
+            continue
+        if ch == '"':
+            j = i + 1
+            while j < n and candidate[j] in " \t\r\n":
+                j += 1
+            nxt = candidate[j] if j < n else ""
+            if nxt in (":", ",", "}", "]"):
+                in_str = False  # 结构性闭合
+                out.append(ch)
+            else:
+                out.append('\\"')  # 内容引号 → 转义
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None, str]:
     """从模型输出文本中提取 JSON（对象或数组），返回 (value, error)。
 
@@ -509,7 +555,15 @@ def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None,
             candidates.append(raw[start : end + 1])
 
     for candidate in candidates:
-        for attempt in (candidate, _repair_json_bare_control_chars(candidate)):
+        # 修复候选：原文 / 裸控制字符修 / 内嵌引号修 / 组合（引号修复在
+        # 干净文本上扫描，避免裸换行干扰 lookahead）
+        attempts = [
+            candidate,
+            _repair_json_bare_control_chars(candidate),
+            _repair_unescaped_inner_quotes(candidate),
+            _repair_json_bare_control_chars(_repair_unescaped_inner_quotes(candidate)),
+        ]
+        for attempt in attempts:
             try:
                 value = json.loads(attempt)
             except json.JSONDecodeError:
@@ -617,15 +671,6 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # 下游 .strip() 会抛 AttributeError。统一用 resolve_str 归一化。
         input_query = self.node_config.get("input_query", "")
         resolved_query = engine.resolve_str(input_query) if input_query else ""
-
-        # 循环工作台注入（refine 模板，loop_workspace.py）：fresh 策略或
-        # 第 1 轮 → 全量视图（任务说明只此一份）；continue 后续轮 → 增量
-        # （消除每轮重述的重复数据）。组合规则见 compose_workspace_message。
-        from app.engine.workflow.loop_workspace import compose_workspace_message
-
-        _ws_msg = compose_workspace_message(sys_vars, self.node_config)
-        if _ws_msg:
-            resolved_query = f"{_ws_msg}\n\n{resolved_query}" if resolved_query else _ws_msg
 
         # input_prompt → context 卡槽覆盖（注入系统提示，不作为 user message）
         # 向后兼容：也读取 slot_values.context

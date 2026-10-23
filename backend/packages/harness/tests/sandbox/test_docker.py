@@ -221,6 +221,234 @@ def test_stdout_stderr_split(tmp_path, monkeypatch):
     assert result.stderr == "fake-stderr"
 
 
+# ── 复用模式：常驻容器 + exec ────────────────────────────────────────────
+
+
+class _ReuseFakeNotFound(Exception):
+    """模拟 docker.errors.NotFound。"""
+
+
+class _ReuseFakeContainer:
+    def __init__(self, harness, name):
+        self._h = harness
+        self.name = name
+        self.status = "running"
+        self.exec_calls: list[list] = []
+        self.removed = False
+        # 可编排的 exec 行为：元素为 (code, (stdout, stderr)) 或 Exception
+        self.exec_results: list = []
+
+    def reload(self):
+        if self.status == "gone":
+            raise RuntimeError("container gone")
+
+    def exec_run(self, cmd, user=None, workdir=None, environment=None, demux=False):
+        self.exec_calls.append(list(cmd))
+        if self.exec_results:
+            item = self.exec_results.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+        return (0, (b"", b""))
+
+    def remove(self, force=False):
+        self.removed = True
+        self.status = "gone"
+
+
+def _install_reuse_fake(monkeypatch):
+    """复用模式 fake：跟踪 run/get/exec 与容器生死；重置注册表与 client。"""
+    import sys
+    import types
+
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    class _Client:
+        def __init__(self, h):
+            self.containers = _Containers(h)
+
+        def ping(self):
+            return True
+
+    class _Containers:
+        def __init__(self, h):
+            self._h = h
+
+        def get(self, name):
+            c = self._h.containers_by_name.get(name)
+            if c is None or c.status == "gone":
+                raise _ReuseFakeNotFound(name)
+            return c
+
+        def run(self, image=None, command=None, name=None, **kwargs):
+            self._h.run_calls.append({"image": image, "command": command, "name": name})
+            c = _ReuseFakeContainer(self._h, name)
+            self._h.containers_by_name[name] = c
+            return c
+
+    class _H:
+        def __init__(self):
+            self.run_calls: list[dict] = []
+            self.containers_by_name: dict[str, _ReuseFakeContainer] = {}
+
+    h = _H()
+    fake = types.ModuleType("docker")
+    fake.errors = types.SimpleNamespace(NotFound=_ReuseFakeNotFound)  # type: ignore[attr-defined]
+    fake.from_env = lambda timeout=30: _Client(h)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "docker", fake)
+    docker_mod._reset_docker_client()
+    with docker_mod._registry_lock:
+        docker_mod._containers.clear()
+    return h
+
+
+def _make_reuse(tmp_path, **config_kwargs) -> DockerSandbox:
+    return _make_enabled(tmp_path, reuse_container=True, **config_kwargs)
+
+
+def test_reuse_two_commands_one_container(tmp_path, monkeypatch):
+    """两次执行 → 1 次容器创建 + 2 次 exec（复用生效）。"""
+    from agent_flow_harness.sandbox.docker import SANDBOX_LAST_USED_FILE
+
+    h = _install_reuse_fake(monkeypatch)
+    sb = _make_reuse(tmp_path)
+    sb.execute_command("echo a")
+    sb.execute_command("echo b")
+
+    assert len(h.run_calls) == 1
+    assert h.run_calls[0]["command"] == ["sleep", "infinity"]
+    assert h.run_calls[0]["name"].startswith("agent-flow-sbx-")
+    total_execs = [c for c in h.containers_by_name.values() if c.exec_calls]
+    assert len(total_execs) == 1
+    cmd = total_execs[0].exec_calls[0]
+    # 触碰 + 超时包裹 + 原命令
+    assert cmd[0] == "timeout" and cmd[1] == "--kill-after=10"
+    assert SANDBOX_LAST_USED_FILE in cmd[-1]
+    assert "echo a" in cmd[-1]
+
+
+def test_reuse_adopts_existing_container(tmp_path, monkeypatch):
+    """注册表为空但 daemon 上有同名容器（后端重启）→ 收养而非新建。"""
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    h = _install_reuse_fake(monkeypatch)
+    name = docker_mod.sandbox_container_name(
+        {"tmp": tmp_path}, "agent-sandbox:latest", "none"
+    )
+    h.containers_by_name[name] = _ReuseFakeContainer(h, name)
+
+    sb = _make_reuse(tmp_path)
+    sb.execute_command("x")
+
+    assert len(h.run_calls) == 0  # 未新建
+
+
+def test_reuse_recreates_on_exec_failure(tmp_path, monkeypatch):
+    """容器死亡（exec 抛异常）→ 重建并重试一次，对调用方透明。"""
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    h = _install_reuse_fake(monkeypatch)
+    name = docker_mod.sandbox_container_name(
+        {"tmp": tmp_path}, "agent-sandbox:latest", "none"
+    )
+    dead = _ReuseFakeContainer(h, name)
+    dead.exec_results = [RuntimeError("container died")]
+    h.containers_by_name[name] = dead
+
+    sb = _make_reuse(tmp_path)
+    result = sb.execute_command("echo retry")
+
+    assert result.exit_code == 0
+    assert len(h.run_calls) == 1  # 重建了一次
+    assert dead.removed is True
+
+
+def test_reuse_timeout_maps_124(tmp_path, monkeypatch):
+    """timeout(1) 退出码 124 → timed_out=True（与一次性容器语义对齐）。"""
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    h = _install_reuse_fake(monkeypatch)
+    name = docker_mod.sandbox_container_name({"tmp": tmp_path}, "agent-sandbox:latest", "none")
+    c = _ReuseFakeContainer(h, name)
+    c.exec_results = [(124, (b"", b""))]
+    h.containers_by_name[name] = c
+
+    sb = _make_reuse(tmp_path)
+    result = sb.execute_command("sleep 999")
+    assert result.timed_out is True
+    assert result.exit_code == -1
+    assert "[timeout]" in result.stderr
+
+
+def test_reuse_demux_split(tmp_path, monkeypatch):
+    """exec demux 输出 → stdout/stderr 正确分流。"""
+    from agent_flow_harness.sandbox import docker as docker_mod
+
+    h = _install_reuse_fake(monkeypatch)
+    name = docker_mod.sandbox_container_name({"tmp": tmp_path}, "agent-sandbox:latest", "none")
+    c = _ReuseFakeContainer(h, name)
+    c.exec_results = [(0, (b"out-bytes", b"err-bytes"))]
+    h.containers_by_name[name] = c
+
+    sb = _make_reuse(tmp_path)
+    result = sb.execute_command("x")
+    assert result.stdout == "out-bytes"
+    assert result.stderr == "err-bytes"
+
+
+def test_container_name_deterministic(tmp_path, monkeypatch):
+    """同键同名（与 dict 顺序无关），键变名变。"""
+    from agent_flow_harness.sandbox.docker import sandbox_container_name
+
+    p1 = tmp_path / "a"
+    p2 = tmp_path / "b"
+    n1 = sandbox_container_name({"tmp": p1, "input": p2}, "img", "none")
+    n2 = sandbox_container_name({"input": p2, "tmp": p1}, "img", "none")
+    assert n1 == n2
+    assert sandbox_container_name({"tmp": p1}, "img", "none") != sandbox_container_name(
+        {"tmp": p1}, "img", "bridge"
+    )
+    assert sandbox_container_name({"tmp": p1}, "img", "none") != sandbox_container_name(
+        {"tmp": p2}, "img", "none"
+    )
+
+
+def test_lru_eviction_at_cap(tmp_path, monkeypatch):
+    """存活容器达上限 → 第 3 个工作区挤掉最久未用的（总数不超上限）。"""
+    h = _install_reuse_fake(monkeypatch)
+    for i in range(3):
+        wdir = tmp_path / f"w{i}"
+        wdir.mkdir()
+        sb = _make_reuse(wdir, max_containers=2)
+        sb.execute_command(f"echo {i}")
+
+    assert len(h.run_calls) == 3  # 三个工作区各建一次
+    live = [c for c in h.containers_by_name.values() if not c.removed]
+    assert len(live) == 2  # w0（最久未用）被驱逐
+
+
+def test_reuse_config_invariant():
+    """max_containers <= max_concurrent → 配置即报错（LRU 需要空闲容器可逐）。"""
+    import pytest
+
+    with pytest.raises(ValueError, match="max_containers must exceed max_concurrent"):
+        DockerSandboxConfig(reuse_container=True, max_containers=4, max_concurrent=8)
+
+
+def test_reuse_remove_sandbox_container_idempotent(tmp_path, monkeypatch):
+    """remove_sandbox_container 幂等：存在则删返回 True，不存在返回 False。"""
+    from agent_flow_harness.sandbox import docker as docker_mod
+    from agent_flow_harness.sandbox.docker import remove_sandbox_container
+
+    h = _install_reuse_fake(monkeypatch)
+    name = docker_mod.sandbox_container_name({"tmp": tmp_path}, "agent-sandbox:latest", "none")
+    h.containers_by_name[name] = _ReuseFakeContainer(h, name)
+
+    assert remove_sandbox_container(name) is True
+    assert h.containers_by_name[name].removed is True
+    assert remove_sandbox_container(name) is False  # 已删，幂等
+
+
 def test_docker_config_custom():
     config = DockerSandboxConfig(
         image="my-sandbox:v2",

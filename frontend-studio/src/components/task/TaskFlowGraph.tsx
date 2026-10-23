@@ -79,7 +79,19 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
 
   const { nodes, edges } = useMemo(() => {
     if (!wf?.nodes) return { nodes: [] as Node[], edges: [] as Edge[] }
-    const baseNodes = toXyflowNodes(wf.nodes)
+    // 循环体成员不在画布渲染（与编辑器 WorkflowCanvas 同规则）：成员是
+    // loop 节点的内部实现，以 loop 卡片内的步骤行（loopSteps）展示。
+    // 直接平铺全量节点会把循环体拆散显示（成员游离在 loop 节点外）。
+    const memberIds = new Set<string>()
+    for (const n of wf.nodes) {
+      if (n.type !== 'loop') continue
+      for (const m of (((n.config as Record<string, unknown>).body as string[] | undefined) ?? [])) {
+        memberIds.add(m)
+      }
+    }
+    const canvasNodes = wf.nodes.filter((n) => !memberIds.has(n.node_id))
+    // allNodes 传全量：loop 卡片的 loopSteps 解析需要被隐藏的体成员。
+    const baseNodes = toXyflowNodes(canvasNodes, undefined, wf.nodes)
     // 叠执行态高亮：用 xyflow node.style 的 border + boxShadow，不改 WorkflowBaseNode
     const decorated = baseNodes.map((n) => {
       const state = stateByNode.get(n.id) ?? 'pending'
@@ -95,13 +107,14 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
         className: isExecuting ? 'task-node--executing' : undefined,
       } as Node
     })
-    const baseEdges = deriveXyflowEdgesFromNodes(wf.nodes)
+    // 边也基于过滤集推导：体成员间的内部边不渲染（成员本就不在画布上）。
+    const baseEdges = deriveXyflowEdgesFromNodes(canvasNodes)
     return { nodes: decorated, edges: baseEdges }
   }, [wf, stateByNode])
 
   if (isLoading) {
     return (
-      <div className="h-[360px] flex items-center justify-center text-[#71717a] text-xs">
+      <div className="h-[360px] flex items-center justify-center text-ink-dim text-xs">
         <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载流程图…
       </div>
     )
@@ -111,22 +124,22 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
     const unresolved = !templateId
     return (
       <div className={`h-[360px] flex flex-col items-center justify-center text-xs gap-1.5 text-center px-4 ${
-        theme === 'dark' ? 'text-[#71717a]' : 'text-slate-500'
+        theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
       }`}>
         <AlertTriangle className="w-4 h-4 text-amber-400" />
         <span>流程图加载失败</span>
-        <span className="text-[10px]">
+        <span className="text-[11px]">
           {unresolved
             ? '无法解析工作流模板（注册表数据缺失）'
             : `工作流模板 ${templateId} 不存在或已被删除`}
         </span>
-        <span className="text-[10px] text-[#52525b]">请查看下方时间线了解执行进度</span>
+        <span className="text-[11px] text-ink-dim">请查看下方时间线了解执行进度</span>
       </div>
     )
   }
 
   return (
-    <div className="h-[360px] w-full rounded-lg border border-[#27272a] overflow-hidden bg-[#0f0f11] relative">
+    <div className="h-[360px] w-full rounded-lg border border-line overflow-hidden bg-page relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -144,7 +157,7 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
       >
         <Controls
           showInteractive={false}
-          className={`!rounded-lg !border !shadow-sm ${theme === 'dark' ? '!border-[#27272a] !bg-[#18181b]' : '!border-gray-200 !bg-white'}`}
+          className={`!rounded-lg !border !shadow-sm ${theme === 'dark' ? '!border-line !bg-panel' : '!border-gray-200 !bg-white'}`}
         />
         <Background
           variant={BackgroundVariant.Dots}
@@ -155,9 +168,9 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
       </ReactFlow>
 
       {/* 图例：状态 → 颜色 */}
-      <div className="absolute top-2 left-2 z-10 flex flex-wrap gap-x-3 gap-y-1 px-2.5 py-1.5 rounded-md bg-[#18181b]/90 border border-[#27272a] backdrop-blur-sm">
+      <div className="absolute top-2 left-2 z-10 flex flex-wrap gap-x-3 gap-y-1 px-2.5 py-1.5 rounded-md bg-panel/90 border border-line backdrop-blur-sm">
         {(['executing', 'completed', 'waiting', 'failed', 'rejected', 'pending'] as NodeExecState[]).map((s) => (
-          <span key={s} className="inline-flex items-center gap-1 text-[10px] text-[#a1a1aa]">
+          <span key={s} className="inline-flex items-center gap-1 text-[11px] text-ink-dim">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATE_COLOR[s] }} />
             {LEGEND_LABEL[s]}
           </span>

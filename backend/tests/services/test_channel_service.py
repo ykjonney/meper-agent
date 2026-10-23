@@ -11,9 +11,9 @@ from app.channels.base import InboundMessage
 from app.channels.errors import (
     AgentRuntimeError,
     InvalidCredentialsError,
-    LLMRateLimitError,
     PermanentChannelError,
     SendFailedError,
+    TransientChannelError,
 )
 from app.channels.providers.mock.channel import MOCK_SENT_MESSAGES
 from app.models.channel import (
@@ -171,14 +171,14 @@ class TestExecute:
 
         with patch(
             "app.services.channel_service.AgentExecutionService.invoke",
-            new=AsyncMock(side_effect=LLMRateLimitError("rate limited")),
+            new=AsyncMock(side_effect=TransientChannelError("rate limited")),
         ), patch.object(
             ChannelService, "get_config", new=AsyncMock(return_value=config)
         ), patch.object(
             ChannelService, "_find_continuable_session", new=AsyncMock(return_value=None)
         ), patch.object(
             ChannelService, "handle_error", new=AsyncMock()
-        ), pytest.raises(LLMRateLimitError):
+        ), pytest.raises(TransientChannelError):
             await ChannelService.execute(inbound)
 
     @pytest.mark.asyncio

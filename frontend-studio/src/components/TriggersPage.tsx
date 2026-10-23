@@ -135,7 +135,7 @@ export function TriggersPage({ onViewTask }: Props) {
       render: (_, record) => {
         const t = record as unknown as TriggerConfig
         return (
-          <span className="text-[#fafafa]">{workflowNameMap[t.workflow_id] || t.workflow_id}</span>
+          <span className="text-ink">{workflowNameMap[t.workflow_id] || t.workflow_id}</span>
         )
       },
     },
@@ -205,7 +205,7 @@ export function TriggersPage({ onViewTask }: Props) {
             <button
               title="查看记录"
               onClick={() => setRecordsTrigger(t)}
-              className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-[#1E5EFF] cursor-pointer transition-colors"
+              className="p-1.5 rounded-lg hover:bg-line text-slate-400 hover:text-link cursor-pointer transition-colors"
             >
               <History size={14} />
             </button>
@@ -214,14 +214,14 @@ export function TriggersPage({ onViewTask }: Props) {
                 <button
                   title="编辑"
                   onClick={() => setConfigModal({ open: true, mode: 'edit', trigger: t })}
-                  className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-[#1E5EFF] cursor-pointer transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-line text-slate-400 hover:text-link cursor-pointer transition-colors"
                 >
                   <Pencil size={14} />
                 </button>
                 <button
                   title="删除"
                   onClick={() => handleDelete(t)}
-                  className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-red-400 cursor-pointer transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-line text-slate-400 hover:text-red-400 cursor-pointer transition-colors"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -244,7 +244,7 @@ export function TriggersPage({ onViewTask }: Props) {
             render: (_, record) => {
               const t = record as unknown as TriggerConfig
               return (
-                <span className="font-mono text-[10px] text-slate-400">
+                <span className="font-mono text-[11px] text-slate-400">
                   {t.user_id || '-'}
                 </span>
               )
@@ -261,10 +261,10 @@ export function TriggersPage({ onViewTask }: Props) {
       {/* 标题 + 新建 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-[#fafafa] flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-ink flex items-center gap-2">
             <Clock size={18} /> 定时任务
           </h1>
-          <p className="text-[11px] text-[#71717a] mt-0.5">
+          <p className="text-[11px] text-ink-dim mt-0.5">
             管理工作流的定时触发配置，查看触发记录
           </p>
         </div>
@@ -272,7 +272,7 @@ export function TriggersPage({ onViewTask }: Props) {
           {/* manage 持有者：我的/全部 切换。调度器扫全库不分用户，
               「全部」是发现他人/遗留隐形 trigger 的唯一入口 */}
           {canManage && (
-            <div className="flex items-center gap-1 p-0.5 rounded-md border border-[#27272a] bg-[#121214]">
+            <div className="flex items-center gap-1 p-0.5 rounded-md border border-line bg-page">
               {(['own', 'all'] as const).map((s) => (
                 <button
                   key={s}
@@ -280,8 +280,8 @@ export function TriggersPage({ onViewTask }: Props) {
                   onClick={() => setScope(s)}
                   className={`h-7 px-3 rounded text-[11px] font-medium transition-colors cursor-pointer
                     ${scope === s
-                      ? 'bg-[#27272a] text-[#fafafa]'
-                      : 'text-slate-400 hover:text-[#fafafa]'}`}
+                      ? 'bg-line text-ink'
+                      : 'text-slate-400 hover:text-ink'}`}
                 >
                   {s === 'own' ? '我的' : '全部'}
                 </button>
@@ -306,8 +306,8 @@ export function TriggersPage({ onViewTask }: Props) {
           { label: '启用中', value: stats.enabled, color: '#10B981' },
           { label: '已停用', value: stats.disabled, color: '#71717a' },
         ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-[#27272a] bg-[#18181b]">
-            <div className="text-[11px] text-[#71717a]">{s.label}</div>
+          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
+            <div className="text-[11px] text-ink-dim">{s.label}</div>
             <div className="text-2xl font-semibold mt-1" style={{ color: s.color }}>
               {s.value}
             </div>
@@ -318,19 +318,19 @@ export function TriggersPage({ onViewTask }: Props) {
       {/* 搜索 */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717a]" />
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-dim" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索工作流名 / cron 表达式"
-            className="w-full h-8 pl-8 pr-3 rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] text-xs placeholder:text-[#52525b] focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30"
+            className="w-full h-8 pl-8 pr-3 rounded-md border border-line bg-page text-ink text-xs placeholder:text-ink-dim focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30"
           />
         </div>
       </div>
 
       {/* 表格 */}
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-[#71717a]">
+        <div className="flex items-center justify-center py-16 text-ink-dim">
           <Loader2 size={18} className="animate-spin" />
         </div>
       ) : (

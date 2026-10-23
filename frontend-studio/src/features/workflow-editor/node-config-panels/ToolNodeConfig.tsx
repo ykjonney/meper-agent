@@ -70,24 +70,24 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
     }
   }
 
-  const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600 font-mono'
+  const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600 font-mono'
 
   return (
     /* 点遮罩不关闭（防误触丢已填参数，与其余 ui Modal 行为一致） */
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-2xl border border-[#27272a] bg-[#18181b] text-[#fafafa] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-[#27272a]">
+      <div className="w-full max-w-md rounded-2xl border border-line bg-panel text-ink overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-line">
           <div>
             <h3 className="text-sm font-bold">测试工具：{toolName}</h3>
-            <p className="text-[11px] mt-0.5 text-[#71717a]">
+            <p className="text-[11px] mt-0.5 text-ink-dim">
               试跑已保存的工具，凭证使用组织配置；不影响工作流与治理状态
             </p>
           </div>
-          <button onClick={onClose} className="cursor-pointer hover:opacity-70 text-[#a1a1aa]">✕</button>
+          <button onClick={onClose} className="cursor-pointer hover:opacity-70 text-ink-dim">✕</button>
         </div>
         <div className="px-5 py-4 space-y-3">
           {paramKeys.length === 0 && (
-            <p className="text-xs text-[#71717a]">该工具无运行参数，直接运行即可。</p>
+            <p className="text-xs text-ink-dim">该工具无运行参数，直接运行即可。</p>
           )}
           {paramKeys.map((key) => (
             <div key={key} className="flex items-center gap-2">
@@ -246,7 +246,7 @@ function ToolPicker({
     `w-full text-left px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
       active
         ? 'bg-blue-600/15 text-blue-400'
-        : 'text-slate-300 hover:bg-[#1c1c1f]'
+        : 'text-slate-300 hover:bg-panel-hover'
     }`
 
   return (
@@ -257,7 +257,7 @@ function ToolPicker({
       content={
         <div className="w-[300px]">
           {/* 左右 Tab */}
-          <div className="flex border-b border-[#27272a]">
+          <div className="flex border-b border-line">
             {([['library', `工具库（${enabledTools.length}）`], ['mcp', `MCP 工具（${mcpGroups.reduce((n, g) => n + g.tools.length, 0)}）`]] as const).map(([key, label]) => (
               <button
                 key={key}
@@ -280,7 +280,7 @@ function ToolPicker({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`搜索${tab === 'library' ? '工具库' : 'MCP 工具'}…`}
-              className="w-full pl-7 pr-2 py-1.5 rounded-md text-xs border border-[#27272a] bg-[#121214] text-slate-200 outline-none focus:border-blue-500"
+              className="w-full pl-7 pr-2 py-1.5 rounded-md text-xs border border-line bg-page text-slate-200 outline-none focus:border-blue-500"
             />
           </div>
 
@@ -294,7 +294,7 @@ function ToolPicker({
                     className={rowCls(value === t.id)}>
                     <span className="font-medium">{t.name}</span>
                     {t.description && (
-                      <span className="block text-[10px] text-slate-400 truncate">{t.description}</span>
+                      <span className="block text-[11px] text-slate-400 truncate">{t.description}</span>
                     )}
                   </button>
                 ))
@@ -306,11 +306,11 @@ function ToolPicker({
                   <div key={g.connId}>
                     <button
                       onClick={() => toggleConn(g.connId)}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:bg-[#1c1c1f] cursor-pointer"
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:bg-panel-hover cursor-pointer"
                     >
                       <ChevronRight size={12} className={`transition-transform ${expandedConns.has(g.connId) ? 'rotate-90' : ''}`} />
                       {g.label}
-                      <span className="ml-auto text-[10px] text-slate-400">{g.tools.length}</span>
+                      <span className="ml-auto text-[11px] text-slate-400">{g.tools.length}</span>
                     </button>
                     {expandedConns.has(g.connId) && (
                       <div className="ml-4 space-y-0.5">
@@ -319,7 +319,7 @@ function ToolPicker({
                             className={rowCls(value === t.id)}>
                             <span className="font-medium">{t.name}</span>
                             {t.description && (
-                              <span className="block text-[10px] text-slate-400 truncate">{t.description}</span>
+                              <span className="block text-[11px] text-slate-400 truncate">{t.description}</span>
                             )}
                           </button>
                         ))}
@@ -333,7 +333,7 @@ function ToolPicker({
       }
     >
       {/* 触发器（样式对齐 Select） */}
-      <div className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs border border-[#27272a] bg-[#121214] cursor-pointer hover:border-blue-500 transition-colors">
+      <div className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs border border-line bg-page cursor-pointer hover:border-blue-500 transition-colors">
         <span className={value && selectedName(value) ? 'text-slate-100' : 'text-slate-500'}>
           {value && selectedName(value) ? selectedName(value) : '选择工具…'}
         </span>

@@ -54,13 +54,13 @@ export function ChatVoiceComposer(props: ChatVoiceComposerProps) {
   return (
     <section
       className={`relative min-h-[218px] overflow-visible rounded-xl border px-4 py-3 ${
-        dark ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'
+        dark ? 'border-line bg-panel' : 'border-slate-200 bg-white'
       }`}
       aria-label="语音输入"
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/50 to-transparent" />
       <div className="relative z-10 flex items-center justify-between">
-        <div className={`flex items-center gap-2 text-[10px] font-medium ${dark ? 'text-[#a1a1aa]' : 'text-slate-600'}`}>
+        <div className={`flex items-center gap-2 text-[11px] font-medium ${dark ? 'text-ink-dim' : 'text-slate-600'}`}>
           <span
             className={`h-2 w-2 rounded-full ${voice.connected ? 'bg-emerald-400' : 'bg-amber-400'}`}
             aria-hidden="true"
@@ -87,7 +87,7 @@ export function ChatVoiceComposer(props: ChatVoiceComposerProps) {
             onClick={exitToText}
             className={`flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-[11px] font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer ${
               dark
-                ? 'text-[#e4e4e7] hover:bg-white/8'
+                ? 'text-ink-soft hover:bg-white/8'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-950'
             }`}
             aria-label="暂停语音并切换到文字输入"
@@ -100,7 +100,7 @@ export function ChatVoiceComposer(props: ChatVoiceComposerProps) {
 
       <div className="relative z-10 -mt-2 flex flex-col items-center">
         <StateOrb state={voice.voiceState} compact />
-        <p className={`mt-1 min-h-5 max-w-full truncate px-4 text-center text-[11px] ${dark ? 'text-[#a1a1aa]' : 'text-slate-600'}`} aria-live="polite">
+        <p className={`mt-1 min-h-5 max-w-full truncate px-4 text-center text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-600'}`} aria-live="polite">
           {voice.partial ? `“${voice.partial}”` : STATE_COPY[voice.voiceState]}
         </p>
 

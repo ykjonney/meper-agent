@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.pagination import calc_skip
 from app.models.notification import Notification
 
 COLLECTION = "notifications"
@@ -58,7 +57,7 @@ class NotificationRepository:
             self._collection()
             .find(query)
             .sort("created_at", -1)
-            .skip(calc_skip(page, page_size))
+            .skip((page - 1) * page_size)
             .limit(page_size)
         )
         items = await cursor.to_list(length=page_size)

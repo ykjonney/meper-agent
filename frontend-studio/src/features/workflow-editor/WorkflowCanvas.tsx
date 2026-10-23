@@ -370,7 +370,7 @@ export default function WorkflowCanvas({
         <SelectionHandler workflowNodes={workflowNodes} onSelectNode={onSelectNode} />
         <Controls
           showInteractive={false}
-          className={`!rounded-lg !border !shadow-sm ${theme === 'dark' ? '!border-[#27272a] !bg-[#18181b]' : '!border-gray-200 !bg-white'}`}
+          className={`!rounded-lg !border !shadow-sm ${theme === 'dark' ? '!border-line !bg-panel' : '!border-gray-200 !bg-white'}`}
         />
         <MiniMap
           nodeColor={(n) => {
@@ -378,7 +378,7 @@ export default function WorkflowCanvas({
             return meta?.typeColor ?? '#94A3B8'
           }}
           maskColor={theme === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)'}
-          className={`!rounded-lg !border ${theme === 'dark' ? '!border-[#27272a] !bg-[#121214]' : '!border-gray-200 !bg-white'}`}
+          className={`!rounded-lg !border ${theme === 'dark' ? '!border-line !bg-page' : '!border-gray-200 !bg-white'}`}
           style={{ width: 150, height: 100 }}
         />
         <Background

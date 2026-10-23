@@ -32,6 +32,10 @@ _EXPRESSION_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 _RESPONSE_FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _RESPONSE_FIELD_TYPES = {"string", "number", "boolean", "enum", "object"}
 
+# loop max_iterations 的防呆上限（默认值 5 见前端 node-defaults；曾为硬顶
+# 20，长任务场景放宽至 100，防 999999 类误配置）。
+LOOP_MAX_ITERATIONS_LIMIT = 100
+
 
 def _check_agent_response_schema(
     node_id: str, schema: Any,
@@ -484,15 +488,17 @@ class WorkflowValidator:
                     node_id=node_id, context={"body_entry": body_entry},
                 ))
 
-            # 轮数上限 1..20（批量映射需要更高时必配 converge 或预算，见 ADR §7.1）
+            # 轮数上限 1..100（20 曾是硬顶，现放宽为防呆上限；批量映射等
+            # 长任务场景可配更高，但必配 converge 或 token_budget 兜底失控
+            # 风险，见 ADR §7.1）。前端默认 5（node-defaults）。
             try:
-                iter_ok = isinstance(max_iter, int) and 1 <= max_iter <= 20
+                iter_ok = isinstance(max_iter, int) and 1 <= max_iter <= LOOP_MAX_ITERATIONS_LIMIT
             except Exception:
                 iter_ok = False
             if not iter_ok:
                 issues.append(ValidationIssue(
                     severity=ValidationSeverity.ERROR, code="LOOP_MAX_ITERATIONS_RANGE",
-                    message=f"max_iterations 必须是 1..20 的整数，当前: {max_iter!r}",
+                    message=f"max_iterations 必须是 1..{LOOP_MAX_ITERATIONS_LIMIT} 的整数，当前: {max_iter!r}",
                     node_id=node_id,
                 ))
 
@@ -510,6 +516,24 @@ class WorkflowValidator:
                         severity=ValidationSeverity.ERROR, code="LOOP_STRUCTURAL_NODE_IN_BODY",
                         message=f"loop body 成员 '{member}' 是 {mtype} 节点（结构性节点不可入循环体）",
                         node_id=node_id, context={"member": member},
+                    ))
+
+            # 成员 label 唯一性：工作台产物槽以 label 为 key（absorb 的
+            # artifacts[label]）——同名成员（复制节点未改名）会共享槽互相
+            # 打断版本链：sha 交替变化 → 版本号疯涨、永不触发空转检测。
+            label_counts: dict[str, list[str]] = {}
+            for member in body:
+                mlabel = str((self.node_map.get(member) or {}).get("label") or member)
+                label_counts.setdefault(mlabel, []).append(member)
+            for mlabel, members in label_counts.items():
+                if len(members) > 1:
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.ERROR, code="LOOP_BODY_LABEL_CONFLICT",
+                        message=(
+                            f"循环体成员 {members} 同名「{mlabel}」——工作台产物槽按"
+                            "步骤名区分，同名会互相覆盖版本（请给每个步骤起不同名字）"
+                        ),
+                        node_id=node_id, context={"label": mlabel, "members": members},
                     ))
 
             # 封闭性：体成员的所有出边 target 必须仍在 body 内——唯一例外是
@@ -627,7 +651,16 @@ class WorkflowValidator:
                     continue
 
                 # Check if source is upstream (not self, not downstream)
-                if source not in {"input", "system", node_id} and source not in upstream:
+                # loop 体成员互相引用放行（跨轮引用模型：前引后=上一轮值、
+                # 先引前=本轮最新值——变量池时序天然保证语义，引擎级测试
+                # TestCrossRoundReference 覆盖）。循环外/跨循环的前向引用
+                # 仍拦截（真正拿不到值）。
+                same_loop_body = (
+                    node_id in self._body_membership
+                    and self._body_membership.get(source) == self._body_membership.get(node_id)
+                )
+                if (source not in {"input", "system", node_id}
+                        and source not in upstream and not same_loop_body):
                         issues.append(ValidationIssue(
                             severity=ValidationSeverity.ERROR,
                             code="FORWARD_REFERENCE",

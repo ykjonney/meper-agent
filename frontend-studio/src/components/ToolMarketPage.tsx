@@ -76,7 +76,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
       {/* 搜索/Tab 行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片）。
           flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
       <div className={`sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 ${
-        theme === 'dark' ? 'bg-[#09090b]' : 'bg-slate-50'
+        theme === 'dark' ? 'bg-well' : 'bg-slate-50'
       }`}>
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
@@ -86,7 +86,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
           onChange={(e) => setQ(e.target.value)}
           placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
           className={`flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200'
+            theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200'
           }`}
         />
         {canCreate && tab === 'library' && (
@@ -233,7 +233,7 @@ function LibraryTab({ q, theme, onEditItem }: {
     }).then((ok) => { if (ok) deleteM.mutate(item.id); });
   };
 
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
 
   return (
     <div className="space-y-4">
@@ -299,9 +299,9 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
   onSubmit: () => void;
   onDelete: () => void;
 }) {
-  const card = theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-100';
+  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
   const isPending = item.status === 'submitted';
   const isDraft = item.status === 'private';
   const isOfficial = item.kind === 'official';
@@ -327,17 +327,17 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
             : 'bg-amber-50 border-amber-300'
           : isDraft
             ? theme === 'dark'
-              ? 'border-dashed border-[#3f3f46] bg-[#18181b]/60'
+              ? 'border-dashed border-line-strong bg-panel/60'
               : 'border-dashed border-slate-300 bg-slate-50/60'
             : isOfficial
               ? 'border-amber-500/40 border-t-2 border-t-amber-500/70 hover:border-amber-400'
-              : `hover:border-[#71717a] ${card}`
+              : `hover:border-line-strong ${card}`
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-            theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'
+            theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
           }`}>
             <srcMeta.icon size={18} className={srcMeta.cls} />
           </div>
@@ -358,9 +358,9 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
 
       <p className={`text-xs ${textMuted} line-clamp-2 min-h-[2rem]`}>{item.description || '暂无描述'}</p>
 
-      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+      <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
         <span className={`px-1.5 py-0.5 rounded ${chip} ${
-          item.enabled ? 'text-emerald-500' : 'text-[#71717a]'
+          item.enabled ? 'text-emerald-500' : 'text-ink-dim'
         }`}>
           {item.enabled ? '已开启 · 可用' : isPending ? '待审核' : isDraft ? '草稿' : '未开启'}
         </span>
@@ -402,7 +402,7 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
                 <div className="space-y-1.5">
                   <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="驳回理由（展示给创建者）"
                     className={`w-full px-2 py-1 rounded text-xs border outline-none ${
-                      theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'
+                      theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'
                     }`} />
                   <button onClick={() => reviewM.mutate({ action: 'reject', reason })}
                     className="w-full px-2 py-1 rounded text-xs bg-red-600 hover:bg-red-500 text-white cursor-pointer">
@@ -503,9 +503,9 @@ function PreviewModal({ item, theme, onClose }: {
   });
   const d = item.kind === 'user' ? userDetail : officialDetail;
   const overlay = '';
-  const panel = theme === 'dark' ? 'bg-[#18181b] border-[#27272a] text-[#fafafa]' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-100';
+  const panel = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
 
   const ep = (d?.endpoint ?? {}) as Record<string, unknown>;
   const typeLabel: Record<string, string> = { string: '文本', number: '数字', boolean: '布尔', array: '列表' };
@@ -532,7 +532,7 @@ function PreviewModal({ item, theme, onClose }: {
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
         <div className={`flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b ${
-          theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'
+          theme === 'dark' ? 'border-line' : 'border-slate-200'
         }`}>
           <div>
             <h3 className="text-base font-bold">{item.name}</h3>
@@ -588,7 +588,7 @@ function ToolToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boo
       onClick={() => onChange(!enabled)}
       title={enabled ? '点击停用（停用后 Agent/工作流不可用）' : '点击开启（校验定义与凭证完整性）'}
       className={`relative rounded-full transition cursor-pointer shrink-0 border ${
-        enabled ? 'bg-emerald-600 border-emerald-500' : 'bg-[#27272a] border-[#3f3f46]'
+        enabled ? 'bg-emerald-600 border-emerald-500' : 'bg-line border-line-strong'
       }`}
       style={{ width: '2rem', height: '1.1rem' }}
     >
@@ -673,7 +673,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
 
   const inputCls = `w-full px-2 py-1 rounded text-xs font-mono border outline-none ${
     dark
-      ? 'bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600'
+      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
       : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
   }`;
 
@@ -681,28 +681,28 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
     /* 点遮罩不关闭（防误触丢已填配置，与其余 ui Modal 行为一致） */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className={`w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-          dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
+          dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
         <div className={`flex items-start justify-between shrink-0 px-5 pt-5 pb-3 border-b ${
-          dark ? 'border-[#27272a]' : 'border-slate-200'
+          dark ? 'border-line' : 'border-slate-200'
         }`}>
           <div>
             <h3 className="text-sm font-bold">工具凭证 · {d?.name ?? fallbackName}</h3>
-            <p className={`text-[11px] mt-0.5 ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>
+            <p className={`text-[11px] mt-0.5 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
               工具级统一配置——Agent 绑定与工作流直调共用；敏感值加密存储。
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
+          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
         </div>
 
         {/* 内容区滚动 */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {!d ? (
-          <div className={`py-6 text-center text-xs ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>加载参数定义…</div>
+          <div className={`py-6 text-center text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>加载参数定义…</div>
         ) : propKeys.length === 0 ? (
-          <p className={`text-xs ${dark ? 'text-[#52525b]' : 'text-slate-400'}`}>
+          <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
             该工具无需凭证，可直接开启使用。
           </p>
         ) : (
@@ -712,7 +712,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
               const configured = savedArgs[key] != null && String(savedArgs[key]) !== '';
               return (
                 <div key={key} className="flex items-center gap-2">
-                  <label className={`w-28 shrink-0 text-[11px] truncate ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`} title={key}>
+                  <label className={`w-28 shrink-0 text-[11px] truncate ${dark ? 'text-ink-dim' : 'text-slate-500'}`} title={key}>
                     {key}{prop.sensitive ? ' 🔒' : ''}
                   </label>
                   <input
@@ -732,7 +732,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
                     className={`flex-1 ${inputCls}`}
                   />
                   {prop.sensitive && configured && (
-                    <span className={`text-[10px] shrink-0 ${dark ? 'text-emerald-500/80' : 'text-emerald-600'}`}>已配置</span>
+                    <span className={`text-[11px] shrink-0 ${dark ? 'text-emerald-500/80' : 'text-emerald-600'}`}>已配置</span>
                   )}
                 </div>
               );
@@ -743,10 +743,10 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
 
         {/* 底部按钮固定 */}
         <div className={`flex justify-end gap-2 shrink-0 px-5 py-4 border-t ${
-          dark ? 'border-[#27272a]' : 'border-slate-200'
+          dark ? 'border-line' : 'border-slate-200'
         }`}>
           <button onClick={onClose}
-            className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${dark ? 'text-[#a1a1aa] hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
+            className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${dark ? 'text-ink-dim hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
             取消
           </button>
           <button onClick={() => saveM.mutate()} disabled={!d || saveM.isPending}

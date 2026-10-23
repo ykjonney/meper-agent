@@ -11,10 +11,8 @@
  * features/active-feat-studio-core-crud/spec.md.
  */
 import type { Agent as BackendAgent } from './agent-api'
-import type { Tool } from './tools-api'
-import type { McpConnection } from './mcp-api'
 import type { User as BackendUser } from './user-api'
-import type { Agent, Skill, User } from '../types'
+import type { Agent, User } from '../types'
 
 /* ──────────────────────── Agent ──────────────────────── */
 
@@ -180,53 +178,6 @@ export function fromStudioAgent(a: Agent): {
     })),
     max_retry: a.maxRetry ?? 3,
     max_tokens: a.maxTokens ?? 0,
-  }
-}
-
-/* ──────────────────────── Skill (Tool) ──────────────────────── */
-
-/**
- * Backend Tool (source=markdown/mcp/builtin) → studio Skill view model.
- * Store-only metadata (rating/isAdded/isPaid/includedSkills/datasets) is
- * seeded with neutral defaults and managed client-side — see spec gap note.
- */
-export function toStudioSkill(t: Tool): Skill {
-  return {
-    id: t.id,
-    name: t.name,
-    description: t.description ?? t.instructions ?? '',
-    tags: t.tags?.length ? t.tags : sourceToTags(t.source),
-    avatar: t.avatar ?? '',
-    author: t.source === 'mcp' ? `mcp:${t.mcp_connection_id ?? ''}` : (t.source ?? 'system'),
-    rating: 0,
-    usersCount: 0,
-    isAdded: true, // a persisted Tool is by definition "added"
-  }
-}
-
-function sourceToTags(source: string): string[] {
-  switch (source) {
-    case 'mcp':
-      return ['MCP 拓展', '开发工具']
-    case 'builtin':
-      return ['内置工具']
-    default:
-      return ['技能包']
-  }
-}
-
-/** Map an MCP connection to a studio Skill entry (for the MCP registry list). */
-export function mcpConnectionToSkill(c: McpConnection): Skill {
-  return {
-    id: c.id,
-    name: c.name,
-    description: c.description ?? c.status_message ?? '',
-    tags: ['MCP 拓展', '开发工具'],
-    avatar: '',
-    author: c.url,
-    rating: 0,
-    usersCount: c.tool_count ?? 0,
-    isAdded: c.status === 'connected',
   }
 }
 

@@ -25,7 +25,20 @@ from app.workers.celery_app import celery_app
 from app.workers.loop import run_async
 
 
-@celery_app.task(name="app.workers.tasks.workflow_execution.run_workflow_task")
+@celery_app.task(
+    name="app.workers.tasks.workflow_execution.run_workflow_task",
+    # ── 长程任务：覆盖全局超时/ACK 配置 ──
+    # time_limit=None：去掉 30/31 分钟硬超时（长工作流/loop×多轮 agent 极易
+    # 超过）。防卡死不靠 Celery 级 SIGKILL——节点级 timeout_ms（agent 5min/
+    # tool 30s）+ 孤儿扫描（beat，updated_at 超 30min 判 FAILED）承担。
+    # acks_late=False：任务开始即 ACK。acks_late + 3h visibility_timeout 在
+    # 无超时上限后会双跑（消息重投给另一 worker，zombie guard 只挡已取消
+    # 任务）；状态机由 DB 承担，Celery 只当触发器（对齐 scheduled_workflow
+    # 的同类决策）。
+    acks_late=False,
+    soft_time_limit=None,
+    time_limit=None,
+)
 def run_workflow_task(task_id: str) -> dict[str, Any]:
     """Execute (or resume) a workflow Task.
 

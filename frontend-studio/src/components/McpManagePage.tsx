@@ -329,7 +329,7 @@ export function McpManagePage() {
             <Plug className="w-5 h-5 text-indigo-400" />
             外部工具接入
           </h2>
-          <p className="text-xs text-[#71717a] mt-1">
+          <p className="text-xs text-ink-dim mt-1">
             管理 Model Context Protocol 连接：测试连通、发现工具、配置认证。
           </p>
         </div>
@@ -351,8 +351,8 @@ export function McpManagePage() {
           { label: '未连接', value: stats.disconnected, color: 'text-zinc-400' },
           { label: '错误', value: stats.error, color: 'text-rose-400' },
         ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-[#27272a] bg-[#18181b]">
-            <p className="text-[10px] text-[#71717a] uppercase tracking-widest font-bold">{s.label}</p>
+          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
+            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
             <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
           </div>
         ))}
@@ -361,12 +361,12 @@ export function McpManagePage() {
       {/* Search + Category filter */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索连接名称"
-            className="w-full pl-9 pr-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-sm text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 transition"
+            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
           />
         </div>
         <div className="w-44">
@@ -383,18 +383,18 @@ export function McpManagePage() {
         {canWrite && (
           <button
             onClick={() => setCategoryModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
           >
             <Folder className="w-4 h-4" /> 管理分组
           </button>
         )}
         {/* 视图切换：树形（按分组折叠）/ 列表（平铺表格） */}
-        <div className="ml-auto flex items-center rounded-lg border border-[#27272a] overflow-hidden shrink-0">
+        <div className="ml-auto flex items-center rounded-lg border border-line overflow-hidden shrink-0">
           <button
             onClick={() => setViewMode('tree')}
             title="树形视图（按分组折叠）"
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition cursor-pointer ${
-              viewMode === 'tree' ? 'bg-indigo-600 text-white' : 'text-[#a1a1aa] hover:bg-[#18181b] hover:text-white'
+              viewMode === 'tree' ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:bg-panel hover:text-white'
             }`}
           >
             <ListTree className="w-4 h-4" /> 树形
@@ -402,8 +402,8 @@ export function McpManagePage() {
           <button
             onClick={() => setViewMode('table')}
             title="列表视图（平铺表格）"
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition cursor-pointer border-l border-[#27272a] ${
-              viewMode === 'table' ? 'bg-indigo-600 text-white' : 'text-[#a1a1aa] hover:bg-[#18181b] hover:text-white'
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition cursor-pointer border-l border-line ${
+              viewMode === 'table' ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:bg-panel hover:text-white'
             }`}
           >
             <Table className="w-4 h-4" /> 列表
@@ -416,13 +416,13 @@ export function McpManagePage() {
       )}
 
       {/* Tree / Table view */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+      <div className="rounded-xl border border-line bg-panel overflow-hidden">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-[#71717a]">
+          <div className="flex items-center justify-center py-16 text-ink-dim">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#52525b]">
+          <div className="flex flex-col items-center justify-center py-16 text-ink-dim">
             <Plug className="w-8 h-8 mb-2 opacity-40" />
             <p className="text-sm">暂无 MCP 连接，点击右上角新建</p>
           </div>
@@ -442,7 +442,7 @@ export function McpManagePage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#27272a] text-[#71717a] text-[11px] uppercase tracking-wider">
+              <tr className="border-b border-line text-ink-dim text-[11px] uppercase tracking-wider">
                 <th className="text-left font-semibold px-4 py-3">名称</th>
                 <th className="text-left font-semibold px-4 py-3">分组</th>
                 <th className="text-left font-semibold px-4 py-3">URL</th>
@@ -456,51 +456,51 @@ export function McpManagePage() {
               {filtered.map((c) => {
                 const st = STATUS_STYLES[c.status] ?? STATUS_STYLES.disconnected;
                 return (
-                  <tr key={c.id} className="border-b border-[#27272a] last:border-0 hover:bg-[#1c1c1f] transition">
+                  <tr key={c.id} className="border-b border-line last:border-0 hover:bg-panel-hover transition">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-white">{c.name}</p>
-                      {c.description && <p className="text-[11px] text-[#71717a] line-clamp-1">{c.description}</p>}
+                      {c.description && <p className="text-[11px] text-ink-dim line-clamp-1">{c.description}</p>}
                     </td>
                     <td className="px-4 py-3">
                       {c.category_id && categoryMap.has(c.category_id) ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[10px] font-semibold">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[11px] font-semibold">
                           <Folder className="w-3 h-3" />
                           {categoryMap.get(c.category_id)?.name}
                         </span>
                       ) : (
-                        <span className="text-[11px] text-[#52525b]">—</span>
+                        <span className="text-[11px] text-ink-dim">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-[11px] text-[#a1a1aa] font-mono max-w-[200px] truncate">{c.url}</td>
-                    <td className="px-4 py-3 text-[11px] text-[#a1a1aa]">{c.protocol ?? '—'}</td>
+                    <td className="px-4 py-3 text-[11px] text-ink-dim font-mono max-w-[200px] truncate">{c.url}</td>
+                    <td className="px-4 py-3 text-[11px] text-ink-dim">{c.protocol ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`flex items-center gap-1.5 text-[11px] font-bold ${st.color}`}>
                         <st.Icon className={`w-3.5 h-3.5 ${c.status === 'connecting' ? 'animate-spin' : ''}`} />
                         {st.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-[11px] text-[#a1a1aa] font-mono">{c.tool_count ?? 0}</td>
+                    <td className="px-4 py-3 text-[11px] text-ink-dim font-mono">{c.tool_count ?? 0}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         {canWrite && (
                           <button onClick={() => { setError(null); testM.mutate(c); setTestingId(c.id); }} title="测试连接 + 发现工具" disabled={testingId === c.id}
-                            className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-amber-400 hover:bg-[#27272a] transition cursor-pointer disabled:opacity-50">
+                            className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer disabled:opacity-50">
                             {testingId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                           </button>
                         )}
                         <button onClick={() => setViewingConn(c)} title="查看工具"
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-sky-400 hover:bg-[#27272a] transition cursor-pointer">
+                          className="p-1.5 rounded-lg text-ink-dim hover:text-sky-400 hover:bg-line transition cursor-pointer">
                           <Eye className="w-4 h-4" />
                         </button>
                         {canWrite && (
                           <button onClick={() => { setError(null); setForm(connToForm(c)); setEditing(c); }} title="编辑"
-                            className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-indigo-400 hover:bg-[#27272a] transition cursor-pointer">
+                            className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
                             <Pencil className="w-4 h-4" />
                           </button>
                         )}
                         {canWrite && (
                           <button onClick={() => handleDelete(c)} title="删除"
-                            className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-rose-400 hover:bg-[#27272a] transition cursor-pointer">
+                            className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
@@ -517,14 +517,14 @@ export function McpManagePage() {
       {/* Create / Edit Modal */}
       {(creating || editing) && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a] sticky top-0 bg-[#121214] z-10">
+          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <PlugZap className="w-4 h-4 text-indigo-400" />
                 {editing ? `编辑连接 · ${editing.name}` : '新建 MCP 连接'}
               </h3>
               <button onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -563,8 +563,8 @@ export function McpManagePage() {
                 <Field label="超时 (秒)"><input type="number" min="1" max="300" value={form.timeout} onChange={(e) => setForm({ ...form, timeout: Number(e.target.value) })} className={inputCls} /></Field>
               </div>
               {form.auth_type !== 'none' && (
-                <div className="space-y-3 rounded-lg border border-[#27272a] bg-[#18181b]/40 p-3">
-                  <p className="text-[10px] text-[#71717a] leading-relaxed">
+                <div className="space-y-3 rounded-lg border border-line bg-panel/40 p-3">
+                  <p className="text-[11px] text-ink-dim leading-relaxed">
                     {AUTH_HINTS[form.auth_type]}
                   </p>
                   {form.auth_type === 'api_key' && (
@@ -630,9 +630,9 @@ export function McpManagePage() {
               </Field>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#27272a]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-line">
                 <button type="button" onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                  className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg cursor-pointer font-semibold">取消</button>
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold">取消</button>
                 <button type="submit" disabled={createM.isPending || updateM.isPending}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2">
                   {(createM.isPending || updateM.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -705,26 +705,26 @@ function ConnectionTree({
             <button
               type="button"
               onClick={() => onToggleGroup(g.id)}
-              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#1c1c1f] transition text-left cursor-pointer"
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-panel-hover transition text-left cursor-pointer"
             >
-              <ChevronRight className={`w-4 h-4 text-[#71717a] shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+              <ChevronRight className={`w-4 h-4 text-ink-dim shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
               <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
               <span className="text-xs font-bold text-white shrink-0">{g.name}</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[10px] font-semibold font-mono shrink-0">
+              <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[11px] font-semibold font-mono shrink-0">
                 {g.conns.length}
               </span>
-              {g.description && <span className="text-[11px] text-[#71717a] truncate">{g.description}</span>}
+              {g.description && <span className="text-[11px] text-ink-dim truncate">{g.description}</span>}
             </button>
             {/* 连接节点 */}
             {open && (
               g.conns.length === 0 ? (
-                <p className="pl-11 pr-4 pb-3 text-[11px] text-[#52525b]">暂无连接</p>
+                <p className="pl-11 pr-4 pb-3 text-[11px] text-ink-dim">暂无连接</p>
               ) : (
                 <div className="pb-1">
                   {g.conns.map((c) => {
                     const st = STATUS_STYLES[c.status] ?? STATUS_STYLES.disconnected;
                     return (
-                      <div key={c.id} className="flex items-center gap-3 pl-11 pr-4 py-2.5 hover:bg-[#1c1c1f] transition">
+                      <div key={c.id} className="flex items-center gap-3 pl-11 pr-4 py-2.5 hover:bg-panel-hover transition">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <st.Icon
                             className={`w-3.5 h-3.5 shrink-0 ${st.color} ${c.status === 'connecting' ? 'animate-spin' : ''}`}
@@ -734,32 +734,32 @@ function ConnectionTree({
                               <span className="text-xs font-semibold text-white truncate">{c.name}</span>
                               <span className={`text-[11px] font-bold shrink-0 ${st.color}`}>{st.label}</span>
                             </div>
-                            {c.description && <p className="text-[11px] text-[#71717a] truncate">{c.description}</p>}
+                            {c.description && <p className="text-[11px] text-ink-dim truncate">{c.description}</p>}
                           </div>
                         </div>
-                        <span className="hidden lg:block text-[11px] text-[#a1a1aa] font-mono max-w-[220px] truncate shrink-0" title={c.url}>{c.url}</span>
-                        <span className="hidden xl:block text-[11px] text-[#a1a1aa] shrink-0">{c.protocol ?? '—'}</span>
-                        <span className="text-[11px] text-[#71717a] font-mono shrink-0">{c.tool_count ?? 0} 工具</span>
+                        <span className="hidden lg:block text-[11px] text-ink-dim font-mono max-w-[220px] truncate shrink-0" title={c.url}>{c.url}</span>
+                        <span className="hidden xl:block text-[11px] text-ink-dim shrink-0">{c.protocol ?? '—'}</span>
+                        <span className="text-[11px] text-ink-dim font-mono shrink-0">{c.tool_count ?? 0} 工具</span>
                         <div className="flex items-center justify-end gap-1 shrink-0">
                           {canWrite && (
                             <button onClick={() => onTest(c)} title="测试连接 + 发现工具" disabled={testingId === c.id}
-                              className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-amber-400 hover:bg-[#27272a] transition cursor-pointer disabled:opacity-50">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer disabled:opacity-50">
                               {testingId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                             </button>
                           )}
                           <button onClick={() => onView(c)} title="查看工具"
-                            className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-sky-400 hover:bg-[#27272a] transition cursor-pointer">
+                            className="p-1.5 rounded-lg text-ink-dim hover:text-sky-400 hover:bg-line transition cursor-pointer">
                             <Eye className="w-4 h-4" />
                           </button>
                           {canWrite && (
                             <button onClick={() => onEdit(c)} title="编辑"
-                              className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-indigo-400 hover:bg-[#27272a] transition cursor-pointer">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
                               <Pencil className="w-4 h-4" />
                             </button>
                           )}
                           {canWrite && (
                             <button onClick={() => onDelete(c)} title="删除"
-                              className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-rose-400 hover:bg-[#27272a] transition cursor-pointer">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
@@ -861,39 +861,39 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a] sticky top-0 bg-[#121214] z-10">
+      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Folder className="w-4 h-4 text-indigo-400" />
             MCP 分组管理
           </h3>
           <button onClick={() => { resetForm(); onClose(); }}
-            className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+            className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="p-5 space-y-4">
           {/* 内联新增/编辑表单 */}
-          <div className="space-y-2.5 rounded-lg border border-[#27272a] bg-[#18181b]/40 p-3">
+          <div className="space-y-2.5 rounded-lg border border-line bg-panel/40 p-3">
             <p className="text-xs font-bold text-white">{editId ? '编辑分组' : '新增分组'}</p>
             <div className="grid grid-cols-[1fr_90px] gap-2">
               <div className="space-y-1">
-                <label className="text-[11px] text-[#a1a1aa]">分组名称 *</label>
+                <label className="text-[11px] text-ink-dim">分组名称 *</label>
                 <input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="如：飞书" maxLength={50} className={inputCls} />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] text-[#a1a1aa]">排序</label>
+                <label className="text-[11px] text-ink-dim">排序</label>
                 <input type="number" min="0" value={formSort} onChange={(e) => setFormSort(Number(e.target.value))} className={inputCls} />
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] text-[#a1a1aa]">描述</label>
+              <label className="text-[11px] text-ink-dim">描述</label>
               <input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="分组描述（可选）" maxLength={200} className={inputCls} />
             </div>
             <div className="flex items-center justify-end gap-2">
               {editId && (
                 <button type="button" onClick={resetForm}
-                  className="px-3 py-1.5 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer">取消编辑</button>
+                  className="px-3 py-1.5 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer">取消编辑</button>
               )}
               <button type="button" onClick={handleSubmit} disabled={createM.isPending || updateM.isPending}
                 className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5">
@@ -905,25 +905,25 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
 
           {/* 分组列表 */}
           {isLoading ? (
-            <div className="flex items-center justify-center py-8 text-[#71717a]"><Loader2 className="w-4 h-4 animate-spin mr-2" />加载中…</div>
+            <div className="flex items-center justify-center py-8 text-ink-dim"><Loader2 className="w-4 h-4 animate-spin mr-2" />加载中…</div>
           ) : categories.length === 0 ? (
-            <div className="text-center py-8 text-[#52525b] text-sm">暂无分组</div>
+            <div className="text-center py-8 text-ink-dim text-sm">暂无分组</div>
           ) : (
             <div className="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
               {categories.map((c) => (
-                <div key={c.id} className="flex items-center gap-2 rounded-lg border border-[#27272a] px-3 py-2 hover:bg-[#18181b] transition">
+                <div key={c.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 hover:bg-panel transition">
                   <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-white truncate">{c.name}</p>
-                    {c.description && <p className="text-[11px] text-[#71717a] truncate">{c.description}</p>}
+                    {c.description && <p className="text-[11px] text-ink-dim truncate">{c.description}</p>}
                   </div>
-                  <span className="text-[11px] text-[#52525b] shrink-0">排序 {c.sort ?? 0}</span>
+                  <span className="text-[11px] text-ink-dim shrink-0">排序 {c.sort ?? 0}</span>
                   <button onClick={() => startEdit(c)} title="编辑"
-                    className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-indigo-400 hover:bg-[#27272a] transition cursor-pointer">
+                    className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={() => handleDelete(c)} title="删除" disabled={deleteM.isPending}
-                    className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-rose-400 hover:bg-[#27272a] transition cursor-pointer disabled:opacity-40">
+                    className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer disabled:opacity-40">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -944,57 +944,57 @@ function ViewToolsModal({ conn, onClose }: { conn: McpConnection; onClose: () =>
   const tools = data?.items ?? [];
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a]">
+      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-page border border-line rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="text-sm font-bold text-white">MCP 工具列表 — {conn.name}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+          <button onClick={onClose} className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="p-5 overflow-y-auto flex-1 space-y-2">
           {isLoading ? (
-            <div className="flex items-center justify-center py-8 text-[#71717a]"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载中…</div>
+            <div className="flex items-center justify-center py-8 text-ink-dim"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载中…</div>
           ) : tools.length === 0 ? (
-            <div className="text-center py-8 text-[#52525b] text-sm">该连接暂无工具。请先点「测试连接」触发发现。</div>
+            <div className="text-center py-8 text-ink-dim text-sm">该连接暂无工具。请先点「测试连接」触发发现。</div>
           ) : (
             tools.map((t) => {
               const props = (t.input_schema?.properties ?? {}) as Record<string, unknown>;
               const required = (t.input_schema?.required ?? []) as string[];
               const paramNames = Object.keys(props);
               return (
-                <div key={t.id} className="p-3 rounded-lg border border-[#27272a] bg-[#18181b]">
+                <div key={t.id} className="p-3 rounded-lg border border-line bg-panel">
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-white text-xs">{t.name}</span>
                     {paramNames.length > 0 && (
                       <div className="flex flex-wrap gap-1 ml-auto">
                         {paramNames.map((p) => (
-                          <span key={p} className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${required.includes(p) ? 'bg-sky-500/10 text-sky-400' : 'bg-[#121214] text-[#71717a]'}`}>
+                          <span key={p} className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${required.includes(p) ? 'bg-sky-500/10 text-sky-400' : 'bg-page text-ink-dim'}`}>
                             {p}{required.includes(p) ? '*' : ''}
                           </span>
                         ))}
                       </div>
                     )}
                   </div>
-                  {t.description && <p className="text-[11px] text-[#a1a1aa] mt-1">{t.description}</p>}
+                  {t.description && <p className="text-[11px] text-ink-dim mt-1">{t.description}</p>}
                 </div>
               );
             })
           )}
         </div>
-        <div className="px-5 py-3 border-t border-[#27272a] text-[11px] text-[#71717a]">共 {tools.length} 个工具</div>
+        <div className="px-5 py-3 border-t border-line text-[11px] text-ink-dim">共 {tools.length} 个工具</div>
       </div>
     </div>
   );
 }
 
-const inputCls = 'w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
+const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <label className="text-slate-400 font-medium font-sans">{label}</label>
       {children}
-      {hint && <p className="text-[10px] text-[#71717a] leading-relaxed">{hint}</p>}
+      {hint && <p className="text-[11px] text-ink-dim leading-relaxed">{hint}</p>}
     </div>
   );
 }

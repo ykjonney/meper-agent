@@ -1,9 +1,8 @@
-"""Harness tools — registry, community protocol, workspace context, builtins.
+"""Harness tools — registry, workspace context, builtins.
 
 Public surface:
 
 * :class:`ToolRegistry` / :data:`TOOL_REGISTRY` — the global tool registry.
-* :class:`CommunityTool` — protocol for third-party pluggable tools.
 * :data:`BUILTIN_TOOLS` / :data:`BUILTIN_TOOL_NAMES` — harness built-in tools
   (lazy; accessed via module __getattr__ to avoid import cycles).
 * Workspace context-var plumbing.
@@ -14,7 +13,6 @@ sandbox/subagents/interaction subpackages, which would otherwise cycle.
 
 from typing import Any
 
-from agent_flow_harness.tools.community import CommunityTool
 from agent_flow_harness.tools.registry import TOOL_REGISTRY, ToolRegistry
 from agent_flow_harness.tools.resolver import resolve_variable
 from agent_flow_harness.tools.workspace_context import (
@@ -37,7 +35,6 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "BUILTIN_TOOL_NAMES",
     "BUILTIN_TOOLS",
-    "CommunityTool",
     "TOOL_REGISTRY",
     "ToolRegistry",
     "WorkspaceProtocol",

@@ -21,6 +21,7 @@ class FileConsumerKind(StrEnum):
     WORKFLOW_RUN = "workflow_run"  # Workflow 运行时引用
     CRON_JOB = "cron_job"  # 定时任务配置（长期持有）
     KNOWLEDGE_BASE = "knowledge_base"  # 向量知识库文档（长期持有）
+    DOC_COMPACTION = "doc_compaction"  # 文档水位线压缩外置（随宿主消息/任务级联删）
 
 
 class FileRef(BaseModel):

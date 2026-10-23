@@ -75,7 +75,7 @@ export function AgentDetailPage({
 
   if (isLoading || !agent) {
     return (
-      <div className="flex items-center justify-center py-16 text-[#71717a]">
+      <div className="flex items-center justify-center py-16 text-ink-dim">
         <RefreshCw className="w-5 h-5 animate-spin mr-2" /> 载入 Agent 详情…
       </div>
     );
@@ -94,15 +94,15 @@ export function AgentDetailPage({
       {/* Breadcrumb / header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onBack} className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer shrink-0">
+          <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer shrink-0">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-[#71717a]">
+            <div className="flex items-center gap-2 text-xs text-ink-dim">
               <span>智能体</span><span>/</span>
               <span className="text-white font-semibold truncate">{agent.name}</span>
             </div>
-            <p className="text-[11px] text-[#52525b] mt-0.5">左侧配置 · 右侧实时对话测试</p>
+            <p className="text-[11px] text-ink-dim mt-0.5">左侧配置 · 右侧实时对话测试</p>
           </div>
         </div>
         {onOpenEdit && (
@@ -118,19 +118,19 @@ export function AgentDetailPage({
       {/* Split: config card | chat */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100vh-180px)] min-h-[480px]">
         {/* Left: config */}
-        <aside className="lg:col-span-4 rounded-xl border border-[#27272a] bg-[#18181b] overflow-y-auto p-5 space-y-4">
-          <div className="flex items-center gap-3 pb-4 border-b border-[#27272a]">
+        <aside className="lg:col-span-4 rounded-xl border border-line bg-panel overflow-y-auto p-5 space-y-4">
+          <div className="flex items-center gap-3 pb-4 border-b border-line">
             <div className={`w-12 h-12 rounded-xl ${agent.iconColor} flex items-center justify-center text-2xl shrink-0 overflow-hidden`}>
               <AvatarRender value={agent.avatar} className="w-full h-full" textClassName="text-2xl" />
             </div>
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-bold text-white truncate">{agent.name}</h3>
-              <span className="flex items-center gap-1.5 text-[10px] text-[#a1a1aa]">
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-dim">
                 <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[agent.status] ?? 'bg-slate-500'}`} />
                 {agent.statusText ?? agent.status}
               </span>
             </div>
-            <span className={`shrink-0 px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wide ${badge.cls}`}>
+            <span className={`shrink-0 px-2 py-0.5 rounded-full border text-[11px] font-bold tracking-wide ${badge.cls}`}>
               {badge.label}
             </span>
           </div>
@@ -163,7 +163,7 @@ export function AgentDetailPage({
 
           {agent.rolePrompt && (
             <ConfigRow label="角色定义 (Role)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.rolePrompt}
               </pre>
             </ConfigRow>
@@ -171,7 +171,7 @@ export function AgentDetailPage({
 
           {agent.taskPrompt && (
             <ConfigRow label="任务描述 (Task)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.taskPrompt}
               </pre>
             </ConfigRow>
@@ -179,7 +179,7 @@ export function AgentDetailPage({
 
           {agent.constraintsPrompt && (
             <ConfigRow label="约束规则 (Constraints)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.constraintsPrompt}
               </pre>
             </ConfigRow>
@@ -187,7 +187,7 @@ export function AgentDetailPage({
 
           {agent.contextPrompt && (
             <ConfigRow label="上下文信息 (Context)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.contextPrompt}
               </pre>
             </ConfigRow>
@@ -195,7 +195,7 @@ export function AgentDetailPage({
 
           {agent.outputFormatPrompt && (
             <ConfigRow label="输出格式 (Output Format)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.outputFormatPrompt}
               </pre>
             </ConfigRow>
@@ -203,7 +203,7 @@ export function AgentDetailPage({
 
           {agent.systemPrompt && (
             <ConfigRow label="补充说明 (System Prompt)">
-              <pre className="mt-1 p-2 rounded-lg bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+              <pre className="mt-1 p-2 rounded-lg bg-page border border-line text-[11px] text-ink-dim whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
                 {agent.systemPrompt}
               </pre>
             </ConfigRow>
@@ -236,11 +236,11 @@ function ConfigRow({
 }) {
   return (
     <div>
-      <p className="flex items-center gap-1.5 text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">
+      <p className="flex items-center gap-1.5 text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-1">
         {icon}
         {label}
       </p>
-      <div className="text-xs text-[#d4d4d8]">{children}</div>
+      <div className="text-xs text-ink-soft">{children}</div>
     </div>
   );
 }
@@ -250,12 +250,12 @@ function ToolBucket({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">
-        {title} <span className="text-[#52525b]">({items.length})</span>
+      <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-1">
+        {title} <span className="text-ink-dim">({items.length})</span>
       </p>
       <div className="flex flex-wrap gap-1">
         {items.map((s) => (
-          <span key={s} className="px-1.5 py-0.5 rounded bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] font-mono">
+          <span key={s} className="px-1.5 py-0.5 rounded bg-page border border-line text-[11px] text-ink-dim font-mono">
             {s}
           </span>
         ))}

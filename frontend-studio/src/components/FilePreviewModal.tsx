@@ -103,7 +103,7 @@ export function FilePreviewModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         ref={previewPanelRef}
-        className="bg-[#18181b] rounded-xl shadow-2xl flex flex-col border border-[#27272a] relative"
+        className="bg-panel rounded-xl shadow-2xl flex flex-col border border-line relative"
         style={{
           width: previewSize?.width ?? 'min(48rem, calc(100vw - 2rem))',
           height: previewSize?.height ?? 'min(85vh, calc(100vh - 2rem))',
@@ -112,7 +112,7 @@ export function FilePreviewModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#27272a]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
           <span className="text-xs font-bold text-white truncate">{filename}</span>
           <div className="flex items-center gap-2 shrink-0">
             {onDownload && (
@@ -125,7 +125,7 @@ export function FilePreviewModal({
             )}
             <button
               onClick={onClose}
-              className="p-1 text-[#71717a] hover:text-white cursor-pointer"
+              className="p-1 text-ink-dim hover:text-white cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -140,7 +140,7 @@ export function FilePreviewModal({
           className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize flex items-end justify-end"
           title="拖拽调整大小"
         >
-          <svg className="w-3 h-3 text-[#52525b] hover:text-[#a1a1aa] transition-colors" viewBox="0 0 12 12" fill="none">
+          <svg className="w-3 h-3 text-ink-dim hover:text-ink-dim transition-colors" viewBox="0 0 12 12" fill="none">
             <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </div>

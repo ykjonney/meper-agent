@@ -8,8 +8,8 @@
  *
  * Styling is pure Tailwind className + inline styles; no antd design tokens.
  *
- * Dark-native: surfaces use the AgentForge dark palette (bg-[#18181b] /
- * bg-[#121214] / border-[#27272a] / text-[#fafafa] / text-slate-*). Light mode
+ * Dark-native: surfaces use the AgentForge dark palette (bg-panel /
+ * bg-page / border-line / text-ink / text-slate-*). Light mode
  * is handled by the .theme-light override block in index.css, which maps these
  * same classes to light values — so no per-component theme branching is needed.
  */
@@ -26,9 +26,103 @@ import {
   type TextareaHTMLAttributes,
   type ButtonHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from 'react'
 import { X } from 'lucide-react'
 import { createPortal } from 'react-dom'
+
+/* ─── 浮层定位（Select / Popover / Tooltip 共用） ─── */
+
+interface PanelPlacement {
+  side: 'bottom' | 'top'
+  align: 'start' | 'center' | 'end'
+  gap: number
+  /** 面板未挂载（测不到宽）时的宽度兜底。 */
+  fallbackW: number
+  /** 面板宽度跟随触发器但设下限（Select：行内收缩触发器 w-fit ~70px）。 */
+  minW?: number
+  /** 打开期间监听 scroll(capture)/resize 实时重算（Tooltip/Popover）。 */
+  follow?: boolean
+}
+
+const PANEL_MARGIN = 8
+
+/**
+ * 浮层 fixed 定位：portal 到主题根 + 按触发器矩形计算坐标。
+ * 三处原实现逐像素保留，仅合一：
+ * - 默认 side 方向展开；当前侧放不下且对侧够 → 翻到对侧；最后垂直夹在视口内。
+ * - align: start=左缘对齐触发器左缘 / center=水平居中 / end=右缘对齐触发器右缘。
+ * - left 一律夹在视口内（M=8）。
+ *
+ * position:fixed 是必须的：portal 目标是 theme root（h-screen flex 容器），
+ * 没有 position 的 static 面板会成为 flex item 被 align-items:stretch 拉到
+ * 容器满高，按这个错误高度做视口翻转会把面板推到顶部。
+ *
+ * Portal 到主题根而非 document.body：(a) 脱离祖先 `overflow: hidden`（如弹窗
+ * 面板）避免裁剪，(b) 留在 .theme-light/.theme-dark 子树内，index.css 的主题
+ * 覆写才能作用到浮层。portaling 到 body 会脱离主题作用域，亮色下浮层仍是暗色。
+ *
+ * 面板尺寸在本次渲染挂载前未知：coords=null 时调用方应把面板藏到屏外，
+ * 并在 open 后用返回的 measure 于 useLayoutEffect 里实测重算（paint 前同步，
+ * 避免闪烁）。placement 传模块级常量，保证 measure 引用稳定。
+ */
+function usePanelPosition(
+  triggerRef: RefObject<HTMLElement | null>,
+  panelRef: RefObject<HTMLElement | null>,
+  open: boolean,
+  placement: PanelPlacement,
+) {
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
+  }, [])
+
+  const [coords, setCoords] = useState<{ top: number; left: number; width?: number } | null>(null)
+
+  const measure = useCallback(() => {
+    const trig = triggerRef.current
+    if (!trig) return
+    const r = trig.getBoundingClientRect()
+    let w = panelRef.current?.offsetWidth ?? placement.fallbackW
+    const h = panelRef.current?.offsetHeight ?? 0
+    const M = PANEL_MARGIN
+    const GAP = placement.gap
+    // 默认 side 展开；当前侧放不下且对侧够 → 翻到对侧
+    let top: number
+    if (placement.side === 'bottom') {
+      top = r.bottom + GAP
+      if (top + h > window.innerHeight - M && r.top - h - GAP >= M) top = r.top - h - GAP
+    } else {
+      top = r.top - h - GAP
+      if (top < M && r.bottom + h + GAP <= window.innerHeight - M) top = r.bottom + GAP
+    }
+    // 垂直夹在视口内
+    if (top + h > window.innerHeight - M) top = Math.max(M, window.innerHeight - h - M)
+    if (top < M) top = M
+    if (placement.minW) w = Math.max(r.width, placement.minW)
+    let left: number
+    if (placement.align === 'center') left = r.left + r.width / 2 - w / 2
+    else if (placement.align === 'end') left = r.right - w
+    else left = r.left
+    // 水平夹在视口内
+    left = Math.max(M, Math.min(left, window.innerWidth - w - M))
+    setCoords(placement.minW ? { top, left, width: w } : { top, left })
+  }, [triggerRef, panelRef, placement])
+
+  // 打开期间滚动/缩放实时跟随（Select 的 scroll 走关闭逻辑，无需跟随）
+  useEffect(() => {
+    if (!open || !placement.follow) return
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open, placement.follow, measure])
+
+  return { coords, portalTarget, measure }
+}
 
 /* ─── Input ─── */
 
@@ -47,9 +141,9 @@ function InputInner({ size = 'middle', status, className = '', ...rest }: InputP
   return (
     <input
       {...rest}
-      className={`w-full rounded-md border bg-[#121214] text-[#fafafa] placeholder:text-[#52525b]
+      className={`w-full rounded-md border bg-page text-ink placeholder:text-ink-dim
         focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
-        ${status === 'error' ? 'border-red-400' : 'border-[#27272a]'}
+        ${status === 'error' ? 'border-red-400' : 'border-line'}
         ${SIZE_CLASS[size]} ${className}`}
     />
   )
@@ -69,8 +163,8 @@ const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextAre
       ref={ref}
       {...rest}
       rows={rows}
-      className={`w-full rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa]
-        placeholder:text-[#52525b] px-2.5 py-1.5 text-xs leading-relaxed resize-y
+      className={`w-full rounded-md border border-line bg-page text-ink
+        placeholder:text-ink-dim px-2.5 py-1.5 text-xs leading-relaxed resize-y
         focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
         ${className}`}
     />
@@ -135,6 +229,9 @@ const defaultFilter = (input: string, opt: SelectOption): boolean => {
   return hay.includes(input.trim().toLowerCase())
 }
 
+/** Select 面板：触发器下方展开、左对齐、宽度跟随触发器（下限 160）。 */
+const SELECT_PLACEMENT: PanelPlacement = { side: 'bottom', align: 'start', gap: 4, fallbackW: 160, minW: 160 }
+
 export function Select({
   value,
   onChange,
@@ -157,56 +254,20 @@ export function Select({
   const [search, setSearch] = useState('')
   const [hover, setHover] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1) // keyboard highlight over the flat filtered list
-  // Panel position (fixed, portaled to the theme root). Starts off-screen
-  // until measured to avoid a flash before useLayoutEffect runs.
-  // position:fixed 是必须的：portal 目标是 theme root（h-screen flex 容器），
-  // 没有 position 的 static 面板会成为 flex item 被 align-items:stretch 拉到
-  // 容器满高，useLayoutEffect 里按这个错误高度做视口翻转会把面板推到顶部。
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>({ position: 'fixed', top: -9999, left: -9999, visibility: 'hidden' })
   const ref = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Portal to the theme root (.theme-light/.theme-dark), not document.body:
-  // (a) escapes any ancestor `overflow: hidden` (e.g. modal panels) so options
-  // aren't clipped, and (b) stays inside the theme subtree so index.css's
-  // `.theme-light .xxx` overrides can recolor it. Portaling to body would
-  // escape the theme scope and leave the panel dark under the light theme.
-  // Same approach as Tooltip/Popover below.
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
-  }, [])
+  const { coords: panelCoords, portalTarget, measure: measurePanel } = usePanelPosition(
+    ref, panelRef, open, SELECT_PLACEMENT,
+  )
 
+  // 面板已随本次渲染挂载，实测高度后定位（屏外藏 → layoutEffect 重算）。
   useLayoutEffect(() => {
     if (!open) return
-    const rect = ref.current?.getBoundingClientRect()
-    if (!rect) return
-    // 面板已随本次渲染挂载，可实测高度。默认在触发器下方展开；下方放不下
-    // 且上方空间更大时翻到上方，最后整体夹在视口内（同 Popover/Tooltip 的
-    // 边界翻转逻辑）——否则靠近视口底部的触发器（如用户表格最后一行）的
-    // 下拉会被视口下缘裁住。
-    const panelH = panelRef.current?.offsetHeight ?? 0
-    const M = 8
-    let top = rect.bottom + 4
-    if (top + panelH > window.innerHeight - M && rect.top - panelH - 4 >= M) {
-      top = rect.top - panelH - 4
-    }
-    top = Math.max(M, Math.min(top, window.innerHeight - panelH - M))
-    const width = Math.max(rect.width, 160)
-    setPanelStyle({
-      position: 'fixed',
-      top,
-      // 左缘同样夹在视口内：贴右缘的窄触发器（w-fit ~70px）展开 min-width 160 的面板时
-      // 不溢出视口右边。
-      left: Math.max(M, Math.min(rect.left, window.innerWidth - width - M)),
-      // 面板宽度跟随触发器，但设最小值：行内收缩型触发器（w-fit，如角色徽章
-      // 编辑）宽度只有 ~70px，直接跟随会导致搜索框和选项文本不可读。
-      width,
-      zIndex: 9999,
-    })
-  }, [open])
+    measurePanel()
+  }, [open, measurePanel])
 
   useEffect(() => {
     if (!open) return
@@ -324,15 +385,15 @@ export function Select({
         aria-expanded={open}
         aria-haspopup="listbox"
         className={`w-full ${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5
-          rounded-md border border-[#27272a] bg-[#121214] flex items-center justify-between gap-1 cursor-pointer
-          text-[#fafafa] hover:border-[#1E5EFF] focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors`}
+          rounded-md border border-line bg-page flex items-center justify-between gap-1 cursor-pointer
+          text-ink hover:border-[#1E5EFF] focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors`}
       >
-        <span className={`flex-1 min-w-0 truncate ${value ? '' : 'text-[#52525b]'}`}>
+        <span className={`flex-1 min-w-0 truncate ${value ? '' : 'text-ink-dim'}`}>
           {displayNode ?? placeholder}
         </span>
         {allowClear && hover && value ? (
           <X
-            className="w-3 h-3 text-[#71717a] hover:text-[#fafafa] shrink-0"
+            className="w-3 h-3 text-ink-dim hover:text-ink shrink-0"
             onClick={(e) => {
               e.stopPropagation()
               onChange?.(null)
@@ -340,15 +401,21 @@ export function Select({
             }}
           />
         ) : (
-          <svg className={`w-3 h-3 text-[#71717a] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none">
+          <svg className={`w-3 h-3 text-ink-dim shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none">
             <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
       </div>
       {open && createPortal(
-        <div ref={panelRef} style={panelStyle} className="rounded-md border border-[#27272a] bg-[#18181b] shadow-lg overflow-hidden">
+        <div
+          ref={panelRef}
+          style={panelCoords
+            ? { position: 'fixed', top: panelCoords.top, left: panelCoords.left, width: panelCoords.width, zIndex: 9999 }
+            : { position: 'fixed', top: -9999, left: -9999, visibility: 'hidden' }}
+          className="rounded-md border border-line bg-panel shadow-lg overflow-hidden"
+        >
           {showSearch && (
-            <div className="p-1.5 border-b border-[#27272a]">
+            <div className="p-1.5 border-b border-line">
               <input
                 ref={searchRef}
                 value={search}
@@ -358,21 +425,21 @@ export function Select({
                 }}
                 onKeyDown={onKeyDown}
                 placeholder="搜索…"
-                className="w-full h-7 px-2 rounded bg-[#121214] border border-[#27272a] text-xs text-[#fafafa]
-                  placeholder:text-[#52525b] focus:outline-none focus:border-[#1E5EFF]"
+                className="w-full h-7 px-2 rounded bg-page border border-line text-xs text-ink
+                  placeholder:text-ink-dim focus:outline-none focus:border-[#1E5EFF]"
               />
             </div>
           )}
           <div ref={listRef} role="listbox" className="max-h-56 overflow-y-auto py-0.5">
             {!hasMatch ? (
-              <div className="px-2.5 py-2 text-[11px] text-[#71717a] text-center">无匹配项</div>
+              <div className="px-2.5 py-2 text-[11px] text-ink-dim text-center">无匹配项</div>
             ) : (
               (() => {
                 let idx = -1
                 return filteredGroups.map((g, gi) => (
                   <div key={gi}>
                     {g.label && (
-                      <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider font-bold text-[#71717a]">
+                      <div className="px-2.5 pt-1.5 pb-0.5 text-[11px] uppercase tracking-wider font-bold text-ink-dim">
                         {g.label}
                       </div>
                     )}
@@ -393,20 +460,20 @@ export function Select({
                             setOpen(false)
                           }}
                           onMouseEnter={() => setActiveIndex(myIdx)}
-                          className={`px-2.5 py-1.5 text-xs cursor-pointer flex items-start gap-1.5 text-[#fafafa]
+                          className={`px-2.5 py-1.5 text-xs cursor-pointer flex items-start gap-1.5 text-ink
                             ${opt.disabled ? 'opacity-40 cursor-not-allowed' : ''}
                             ${isActive && !opt.disabled ? 'bg-[#1E5EFF]/10' : ''}
-                            ${isSelected ? 'text-[#1E5EFF] font-medium' : ''}`}
+                            ${isSelected ? 'text-link font-medium' : ''}`}
                         >
                           {opt.icon && <span className="shrink-0 mt-0.5">{opt.icon}</span>}
                           <span className="min-w-0 flex-1">
                             <span className="block truncate">{opt.label}</span>
                             {opt.description && (
-                              <span className="block text-[10px] text-[#71717a] truncate">{opt.description}</span>
+                              <span className="block text-[11px] text-ink-dim truncate">{opt.description}</span>
                             )}
                           </span>
                           {isSelected && (
-                            <svg className="w-3 h-3 text-[#1E5EFF] shrink-0 mt-0.5" viewBox="0 0 12 12" fill="none">
+                            <svg className="w-3 h-3 text-link shrink-0 mt-0.5" viewBox="0 0 12 12" fill="none">
                               <path d="M2.5 6.5L5 9L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                           )}
@@ -442,11 +509,11 @@ const BTN_SIZE: Record<NonNullable<ButtonProps['size']>, string> = {
 }
 
 const BTN_TYPE: Record<NonNullable<ButtonProps['type']>, string> = {
-  default: 'bg-[#18181b] border border-[#27272a] text-[#fafafa] hover:border-[#1E5EFF] hover:text-[#1E5EFF]',
+  default: 'bg-panel border border-line text-ink hover:border-[#1E5EFF] hover:text-link',
   primary: 'bg-[#1E5EFF] border border-[#1E5EFF] text-white hover:bg-[#1a4fd6]',
-  dashed: 'bg-[#18181b]/40 border border-dashed border-[#27272a] text-[#fafafa] hover:border-[#1E5EFF] hover:text-[#1E5EFF]',
-  link: 'bg-transparent border-0 text-[#1E5EFF] hover:underline px-1',
-  text: 'bg-transparent border-0 text-slate-400 hover:bg-[#121214]/60 px-1.5',
+  dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-[#1E5EFF] hover:text-link',
+  link: 'bg-transparent border-0 text-link hover:underline px-1',
+  text: 'bg-transparent border-0 text-slate-400 hover:bg-page/60 px-1.5',
 }
 
 export function Button({
@@ -513,19 +580,26 @@ export function Modal({
   children,
 }: ModalProps) {
   if (!open) return null
-  // 点遮罩不关闭：只能手动关闭（✕/取消/确定），防误触丢表单内容
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  // Portal 到 body：Modal 常在可点击容器内弹出（如看板卡的审批弹窗）——
+  // 原地渲染时 position:fixed 只是视觉浮层，React 合成事件仍沿原 DOM 树
+  // 冒泡，点击弹窗内输入框会触发宿主容器（卡片）的 onClick（误跳详情）。
+  // 与本文件其他浮层组件（Select/Confirm 等）一致走 createPortal。
+  // 点遮罩不关闭：只能手动关闭（✕/取消/确定），防误触丢表单内容。
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div
         style={{ width, maxWidth: 'calc(100vw - 2rem)' }}
-        className="bg-[#18181b] rounded-xl shadow-2xl max-h-[85vh] flex flex-col border border-[#27272a]"
+        className="bg-panel rounded-xl shadow-2xl max-h-[85vh] flex flex-col border border-line"
       >
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#27272a]">
-          <span className="text-sm font-medium text-[#fafafa] truncate min-w-0">{title}</span>
-          <X className="w-4 h-4 text-[#71717a] cursor-pointer hover:text-[#fafafa]" onClick={onCancel} />
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
+          <span className="text-sm font-medium text-ink truncate min-w-0">{title}</span>
+          <X className="w-4 h-4 text-ink-dim cursor-pointer hover:text-ink" onClick={onCancel} />
         </div>
         <div className="px-5 py-4 overflow-y-auto flex-1">{children}</div>
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-[#27272a]">
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-line">
           <Button onClick={onCancel}>{cancelText}</Button>
           <Button
             type="primary"
@@ -537,7 +611,8 @@ export function Modal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -560,7 +635,7 @@ export function Switch({ size = 'default', checked = false, disabled = false, on
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
       className={`${w} rounded-full transition-colors flex items-center
-        ${checked ? 'bg-[#1E5EFF]' : 'bg-[#27272a]'}
+        ${checked ? 'bg-[#1E5EFF]' : 'bg-line'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       {/* Knob stays white for contrast on the colored track in both themes */}
@@ -591,7 +666,7 @@ const TAG_PRESETS: Record<string, string> = {
   orange: 'bg-orange-500/10 text-orange-400',
   purple: 'bg-purple-500/10 text-purple-400',
   cyan: 'bg-cyan-500/10 text-cyan-400',
-  default: 'bg-[#18181b] text-slate-400',
+  default: 'bg-panel text-slate-400',
 }
 
 export function Tag({ color, closable, onClose, className = '', children, onClick }: TagProps) {
@@ -602,7 +677,7 @@ export function Tag({ color, closable, onClose, className = '', children, onClic
     <span
       onClick={onClick}
       className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[11px] leading-tight
-        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-[#18181b] text-slate-400'} ${className}`}
+        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-panel text-slate-400'} ${className}`}
       style={
         isHex
           ? { backgroundColor: `${color}1A`, color }
@@ -631,49 +706,16 @@ interface TooltipProps {
   children: ReactNode
 }
 
+/** Tooltip：触发器上方居中，跟随滚动/缩放。 */
+const TOOLTIP_PLACEMENT: PanelPlacement = { side: 'top', align: 'center', gap: 6, fallbackW: 160, follow: true }
+
 export function Tooltip({ title, children }: TooltipProps) {
   const [show, setShow] = useState(false)
   const triggerRef = useRef<HTMLSpanElement>(null)
   const tipRef = useRef<HTMLDivElement>(null)
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
-  // 与 Popover 同理：portal 到主题根，脱离父级 overflow 裁剪并回到 .theme-light 作用域
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
-  }, [])
+  const { coords, portalTarget, measure } = usePanelPosition(triggerRef, tipRef, show, TOOLTIP_PLACEMENT)
 
-  const measure = useCallback(() => {
-    const trig = triggerRef.current
-    if (!trig) return
-    const r = trig.getBoundingClientRect()
-    const w = tipRef.current?.offsetWidth ?? 160
-    const h = tipRef.current?.offsetHeight ?? 0
-    const GAP = 6
-    const M = 8
-    // 默认在触发器上方居中
-    let top = r.top - h - GAP
-    let left = r.left + r.width / 2 - w / 2
-    // 上方放不下且下方够 → 翻到下方
-    if (top < M && r.bottom + h + GAP <= window.innerHeight - M) {
-      top = r.bottom + GAP
-    }
-    if (top + h > window.innerHeight - M) top = Math.max(M, window.innerHeight - h - M)
-    if (top < M) top = M
-    left = Math.max(M, Math.min(left, window.innerWidth - w - M))
-    setCoords({ top, left })
-  }, [])
-
-  useEffect(() => {
-    if (!show) return
-    measure()
-    window.addEventListener('resize', measure)
-    window.addEventListener('scroll', measure, true)
-    return () => {
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('scroll', measure, true)
-    }
-  }, [show, measure])
-
+  // 内容/文本变化后拿到真实尺寸再做边界翻转（paint 前同步，避免闪烁）
   useLayoutEffect(() => {
     if (!show) return
     measure()
@@ -697,7 +739,7 @@ export function Tooltip({ title, children }: TooltipProps) {
                 ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 210 }
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 210 }
             }
-            className="px-2.5 py-1.5 rounded bg-[#18181b] border border-[#27272a] text-[#fafafa]
+            className="px-2.5 py-1.5 rounded bg-panel border border-line text-ink
               text-[11px] whitespace-pre-wrap max-w-xs max-h-[70vh] overflow-hidden shadow-lg leading-relaxed pointer-events-none"
           >
             {title}
@@ -718,6 +760,9 @@ interface PopoverProps {
   children: ReactNode
 }
 
+/** Popover：触发器下方展开、右缘对齐，跟随滚动/缩放。 */
+const POPOVER_PLACEMENT: PanelPlacement = { side: 'bottom', align: 'end', gap: 4, fallbackW: 240, follow: true }
+
 export function Popover({ content, title, trigger = 'hover', open, onOpenChange, children }: PopoverProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const isControlled = open !== undefined
@@ -726,14 +771,7 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
   const triggerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number | null>(null)
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
-  // portal 到主题根容器（App root 上的 .theme-light/.theme-dark），让浮层回到主题作用域：
-  // 否则脱离 .theme-light 后，index.css 的亮色覆写对浮层失效（亮色下仍显示暗色）。
-  // fixed 定位相对视口，不会被该容器的 overflow-hidden 裁剪。
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    setPortalTarget(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
-  }, [])
+  const { coords, portalTarget, measure } = usePanelPosition(triggerRef, popoverRef, isOpen, POPOVER_PLACEMENT)
 
   const toggle = (next: boolean) => {
     if (isControlled) onOpenChange?.(next)
@@ -750,42 +788,6 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
     clearCloseTimer()
     closeTimer.current = window.setTimeout(() => toggle(false), 120)
   }
-
-  // 浮层 fixed 定位渲染到 body，脱离配置面板等祖先的 overflow 裁剪与层叠上下文
-  const measure = useCallback(() => {
-    const trig = triggerRef.current
-    if (!trig) return
-    const r = trig.getBoundingClientRect()
-    const popW = popoverRef.current?.offsetWidth ?? 240
-    const popH = popoverRef.current?.offsetHeight ?? 0
-    const GAP = 4
-    const M = 8
-    // 默认右下展开：浮层右边对齐触发器右边，顶部贴触发器下方
-    let top = r.bottom + GAP
-    let left = r.right - popW
-    // 下方放不下且上方够 → 翻到上方
-    if (top + popH > window.innerHeight - M && r.top - popH - GAP >= M) {
-      top = r.top - popH - GAP
-    }
-    // 垂直夹在视口内
-    if (top + popH > window.innerHeight - M) top = Math.max(M, window.innerHeight - popH - M)
-    if (top < M) top = M
-    // 水平夹在视口内
-    left = Math.max(M, Math.min(left, window.innerWidth - popW - M))
-    setCoords({ top, left })
-  }, [])
-
-  // 打开时：初始定位 + 监听滚动(capture)/resize 实时跟随
-  useEffect(() => {
-    if (!isOpen) return
-    measure()
-    window.addEventListener('resize', measure)
-    window.addEventListener('scroll', measure, true)
-    return () => {
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('scroll', measure, true)
-    }
-  }, [isOpen, measure])
 
   // 浮层挂载/内容变化后拿到真实尺寸再做边界翻转（paint 前同步，避免闪烁）
   useLayoutEffect(() => {
@@ -844,13 +846,13 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
                 ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 200 }
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 200 }
             }
-            className="min-w-[220px] max-w-[360px] max-h-[80vh] overflow-y-auto bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]"
+            className="min-w-[220px] max-w-[360px] max-h-[80vh] overflow-y-auto bg-panel rounded-lg shadow-xl border border-line"
             {...(isHover
               ? { onMouseEnter: clearCloseTimer, onMouseLeave: scheduleClose }
               : {})}
           >
             {title && (
-              <div className="px-3 py-2 border-b border-[#27272a] text-xs font-medium text-[#fafafa]">
+              <div className="px-3 py-2 border-b border-line text-xs font-medium text-ink">
                 {title}
               </div>
             )}
@@ -873,7 +875,7 @@ interface BadgeProps {
 }
 
 export function Badge({ count, size = 'default', className = '', style, children }: BadgeProps) {
-  const dot = size === 'small' ? 'min-w-[14px] h-[14px] text-[9px]' : 'min-w-[18px] h-[18px] text-[10px]'
+  const dot = size === 'small' ? 'min-w-[14px] h-[14px] text-[11px]' : 'min-w-[18px] h-[18px] text-[11px]'
   return (
     <span className={`relative inline-flex ${className}`}>
       {children}
@@ -900,7 +902,7 @@ interface SpinProps {
 export function Spin({ size = 'default', className = '' }: SpinProps) {
   const s = size === 'small' ? 'w-3.5 h-3.5' : size === 'large' ? 'w-7 h-7' : 'w-5 h-5'
   return (
-    <svg className={`${s} animate-spin text-[#1E5EFF] ${className}`} viewBox="0 0 24 24" fill="none">
+    <svg className={`${s} animate-spin text-link ${className}`} viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
       <path d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
     </svg>
@@ -946,9 +948,9 @@ export function Popconfirm({
         {children}
       </span>
       {open && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 max-h-[70vh] overflow-y-auto bg-[#18181b] rounded-lg shadow-xl border border-[#27272a]">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 max-h-[70vh] overflow-y-auto bg-panel rounded-lg shadow-xl border border-line">
           <div className="px-3.5 py-3">
-            <div className="text-xs font-medium text-[#fafafa]">{title}</div>
+            <div className="text-xs font-medium text-ink">{title}</div>
             {description && <div className="text-[11px] text-slate-400 mt-1">{description}</div>}
             <div className="flex justify-end gap-2 mt-3">
               <Button size="small" onClick={() => setOpen(false)}>
@@ -1008,10 +1010,10 @@ export function Table<T extends Record<string, unknown>>({
     return v !== undefined && v !== null ? String(v) : String(index)
   }
   return (
-    <div className={`overflow-x-auto border border-[#27272a] rounded-lg ${className}`}>
+    <div className={`overflow-x-auto border border-line rounded-lg ${className}`}>
       <table className="w-full text-xs">
         <thead>
-          <tr className="bg-[#121214]/60 border-b border-[#27272a]">
+          <tr className="bg-page/60 border-b border-line">
             {columns.map((col) => (
               <th
                 key={col.key}
@@ -1026,7 +1028,7 @@ export function Table<T extends Record<string, unknown>>({
         <tbody>
           {dataSource.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className={`${pad} text-center text-[#71717a]`}>
+              <td colSpan={columns.length} className={`${pad} text-center text-ink-dim`}>
                 暂无数据
               </td>
             </tr>
@@ -1034,7 +1036,7 @@ export function Table<T extends Record<string, unknown>>({
             dataSource.map((record, index) => (
               <tr
                 key={getKey(record, index)}
-                className={`border-b border-[#27272a]/60 last:border-0 hover:bg-[#121214]/40 ${
+                className={`border-b border-line/60 last:border-0 hover:bg-page/40 ${
                   rowClassName ? rowClassName(record, index) : ''
                 }`}
               >

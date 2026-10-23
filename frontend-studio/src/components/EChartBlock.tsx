@@ -129,7 +129,7 @@ function EChartBlockImpl({ option, className, onRegenerate }: EChartBlockProps) 
     return (
       <div
         ref={containerRef}
-        className={`chart-block my-3 overflow-hidden rounded-xl border ${dark ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'} ${className ?? ''}`}
+        className={`chart-block my-3 overflow-hidden rounded-xl border ${dark ? 'border-line bg-panel' : 'border-slate-200 bg-white'} ${className ?? ''}`}
       >
         <ReactECharts
           echarts={echarts}
@@ -150,7 +150,7 @@ function EChartBlockImpl({ option, className, onRegenerate }: EChartBlockProps) 
   return (
     <div
       ref={containerRef}
-      className={`chart-block chart-block-error my-3 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${dark ? 'border-[#27272a] bg-[#18181b] text-[#a1a1aa]' : 'border-slate-200 bg-slate-50 text-slate-500'} ${className ?? ''}`}
+      className={`chart-block chart-block-error my-3 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${dark ? 'border-line bg-panel text-ink-dim' : 'border-slate-200 bg-slate-50 text-slate-500'} ${className ?? ''}`}
     >
       {streaming ? (
         <Loader2 className="h-4 w-4 animate-spin opacity-60" />
@@ -162,7 +162,7 @@ function EChartBlockImpl({ option, className, onRegenerate }: EChartBlockProps) 
         <button
           type="button"
           onClick={onRegenerate}
-          className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${dark ? 'border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a]' : 'border-slate-300 text-slate-600 hover:bg-white'}`}
+          className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${dark ? 'border-line-strong text-ink-soft hover:bg-line' : 'border-slate-300 text-slate-600 hover:bg-white'}`}
         >
           重新生成
         </button>

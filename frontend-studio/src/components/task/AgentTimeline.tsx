@@ -87,9 +87,9 @@ interface ThemeTokens {
 
 const TOKENS: Record<'light' | 'dark', ThemeTokens> = {
   dark: {
-    card: 'bg-[#09090b]', cardBorder: 'border-[#27272a]',
-    text: 'text-[#fafafa]', muted: 'text-[#71717a]',
-    codeBg: 'bg-[#18181b]', codeText: 'text-[#a1a1aa]',
+    card: 'bg-well', cardBorder: 'border-line',
+    text: 'text-ink', muted: 'text-ink-dim',
+    codeBg: 'bg-panel', codeText: 'text-ink-dim',
   },
   light: {
     card: 'bg-slate-50', cardBorder: 'border-slate-200',
@@ -118,12 +118,12 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
             onClick={() => setExpanded(!expanded)}
             className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-transparent cursor-pointer text-left hover:opacity-80 transition-opacity"
           >
-            <Lightbulb size={12} className="text-[#3B82F6]" />
-            <span className="text-[11px] font-medium text-[#3B82F6]">思考过程</span>
-            <span className={`text-[10px] ml-auto ${t.muted}`}>{expanded ? '收起' : '展开'}</span>
+            <Lightbulb size={12} className="text-link" />
+            <span className="text-[11px] font-medium text-link">思考过程</span>
+            <span className={`text-[11px] ml-auto ${t.muted}`}>{expanded ? '收起' : '展开'}</span>
           </button>
           {expanded && (
-            <div className={`px-2.5 pb-2 pt-1.5 text-[11px] text-[#60A5FA] whitespace-pre-wrap leading-relaxed border-t ${t.cardBorder}`}>
+            <div className={`px-2.5 pb-2 pt-1.5 text-[11px] text-link whitespace-pre-wrap leading-relaxed border-t ${t.cardBorder}`}>
               {entry.content}
             </div>
           )}
@@ -154,17 +154,17 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
               {toolLabel}
             </span>
             {status === 'running' && (
-              <span className="text-[10px] opacity-70" style={{ color: sm.color }}>执行中…</span>
+              <span className="text-[11px] opacity-70" style={{ color: sm.color }}>执行中…</span>
             )}
             {hasDetail && (
-              <span className={`text-[10px] ml-auto ${t.muted}`}>{expanded ? '收起' : '详情'}</span>
+              <span className={`text-[11px] ml-auto ${t.muted}`}>{expanded ? '收起' : '详情'}</span>
             )}
           </button>
           {expanded && hasDetail && (
             <div className={`px-2.5 pb-2 pt-1.5 space-y-2 border-t ${t.cardBorder}`}>
               {!!entry.args && Object.keys(entry.args).length > 0 && (
                 <div>
-                  <div className={`text-[10px] font-medium mb-1 ${t.muted}`}>请求参数</div>
+                  <div className={`text-[11px] font-medium mb-1 ${t.muted}`}>请求参数</div>
                   <pre className={`text-[11px] whitespace-pre-wrap break-all leading-relaxed rounded p-2 max-h-40 overflow-y-auto ${t.codeBg} ${t.codeText}`}>
                     {JSON.stringify(entry.args, null, 2)}
                   </pre>
@@ -172,7 +172,7 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
               )}
               {!!entry.result && (
                 <div>
-                  <div className={`text-[10px] font-medium mb-1 ${t.muted}`}>返回结果</div>
+                  <div className={`text-[11px] font-medium mb-1 ${t.muted}`}>返回结果</div>
                   <pre className={`text-[11px] whitespace-pre-wrap break-all leading-relaxed rounded p-2 max-h-48 overflow-y-auto ${t.codeBg} ${t.codeText}`}>
                     {entry.result}
                   </pre>
@@ -186,8 +186,8 @@ function EntryCard({ entry, theme }: { entry: TimelineEntry; theme: 'light' | 'd
 
     case 'user':
       return (
-        <div className={`rounded-lg border ${t.cardBorder} px-2.5 py-1.5 ${theme === 'dark' ? 'bg-[#18181b]' : 'bg-slate-100'}`}>
-          <div className={`text-[10px] mb-0.5 ${t.muted}`}>用户输入</div>
+        <div className={`rounded-lg border ${t.cardBorder} px-2.5 py-1.5 ${theme === 'dark' ? 'bg-panel' : 'bg-slate-100'}`}>
+          <div className={`text-[11px] mb-0.5 ${t.muted}`}>用户输入</div>
           <div className={`text-[12px] whitespace-pre-wrap leading-relaxed ${t.text}`}>{entry.content}</div>
         </div>
       )

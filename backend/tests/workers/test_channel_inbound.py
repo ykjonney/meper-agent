@@ -7,7 +7,7 @@ import path so the eager task body uses the mocks.
 import contextlib
 from unittest.mock import AsyncMock, patch
 
-from app.channels.errors import InvalidCredentialsError, LLMRateLimitError
+from app.channels.errors import InvalidCredentialsError, TransientChannelError
 from app.models.channel import ChannelConfig, ChannelProvider, InboundEventLog
 from app.workers.tasks.channel_inbound import process_inbound
 
@@ -78,7 +78,7 @@ class TestProcessInbound:
             new=AsyncMock(return_value=_make_config()),
         ), patch(
             "app.workers.tasks.channel_inbound.ChannelService.execute",
-            new=AsyncMock(side_effect=LLMRateLimitError("busy")),
+            new=AsyncMock(side_effect=TransientChannelError("busy")),
         ), patch(
             "app.workers.tasks.channel_inbound.ChannelService.handle_error",
             new=AsyncMock(),

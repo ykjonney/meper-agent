@@ -1,4 +1,4 @@
-"""AC1/AC3/AC4 cover: ask_clarification(interrupt) + tool_search(检索)。"""
+"""AC1/AC3 cover: ask_clarification(interrupt)。"""
 from __future__ import annotations
 
 import pytest
@@ -7,8 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from agent_flow_harness.graph import build_agent_graph, build_config
-from agent_flow_harness.interaction import ask_clarification, tool_search
-from agent_flow_harness.tools.registry import ToolRegistry
+from agent_flow_harness.interaction import ask_clarification
 
 
 def _ai_tool_call(name, args=None, call_id="c1"):
@@ -182,63 +181,3 @@ async def test_ask_clarification_fields_resume_returns_answer(
     assert any("已收到参数" in c for c in contents)
 
 
-# ---------------------------------------------------------------------------
-# tool_search
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_tool_search_finds_builtin(monkeypatch):
-    """AC4: tool_search 检索到注册的工具。"""
-    from langchain_core.tools import tool as lc_tool
-
-    @lc_tool
-    def web_search(query: str) -> str:
-        """搜索网络获取信息。"""
-        return "result"
-
-    @lc_tool
-    def send_email(to: str) -> str:
-        """发送邮件。"""
-        return "ok"
-
-    fake_reg = ToolRegistry()
-    fake_reg.register(web_search)
-    fake_reg.register(send_email)
-    monkeypatch.setattr("agent_flow_harness.tools.TOOL_REGISTRY", fake_reg)
-
-    result = await tool_search.ainvoke({"query": "search"})
-    assert "web_search" in result
-    assert "send_email" not in result
-
-
-@pytest.mark.asyncio
-async def test_tool_search_no_match(monkeypatch):
-    """无匹配 → 返回提示。"""
-    monkeypatch.setattr("agent_flow_harness.tools.TOOL_REGISTRY", ToolRegistry())
-    result = await tool_search.ainvoke({"query": "nonexistent_xyz"})
-    assert "no matching" in result.lower()
-
-
-@pytest.mark.asyncio
-async def test_tool_search_multi_term(monkeypatch):
-    """多关键词：任一命中即匹配。"""
-    from langchain_core.tools import tool as lc_tool
-
-    @lc_tool
-    def db_query(sql: str) -> str:
-        """查询数据库。"""
-        return "r"
-
-    fake_reg = ToolRegistry()
-    fake_reg.register(db_query)
-    monkeypatch.setattr("agent_flow_harness.tools.TOOL_REGISTRY", fake_reg)
-
-    result = await tool_search.ainvoke({"query": "database 数据"})
-    assert "db_query" in result
-
-
-def test_tool_search_is_tool():
-    from langchain_core.tools import BaseTool
-    assert isinstance(tool_search, BaseTool)
-    assert tool_search.name == "tool_search"

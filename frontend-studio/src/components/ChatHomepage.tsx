@@ -16,6 +16,8 @@ import { modelApi, modelKeys } from '../services/model-api';
 import { toStudioAgent } from '../services/adapters';
 import { getFileBlob, downloadFile as downloadFileById } from '../services/file-api';
 import { parseSSEStream } from '../lib/sse-parser';
+import { formatFileSize } from '../lib/file-preview';
+import { formatTimeFull } from '../lib/formatTime';
 import { isImeComposing } from '../lib/keyboard';
 import { countZi, truncateByZi } from '../lib/text-stats';
 import { SessionFilesPanel, type SessionFilesPanelHandle } from './SessionFilesPanel';
@@ -216,7 +218,7 @@ function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: st
     avatar,
     role: 'agent',
     content: '',
-    timestamp: new Date(rec.created_at).toLocaleString(),
+    timestamp: formatTimeFull(rec.created_at),
     requestId: rec.request_id,
     timeline: timeline.length > 0 ? timeline : undefined,
     isInterrupted,
@@ -240,11 +242,6 @@ function fileRefToAttachment(file?: FileRef): Message['attachment'] | undefined 
   return { name, type, content: file.storage_key || name };
 }
 
-/** 机器人头像：委托 AvatarRender 统一渲染（URL→img / emoji→兼容 / 空→logo）。 */
-function BotAvatar({ avatar, className }: { avatar?: string; className?: string }) {
-  return <AvatarRender value={avatar} className={className} />;
-}
-
 /* ─── 对话内附件预览（用户上传 + agent 产出统一渲染） ─── */
 
 /** 按 source 取 blob：upload 走 FileRef.id，output 走 session output 路径。 */
@@ -265,15 +262,6 @@ async function downloadAttachment(att: ChatAttachment, sessionId: string | null)
   }
   if (!sessionId) throw new Error('会话未加载，无法下载产出文件');
   await sessionApi.downloadFile(sessionId, att.ref);
-}
-
-/** 字节数格式化（与 SessionFilesPanel 的 formatFileSize 一致）。 */
-function formatBytes(bytes?: number): string {
-  if (!bytes) return '';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const val = bytes / Math.pow(1024, i);
-  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
 }
 
 /**
@@ -369,17 +357,17 @@ function ChatAttachmentCard({
         <button
           type="button"
           onClick={openPreview}
-          className="relative rounded-lg overflow-hidden border border-[#27272a] bg-[#121214] hover:border-indigo-500/50 transition-colors cursor-pointer block"
+          className="relative rounded-lg overflow-hidden border border-line bg-page hover:border-indigo-500/50 transition-colors cursor-pointer block"
           title={att.name}
         >
           {loadingThumb ? (
-            <div className="w-48 h-32 flex items-center justify-center text-[#71717a]">
+            <div className="w-48 h-32 flex items-center justify-center text-ink-dim">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
           ) : thumbError ? (
-            <div className="w-48 h-32 flex flex-col items-center justify-center text-[#71717a] gap-1 px-2">
+            <div className="w-48 h-32 flex flex-col items-center justify-center text-ink-dim gap-1 px-2">
               <ImageIcon className="w-5 h-5" />
-              <span className="text-[10px] truncate max-w-full">{att.name}</span>
+              <span className="text-[11px] truncate max-w-full">{att.name}</span>
             </div>
           ) : (
             thumbUrl && (
@@ -410,17 +398,17 @@ function ChatAttachmentCard({
   // ── 非图片：文件卡片（名称 + 类型徽标 + 预览/下载） ──
   return (
     <>
-      <div className="flex items-center gap-2.5 w-72 max-w-full px-3 py-2.5 rounded-lg border border-[#27272a] bg-[#18181b] hover:border-indigo-500/40 transition-colors group">
-        <div className="w-8 h-8 rounded-md bg-[#121214] border border-[#27272a] flex items-center justify-center shrink-0">
+      <div className="flex items-center gap-2.5 w-72 max-w-full px-3 py-2.5 rounded-lg border border-line bg-panel hover:border-indigo-500/40 transition-colors group">
+        <div className="w-8 h-8 rounded-md bg-page border border-line flex items-center justify-center shrink-0">
           <FileText className="w-4 h-4 text-indigo-400" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold text-slate-200 truncate" title={att.name}>
             {att.name}
           </p>
-          <p className="text-[9px] text-[#71717a] font-mono uppercase">
+          <p className="text-[11px] text-ink-dim font-mono uppercase">
             {att.mime_type || kind}
-            {att.size ? ` · ${formatBytes(att.size)}` : ''}
+            {att.size ? ` · ${formatFileSize(att.size)}` : ''}
           </p>
         </div>
         {kind === 'binary' ? (
@@ -428,7 +416,7 @@ function ChatAttachmentCard({
             type="button"
             onClick={() => downloadAttachment(att, sessionId)}
             title="下载"
-            className="p-1.5 text-[#71717a] hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
+            className="p-1.5 text-ink-dim hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -437,7 +425,7 @@ function ChatAttachmentCard({
             type="button"
             onClick={openPreview}
             title="预览"
-            className="p-1.5 text-[#71717a] hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
+            className="p-1.5 text-ink-dim hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
           >
             <FileCode className="w-3.5 h-3.5" />
           </button>
@@ -475,7 +463,7 @@ function userMessageToDisplay(rec: MessageRecord): Message {
     avatar: '👩‍💼',
     role: 'user',
     content: rec.content,
-    timestamp: new Date(rec.created_at).toLocaleString(),
+    timestamp: formatTimeFull(rec.created_at),
     attachment: fileRefToAttachment(rec.files?.[0]),
     attachments,
   };
@@ -1610,14 +1598,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 bg-[#121214] border-0 overflow-hidden relative w-full h-full min-h-0 flex-1">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 bg-page border-0 overflow-hidden relative w-full h-full min-h-0 flex-1">
       {/* 1. SIDEBAR: Conversations List — collapsed narrow rail | expanded list */}
       {sidebarCollapsed ? (
-        <div className="lg:col-span-1 min-h-0 border-r border-[#27272a] bg-[#18181b]/80 flex flex-row lg:flex-col items-center gap-3 px-2 py-3">
+        <div className="lg:col-span-1 min-h-0 border-r border-line bg-panel/80 flex flex-row lg:flex-col items-center gap-3 px-2 py-3">
           <button
             onClick={() => setSidebarCollapsed(false)}
             title="展开会话列表"
-            className="w-9 h-9 rounded-full bg-[#27272a]/50 border border-[#27272a] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
+            className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center text-ink-dim hover:text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
@@ -1632,7 +1620,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               setSidebarCollapsed(false);
             }}
             title="新建会话"
-            className="w-9 h-9 rounded-full bg-[#27272a]/50 border border-[#27272a] flex items-center justify-center hover:bg-[#1f1f23] transition-colors cursor-pointer"
+            className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center hover:bg-[#1f1f23] transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 text-emerald-400" />
           </button>
@@ -1642,15 +1630,15 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           />
         </div>
       ) : (
-      <div className="lg:col-span-3 min-h-0 border-r border-[#27272a] bg-[#18181b]/80 flex flex-col justify-between">
+      <div className="lg:col-span-3 min-h-0 border-r border-line bg-panel/80 flex flex-col justify-between">
         <div className="flex flex-col h-full min-h-0">
-          <div className="px-4 h-16 border-b border-[#27272a] flex items-center justify-between relative">
+          <div className="px-4 h-16 border-b border-line flex items-center justify-between relative">
             <div
               className="flex items-center gap-1.5 cursor-pointer group"
               onClick={() => setSidebarCollapsed(true)}
               title="收起会话列表"
             >
-              <PanelLeftClose className="w-4 h-4 text-[#a1a1aa] group-hover:text-white transition-colors" />
+              <PanelLeftClose className="w-4 h-4 text-ink-dim group-hover:text-white transition-colors" />
               <span className="text-sm font-bold text-white font-sans">对话</span>
             </div>
             <div className="relative">
@@ -1664,13 +1652,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   }
                   setShowDropdown(!showDropdown);
                 }}
-                className="w-9 h-9 rounded-full bg-[#27272a]/50 border border-[#27272a] flex items-center justify-center text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
+                className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4 text-emerald-400" />
               </button>
               {showDropdown && (
-                <div className="absolute right-0 mt-2 w-56 bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl p-1 z-50 animate-fade-in text-xs font-sans">
-                  <div className="px-3 py-2 text-[10px] text-[#71717a] border-b border-[#27272a] font-semibold uppercase tracking-wider">
+                <div className="absolute right-0 mt-2 w-56 bg-panel border border-line rounded-xl shadow-2xl p-1 z-50 animate-fade-in text-xs font-sans">
+                  <div className="px-3 py-2 text-[11px] text-ink-dim border-b border-line font-semibold uppercase tracking-wider">
                     新建工作专区
                   </div>
                   <button
@@ -1678,26 +1666,26 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                       setShowAgentSelectModal(true);
                       setShowDropdown(false);
                     }}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-[#121214] text-[#fafafa] flex flex-col gap-0.5 transition cursor-pointer"
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-page text-ink flex flex-col gap-0.5 transition cursor-pointer"
                   >
                     <span className="font-semibold flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                       新建项目
                     </span>
-                    <span className="text-[10px] text-[#71717a]">选择协作 Agent 启动全新会话</span>
+                    <span className="text-[11px] text-ink-dim">选择协作 Agent 启动全新会话</span>
                   </button>
                   <button
                     onClick={() => {
                       setShowAgentSelectModal(true);
                       setShowDropdown(false);
                     }}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-[#121214] text-[#fafafa] flex flex-col gap-0.5 transition border-t border-[#27272a] pt-2 cursor-pointer font-sans"
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-page text-ink flex flex-col gap-0.5 transition border-t border-line pt-2 cursor-pointer font-sans"
                   >
                     <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
                       <Bot className="w-3.5 h-3.5 text-emerald-400 font-bold" />
                       选择 Agent 开始
                     </span>
-                    <span className="text-[10px] text-[#71717a]">从真实后端创建会话</span>
+                    <span className="text-[11px] text-ink-dim">从真实后端创建会话</span>
                   </button>
                 </div>
               )}
@@ -1706,10 +1694,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-2 space-y-1">
             {sessionsLoading && (
-              <div className="p-3 text-[10px] text-[#71717a] font-mono">加载会话中…</div>
+              <div className="p-3 text-[11px] text-ink-dim font-mono">加载会话中…</div>
             )}
             {!sessionsLoading && sessions.length === 0 && (
-              <div className="p-3 text-[10px] text-[#71717a] font-sans">
+              <div className="p-3 text-[11px] text-ink-dim font-sans">
                 {fixedAgentId ? '暂无会话。点击右上 + 新建。' : '暂无会话。点击右上 + 选择 Agent 新建。'}
               </div>
             )}
@@ -1724,34 +1712,34 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                     isActive
                       ? theme === 'light'
                         ? 'bg-slate-200'
-                        : 'bg-[#121214] border border-[#27272a]/70 shadow-lg'
+                        : 'bg-page border border-line/70 shadow-lg'
                       : theme === 'light'
                         ? 'hover:bg-slate-100'
-                        : 'hover:bg-[#121214]/50 border border-transparent'
+                        : 'hover:bg-page/50 border border-transparent'
                   }`}
                 >
                   <div className="relative">
-                    <div className="w-10 h-10 rounded-xl bg-[#121214] border border-[#27272a] flex items-center justify-center text-xl shadow-inner select-none overflow-hidden">
-                      <BotAvatar avatar={infoAgent?.avatar} className="w-full h-full p-1 text-xl" />
+                    <div className="w-10 h-10 rounded-xl bg-page border border-line flex items-center justify-center text-xl shadow-inner select-none overflow-hidden">
+                      <AvatarRender value={infoAgent?.avatar} className="w-full h-full p-1 text-xl" />
                     </div>
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#18181b]" />
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-line" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center mb-0.5">
                       <span className="text-xs font-bold text-white truncate font-sans">
                         {sess.title || infoAgent?.name || '未命名会话'}
                       </span>
-                      <span className="text-[10px] text-[#71717a] font-mono leading-none shrink-0">
+                      <span className="text-[11px] text-ink-dim font-mono leading-none shrink-0">
                         {formatSessionTime(sess.updated_at)}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#a1a1aa] truncate font-sans leading-relaxed">
+                    <p className="text-[11px] text-ink-dim truncate font-sans leading-relaxed">
                       {sess.message_count ?? 0} 条消息 · {infoAgent?.name ?? 'Agent'}
                     </p>
                   </div>
                   <button
                     onClick={(e) => handleDeleteSession(e, sess._id)}
-                    className="absolute right-2 bottom-3 opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-[#18181b] rounded-md transition"
+                    className="absolute right-2 bottom-3 opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-panel rounded-md transition"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1761,42 +1749,42 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           </div>
         </div>
 
-        <div className="p-3.5 border-t border-[#27272a] bg-[#121214] rounded-none">
+        <div className="p-3.5 border-t border-line bg-page rounded-none">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] text-[#71717a] font-mono">MEPER Agent SSE: Connected</span>
+            <span className="text-[11px] text-ink-dim font-mono">MEPER Agent SSE: Connected</span>
           </div>
         </div>
       </div>
       )}
 
       {/* 2. CHAT STREAM PANEL */}
-      <div className={`${sidebarCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} min-h-0 flex flex-col h-full bg-[#121214]`}>
-        <div className="px-6 h-16 border-b border-[#27272a] bg-[#18181b]/50 flex items-center justify-between">
+      <div className={`${sidebarCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} min-h-0 flex flex-col h-full bg-page`}>
+        <div className="px-6 h-16 border-b border-line bg-panel/50 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-[#121214] border border-[#27272a] text-xl flex items-center justify-center overflow-hidden">
-              <BotAvatar avatar={activeAgent?.avatar} className="w-full h-full p-1 text-xl" />
+            <div className="w-9 h-9 rounded-lg bg-page border border-line text-xl flex items-center justify-center overflow-hidden">
+              <AvatarRender value={activeAgent?.avatar} className="w-full h-full p-1 text-xl" />
             </div>
             <div className="min-w-0">
               <h3 className="text-xs font-bold text-white flex items-center gap-1.5 font-sans min-w-0">
                 <span className="truncate">{activeSession?.title || activeAgent?.name || '选择一个会话'}</span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono shrink-0">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[11px] font-mono shrink-0">
                   SSE 流式
                 </span>
               </h3>
-              <p className="text-[11px] text-[#71717a] font-sans truncate">
+              <p className="text-[11px] text-ink-dim font-sans truncate">
                 {modelLabel(activeAgent?.model)} • {activeAgent?.name ?? '—'}
               </p>
             </div>
           </div>
           {/* Chat / Files tab switcher */}
-          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#121214] border border-[#27272a]">
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-page border border-line">
             {(['chat', 'files'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-                  rightTab === tab ? 'bg-[#1E5EFF] text-white' : 'text-[#71717a] hover:text-white'
+                  rightTab === tab ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
                 }`}
               >
                 {tab === 'chat' ? '对话' : '文件'}
@@ -1816,7 +1804,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         ) : (
         <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-6 space-y-5">
           <div className="flex items-center justify-center">
-            <span className="px-3 py-1 rounded bg-[#18181b] border border-[#27272a]/60 text-[#71717a] text-[10px] font-mono">
+            <span className="px-3 py-1 rounded bg-panel border border-line/60 text-ink-dim text-[11px] font-mono">
               对话由 MEPER Agent 引擎实时流式生成
             </span>
           </div>
@@ -1824,9 +1812,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           {/* 空状态仅在没有任何消息时显示（流式/会话绑定延迟期间不压在消息上方） */}
           {!activeSession && !sessionsLoading && liveMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Bot className="w-10 h-10 text-[#71717a] mb-3" />
-              <p className="text-sm text-[#a1a1aa] font-sans">还没有会话</p>
-              <p className="text-[11px] text-[#71717a] mt-1">
+              <Bot className="w-10 h-10 text-ink-dim mb-3" />
+              <p className="text-sm text-ink-dim font-sans">还没有会话</p>
+              <p className="text-[11px] text-ink-dim mt-1">
                 {fixedAgentId ? '点击左上 + 立即开始对话' : '点击左上 + 选择一个 Agent 开始对话'}
               </p>
             </div>
@@ -1849,25 +1837,25 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 select-none shadow ${
                   isUser
                     ? 'bg-[#4f46e5]/15 border border-[#4f46e5]/30 text-indigo-400'
-                    : 'bg-[#18181b] border border-[#27272a] overflow-hidden'
+                    : 'bg-panel border border-line overflow-hidden'
                 }`}>
                   {isUser ? (
                     <User className="w-4 h-4" />
                   ) : (
-                    <BotAvatar avatar={msg.avatar} className="w-full h-full p-1.5 text-lg" />
+                    <AvatarRender value={msg.avatar} className="w-full h-full p-1.5 text-lg" />
                   )}
                 </div>
                 <div className="space-y-1 min-w-0 flex-1">
-                  <div className={`flex items-center gap-2 text-[10px] ${isUser ? 'justify-end' : ''}`}>
+                  <div className={`flex items-center gap-2 text-[11px] ${isUser ? 'justify-end' : ''}`}>
                     {!isUser && (
-                      <span className="font-bold text-[#a1a1aa] font-sans">
+                      <span className="font-bold text-ink-dim font-sans">
                         {msg.senderName}
                         {msg.status === 'thinking' && <span className="text-indigo-400 ml-1">· 思考中</span>}
                       </span>
                     )}
-                    <span className="text-[#71717a] font-mono">{msg.timestamp}</span>
+                    <span className="text-ink-dim font-mono">{msg.timestamp}</span>
                     {!isUser && msg.usage?.total_tokens ? (
-                      <span className="text-[#71717a] font-mono">
+                      <span className="text-ink-dim font-mono">
                         · {msg.usage.total_tokens.toLocaleString()} tokens
                         {msg.usage.llm_calls != null && msg.usage.llm_calls > 1
                           ? ` · ${msg.usage.llm_calls} 轮`
@@ -1883,7 +1871,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                           return (
                             <div
                               key={entry.id}
-                              className="p-4 rounded-xl rounded-tl-none text-[12.5px] leading-relaxed border font-sans select-text shadow-sm bg-[#18181b] border-[#27272a] text-[#e4e4e7]"
+                              className="p-4 rounded-xl rounded-tl-none text-[12.5px] leading-relaxed border font-sans select-text shadow-sm bg-panel border-line text-ink-soft"
                             >
                               <Markdown content={entry.content} />
                               {/* agent 消息的产出附件挂在最后一个 text entry 后面 */}
@@ -1968,8 +1956,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                       msg.status === 'thinking'
                         ? 'bg-indigo-950/20 border-indigo-900/40 rounded-tl-none text-indigo-300 italic'
                         : isUser
-                          ? 'bg-[#4f46e5]/10 border-[#4f46e5]/30 rounded-tr-none text-[#fafafa]'
-                          : 'bg-[#18181b] border-[#27272a] rounded-tl-none text-[#e4e4e7]'
+                          ? 'bg-[#4f46e5]/10 border-[#4f46e5]/30 rounded-tr-none text-ink'
+                          : 'bg-panel border-line rounded-tl-none text-ink-soft'
                     }`}
                   >
                     {msg.content
@@ -2013,7 +2001,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                         title={feedbackMap[msg.requestId]?.value === 1 ? '已点过赞' : '这轮回复有帮助'}
                         onClick={() => handleVoteMessage(msg.requestId!, 1)}
                         className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                          feedbackMap[msg.requestId]?.value === 1 ? 'text-blue-400' : 'text-[#71717a] hover:text-blue-400'
+                          feedbackMap[msg.requestId]?.value === 1 ? 'text-blue-400' : 'text-ink-dim hover:text-blue-400'
                         }`}
                       >
                         <ThumbsUp size={15} />
@@ -2023,7 +2011,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                         title={feedbackMap[msg.requestId]?.value === -1 ? '已点过踩' : '这轮回复没帮助'}
                         onClick={() => handleVoteMessage(msg.requestId!, -1)}
                         className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                          feedbackMap[msg.requestId]?.value === -1 ? 'text-rose-400' : 'text-[#71717a] hover:text-rose-400'
+                          feedbackMap[msg.requestId]?.value === -1 ? 'text-rose-400' : 'text-ink-dim hover:text-rose-400'
                         }`}
                       >
                         <ThumbsDown size={15} />
@@ -2040,7 +2028,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
         {/* Input box (chat tab only) */}
         {rightTab === 'chat' && (
-        <div className="p-4 border-t border-[#27272a]">
+        <div className="p-4 border-t border-line">
           {inputMode === 'voice' && voiceAvailable ? (
             <ChatVoiceComposer
               agentId={activeAgent?.id}
@@ -2055,11 +2043,11 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               onError={setStreamError}
             />
           ) : (
-          <form onSubmit={handleSendMessage} className="relative bg-[#18181b] border border-[#27272a] rounded-xl p-3 flex flex-col justify-between">
+          <form onSubmit={handleSendMessage} className="relative bg-panel border border-line rounded-xl p-3 flex flex-col justify-between">
             {pendingFiles.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {pendingFiles.map((f, i) => (
-                  <span key={`${f.name}-${i}`} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[10px] text-emerald-300 font-sans">
+                  <span key={`${f.name}-${i}`} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-sans">
                     <FileCode className="w-3 h-3" />
                     <span className="max-w-[140px] truncate">{f.name}</span>
                     <button
@@ -2084,7 +2072,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   : '请先在左侧选择或新建一个会话'
               }
               disabled={!activeSession || isStreaming}
-              className="w-full bg-transparent text-xs text-white focus:outline-none resize-none font-sans placeholder-[#71717a] leading-relaxed disabled:opacity-50"
+              className="w-full bg-transparent text-xs text-white focus:outline-none resize-none font-sans placeholder-ink-dim leading-relaxed disabled:opacity-50"
               onKeyDown={(e) => {
                 // 中文 IME 选词/确认候选的 Enter 不是发送（见 isImeComposing 注释）
                 if (isImeComposing(e)) return;
@@ -2094,7 +2082,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                 }
               }}
             />
-            <div className="flex items-center justify-between border-t border-[#27272a]/50 pt-2.5 mt-2">
+            <div className="flex items-center justify-between border-t border-line/50 pt-2.5 mt-2">
               <div className="flex items-center gap-2">
                 <input
                   ref={fileInputRef}
@@ -2107,7 +2095,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!activeSessionId || uploading || isStreaming}
-                  className="w-6 h-6 rounded-full bg-[#121214] border border-[#27272a] flex items-center justify-center text-white hover:bg-[#27272a] hover:text-emerald-400 transition disabled:opacity-40"
+                  className="w-6 h-6 rounded-full bg-page border border-line flex items-center justify-center text-white hover:bg-line hover:text-emerald-400 transition disabled:opacity-40"
                   title="上传文件附件"
                 >
                   {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
@@ -2116,10 +2104,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                 <button
                   type="button"
                   onClick={() => setEnableThinking((v) => !v)}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition cursor-pointer select-none ${
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none ${
                     enableThinking
                       ? 'bg-violet-500/15 border-violet-500/40 text-violet-300'
-                      : 'bg-[#121214] border-[#27272a] text-[#71717a] hover:text-white'
+                      : 'bg-page border-line text-ink-dim hover:text-white'
                   }`}
                   title="思考模式（enable_thinking）— 流式返回思考过程"
                 >
@@ -2129,7 +2117,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                 {/* ⑤ 模式横幅：长对话中途可见的模式状态（点击退出） */}
                 {planMode && (
                   <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-[10px] text-sky-300 cursor-pointer select-none hover:bg-sky-500/20 transition"
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-[11px] text-sky-300 cursor-pointer select-none hover:bg-sky-500/20 transition"
                     onClick={() => setPlanMode(false)}
                     title="点击退出计划模式"
                   >
@@ -2143,14 +2131,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   <button
                     type="button"
                     onClick={() => setPlanMode(true)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition cursor-pointer select-none bg-[#121214] border-[#27272a] text-[#71717a] hover:text-white"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none bg-page border-line text-ink-dim hover:text-white"
                     title="计划模式（plan_mode）— 调研设计优先、不产生变更（沙盒内探索性命令保留）；路径不确定或不可逆的任务先出计划审批后再执行"
                   >
                     <ClipboardList className="w-3 h-3" />
                     计划模式
                   </button>
                 )}
-                <span className="text-[10px] text-[#71717a] font-sans flex items-center gap-1 select-none">
+                <span className="text-[11px] text-ink-dim font-sans flex items-center gap-1 select-none">
                   <CheckCircle className="w-3 h-3 text-indigo-400" />
                   {isStreaming ? '正在接收流…' : uploading ? '上传中…' : '就绪'}
                 </span>
@@ -2161,14 +2149,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                     type="button"
                     onClick={() => setInputMode('voice')}
                     disabled={!activeSession || isStreaming || uploading}
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-[#a1a1aa] hover:bg-sky-500/10 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-colors duration-200"
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-ink-dim hover:bg-sky-500/10 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-colors duration-200"
                     title="切换到语音对话"
                     aria-label="切换到语音对话"
                   >
                     <Mic className="w-3.5 h-3.5" />
                   </button>
                 )}
-                <div className="flex items-center gap-1 bg-[#121214] border border-[#27272a] rounded px-2 py-0.5 text-[10px] font-mono text-[#a1a1aa] select-none">
+                <div className="flex items-center gap-1 bg-page border border-line rounded px-2 py-0.5 text-[11px] font-mono text-ink-dim select-none">
                   <span>{modelLabel(activeAgent?.model)}</span>
                 </div>
                 {isStreaming ? (
@@ -2187,7 +2175,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                     className={`w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition ${
                       (inputText.trim() || pendingFiles.length > 0) && activeSession
                         ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                        : 'bg-[#27272a] text-[#71717a]'
+                        : 'bg-line text-ink-dim'
                     }`}
                   >
                     <Send className="w-3.5 h-3.5" />
@@ -2204,22 +2192,22 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       {/* 3. SELECT AGENT FOR NEW SESSION MODAL */}
       {showAgentSelectModal && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in text-xs font-sans">
-          <div className="w-full max-w-lg bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl relative overflow-hidden">
-            <div className="p-4 border-b border-[#27272a] flex justify-between items-center bg-[#121214]/60">
+          <div className="w-full max-w-lg bg-panel border border-line rounded-xl shadow-2xl relative overflow-hidden">
+            <div className="p-4 border-b border-line flex justify-between items-center bg-page/60">
               <h3 className="text-sm font-bold text-white flex items-center gap-1.5 font-sans">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
                 选择协作 Agent 开始会话
               </h3>
               <button
                 onClick={() => setShowAgentSelectModal(false)}
-                className="text-[#71717a] hover:text-white font-bold cursor-pointer"
+                className="text-ink-dim hover:text-white font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
             <div className="p-5 max-h-[400px] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3">
               {agents.length === 0 && (
-                <div className="col-span-full text-center text-[#71717a] py-8">
+                <div className="col-span-full text-center text-ink-dim py-8">
                   暂无可用 Agent，请先在 Agent 空间创建。
                 </div>
               )}
@@ -2227,24 +2215,24 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                 <div
                   key={agent.id}
                   onClick={() => handleStartNewWithAgent(agent)}
-                  className="p-3 border border-[#27272a] bg-[#121214]/50 rounded-xl hover:border-emerald-500/50 hover:bg-[#121214] cursor-pointer transition flex gap-3"
+                  className="p-3 border border-line bg-page/50 rounded-xl hover:border-emerald-500/50 hover:bg-page cursor-pointer transition flex gap-3"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-[#18181b] border border-[#27272a] text-xl flex items-center justify-center shrink-0 shadow-inner select-none overflow-hidden">
-                    <BotAvatar avatar={agent.avatar} className="w-full h-full p-1 text-xl" />
+                  <div className="w-10 h-10 rounded-xl bg-panel border border-line text-xl flex items-center justify-center shrink-0 shadow-inner select-none overflow-hidden">
+                    <AvatarRender value={agent.avatar} className="w-full h-full p-1 text-xl" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <h4 className="font-bold text-white truncate">{agent.name}</h4>
-                    <p className="text-[10px] text-[#71717a] line-clamp-2 mt-0.5 leading-normal">
+                    <p className="text-[11px] text-ink-dim line-clamp-2 mt-0.5 leading-normal">
                       {agent.description}
                     </p>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="p-4 border-t border-[#27272a] bg-[#121214] flex justify-end">
+            <div className="p-4 border-t border-line bg-page flex justify-end">
               <button
                 onClick={() => setShowAgentSelectModal(false)}
-                className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold"
+                className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold"
               >
                 取消
               </button>
@@ -2409,10 +2397,10 @@ function ThinkingEntryCard({
           </span>
         ) : (
           !!entry.content && (
-            <span className="text-[10px] text-indigo-400/50">{countZi(entry.content)} 字</span>
+            <span className="text-[11px] text-indigo-400/50">{countZi(entry.content)} 字</span>
           )
         )}
-        <span className="text-[10px] text-indigo-400/60 ml-auto">{expanded ? '收起' : '展开'}</span>
+        <span className="text-[11px] text-indigo-400/60 ml-auto">{expanded ? '收起' : '展开'}</span>
         <ChevronRight className={`w-3 h-3 text-indigo-400/60 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
       {expanded && (
@@ -2582,13 +2570,13 @@ function ToolEntryCard({
                 (status === 'pending' || status === 'running' ? '调用工具…' : 'unknown_tool')}
         </span>
         {isParseResult && parseMeta && (
-          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium bg-white/5 border border-white/10 ${cfg.icon} opacity-80`}>
+          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium bg-white/5 border border-white/10 ${cfg.icon} opacity-80`}>
             {parseMeta}
           </span>
         )}
-        <span className={`text-[10px] ${cfg.icon} opacity-70`}>{cfg.label}</span>
+        <span className={`text-[11px] ${cfg.icon} opacity-70`}>{cfg.label}</span>
         {hasDetail && (
-          <span className={`ml-auto flex items-center gap-1 text-[10px] ${cfg.icon} opacity-70`}>
+          <span className={`ml-auto flex items-center gap-1 text-[11px] ${cfg.icon} opacity-70`}>
             {expanded ? '收起' : '详情'}
             <ChevronRight
               className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -2599,13 +2587,13 @@ function ToolEntryCard({
 
       {/* Detail pane */}
       {expanded && hasDetail && (
-        <div className="border-t border-[#27272a] px-3.5 pb-3 pt-2.5 space-y-2.5">
+        <div className="border-t border-line px-3.5 pb-3 pt-2.5 space-y-2.5">
           {isDelegation && delegatedTask && (
             <div>
-              <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
+              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
                 委派任务
               </div>
-              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-[#121214] border border-[#27272a] text-[#a1a1aa] font-mono max-h-48 overflow-y-auto">
+              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-48 overflow-y-auto">
                 {delegatedTask}
               </pre>
             </div>
@@ -2614,20 +2602,20 @@ function ToolEntryCard({
               已被标题（执行主体名）与「委派任务」块完整覆盖。 */}
           {!isDelegation && argsText && (
             <div>
-              <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
+              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
                 请求参数
               </div>
-              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-[#121214] border border-[#27272a] text-[#a1a1aa] font-mono max-h-48 overflow-y-auto">
+              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-48 overflow-y-auto">
                 {argsText}
               </pre>
             </div>
           )}
           {result.text && (
             <div>
-              <div className={`text-[10px] font-semibold mb-1 opacity-60 ${cfg.icon} flex items-center gap-1.5`}>
+              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon} flex items-center gap-1.5`}>
                 返回结果
                 {result.isJson && (
-                  <span className="px-1 py-0 rounded bg-[#27272a] text-[9px] opacity-80">JSON</span>
+                  <span className="px-1 py-0 rounded bg-line text-[11px] opacity-80">JSON</span>
                 )}
               </div>
               {isChartResult || isParseResult ? (
@@ -2635,7 +2623,7 @@ function ToolEntryCard({
                 // parse_file：提取内容是 markdown（标题/表格），同样走 Markdown 渲染。
                 <Markdown content={result.text} />
               ) : (
-                <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-[#121214] border border-[#27272a] text-[#a1a1aa] font-mono max-h-64 overflow-y-auto">
+                <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-64 overflow-y-auto">
                   {shownResult}
                 </pre>
               )}
@@ -2643,7 +2631,7 @@ function ToolEntryCard({
                 <button
                   type="button"
                   onClick={() => setResultExpanded((v) => !v)}
-                  className={`mt-1 text-[10px] underline ${cfg.icon} opacity-80 hover:opacity-100 cursor-pointer`}
+                  className={`mt-1 text-[11px] underline ${cfg.icon} opacity-80 hover:opacity-100 cursor-pointer`}
                 >
                   {resultExpanded ? '收起结果' : `展开全部 (${countZi(result.text)} 字)`}
                 </button>
@@ -2741,15 +2729,15 @@ function PlanCard({
   // 主题化实色（prose-chat 正文色随主题切换，卡片底色必须跟着走，
   // 否则浅色主题下深字深底看不清）。
   const shellCls = dark
-    ? 'border-[#3f3f46] bg-[#18181b]'
+    ? 'border-line-strong bg-panel'
     : 'border-slate-200 bg-white';
-  const headerCls = dark ? 'bg-[#212126] border-[#3f3f46]' : 'bg-slate-50 border-slate-200';
+  const headerCls = dark ? 'bg-[#212126] border-line-strong' : 'bg-slate-50 border-slate-200';
   const bodyCls = dark ? 'bg-[#1a1a20]' : 'bg-white';
-  const footerCls = dark ? 'bg-[#121214] border-[#3f3f46]' : 'bg-slate-50 border-slate-200';
+  const footerCls = dark ? 'bg-page border-line-strong' : 'bg-slate-50 border-slate-200';
   const titleCls = dark ? 'text-white' : 'text-slate-900';
-  const subtitleCls = dark ? 'text-[#71717a]' : 'text-slate-400';
+  const subtitleCls = dark ? 'text-ink-dim' : 'text-slate-400';
   const sectionTitleCls = dark ? 'text-sky-300' : 'text-sky-700';
-  const dashCls = dark ? 'border-[#3f3f46]' : 'border-slate-300';
+  const dashCls = dark ? 'border-line-strong' : 'border-slate-300';
   const objectiveTextCls = dark ? 'text-white' : 'text-slate-900';
   const bodyTextCls = dark ? 'text-zinc-300' : 'text-slate-700';
   const badge = answered
@@ -2761,15 +2749,15 @@ function PlanCard({
     : dark ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
            : 'bg-sky-500/10 text-sky-700 border-sky-500/30';
   const ghostBtnCls = dark
-    ? 'border-[#3f3f46] text-[#a1a1aa] hover:text-white hover:border-[#52525b]'
+    ? 'border-line-strong text-ink-dim hover:text-white hover:border-line-strong'
     : 'border-slate-300 text-slate-500 hover:text-slate-900 hover:border-slate-400';
   const inputCls = dark
-    ? 'bg-[#18181b] border-[#3f3f46] text-white placeholder-[#52525b] focus:border-sky-500/50'
+    ? 'bg-panel border-line-strong text-white placeholder-ink-dim focus:border-sky-500/50'
     : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-sky-500';
   const secondaryBtnCls = dark
-    ? 'bg-[#27272a] hover:bg-[#3f3f46] text-white'
+    ? 'bg-line hover:bg-line-strong text-white'
     : 'bg-slate-200 hover:bg-slate-300 text-slate-900';
-  const resultTextCls = dark ? 'text-[#a1a1aa]' : 'text-slate-500';
+  const resultTextCls = dark ? 'text-ink-dim' : 'text-slate-500';
 
   return (
     <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-lg max-w-full ${shellCls}`}>
@@ -2783,30 +2771,30 @@ function PlanCard({
             <div className={`text-[13px] font-bold tracking-widest ${titleCls}`}>
               执行计划书{planVersion && planVersion > 1 ? ` · v${planVersion}` : ''}
             </div>
-            <div className={`text-[9px] tracking-wide ${subtitleCls}`}>
+            <div className={`text-[11px] tracking-wide ${subtitleCls}`}>
               PLAN{planVersion && planVersion > 4 ? ` · 已修订 ${planVersion} 轮` : ' · 待人工审批后执行'}
             </div>
           </div>
         </div>
-        <span className={`text-[10px] font-semibold px-2 py-1 rounded border ${badge}`}>
+        <span className={`text-[11px] font-semibold px-2 py-1 rounded border ${badge}`}>
           {answered ? (approved ? "✓ 已批准" : "已反馈") : "待审批"}
         </span>
       </div>
 
       {/* ① 工具清单警示条：审批焦点从"步骤合理"降到"会碰什么"（变更类⚠高亮） */}
       {toolHints.length > 0 && (
-        <div className={`flex flex-wrap items-center gap-1.5 px-5 py-2 border-b ${dark ? 'border-[#3f3f46] bg-[#1d1d23]' : 'border-slate-100 bg-slate-50/60'}`}>
-          <span className={`text-[9px] font-semibold tracking-wide ${subtitleCls}`}>本计划将使用：</span>
+        <div className={`flex flex-wrap items-center gap-1.5 px-5 py-2 border-b ${dark ? 'border-line-strong bg-[#1d1d23]' : 'border-slate-100 bg-slate-50/60'}`}>
+          <span className={`text-[11px] font-semibold tracking-wide ${subtitleCls}`}>本计划将使用：</span>
           {toolHints.map((h) => (
             <span
               key={h.label}
-              className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+              className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
                 h.mutating
                   ? dark
                     ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                     : 'bg-amber-500/10 border-amber-500/30 text-amber-700'
                   : dark
-                    ? 'bg-[#27272a] border-[#3f3f46] text-[#a1a1aa]'
+                    ? 'bg-line border-line-strong text-ink-dim'
                     : 'bg-slate-100 border-slate-200 text-slate-500'
               }`}
             >
@@ -2974,7 +2962,7 @@ function GuardRedirectNote({ text, theme }: { text: string; theme: 'dark' | 'lig
       <p className={`mt-1.5 text-[11.5px] leading-relaxed ${dark ? 'text-zinc-300' : 'text-slate-600'}`}>
         {text}
       </p>
-      <p className={`mt-1 text-[10px] ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>
+      <p className={`mt-1 text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
         模型被引导改用应用授权流程（request_app_authorization），凭证永不进入对话。
       </p>
     </div>
@@ -3065,7 +3053,7 @@ function ClarificationCard({
 
   // 配色完全复用 TOOL_STATUS_CFG 的视觉语言（已验证好看 + 协调）：
   // 外层用淡彩透明底（/10）+ 彩色边框（/30），标题文字用彩色（-400）。
-  // 问题正文放在实底深色内嵌区块（bg-[#121214]，和通用工具卡 detail pane 的
+  // 问题正文放在实底深色内嵌区块（bg-page，和通用工具卡 detail pane 的
   // <pre> 一致）里，用白字——这样背景好看、文字清晰，两全其美。
   const accent = isRisk
     ? { icon: 'text-amber-400', wrap: 'bg-amber-500/10 border-amber-500/30', sym: '⚠️' }
@@ -3083,18 +3071,18 @@ function ClarificationCard({
           <Loader2 className={`w-3.5 h-3.5 shrink-0 ${accent.icon} animate-spin`} />
         )}
         <span className={`text-xs font-semibold truncate ${accent.icon}`}>澄清提问</span>
-        <span className={`text-[10px] ${accent.icon} opacity-70`}>
+        <span className={`text-[11px] ${accent.icon} opacity-70`}>
           {answered ? (dismissed ? '已忽略' : '已回答') : '等待回答'}
         </span>
         {/* 跳过入口移至交互区（「跳过此问题，直接继续」）——此处不再放小字按钮 */}
       </div>
 
-      {/* 问题正文 + 交互区：实底深色内嵌区块（bg-[#121214]）+ 白字，可读性优先 */}
-      <div className="mx-2.5 mb-2.5 rounded-lg bg-[#121214] border border-[#27272a] px-3.5 py-3">
+      {/* 问题正文 + 交互区：实底深色内嵌区块（bg-page）+ 白字，可读性优先 */}
+      <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
         <div className="flex items-start gap-2.5">
           <span className={`text-sm mt-0.5 select-none ${accent.icon}`}>{accent.sym}</span>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium whitespace-pre-wrap leading-relaxed text-[#fafafa]">
+            <div className="text-[13px] font-medium whitespace-pre-wrap leading-relaxed text-ink">
               {question}
             </div>
 
@@ -3106,7 +3094,7 @@ function ClarificationCard({
                       key={i}
                       type="button"
                       onClick={() => onAnswer?.(opt)}
-                      className="text-left px-3 py-1.5 rounded-lg text-xs border bg-[#09090b] border-[#3f3f46] text-[#fafafa] hover:border-indigo-500/60 hover:bg-indigo-500/10 transition cursor-pointer"
+                      className="text-left px-3 py-1.5 rounded-lg text-xs border bg-well border-line-strong text-ink hover:border-indigo-500/60 hover:bg-indigo-500/10 transition cursor-pointer"
                     >
                       {opt}
                     </button>
@@ -3115,8 +3103,8 @@ function ClarificationCard({
                       key={i}
                       className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
                         entry.result === opt
-                          ? 'bg-indigo-500/20 border-indigo-500/60 text-[#fafafa] font-medium'
-                          : 'bg-[#09090b] border-[#27272a] text-[#a1a1aa]'
+                          ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
+                          : 'bg-well border-line text-ink-dim'
                       }`}
                     >
                       {opt}
@@ -3140,7 +3128,7 @@ function ClarificationCard({
                 <button
                   type="button"
                   onClick={() => onAnswer?.('取消')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-[#09090b] border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-line transition cursor-pointer"
                 >
                   取消
                 </button>
@@ -3157,7 +3145,7 @@ function ClarificationCard({
                 >
                   接受
                 </button>
-                <span className="text-[11px] text-[#a1a1aa]">或输入其他回答</span>
+                <span className="text-[11px] text-ink-dim">或输入其他回答</span>
               </div>
             )}
 
@@ -3177,7 +3165,7 @@ function ClarificationCard({
                     }
                   }}
                   placeholder="输入你的回答…"
-                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs border border-[#3f3f46] bg-[#09090b] text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500/60"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs border border-line-strong bg-well text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500/60"
                 />
                 <button
                   type="button"
@@ -3197,7 +3185,7 @@ function ClarificationCard({
               <button
                 type="button"
                 onClick={onDismiss}
-                className="mt-2 text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+                className="mt-2 text-xs text-ink-dim hover:text-ink-dim transition cursor-pointer"
               >
                 跳过此问题，直接继续 →
               </button>
@@ -3206,14 +3194,14 @@ function ClarificationCard({
             {/* 已答：答案在卡片内部展示（紧贴问题下方，与 ClarificationFormCard 一致），
                 不再渲染独立的右对齐气泡。已忽略则只给一行提示。 */}
             {dismissed && (
-              <div className="mt-3 pt-3 border-t border-[#27272a] text-xs text-[#71717a]">
+              <div className="mt-3 pt-3 border-t border-line text-xs text-ink-dim">
                 已忽略此问题——可直接在输入框重新描述需求或上传文件
               </div>
             )}
             {answered && entry.result && !dismissed && !options.includes(entry.result) && (
-              <div className="mt-3 pt-3 border-t border-[#27272a] flex items-baseline gap-2 text-xs">
+              <div className="mt-3 pt-3 border-t border-line flex items-baseline gap-2 text-xs">
                 <span className={`shrink-0 ${accent.icon}`}>你的回答:</span>
-                <span className="text-[#fafafa] font-medium break-all whitespace-pre-wrap">
+                <span className="text-ink font-medium break-all whitespace-pre-wrap">
                   {entry.result}
                 </span>
               </div>

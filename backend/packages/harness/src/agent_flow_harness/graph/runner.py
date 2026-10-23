@@ -1,62 +1,15 @@
-"""Graph runners — synchronous and streaming entry points.
-
-v0.1-1 provides thin wrappers that build the graph and delegate to LangGraph's
-``ainvoke`` / ``astream_events``. The streaming adapter (``run_agent_streaming``
-piping through :mod:`agent_flow_harness.adapters`) is fleshed out in v0.1-3.
-"""
+"""RunnableConfig builder for the agent graph."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from agent_flow_harness.graph.builder import build_agent_graph
 from agent_flow_harness.tools.registry import TOOL_REGISTRY, ToolRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.runnables import RunnableConfig
-
-    from agent_flow_harness.state import AgentState
-
-
-async def run_agent(
-    agent_doc: dict[str, Any],
-    input_state: AgentState,
-    *,
-    config: RunnableConfig | None = None,
-) -> dict[str, Any]:
-    """Non-streaming entry — invoke the compiled graph.
-
-    Args:
-        agent_doc: Agent configuration document.
-        input_state: Initial :class:`AgentState`.
-        config: Optional LangGraph runnable config.
-
-    Returns:
-        The final state dict produced by the graph.
-    """
-    graph = build_agent_graph(agent_doc)
-    return await graph.ainvoke(input_state, config=config)
-
-
-async def run_agent_streaming(
-    agent_doc: dict[str, Any],
-    input_state: AgentState,
-    *,
-    on_event: Callable[[dict[str, Any]], Awaitable[None]],
-    config: RunnableConfig | None = None,
-) -> dict[str, Any]:
-    """Streaming entry — run the graph and forward app-layer events.
-
-    v0.1-1 is a stub that simply invokes the graph (no event translation yet).
-    v0.1-3 wires this through :func:`stream_events_to_app_events` so
-    ``on_event`` receives the 7 application-layer event types.
-    """
-    _ = on_event
-    graph = build_agent_graph(agent_doc)
-    return await graph.ainvoke(input_state, config=config)
 
 
 def build_config(
@@ -77,13 +30,14 @@ def build_config(
     protected_turns: int | None = None,
     compression_threshold: float | None = None,
     hard_limit_ratio: float | None = None,
+    protected_ratio: float | None = None,
+    min_batches: int | None = None,
 ) -> dict[str, Any]:
     """Build a ``RunnableConfig`` for the agent graph.
 
     Tools are resolved from ``agent_doc["tools"]`` via the registry (the global
-    :data:`TOOL_REGISTRY` by default), exactly as :func:`react_node` expects
-    under ``config["configurable"]["tools"]``. Pass ``tools=`` to bypass the
-    registry (handy for tests / custom tool sets).
+    :data:`TOOL_REGISTRY` by default) under ``config["configurable"]["tools"]``.
+    Pass ``tools=`` to bypass the registry (handy for tests / custom tool sets).
 
     Middlewares are resolved from ``agent_doc["middleware"]`` unless
     ``middlewares=`` is given (an explicit empty list disables middleware);
@@ -117,6 +71,9 @@ def build_config(
             Application-supplied — harness never hardcodes the recall tool.
         image_keep_recent: Keep the most recent N images un-degraded when
             downgrading stale images (0 = degrade all; None = feature off).
+        protected_ratio: 保护窗 token 预算占窗口比例(agent 长任务切分;
+            None = harness 默认 0.15)。
+        min_batches: 无条件保护的最少工具批次数(None = 默认 3)。
 
     Returns:
         A ``RunnableConfig`` dict ready to pass to ``graph.ainvoke``.
@@ -155,5 +112,9 @@ def build_config(
         configurable["compression_threshold"] = compression_threshold
     if hard_limit_ratio is not None:
         configurable["hard_limit_ratio"] = hard_limit_ratio
+    if protected_ratio is not None:
+        configurable["protected_ratio"] = protected_ratio
+    if min_batches is not None:
+        configurable["min_batches"] = min_batches
 
     return {"configurable": configurable, "recursion_limit": recursion_limit}

@@ -12,7 +12,7 @@
 
 另两种压缩手段各管一段,互不重叠:
 
-* ``compress_messages`` 的滑动窗口摘要 → 丢弃整段旧历史(配对完整地丢);
+* 历史压缩节点(_compress_by_turns) → 丢弃整段旧历史(配对完整地丢);
 * ``ensure_tool_pairing``         → 裁剪后兜底清理孤儿;
 * ``compress_tool_outputs``(本模块)→ 缩短保留段里的大工具输出内容。
 """
@@ -37,6 +37,13 @@ ReferenceFormatter = Callable[[str, str], str]
 
 # 单条 ToolMessage.content 超过此字符数才截断成极简提示。
 _DEFAULT_MAX_TOOL_OUTPUT = 1500
+
+# 分级截断:outer(保护窗之外)的老结果回取价值低,截得更狠——对齐 Claude
+# Code microcompact(旧结果清成占位符)与 SWE-agent(旧观察折叠成单行);
+# recent(保护窗内)的结果模型可能马上要用,维持宽松上限(_DEFAULT_MAX)。
+# 有 recall 回溯时截断的边际代价低,但占位需保留「工具名+参数+首部」线索
+# 供模型判断是否回取(recall 分页 8000/上限 20000 字符,盲目回取更贵)。
+OUTER_MAX_TOOL_OUTPUT = 500
 
 
 def summarize_tool_content(content: str, *, max_output: int = _DEFAULT_MAX_TOOL_OUTPUT) -> str:
@@ -192,6 +199,7 @@ def compress_tool_outputs(
 
 
 __all__ = [
+    "OUTER_MAX_TOOL_OUTPUT",
     "compress_tool_outputs",
     "find_unconsumed_tool_call_ids",
     "summarize_tool_content",

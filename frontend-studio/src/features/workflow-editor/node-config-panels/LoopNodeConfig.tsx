@@ -151,10 +151,10 @@ function ConvergeVarPicker({
               <div key={id} className="mb-2.5 last:mb-0">
                 <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#A855F7] shrink-0" />
-                  <span className="text-xs font-medium text-[#fafafa] truncate">{nodeLabel(id)}</span>
+                  <span className="text-xs font-medium text-ink truncate">{nodeLabel(id)}</span>
                 </div>
                 {fields.length === 0 ? (
-                  <div className="text-[10px] text-[#71717a] px-0.5">该步骤类型不适用作条件源</div>
+                  <div className="text-[11px] text-ink-dim px-0.5">该步骤类型不适用作条件源</div>
                 ) : (
                   <div className="flex flex-wrap gap-1">
                     {fields.map((o) => (
@@ -182,8 +182,8 @@ function ConvergeVarPicker({
         type="button"
         className={`w-full min-w-0 h-8 px-2 flex items-center gap-1 rounded-md border text-xs transition-colors cursor-pointer ${
           selected
-            ? 'border-[#A855F7]/50 bg-[#18181b] text-[#d6c8ff] hover:border-[#A855F7]'
-            : 'border-[#27272a] bg-[#18181b] text-[#a1a1aa] hover:border-[#A855F7]/40'
+            ? 'border-[#A855F7]/50 bg-panel text-[#d6c8ff] hover:border-[#A855F7]'
+            : 'border-line bg-panel text-ink-dim hover:border-[#A855F7]/40'
         }`}
       >
         <span className="truncate flex-1 text-left">
@@ -208,8 +208,6 @@ export default function LoopNodeConfig({
   )
   const maxIter = (liveConfig.max_iterations as number) ?? 5
   const convergeExpr = (liveConfig.converge_expr as string) ?? ''
-  const wsGoal = (liveConfig.workspace_goal as string | undefined) ?? ''
-  const wsEnabled = wsGoal !== ''
   const body = useMemo(
     () => (((liveConfig.body as string[] | undefined) ?? []).filter((id) =>
       allNodes.some((n) => n.node_id === id))),
@@ -331,7 +329,7 @@ export default function LoopNodeConfig({
         </label>
 
         {chain.length === 0 && (
-          <div className="rounded border border-dashed border-[#A855F7]/40 bg-[#A855F7]/5 px-3 py-3 text-center text-xs text-[#a78bfa] mb-2">
+          <div className="rounded border border-dashed border-[#A855F7]/40 bg-[#A855F7]/5 px-3 py-3 text-center text-xs text-accent mb-2">
             还没有步骤，点击下方按钮添加
           </div>
         )}
@@ -345,10 +343,10 @@ export default function LoopNodeConfig({
               <div
                 key={id}
                 onClick={() => onSelectNode(n)}
-                className="group flex items-center gap-2 rounded-lg border border-[#27272a] bg-[#18181b] px-2 py-1.5 cursor-pointer hover:border-[#A855F7]/50 transition-colors"
+                className="group flex items-center gap-2 rounded-lg border border-line bg-panel px-2 py-1.5 cursor-pointer hover:border-[#A855F7]/50 transition-colors"
               >
                 <span
-                  className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold"
+                  className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[11px] font-semibold"
                   style={{ backgroundColor: `${meta?.color ?? '#71717a'}22`, color: meta?.color ?? '#71717a' }}
                 >
                   {i + 1}
@@ -360,7 +358,7 @@ export default function LoopNodeConfig({
                       onClick={(e) => { e.stopPropagation(); handleMove(id, -1) }}
                       disabled={i === 0}
                       title="上移"
-                      className="p-0.5 rounded text-[#71717a] hover:text-white hover:bg-[#27272a] disabled:opacity-30 cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-white hover:bg-line disabled:opacity-30 cursor-pointer"
                     >
                       <ArrowUp size={11} />
                     </button>
@@ -368,14 +366,14 @@ export default function LoopNodeConfig({
                       onClick={(e) => { e.stopPropagation(); handleMove(id, 1) }}
                       disabled={i === chain.length - 1}
                       title="下移"
-                      className="p-0.5 rounded text-[#71717a] hover:text-white hover:bg-[#27272a] disabled:opacity-30 cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-white hover:bg-line disabled:opacity-30 cursor-pointer"
                     >
                       <ArrowDown size={11} />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRemoveStep(id) }}
                       title="删除步骤"
-                      className="p-0.5 rounded text-[#71717a] hover:text-red-400 hover:bg-[#27272a] cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-red-400 hover:bg-line cursor-pointer"
                     >
                       <X size={11} />
                     </button>
@@ -393,7 +391,7 @@ export default function LoopNodeConfig({
                 key={t}
                 type="button"
                 onClick={() => handleAddStep(t)}
-                className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
+                className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-accent hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
               >
                 <Plus size={11} />
                 {NODE_TYPE_CONFIGS[t]?.label ?? t}
@@ -401,47 +399,11 @@ export default function LoopNodeConfig({
             ))}
           </div>
         ) : !isBranchy && !editable ? (
-          <div className="text-[10px] text-slate-500 mt-2">编辑不可用（请刷新页面重试）</div>
+          <div className="text-[11px] text-slate-500 mt-2">编辑不可用（请刷新页面重试）</div>
         ) : (
-          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300 mt-2">
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300 mt-2">
             此循环包含分支/并行结构，步骤只读（调整顺序会破坏分支）
           </div>
-        )}
-      </div>
-
-      {/* 循环工作台（refine 模板）：共享状态台——目标只此一份、待解决问题
-          双向流转、产物带版本。启用后步骤每轮自动收到工作台视图/增量
-          （引擎注入，步骤侧零配置），input_query 只写本轮动作指令。 */}
-      <div>
-        <label className="flex items-center gap-2 cursor-pointer mb-1">
-          <input
-            type="checkbox"
-            checked={wsEnabled}
-            onChange={(e) => {
-              if (e.target.checked) {
-                onChange({ ...liveConfig, workspace_goal: wsGoal || '（描述这个循环要完成的目标，可插入 {{变量}}）' })
-              } else {
-                const next = { ...liveConfig }
-                delete next.workspace_goal
-                onChange(next)
-              }
-            }}
-            className="accent-[#A855F7]"
-          />
-          <span className="text-xs text-slate-300">共享工作台</span>
-          <HelpHint text="各步骤围绕同一个状态台工作：任务目标只此一份（不再每轮重复）、待解决问题谁提的谁关、产物带版本可追踪。步骤每轮自动收到工作台视图，input_query 只需写本轮做什么。适合多轮打磨/审核类循环。" />
-        </label>
-        {wsEnabled && (
-          <VariableSelector
-            label="任务目标"
-            required
-            value={wsGoal}
-            onChange={(v) => onChange({ ...liveConfig, workspace_goal: v })}
-            currentNodeId={currentNodeId}
-            allNodes={allNodes}
-            placeholder="这个循环要完成什么（每轮注入工作台，只此一份），如：围绕主题写一段80字文案。主题：{{开始节点.topic}}"
-            rows={2}
-          />
         )}
       </div>
 
@@ -454,12 +416,12 @@ export default function LoopNodeConfig({
           <Input
             type="number"
             min={1}
-            max={20}
+            max={100}
             value={String(maxIter)}
             onChange={(e) =>
               onChange({
                 ...liveConfig,
-                max_iterations: Math.min(20, Math.max(1, parseInt(e.target.value) || 5)),
+                max_iterations: Math.min(100, Math.max(1, parseInt(e.target.value) || 5)),
               })
             }
             className="w-20"
@@ -475,20 +437,20 @@ export default function LoopNodeConfig({
         </label>
 
         {body.length === 0 && (
-          <div className="rounded border border-dashed border-[#27272a] px-2.5 py-2 text-[10px] text-[#71717a]">
+          <div className="rounded border border-dashed border-line px-2.5 py-2 text-[11px] text-ink-dim">
             先添加步骤，再定义结束条件
           </div>
         )}
 
         {body.length > 0 && conditions.length === 0 && !isCustomExpr && (
           <div className="space-y-1.5">
-            <div className="rounded border border-dashed border-[#A855F7]/40 bg-[#A855F7]/5 px-2.5 py-2 text-[10px] text-[#a78bfa]">
+            <div className="rounded border border-dashed border-[#A855F7]/40 bg-[#A855F7]/5 px-2.5 py-2 text-[11px] text-accent">
               未设置结束条件——循环将跑满上方设定的次数
             </div>
             <button
               type="button"
               onClick={addCondition}
-              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
+              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-accent hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
             >
               <Plus size={11} />
               添加条件
@@ -501,13 +463,13 @@ export default function LoopNodeConfig({
             {conditions.map((c, i) => (
               <div
                 key={i}
-                className="relative rounded-lg bg-[#3f3f46] px-1.5 py-2 pr-6 transition-colors hover:bg-[#484851]"
+                className="relative rounded-lg bg-line-strong px-1.5 py-2 pr-6 transition-colors hover:bg-[#484851]"
               >
                 <button
                   type="button"
                   title="删除该条件"
                   onClick={() => removeCondition(i)}
-                  className="absolute top-1.5 right-1.5 p-0.5 rounded text-[#71717a] hover:text-red-400 hover:bg-[#27272a] cursor-pointer"
+                  className="absolute top-1.5 right-1.5 p-0.5 rounded text-ink-dim hover:text-red-400 hover:bg-line cursor-pointer"
                 >
                   <X size={11} />
                 </button>
@@ -531,7 +493,7 @@ export default function LoopNodeConfig({
                   />
                 </div>
                 {/* 下行：值——上下行之间一条隔离线 */}
-                <div className="border-t border-[#27272a]/40 pt-1.5">
+                <div className="border-t border-line/40 pt-1.5">
                   <Input
                     placeholder="值，如 approve 或 8"
                     value={c.value}
@@ -542,7 +504,7 @@ export default function LoopNodeConfig({
             ))}
 
             {conditions.length > 1 && (
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
                 条件间关系
                 <Select
                   className="w-32"
@@ -559,13 +521,13 @@ export default function LoopNodeConfig({
             <button
               type="button"
               onClick={addCondition}
-              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-[#c4b5fd] hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
+              className="flex items-center gap-0.5 px-2 py-1 rounded border border-dashed border-[#A855F7]/40 text-[11px] text-accent hover:bg-[#A855F7]/10 hover:border-[#A855F7] transition-colors cursor-pointer"
             >
               <Plus size={11} />
               添加条件
             </button>
             {/* 生成的表达式原文：透明可核对，也教用户语法 */}
-            <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
+            <div className="text-[11px] text-slate-500 font-mono break-all" title={convergeExpr}>
               {convergeExpr}
             </div>
           </div>
@@ -573,10 +535,10 @@ export default function LoopNodeConfig({
 
         {body.length > 0 && isCustomExpr && (
           <div className="space-y-1">
-            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300">
+            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
               当前为自定义表达式（含表单不支持的结构，如且/或混用），表单不覆盖、仅展示原文
             </div>
-            <div className="text-[10px] text-slate-500 font-mono break-all" title={convergeExpr}>
+            <div className="text-[11px] text-slate-500 font-mono break-all" title={convergeExpr}>
               {convergeExpr}
             </div>
           </div>
@@ -584,9 +546,9 @@ export default function LoopNodeConfig({
       </div>
 
       {body.length > 0 && (
-        <div className="text-[11px] text-slate-500 border-t border-[#27272a] pt-2">
+        <div className="text-[11px] text-slate-500 border-t border-line pt-2">
           循环结束后可接条件分支，按{' '}
-          <code className="text-[#a1a1aa]">{'{{'}{currentNodeId}.converged{'}}'}</code>{' '}
+          <code className="text-ink-dim">{'{{'}{currentNodeId}.converged{'}}'}</code>{' '}
           （通过/未通过）分别走不同下游。
         </div>
       )}

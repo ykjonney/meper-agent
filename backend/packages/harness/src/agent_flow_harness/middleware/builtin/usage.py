@@ -36,6 +36,7 @@ class UsageMiddleware:
             "total_tokens": 0,
             "input_tokens": 0,
             "output_tokens": 0,
+            "cached_input_tokens": 0,
             "llm_calls": 0,
             "tool_calls": 0,
             "llm_duration": 0.0,
@@ -79,6 +80,7 @@ class UsageMiddleware:
 
         self.metrics["input_tokens"] += usage.get("input", 0)
         self.metrics["output_tokens"] += usage.get("output", 0)
+        self.metrics["cached_input_tokens"] += usage.get("cached", 0)
         total = usage.get("total") or (usage.get("input", 0) + usage.get("output", 0))
         self.metrics["total_tokens"] += total
         self.metrics["llm_calls"] += 1
@@ -113,15 +115,26 @@ class UsageMiddleware:
 
         ``usage_metadata`` 是 LangChain 统一的 token 用量属性(UsageMetadata TypedDict),
         所有 provider 的 ChatModel 在非流式 ainvoke 时都会填充它:
-        ``{"input_tokens": N, "output_tokens": N, "total_tokens": N}``
+        ``{"input_tokens": N, "output_tokens": N, "total_tokens": N,
+           "input_token_details": {"cached_tokens": N}}``
+        (Anthropic 的 cache_read 经 LangChain 也归一化进 input_token_details)。
+        cached 是 input 的子集——纯观测字段(KV-cache 命中率,Manus 称之为
+        生产 agent 最重要指标),不参与计费累计。
         """
         um = getattr(response, "usage_metadata", None)
         if not isinstance(um, dict):
-            return {"input": 0, "output": 0, "total": 0}
+            return {"input": 0, "output": 0, "total": 0, "cached": 0}
+        details = um.get("input_token_details")
+        cached = 0
+        if isinstance(details, dict):
+            v = details.get("cached_tokens") or details.get("cache_read")
+            if isinstance(v, (int, float)):
+                cached = int(v)
         return {
             "input": int(um.get("input_tokens", 0) or 0),
             "output": int(um.get("output_tokens", 0) or 0),
             "total": int(um.get("total_tokens", 0) or 0),
+            "cached": cached,
         }
 
     @staticmethod
@@ -129,7 +142,9 @@ class UsageMiddleware:
         """从 response_metadata 提取 token usage，兼容多 provider 格式。
 
         - OpenAI:    meta["token_usage"]["prompt_tokens" / "completion_tokens"]
+                     + ["prompt_tokens_details"]["cached_tokens"]
         - Anthropic: meta["usage"]["input_tokens" / "output_tokens"]
+                     + ["cache_read_input_tokens"]
         - 其他:      尽力提取
         """
         raw: dict[str, Any] = {}
@@ -148,10 +163,21 @@ class UsageMiddleware:
                     return int(v)
             return 0
 
+        cached = _get("cache_read_input_tokens")
+        if not cached:
+            # OpenAI: prompt_tokens_details.cached_tokens（嵌套 dict）
+            details = raw.get("prompt_tokens_details") or raw.get(
+                "input_tokens_details",
+            )
+            if isinstance(details, dict):
+                v = details.get("cached_tokens") or details.get("cache_read")
+                if isinstance(v, (int, float)):
+                    cached = int(v)
         return {
             "input": _get("prompt_tokens", "input_tokens"),
             "output": _get("completion_tokens", "output_tokens"),
             "total": _get("total_tokens"),
+            "cached": cached,
         }
 
     @property
@@ -165,6 +191,7 @@ class UsageMiddleware:
             "total_tokens": 0,
             "input_tokens": 0,
             "output_tokens": 0,
+            "cached_input_tokens": 0,
             "llm_calls": 0,
             "tool_calls": 0,
             "llm_duration": 0.0,

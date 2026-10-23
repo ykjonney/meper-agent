@@ -25,6 +25,8 @@ celery_app = Celery(
         "app.workers.tasks.human_timeout",
         "app.workers.tasks.wiki_source_extract",
         "app.workers.tasks.wiki_build",
+        "app.workers.tasks.checkpoint_prune",
+        "app.workers.tasks.running_task_scan",
     ],
 )
 
@@ -68,11 +70,25 @@ celery_app.conf.update(
             "task": "app.workers.tasks.human_timeout.sweep_timed_out_human_tasks",
             "schedule": 30.0,
         },
-        # 孤儿沙盒容器清扫：进程崩溃遗留的容器按 label 扫描强删。
-        # 频率远高于 SANDBOX_ORPHAN_MAX_AGE（600s），遗留容器最多多活一个周期。
+        # 慢任务警告 + 孤儿清理（workflow 任务已去 Celery 超时/改 acks_early，
+        # 这两项是替代防线：慢任务只提醒不干预；孤儿=RUNNING 且 updated_at
+        # 超阈值 → FAILED）。
+        "scan-running-tasks": {
+            "task": "app.workers.tasks.running_task_scan.scan_running_tasks",
+            "schedule": 300.0,  # 5 分钟
+        },
+        # checkpoints 历史堆积治理：每 thread 保最新 5 条（O(N²)→O(N)）+
+        # 完结 task 保留期清理。历史堆积性质，每日一次足够。
+        "prune-checkpoints": {
+            "task": "app.workers.tasks.checkpoint_prune.prune_checkpoints",
+            "schedule": crontab(hour=5, minute=30),  # 每日 05:30，错开其他维护任务
+        },
+        # 孤儿沙盒容器清扫 / 复用容器闲置回收：按 label 扫描。
+        # 间隔须 ≪ SANDBOX_CONTAINER_IDLE_TIMEOUT（300s），否则闲置语义漂移
+        # （实际驻留 ≈ IDLE_TIMEOUT + 本间隔）。list+exec 探测负载可忽略。
         "sweep-orphan-sandboxes": {
             "task": "app.workers.tasks.maintenance.cleanup_orphan_sandboxes",
-            "schedule": 600.0,  # 10 分钟
+            "schedule": 60.0,  # 1 分钟
         },
     },
 )

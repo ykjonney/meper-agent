@@ -1,20 +1,18 @@
-"""Guards — coarse-grained gates spliced around the react node.
+"""Guards — coarse-grained gates spliced before the react node.
 
 Public surface:
 
 * :class:`Guard` protocol, :class:`GuardResult` and ``Allow``/``Block``/
   ``Warn`` factories (see :mod:`agent_flow_harness.guards.base`).
-* The four built-in guards — :class:`TokenBudgetGuard`,
-  :class:`TimeBudgetGuard`, :class:`ToolRateLimitGuard`,
-  :class:`ContentGuard`.
-* :func:`make_guard_in_node` / :func:`make_guard_out_node` node factories.
+* :class:`TokenBudgetGuard`.
+* :func:`make_guard_in_node` node factory.
 * :data:`GUARD_REGISTRY` + :func:`resolve_guards` to build guards from an
   Agent document's ``guards`` config entries.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from agent_flow_harness.guards.base import (
     Allow,
@@ -23,24 +21,12 @@ from agent_flow_harness.guards.base import (
     GuardResult,
     Warn,
 )
-from agent_flow_harness.guards.content import ContentGuard
-from agent_flow_harness.guards.nodes import make_guard_in_node, make_guard_out_node
-from agent_flow_harness.guards.time_budget import TimeBudgetGuard
+from agent_flow_harness.guards.nodes import make_guard_in_node
 from agent_flow_harness.guards.token_budget import TokenBudgetGuard
-from agent_flow_harness.guards.tool_rate_limit import ToolRateLimitGuard
 
-if TYPE_CHECKING:
-    pass
-
-# Built-in guard name → class. Applications extend by subclassing and
-# adding entries (or constructing instances directly for build_agent_graph).
 GUARD_REGISTRY: dict[str, type] = {
     "token_budget": TokenBudgetGuard,
-    "time_budget": TimeBudgetGuard,
-    "tool_rate_limit": ToolRateLimitGuard,
-    "content": ContentGuard,
 }
-
 
 def resolve_guards(specs: list[dict[str, Any]] | None) -> list[Guard]:
     """Resolve a list of ``agent_doc["guards"]`` specs into Guard instances.
@@ -70,19 +56,14 @@ def resolve_guards(specs: list[dict[str, Any]] | None) -> list[Guard]:
         guards.append(cls(**config))
     return guards
 
-
 __all__ = [
     "Allow",
     "Block",
-    "ContentGuard",
     "GUARD_REGISTRY",
     "Guard",
     "GuardResult",
-    "TimeBudgetGuard",
     "TokenBudgetGuard",
-    "ToolRateLimitGuard",
     "Warn",
     "make_guard_in_node",
-    "make_guard_out_node",
     "resolve_guards",
 ]

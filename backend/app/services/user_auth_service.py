@@ -22,7 +22,6 @@ from app.core.introspection_cache import (
     get_cached_introspection,
     get_stale_introspection,
 )
-from app.core.user_auth_state import mark_introspect_stale
 
 
 class IntrospectionResult(BaseModel):
@@ -131,7 +130,6 @@ class UserAuthService:
         """
         stale_payload = await get_stale_introspection(user_token)
         if stale_payload is not None:
-            mark_introspect_stale()
             logger.warning(
                 "introspection_stale_fallback",
                 user_info_url=user_info_url,

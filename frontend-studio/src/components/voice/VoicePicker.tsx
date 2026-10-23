@@ -56,11 +56,11 @@ export function VoicePicker({
     })
   }, [category, search])
 
-  const muted = dark ? 'text-[#a1a1aa]' : 'text-slate-500'
-  const subtle = dark ? 'text-[#71717a]' : 'text-slate-400'
-  const border = dark ? 'border-[#3f3f46]' : 'border-slate-200'
+  const muted = dark ? 'text-ink-dim' : 'text-slate-500'
+  const subtle = dark ? 'text-ink-dim' : 'text-slate-400'
+  const border = dark ? 'border-line-strong' : 'border-slate-200'
   const input = dark
-    ? 'bg-[#09090b] border-[#3f3f46] text-[#fafafa] placeholder:text-[#52525b]'
+    ? 'bg-well border-line-strong text-ink placeholder:text-ink-dim'
     : 'bg-white border-slate-300 text-slate-800 placeholder:text-slate-400'
 
   const previewIcon = (voiceType: string) => {
@@ -110,7 +110,7 @@ export function VoicePicker({
                 active
                   ? 'border-indigo-500 bg-indigo-500 text-white'
                   : dark
-                    ? 'border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a]'
+                    ? 'border-line-strong text-ink-soft hover:bg-line'
                     : 'border-slate-200 text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -134,7 +134,7 @@ export function VoicePicker({
                       ? 'border-indigo-400 bg-indigo-500/10'
                       : 'border-indigo-500 bg-indigo-50'
                     : dark
-                      ? 'border-[#27272a] bg-[#111113] hover:border-[#52525b]'
+                      ? 'border-line bg-[#111113] hover:border-line-strong'
                       : 'border-slate-200 bg-white hover:border-slate-300'
                 }`}
               >
@@ -163,7 +163,7 @@ export function VoicePicker({
                   title={previewDisabled ? '请先配置 API Key 并填写试听文本' : '试听音色'}
                   className={`flex w-11 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     dark
-                      ? 'border-[#27272a] text-[#a1a1aa] hover:bg-[#27272a] hover:text-white'
+                      ? 'border-line text-ink-dim hover:bg-line hover:text-white'
                       : 'border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                   }`}
                 >
@@ -208,7 +208,7 @@ export function VoicePicker({
               disabled={previewDisabled || !customValue.trim() || (!!preview && preview.voiceType !== customValue.trim())}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 dark
-                  ? 'border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a]'
+                  ? 'border-line-strong text-ink-soft hover:bg-line'
                   : 'border-slate-300 text-slate-600 hover:bg-slate-100'
               }`}
               aria-label={preview?.voiceType === customValue.trim() && preview.phase === 'playing' ? '停止试听' : '试听自定义音色'}

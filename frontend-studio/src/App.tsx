@@ -105,6 +105,15 @@ export default function App() {
   const [collapsed, setCollapsed] = useState<boolean>(
     () => localStorage.getItem('agentflow_sidebar_collapsed') === 'true',
   );
+  // 主题 class 同步到 <html>：portal 到 body 的浮层（Modal/Confirm 等）
+  // 在下方根 div 的 .theme-* 作用域之外，token 变量会回落暗色默认值
+  // （亮色模式下弹窗发黑）。挂到 documentElement 让所有层共享主题。
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('theme-dark', 'theme-light')
+    root.classList.add(`theme-${theme}`)
+  }, [theme])
+
   const toggleSidebar = () =>
     setCollapsed((v) => {
       const next = !v;
@@ -283,18 +292,18 @@ export default function App() {
   };
 
   return (
-    <div className={`h-dvh flex overflow-hidden theme-${theme} ${theme === 'dark' ? 'bg-[#09090b] text-[#fafafa]' : 'bg-slate-50 text-slate-800'} transition-colors duration-200`}>
+    <div className={`h-dvh flex overflow-hidden theme-${theme} ${theme === 'dark' ? 'bg-well text-ink' : 'bg-slate-50 text-slate-800'} transition-colors duration-200`}>
 
       {/* 1. LEFT NAVIGATION RAIL BAR */}
       <aside className={`${collapsed ? 'w-16' : 'w-64'} border-r border-solid flex flex-col justify-between shrink-0 overflow-hidden transition-[width] duration-200 ${
-        theme === 'dark' ? 'bg-[#121214] border-[#27272a] text-[#a1a1aa]' : 'bg-white border-slate-200 text-slate-600'
+        theme === 'dark' ? 'bg-page border-line text-ink-dim' : 'bg-white border-slate-200 text-slate-600'
       }`}>
         {/* flex-1 + min-h-0：约束导航区高度，超高时自身滚动（scrollbar-custom
             隐藏式滚动条 + overflow-x-hidden 防横向撑出）。否则侧栏内容会撑破
             h-dvh 根容器（root 出现溢出），滚轮链式滚动/滚动位置恢复会让整个
             页面（含各页标题）位移且无法滚回；小高度视口下底部用户区恒可见。 */}
         <div className="flex flex-col flex-1 min-h-0">
-          <div className={`h-16 ${collapsed ? 'flex flex-col items-center justify-center gap-1' : 'px-4 flex items-center justify-between'} border-b shrink-0 ${theme === 'dark' ? 'border-[#27272a]' : 'border-slate-100'}`}>
+          <div className={`h-16 ${collapsed ? 'flex flex-col items-center justify-center gap-1' : 'px-4 flex items-center justify-between'} border-b shrink-0 ${theme === 'dark' ? 'border-line' : 'border-slate-100'}`}>
             {/* Logo：展开态 FullLogo（含 AgentForge 字样）；折叠态 AFLogo（纯图标）。 */}
             <img
               src={collapsed ? '/AFLogo.png' : '/FullLogo.png'}
@@ -308,7 +317,7 @@ export default function App() {
               aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
               className={`shrink-0 rounded-md p-1.5 transition-colors cursor-pointer ${
                 theme === 'dark'
-                  ? 'text-[#a1a1aa] hover:bg-[#1c1c1f] hover:text-white'
+                  ? 'text-ink-dim hover:bg-panel-hover hover:text-white'
                   : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
@@ -318,7 +327,7 @@ export default function App() {
 
           <nav className={`${collapsed ? 'flex flex-col items-center p-2' : 'p-4'} flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1 scrollbar-custom`}>
             {!collapsed && (
-              <p className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'}`}>Main Navigator</p>
+              <p className={`px-2 text-[11px] font-bold uppercase tracking-widest mb-2 ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>Main Navigator</p>
             )}
             {visibleNav.map((item) => {
               const isActive = activeTab === item.id;
@@ -335,7 +344,7 @@ export default function App() {
                         ? 'text-indigo-400 border-l-2 border-indigo-500 bg-indigo-500/5'
                         : 'text-indigo-600 border-l-2 border-indigo-500 bg-indigo-500/10 font-semibold'
                       : theme === 'dark'
-                        ? 'text-[#a1a1aa] hover:bg-[#1c1c1f] hover:text-[#fafafa]'
+                        ? 'text-ink-dim hover:bg-panel-hover hover:text-ink'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
@@ -348,8 +357,8 @@ export default function App() {
                     )}
                   </div>
                   {!collapsed && item.badge && (
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono leading-none ${
-                      isActive ? 'bg-indigo-500/20 text-indigo-300' : theme === 'dark' ? 'bg-[#18181b] text-[#71717a]' : 'bg-slate-100 text-slate-500'
+                    <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono leading-none ${
+                      isActive ? 'bg-indigo-500/20 text-indigo-300' : theme === 'dark' ? 'bg-panel text-ink-dim' : 'bg-slate-100 text-slate-500'
                     }`}>
                       {item.badge}
                     </span>
@@ -369,7 +378,7 @@ export default function App() {
         </div>
 
         {/* Footer: 主题切换 + 用户头像下拉菜单 */}
-        <div className={`p-3 border-t ${theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`p-3 border-t ${theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'}`}>
           <div className={`${collapsed ? 'flex flex-col items-stretch gap-2' : 'flex items-center justify-between gap-2'}`}>
             {/* 用户头像区：点击弹出下拉菜单（个人设置 / 登出） */}
             <div ref={userMenuRef} className={`relative ${collapsed ? '' : 'flex-1 min-w-0'}`}>
@@ -377,8 +386,8 @@ export default function App() {
                 onClick={() => setUserMenuOpen((v) => !v)}
                 className={`w-full ${collapsed ? 'flex justify-center' : 'flex items-center gap-2'} p-1.5 rounded-lg transition-colors cursor-pointer ${
                   userMenuOpen
-                    ? (theme === 'dark' ? 'bg-[#1c1c1f]' : 'bg-slate-200')
-                    : (theme === 'dark' ? 'hover:bg-[#1c1c1f]' : 'hover:bg-slate-200')
+                    ? (theme === 'dark' ? 'bg-panel-hover' : 'bg-slate-200')
+                    : (theme === 'dark' ? 'hover:bg-panel-hover' : 'hover:bg-slate-200')
                 }`}
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-orange-400 to-rose-400 text-sm flex items-center justify-center text-white font-bold shrink-0">
@@ -387,11 +396,11 @@ export default function App() {
                 {!collapsed && (
                   <div className="min-w-0 flex-1 text-left">
                     <span className={`text-xs font-semibold block truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{displayName}</span>
-                    <span className={`text-[10px] truncate block ${theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'}`}>{authUser?.role ?? '—'}</span>
+                    <span className={`text-[11px] truncate block ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>{authUser?.role ?? '—'}</span>
                   </div>
                 )}
                 {!collapsed && (
-                  <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''} ${theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''} ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`} />
                 )}
               </button>
 
@@ -399,23 +408,23 @@ export default function App() {
               {userMenuOpen && (
                 <div className={`absolute rounded-lg border shadow-2xl overflow-hidden z-50 animate-fade-in ${
                   collapsed
-                    ? `bottom-0 left-full ml-2 w-48 ${theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'}`
-                    : `bottom-full left-0 right-0 mb-2 ${theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'}`
+                    ? `bottom-0 left-full ml-2 w-48 ${theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'}`
+                    : `bottom-full left-0 right-0 mb-2 ${theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'}`
                 }`}>
                   <button
                     onClick={() => { setActiveTab('profile'); setUserMenuOpen(false); }}
                     className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs transition-colors cursor-pointer ${
-                      theme === 'dark' ? 'text-[#d4d4d8] hover:bg-[#1c1c1f]' : 'text-slate-700 hover:bg-slate-100'
+                      theme === 'dark' ? 'text-ink-soft hover:bg-panel-hover' : 'text-slate-700 hover:bg-slate-100'
                     }`}
                   >
                     <UserCog className="w-3.5 h-3.5 text-indigo-400" />
                     个人设置
                   </button>
-                  <div className={theme === 'dark' ? 'border-t border-[#27272a]' : 'border-t border-slate-200'} />
+                  <div className={theme === 'dark' ? 'border-t border-line' : 'border-t border-slate-200'} />
                   <button
                     onClick={handleLogout}
                     className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs transition-colors cursor-pointer ${
-                      theme === 'dark' ? 'text-rose-400 hover:bg-[#1c1c1f]' : 'text-rose-600 hover:bg-rose-50'
+                      theme === 'dark' ? 'text-rose-400 hover:bg-panel-hover' : 'text-rose-600 hover:bg-rose-50'
                     }`}
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -435,7 +444,7 @@ export default function App() {
                 window.dispatchEvent(new Event('agentflow-theme-change'));
               }}
               className={`${collapsed ? 'w-full flex justify-center' : ''} p-1.5 border rounded-lg transition-colors cursor-pointer shrink-0 ${
-                theme === 'dark' ? 'bg-[#1c1c1f] border-[#27272a] text-[#a1a1aa] hover:text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                theme === 'dark' ? 'bg-panel-hover border-line text-ink-dim hover:text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
               {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
@@ -456,10 +465,10 @@ export default function App() {
         ) : (
         <>
         <header className={`h-16 border-b flex items-center justify-between px-8 shrink-0 ${
-          theme === 'dark' ? 'bg-[#121214] border-[#27272a]' : 'bg-white border-slate-200'
+          theme === 'dark' ? 'bg-page border-line' : 'bg-white border-slate-200'
         }`}>
           <div className="flex items-center gap-3">
-            <h1 className={`text-sm font-semibold ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>
+            <h1 className={`text-base font-semibold ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>
               {activeTab === 'profile' ? '个人设置' : visibleNav.find((n) => n.id === activeTab)?.label}
             </h1>
           </div>

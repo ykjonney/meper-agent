@@ -64,7 +64,7 @@ export default function ExecuteInputDialog({ open, variables, onCancel, onSubmit
       okButtonProps={{ disabled: !valid }}
     >
       <div className="space-y-4">
-        <p className="text-[11px] text-[#71717a]">
+        <p className="text-[11px] text-ink-dim">
           开始节点定义了输入变量，请填入本次执行所需的参数。未填的可选变量将使用默认值。
         </p>
 

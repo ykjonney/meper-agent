@@ -28,7 +28,7 @@ import type { Agent } from '../types';
 import AvatarField from './AvatarField';
 
 const inputCls =
-  'w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-600 transition font-sans';
+  'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-600 transition font-sans';
 
 export function AgentEditorPage({
   agentId,
@@ -185,7 +185,7 @@ export function AgentEditorPage({
 
   if (isLoading || !form) {
     return (
-      <div className="flex items-center justify-center py-16 text-[#71717a]">
+      <div className="flex items-center justify-center py-16 text-ink-dim">
         <Loader2 className="w-5 h-5 animate-spin mr-2" /> 载入 Agent 配置…
       </div>
     );
@@ -524,11 +524,11 @@ export function AgentEditorPage({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+            <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
               <ArrowLeft className="w-4 h-4" />
             </button>
             <div>
-              <div className="flex items-center gap-2 text-xs text-[#71717a]">
+              <div className="flex items-center gap-2 text-xs text-ink-dim">
                 <Bot className="w-3.5 h-3.5" />
                 <span>智能体</span><span>/</span>
                 <span className="text-white font-semibold">{form.name || '未命名'}</span>
@@ -541,7 +541,7 @@ export function AgentEditorPage({
               <button
                 onClick={() => archiveM.mutate()}
                 disabled={archiveM.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-[#27272a] hover:bg-[#27272a] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60"
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60"
               >
                 {archiveM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
                 归档
@@ -575,13 +575,13 @@ export function AgentEditorPage({
             role="switch"
             aria-checked={form.voiceEnabled}
             onClick={() => set({ voiceEnabled: !form.voiceEnabled })}
-            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-[#27272a] bg-[#121214] px-3 py-2 text-left transition-colors duration-200 hover:border-[#3f3f46] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-line bg-page px-3 py-2 text-left transition-colors duration-200 hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
           >
             <span className="flex min-w-0 items-center gap-2.5">
-              <Mic className={`h-4 w-4 shrink-0 ${form.voiceEnabled ? 'text-sky-400' : 'text-[#71717a]'}`} />
+              <Mic className={`h-4 w-4 shrink-0 ${form.voiceEnabled ? 'text-sky-400' : 'text-ink-dim'}`} />
               <span>
                 <span className="block text-xs font-semibold text-[#f4f4f5]">允许语音对话</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-[#71717a]">
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-dim">
                   还需配置全局语音凭证，两个条件满足后才显示麦克风入口。
                 </span>
               </span>
@@ -590,7 +590,7 @@ export function AgentEditorPage({
               className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
                 form.voiceEnabled
                   ? 'border-sky-400 bg-sky-500'
-                  : 'border-[#52525b] bg-[#27272a]'
+                  : 'border-line-strong bg-line'
               }`}
               aria-hidden="true"
             >
@@ -606,13 +606,13 @@ export function AgentEditorPage({
             role="switch"
             aria-checked={form.canSpawnAgents}
             onClick={() => set({ canSpawnAgents: !form.canSpawnAgents })}
-            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-[#27272a] bg-[#121214] px-3 py-2 text-left transition-colors duration-200 hover:border-[#3f3f46] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-line bg-page px-3 py-2 text-left transition-colors duration-200 hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
           >
             <span className="flex min-w-0 items-center gap-2.5">
-              <Bot className={`h-4 w-4 shrink-0 ${form.canSpawnAgents ? 'text-emerald-400' : 'text-[#71717a]'}`} />
+              <Bot className={`h-4 w-4 shrink-0 ${form.canSpawnAgents ? 'text-emerald-400' : 'text-ink-dim'}`} />
               <span>
                 <span className="block text-xs font-semibold text-[#f4f4f5]">允许创建 Agent</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-[#71717a]">
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-dim">
                   开启后该 Agent 获得能力盘点与创建工具；创建物为草稿态，需人工审核发布，且不再拥有此能力（最多一层）。
                 </span>
               </span>
@@ -621,7 +621,7 @@ export function AgentEditorPage({
               className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
                 form.canSpawnAgents
                   ? 'border-emerald-400 bg-emerald-500'
-                  : 'border-[#52525b] bg-[#27272a]'
+                  : 'border-line-strong bg-line'
               }`}
               aria-hidden="true"
             >
@@ -637,20 +637,20 @@ export function AgentEditorPage({
         {/* ── Section: Prompt 配置 ── */}
         <Section title="Prompt 配置" icon={<Cpu className="w-3.5 h-3.5" />} defaultOpen>
           <Field label="角色定义 *（Role — 必填）">
-            <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-[#52525b]`} placeholder="如：你是一位资深产品经理…" value={form.rolePrompt ?? ''} onChange={(e) => set({ rolePrompt: e.target.value })} />
+            <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：你是一位资深产品经理…" value={form.rolePrompt ?? ''} onChange={(e) => set({ rolePrompt: e.target.value })} />
           </Field>
           <Field label="任务描述 *（Task — 必填）">
-            <textarea rows={3} className={`${inputCls} font-mono text-xs placeholder-[#52525b]`} placeholder="如：根据用户需求，输出功能拆解与优先级。" value={form.taskPrompt ?? ''} onChange={(e) => set({ taskPrompt: e.target.value })} />
+            <textarea rows={3} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：根据用户需求，输出功能拆解与优先级。" value={form.taskPrompt ?? ''} onChange={(e) => set({ taskPrompt: e.target.value })} />
           </Field>
           <div className="grid grid-cols-1 gap-4">
             <Field label="约束规则（Constraints · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-[#52525b]`} placeholder="如：回答必须用中文；不臆测。" value={form.constraintsPrompt ?? ''} onChange={(e) => set({ constraintsPrompt: e.target.value })} />
+              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：回答必须用中文；不臆测。" value={form.constraintsPrompt ?? ''} onChange={(e) => set({ constraintsPrompt: e.target.value })} />
             </Field>
             <Field label="上下文信息（Context · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-[#52525b]`} placeholder="如：当前项目 meper-agent，技术栈 React+FastAPI。" value={form.contextPrompt ?? ''} onChange={(e) => set({ contextPrompt: e.target.value })} />
+              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：当前项目 meper-agent，技术栈 React+FastAPI。" value={form.contextPrompt ?? ''} onChange={(e) => set({ contextPrompt: e.target.value })} />
             </Field>
             <Field label="输出格式（Output Format · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-[#52525b]`} placeholder="如：用 Markdown 表格输出。" value={form.outputFormatPrompt ?? ''} onChange={(e) => set({ outputFormatPrompt: e.target.value })} />
+              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：用 Markdown 表格输出。" value={form.outputFormatPrompt ?? ''} onChange={(e) => set({ outputFormatPrompt: e.target.value })} />
             </Field>
             <Field label="补充说明（System Prompt · 可选）">
               <textarea rows={3} className={`${inputCls} font-mono text-xs`} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
@@ -676,11 +676,11 @@ export function AgentEditorPage({
                     title={openSections.has(UNGROUPED_SECTION_KEY) ? '收起' : '展开'}
                   >
                     {openSections.has(UNGROUPED_SECTION_KEY)
-                      ? <ChevronDown className="w-3 h-3 text-[#71717a] shrink-0" />
-                      : <ChevronRight className="w-3 h-3 text-[#71717a] shrink-0" />}
+                      ? <ChevronDown className="w-3 h-3 text-ink-dim shrink-0" />
+                      : <ChevronRight className="w-3 h-3 text-ink-dim shrink-0" />}
                     <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
-                    <span className="text-[11px] font-semibold text-[#a1a1aa]">未分组</span>
-                    <span className="text-[10px] text-[#71717a] font-mono ml-auto shrink-0">{recommendedItems.length} / {MAX_RECOMMENDED_ITEMS}</span>
+                    <span className="text-[11px] font-semibold text-ink-dim">未分组</span>
+                    <span className="text-[11px] text-ink-dim font-mono ml-auto shrink-0">{recommendedItems.length} / {MAX_RECOMMENDED_ITEMS}</span>
                   </button>
                   {openSections.has(UNGROUPED_SECTION_KEY) && recommendedItems.map((item, idx) => (
                       <RecommendedItemCard
@@ -717,7 +717,7 @@ export function AgentEditorPage({
                             <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
                             <input
                               autoFocus
-                              className="h-6 flex-1 min-w-0 px-2 rounded border border-amber-500/50 bg-[#121214] text-amber-200 text-[11px] focus:outline-none focus:border-amber-400"
+                              className="h-6 flex-1 min-w-0 px-2 rounded border border-amber-500/50 bg-page text-amber-200 text-[11px] focus:outline-none focus:border-amber-400"
                               value={renameText}
                               maxLength={GROUP_TITLE_MAX}
                               onChange={(e) => setRenameText(e.target.value)}
@@ -736,18 +736,18 @@ export function AgentEditorPage({
                             title={sectionOpen ? '收起' : '展开'}
                           >
                             {sectionOpen
-                              ? <ChevronDown className="w-3 h-3 text-[#71717a] shrink-0" />
-                              : <ChevronRight className="w-3 h-3 text-[#71717a] shrink-0" />}
+                              ? <ChevronDown className="w-3 h-3 text-ink-dim shrink-0" />
+                              : <ChevronRight className="w-3 h-3 text-ink-dim shrink-0" />}
                             <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
-                            <span className="text-[11px] font-semibold text-[#a1a1aa] truncate">{group.title}</span>
-                            <span className="text-[10px] text-[#71717a] font-mono ml-auto shrink-0">{group.items.length} / {MAX_GROUP_ITEMS}</span>
+                            <span className="text-[11px] font-semibold text-ink-dim truncate">{group.title}</span>
+                            <span className="text-[11px] text-ink-dim font-mono ml-auto shrink-0">{group.items.length} / {MAX_GROUP_ITEMS}</span>
                           </button>
                         )}
                         {renamingGroup !== gIdx && (
                           <>
                             <button
                               type="button"
-                              className="flex items-center justify-center w-5 h-5 rounded-full text-[#a1a1aa] hover:text-white hover:bg-[#27272a] cursor-pointer shrink-0"
+                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-white hover:bg-line cursor-pointer shrink-0"
                               title="重命名"
                               onClick={() => beginRenameGroup(gIdx)}
                             >
@@ -755,7 +755,7 @@ export function AgentEditorPage({
                             </button>
                             <button
                               type="button"
-                              className="flex items-center justify-center w-5 h-5 rounded-full text-[#a1a1aa] hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer shrink-0"
+                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer shrink-0"
                               title={`删除分组（${group.items.length} 条移入未分组）`}
                               onClick={() => removeGroup(gIdx)}
                             >
@@ -801,14 +801,14 @@ export function AgentEditorPage({
                   type="button"
                   onClick={addItem}
                   disabled={recommendedItems.length >= MAX_RECOMMENDED_ITEMS}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-[#27272a] hover:bg-[#27272a] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-3.5 h-3.5" /> 添加推荐项
                 </button>
                 <button
                   type="button"
                   onClick={openBulk}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-[#27272a] hover:bg-[#27272a] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
                 >
                   <ListPlus className="w-3.5 h-3.5" /> 批量添加
                 </button>
@@ -816,11 +816,11 @@ export function AgentEditorPage({
                   type="button"
                   onClick={openCreateGroup}
                   disabled={recommendedGroups.length >= MAX_RECOMMENDED_GROUPS}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-[#27272a] hover:bg-[#27272a] text-[#a1a1aa] hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-3.5 h-3.5" /> 新建分组
                 </button>
-                <span className="text-[10px] text-[#71717a] font-mono ml-auto">{recommendedGroups.length} / {MAX_RECOMMENDED_GROUPS} 组</span>
+                <span className="text-[11px] text-ink-dim font-mono ml-auto">{recommendedGroups.length} / {MAX_RECOMMENDED_GROUPS} 组</span>
               </div>
               <div className="text-[11px] text-slate-500">
                 分组：最多 {MAX_RECOMMENDED_GROUPS} 组、每组 {MAX_GROUP_ITEMS} 条；未分组：最多 {MAX_RECOMMENDED_ITEMS} 条。点击分区头展开/收起，条目展开后在「所属分组」归类；✏ 重命名、× 删除分组。未分组条目在终端独立展示，分组在终端收进组按钮按需展开。
@@ -882,7 +882,7 @@ export function AgentEditorPage({
             title="可委派子 Agent (Sub-Agents)"
             hint={subagentCandidates.length === 0 ? '无可选的已发布 Agent' : undefined}
           >
-            <div className="w-full text-[11px] text-[#71717a] mb-1">
+            <div className="w-full text-[11px] text-ink-dim mb-1">
               勾选后，对话中该 Agent 可把自包含子任务委派给所选 Agent（独立上下文与工具、只回传结论、子任务消耗计入本会话 Token）。仅已发布 Agent 可选。
             </div>
             {subagentCandidates.map((a) => (
@@ -904,11 +904,11 @@ export function AgentEditorPage({
       </div>
 
       {/* Footer save bar — a flex sibling of the scroll area, so it is pinned
-          flush to the bottom of the main column with no gap. bg-[#09090b] and
-          border-[#27272a] are theme-aware via the index.css overrides. */}
-      <div className="shrink-0 border-t border-[#27272a] bg-[#09090b] px-6 py-3">
+          flush to the bottom of the main column with no gap. bg-well and
+          border-line are theme-aware via the index.css overrides. */}
+      <div className="shrink-0 border-t border-line bg-well px-6 py-3">
         <div className="max-w-3xl mx-auto flex justify-end gap-3">
-          <button onClick={onBack} className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
+          <button onClick={onBack} className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
             取消
           </button>
           <button
@@ -934,7 +934,7 @@ export function AgentEditorPage({
       >
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-[#71717a] shrink-0">添加到</span>
+            <span className="text-[11px] text-ink-dim shrink-0">添加到</span>
             <Select
               value={bulkDest}
               onChange={(v) => setBulkDest(v ?? UNGROUPED_VALUE)}
@@ -951,7 +951,7 @@ export function AgentEditorPage({
               showSearch={false}
             />
           </div>
-          <div className="text-[11px] text-[#71717a] leading-relaxed">
+          <div className="text-[11px] text-ink-dim leading-relaxed">
             自动识别格式，直接粘贴即可：
             <br />① 纯文本 — 每行一条 <code className="text-indigo-300">{'显示文案 | 实际发送内容'}</code>，不需要 []，不含 | 时整行即显示文案；
             <br />② JSON — 整段数组，或每行一个 <code className="text-indigo-300">{'{"label":"…","prompt":"…"}'}</code> 对象（[] 可省略，prompt 可省略）；
@@ -1008,7 +1008,7 @@ export function AgentEditorPage({
               if (e.key === 'Enter') handleCreateGroup();
             }}
           />
-          <div className="text-[11px] text-[#71717a]">
+          <div className="text-[11px] text-ink-dim">
             新建后可在推荐项的「所属分组」中选用，或用批量添加按分组导入。当前 {recommendedGroups.length} / {MAX_RECOMMENDED_GROUPS} 组。
           </div>
         </div>
@@ -1054,7 +1054,7 @@ function RecommendedItemCard({
   onAssignGroup: (value: string) => void;
 }) {
   return (
-    <div className="rounded-lg border border-[#27272a] bg-[#121214]">
+    <div className="rounded-lg border border-line bg-page">
       <div className="flex items-center gap-2 px-2.5 py-2">
         <button
           type="button"
@@ -1063,17 +1063,17 @@ function RecommendedItemCard({
           title={expanded ? '收起' : '展开编辑'}
         >
           {expanded
-            ? <ChevronDown className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
-            : <ChevronRight className="w-3.5 h-3.5 text-[#71717a] shrink-0" />}
-          <span className="text-[10px] text-[#71717a] font-mono shrink-0">#{index + 1}</span>
-          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-white' : 'text-[#52525b] italic'}`}>
+            ? <ChevronDown className="w-3.5 h-3.5 text-ink-dim shrink-0" />
+            : <ChevronRight className="w-3.5 h-3.5 text-ink-dim shrink-0" />}
+          <span className="text-[11px] text-ink-dim font-mono shrink-0">#{index + 1}</span>
+          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-white' : 'text-ink-dim italic'}`}>
             {item.label || '（未填写）'}
           </span>
-          <span className="text-[11px] text-[#71717a] truncate">
+          <span className="text-[11px] text-ink-dim truncate">
             {item.prompt ? `· ${item.prompt}` : '· 点击直接发送显示文案'}
           </span>
         </button>
-        <button type="button" onClick={onRemove} className="flex items-center gap-1 text-[#ef4444] text-[10px] hover:underline cursor-pointer shrink-0">
+        <button type="button" onClick={onRemove} className="flex items-center gap-1 text-danger-text text-[11px] hover:underline cursor-pointer shrink-0">
           <Trash2 className="w-3 h-3" /> 删除
         </button>
       </div>
@@ -1082,7 +1082,7 @@ function RecommendedItemCard({
           <input className={inputCls} placeholder="显示文案（必填），如：导出本月报表" value={item.label} onChange={(e) => onUpdate({ label: e.target.value })} />
           <input className={inputCls} placeholder="实际发送内容（留空则同显示文案）" value={item.prompt} onChange={(e) => onUpdate({ prompt: e.target.value })} />
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-[#71717a] shrink-0">所属分组</span>
+            <span className="text-[11px] text-ink-dim shrink-0">所属分组</span>
             <Select
               value={groupValue}
               onChange={(v) => onAssignGroup(v ?? UNGROUPED_VALUE)}
@@ -1218,13 +1218,13 @@ const Section: FC<{ title: string; icon?: ReactNode; defaultOpen?: boolean; chil
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+    <div className="rounded-xl border border-line bg-panel overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left cursor-pointer hover:bg-[#1c1c1f] transition"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left cursor-pointer hover:bg-panel-hover transition"
       >
-        {open ? <ChevronDown className="w-4 h-4 text-[#71717a]" /> : <ChevronRight className="w-4 h-4 text-[#71717a]" />}
+        {open ? <ChevronDown className="w-4 h-4 text-ink-dim" /> : <ChevronRight className="w-4 h-4 text-ink-dim" />}
         {icon && <span className="text-indigo-400">{icon}</span>}
         <span className="text-sm font-bold text-white">{title}</span>
       </button>
@@ -1248,9 +1248,9 @@ function toggleSkill(skills: string[], token: string): string[] {
 }
 
 const ToolGroup: FC<{ title: string; hint?: string; children: ReactNode }> = ({ title, hint, children }) => (
-  <div className="p-3 rounded-lg bg-[#121214] border border-[#27272a]">
-    <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-2">{title}</p>
-    {hint ? <p className="text-[11px] text-[#52525b] italic">{hint}</p> : <div className="flex flex-wrap gap-1.5">{children}</div>}
+  <div className="p-3 rounded-lg bg-page border border-line">
+    <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-2">{title}</p>
+    {hint ? <p className="text-[11px] text-ink-dim italic">{hint}</p> : <div className="flex flex-wrap gap-1.5">{children}</div>}
   </div>
 );
 const ToolChip: FC<{ label: string; checked: boolean; onToggle: () => void }> = ({ label, checked, onToggle }) => (
@@ -1258,7 +1258,7 @@ const ToolChip: FC<{ label: string; checked: boolean; onToggle: () => void }> = 
     type="button"
     onClick={onToggle}
     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer select-none ${
-      checked ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-[#18181b] border-[#27272a] text-[#a1a1aa] hover:text-white hover:border-[#52525b]'
+      checked ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-panel border-line text-ink-dim hover:text-white hover:border-line-strong'
     }`}
   >
     {checked ? '✓ ' : ''}{label}

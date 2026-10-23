@@ -25,16 +25,6 @@ class PermanentChannelError(ChannelError):
     user_message = "处理失败,请联系管理员"
 
 
-# ── Specific transient errors (raised by adapters / service) ──
-
-class LLMRateLimitError(TransientChannelError):
-    user_message = "请求过多,请稍后再试"
-
-
-class ToolExecutionError(TransientChannelError):
-    user_message = "工具暂时不可用,正在重试"
-
-
 # ── Specific permanent errors ──
 
 class InvalidCredentialsError(PermanentChannelError):

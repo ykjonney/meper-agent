@@ -443,6 +443,7 @@ class TaskService:
 
         # 2. 删除本地 task workspace
         if delete_workspace:
+            user_id = ""
             try:
                 # 需要 user_id 来定位 workspace 路径
                 task_doc = await db["tasks"].find_one({"_id": task_id}, {"created_by": 1})
@@ -453,6 +454,21 @@ class TaskService:
                     WorkspaceManager.delete_task_workspace(user_id, task_id)
             except Exception as exc:
                 logger.warning("task_workspace_cleanup_failed", task_id=task_id, error=str(exc))
+
+            # 删除复用沙盒容器（幂等；失败不阻塞，闲置回收兜底）
+            try:
+                if user_id:
+                    from app.engine.harness_integration.sandbox_lifecycle import (
+                        destroy_workspace_sandbox,
+                    )
+                    from app.engine.tool.workspace import WorkspaceManager
+
+                    ws = WorkspaceManager.get_task_workspace(user_id, task_id)
+                    destroy_workspace_sandbox(ws.root)
+            except Exception as exc:
+                logger.warning(
+                    "sandbox_container_cleanup_failed", task_id=task_id, error=str(exc)
+                )
 
         # 3. 清理 LangGraph checkpointer（pymongo 同步 Collection）
         #    pymongo 是同步驱动,直接调用会阻塞 event loop,用 to_thread 卸到线程池。
@@ -765,6 +781,10 @@ class TaskService:
             "$push": {"timeline": timeline_entry.model_dump()},
         }
 
+        # 慢任务警告扫描的时间基准：进入 RUNNING 时记录起点。
+        if to_status == TaskStatus.RUNNING:
+            update["$set"]["started_at"] = now.isoformat()
+
         if error_info:
             task_error = TaskError(**error_info)
             update["$set"]["error"] = task_error.model_dump()
@@ -858,19 +878,40 @@ class TaskService:
         event_type: str,
         data: dict[str, Any] | None = None,
         actor: str = "system",
-    ) -> dict:
-        """Append a timeline event to a Task."""
+    ) -> dict | None:
+        """Append a timeline event to a Task.
+
+        文档水位线防线（Task 文档持续 $push 增长，区别于一次性定型的
+        message 文档）：
+          - projection 顺带 $bsonSize（本次更新本来就要一次往返，零额外
+            查询）；
+          - 已超丢弃线（DOC_COMPACT_DISCARD_MB）→ 写入前同步丢弃最老
+            载荷事件（层3 防御，保证写入永不撞 16MB）；此时事件 payload
+            在源头均已小化（output_digest/200字符摘要），膨胀来自条数，
+            丢最老是唯一手段。
+          - 超高水位但未超丢弃线 → 异步压缩兜底（fire-and-forget，Task
+            timeline 事件无 tool_result 载荷可 preview 化，异步路径只做
+            条数丢弃的惰性检查）。
+        返回值不再回读整文档（读放大修复）；调用方几乎不消费返回值，
+        需要 size 的场景由 projection 提供。
+        """
         entry = TimelineEvent(
             event_type=event_type,
             data=data or {},
             actor=actor,
         )
 
+        from app.core.config import settings
+
+        discard_bytes = settings.DOC_COMPACT_DISCARD_MB * 1024 * 1024
         updated = await TaskService._collection().find_one_and_update(
             {"_id": task_id},
             {
                 "$push": {"timeline": entry.model_dump()},
                 "$set": {"updated_at": utc_now()},
+            },
+            projection={
+                "size": {"$bsonSize": "$$ROOT"},
             },
             return_document=ReturnDocument.AFTER,
         )
@@ -881,7 +922,79 @@ class TaskService:
                 message=f"Task {task_id} 不存在",
                 details={"task_id": task_id},
             )
+
+        doc_size = int(updated.get("size") or 0)
+        if doc_size > discard_bytes:
+            await TaskService._discard_oldest_timeline(
+                task_id,
+                target_bytes=settings.DOC_COMPACT_HIGH_MB * 1024 * 1024,
+            )
+        elif doc_size > settings.DOC_COMPACT_HIGH_MB * 1024 * 1024:
+            import asyncio
+
+            asyncio.create_task(
+                TaskService._discard_oldest_timeline(
+                    task_id,
+                    target_bytes=settings.DOC_COMPACT_DISCARD_MB * 1024 * 1024,
+                )
+            )
         return updated
+
+    # 状态骨架事件：任务历史的结构性记录（极小），丢弃时豁免。
+    _TIMELINE_SKELETON_EVENTS = frozenset({
+        "created", "started", "waiting_human", "completed", "failed",
+        "cancelled", "approve", "skip", "reject", "cancel", "resume",
+        "retry", "rewound", "auto_scheduled",
+    })
+
+    @staticmethod
+    async def _discard_oldest_timeline(task_id: str, *, target_bytes: int) -> int:
+        """丢弃最老的载荷类 timeline 事件（node_* / loop_* 等），压到目标线。
+
+        按索引 $unset 留洞后 $pull 清理（原子操作，不覆盖并发 $push 的
+        新事件）；状态骨架事件（started/completed 等）豁免——它们是任务
+        历史的骨架且极小。返回丢弃条数。
+        """
+        from app.db.mongodb import get_database
+
+        doc = await get_database()["tasks"].aggregate([
+            {"$match": {"_id": task_id}},
+            {"$project": {"size": {"$bsonSize": "$$ROOT"}, "timeline": 1}},
+        ]).to_list(1)
+        if not doc:
+            return 0
+        size_now = int(doc[0].get("size") or 0)
+        if size_now <= target_bytes:
+            return 0
+
+        timeline = doc[0].get("timeline") or []
+        unset_ops: dict[str, Any] = {}
+        dropped = 0
+        est = size_now
+        for i, ev in enumerate(timeline):
+            if est <= target_bytes:
+                break
+            if ev.get("event_type") in TaskService._TIMELINE_SKELETON_EVENTS:
+                continue
+            unset_ops[f"timeline.{i}"] = ""
+            dropped += 1
+            est -= max(256, len(str(ev.get("data") or "")))
+        if not unset_ops:
+            return 0
+        await get_database()["tasks"].update_one(
+            {"_id": task_id},
+            {"$unset": unset_ops, "$set": {"updated_at": utc_now()}},
+        )
+        # $unset 留 null 洞 → $pull 清理（只删 null，不影响并发新事件）。
+        await get_database()["tasks"].update_one(
+            {"_id": task_id}, {"$pull": {"timeline": None}},
+        )
+        logger.warning(
+            "task_timeline_discarded",
+            task_id=task_id, dropped=dropped, size_before=size_now,
+            note="文档超丢弃线，最老载荷事件被丢弃（状态骨架豁免）",
+        )
+        return dropped
 
     @staticmethod
     async def update_variables(
@@ -922,7 +1035,14 @@ class TaskService:
                 "updated_at": now,
                 "version": new_version,
             },
-            "$push": {"variable_snapshots": snapshot},
+            # $slice 保最近 50 条变更历史（未达上限时行为与普通 push 一致
+            # ——阈值天然触发；变更历史是审计辅助，非恢复数据源）。
+            "$push": {
+                "variable_snapshots": {
+                    "$each": [snapshot],
+                    "$slice": -50,
+                }
+            },
         }
 
         # Merge variables using $each for top-level keys or $set individual fields

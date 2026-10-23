@@ -1,4 +1,4 @@
-"""Harness LLM factory and provider adapters.
+"""Harness LLM providers and thinking adaptation.
 
 Public surface:
 
@@ -12,10 +12,12 @@ The harness does not resolve model documents from a database; the application
 layer decrypts / fetches the config first, then hands it to the builders.
 """
 
-from agent_flow_harness.llm.factory import (
-    apply_thinking_mode,
+from agent_flow_harness.llm.providers.openai_compat import (
     build_client_from_doc,
     build_client_from_env,
+)
+from agent_flow_harness.llm.thinking import (
+    apply_thinking_mode,
     build_thinking_kwargs,
     detect_provider,
     supports_thinking,

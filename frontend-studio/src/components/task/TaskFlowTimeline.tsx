@@ -26,6 +26,7 @@ import { getNodeExecState, hasTaskRejectSignal, computeSupersededEventIdxs, type
 import { DataView } from './DataView'
 import { Spin } from '../ui'
 import AgentTimeline from './AgentTimeline'
+import { formatTimeShort } from '../../lib/formatTime'
 
 /* ─── 节点类型 → 图标 / 中文标签（与 WorkflowDesigner 的 NODE_TYPE_CONFIGS 对齐） ─── */
 
@@ -96,6 +97,8 @@ const EVENT_META: Record<string, { label: string; color: string }> = {
   // loop 轮次（M3）：data 含 round/max_iterations/converged
   loop_round_start: { label: '循环轮开始', color: '#A855F7' },
   loop_round_complete: { label: '循环轮完成', color: '#A855F7' },
+  // 慢任务警告（beat 巡检）：data 含 elapsed_minutes/warn_minutes
+  task_running_slow: { label: '运行缓慢提醒', color: '#F59E0B' },
 }
 
 /** 审批已完成事件类型集合（用于过滤冗余的 waiting_human / human node_complete） */
@@ -226,16 +229,16 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     ['completed', 'failed', 'task_failed', 'cancelled'].includes(e.event_type))
 
   if (stages.length === 0 && !createdEvt) {
-    return <div className="text-xs text-[#71717a] italic">暂无执行事件</div>
+    return <div className="text-xs text-ink-dim italic">暂无执行事件</div>
   }
 
-  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
-  const subText = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500'
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const subText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
 
   return (
     <div className="relative pl-6">
       {/* 竖向连接线 */}
-      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] ${theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-200'}`} />
+      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] ${theme === 'dark' ? 'bg-line' : 'bg-slate-200'}`} />
 
       {/* 创建里程碑 */}
       {createdEvt && (
@@ -265,7 +268,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
             {/* 左侧状态圆点 */}
             <div
               className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 z-10 flex items-center justify-center ${
-                theme === 'dark' ? 'border-[#121214]' : 'border-white'
+                theme === 'dark' ? 'border-line' : 'border-white'
               }`}
               style={{ backgroundColor: meta.color }}
             />
@@ -288,15 +291,15 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                     : state === 'waiting'
                       ? 'border-[#8B5CF6]/40 bg-[#8B5CF6]/5'
                       : theme === 'dark'
-                        ? 'border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]'
+                        ? 'border-line bg-panel hover:border-line-strong'
                         : 'border-slate-200 bg-white hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className={`shrink-0 ${subText}`}>{NODE_TYPE_ICON[stage.nodeType] ?? <Flag size={13} />}</span>
-                <span className={`text-xs font-medium truncate flex-1 ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{nodeLabel}</span>
+                <span className={`text-xs font-medium truncate flex-1 ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{nodeLabel}</span>
                 <span
-                  className="inline-flex items-center gap-1 text-[10px] font-medium shrink-0"
+                  className="inline-flex items-center gap-1 text-[11px] font-medium shrink-0"
                   style={{ color: meta.color }}
                 >
                   {meta.icon} {meta.label}
@@ -309,7 +312,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 
               {/* 耗时 / Token 消耗 */}
               {(stage.duration || stage.tokenTotal) && (
-                <div className={`text-[10px] mt-1 font-mono ${mutedText}`}>
+                <div className={`text-[11px] mt-1 font-mono ${mutedText}`}>
                   {stage.duration && <>耗时 {stage.duration}</>}
                   {stage.duration && stage.tokenTotal ? ' · ' : ''}
                   {stage.tokenTotal && <>{stage.tokenTotal.toLocaleString()} tokens</>}
@@ -322,7 +325,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
               {isExpanded && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className={`mt-2 pt-2 space-y-2.5 ${theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'} border-t`}
+                  className={`mt-2 pt-2 space-y-2.5 ${theme === 'dark' ? 'border-line' : 'border-slate-200'} border-t`}
                 >
                   {/* 事件列表（保留旧的中文标签 / actor / 可折叠 data） */}
                   {stage.events.length > 0 && (
@@ -338,24 +341,24 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                         // 保留作唯一线索），过滤后为空的事件不再渲染「详细数据」区块。
                         const filteredData = filterEventData(evt, output !== undefined)
                         return (
-                          <div key={idx} className={`text-[10px]${superseded ? ' opacity-50' : ''}`}>
+                          <div key={idx} className={`text-[11px]${superseded ? ' opacity-50' : ''}`}>
                             <div className="flex items-baseline gap-1.5 flex-wrap">
                               <span className="font-medium" style={{ color: emeta.color }}>{label}</span>
                               {superseded && (
-                                <span className="text-[9px] text-[#a1a1aa] bg-[#27272a] rounded px-1 py-0.5">已废弃</span>
+                                <span className="text-[11px] text-ink-dim bg-line rounded px-1 py-0.5">已废弃</span>
                               )}
-                              <span className={mutedText}>{fmtTime(evt.timestamp)}</span>
+                              <span className={mutedText}>{formatTimeShort(evt.timestamp)}</span>
                               {evt.actor && evt.actor !== 'system' && (
                                 <span className={mutedText}>· {evt.actor}</span>
                               )}
                             </div>
                             {filteredData && (
-                              <details className="mt-1 group rounded-lg border border-[#27272a] bg-[#09090b] overflow-hidden">
-                                <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium ${mutedText} hover:text-[#1E5EFF] hover:bg-[#18181b]/40 transition-colors [&::-webkit-details-marker]:hidden`}>
+                              <details className="mt-1 group rounded-lg border border-line bg-well overflow-hidden">
+                                <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium ${mutedText} hover:text-link hover:bg-panel/40 transition-colors [&::-webkit-details-marker]:hidden`}>
                                   <ChevronRight className="w-3 h-3 shrink-0 group-open:rotate-90 transition-transform" />
                                   详细数据
                                 </summary>
-                                <div className="p-2.5 border-t border-[#27272a]">
+                                <div className="p-2.5 border-t border-line">
                                   <DataView value={filteredData} context="event_data" showRaw={false} />
                                 </div>
                               </details>
@@ -368,18 +371,19 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 
                   {/* 节点输出 */}
                   <div>
-                    <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>节点输出</div>
+                    <div className={`text-[11px] uppercase tracking-wider mb-1 ${mutedText}`}>节点输出</div>
                     {output === undefined ? (
-                      <div className={`text-[10px] italic ${mutedText}`}>无</div>
+                      <div className={`text-[11px] italic ${mutedText}`}>无</div>
                     ) : (
-                      <div className="rounded-lg border border-[#27272a] bg-[#09090b] p-2.5">
+                      <div className="rounded-lg border border-line bg-well p-2.5">
                         <DataView value={output} context="node_output" nodeType={stage.nodeType} showRaw={false} />
                       </div>
                     )}
                   </div>
 
-                  {/* 循环体成员（角色视角）：跨轮续接成员完整会话；每轮
-                      独立成员的产出已在工作台（轮次轨迹），不单独展示 */}
+                  {/* 循环体成员（角色视角）：所有成员都展示——续接成员
+                      一条完整会话（跨轮同 thread）；每轮独立成员按轮渲染
+                      轨迹（rounds 快照），工作台退役后这是其产出的唯一视图 */}
                   {stage.nodeType === 'loop' && stage.members && stage.members.length > 0 && (
                     <LoopMembers
                       members={stage.members}
@@ -387,6 +391,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                       theme={theme}
                       nodeNameMap={nodeNameMap}
                       threadPolicyMap={threadPolicyMap}
+                      loopNodeId={stage.nodeId}
                     />
                   )}
 
@@ -417,78 +422,175 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 /* ─── 子组件：循环体成员（角色视角） ─── */
 
 /**
- * 只展示「跨轮续接」的成员（每个一条完整会话，不按轮重复——各轮都在
- * 同一 thread 里）；「每轮独立」的成员不展示——其轮次产出（verdict/
- * issues/评分轨迹）已被工作台吸收，在工作台卡片查看。wf 拉取失败时
- * 无法判定策略，兜底全部展示。
+ * 循环体成员（角色视角）——所有成员都展示（工作台退役后这里是 fresh
+ * 成员产出的唯一视图）：
+ * - 跨轮续接（continue）：一条完整会话 + 最新轮输出 + Agent 明细
+ * - 每轮独立（fresh）：按轮渲染轨迹（rounds 快照的该成员各轮输出：
+ *   轮号 + verdict 徽标 + 意见首行），点击轮次行展开该轮完整输出
  */
 function LoopMembers({
-  members, task, theme, nodeNameMap, threadPolicyMap,
+  members, task, theme, nodeNameMap, threadPolicyMap, loopNodeId,
 }: {
   members: NodeStageInfo[]
   task: TaskDetail
   theme: 'light' | 'dark'
   nodeNameMap: Map<string, string>
   threadPolicyMap: Map<string, string>
+  loopNodeId: string
 }) {
-  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
-  const shown = members.filter(
-    (m) => (threadPolicyMap.get(m.nodeId) ?? 'continue') !== 'fresh',
-  )
-  if (shown.length === 0) return null
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const loopOutput = (task.output ?? task.variables)?.[loopNodeId] as
+    | { rounds?: Record<string, Record<string, unknown>> }
+    | undefined
+  const rounds = loopOutput?.rounds ?? {}
+
   return (
     <div onClick={(e) => e.stopPropagation()}>
-      <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>跨轮续接 Agent（完整会话）</div>
+      <div className={`text-[11px] uppercase tracking-wider mb-1 ${mutedText}`}>循环成员（{members.length}）</div>
       <div className="space-y-1.5">
-        {shown.map((ms) => {
-          const mMeta = STATE_META[ms.state]
-          const mLabel = nodeNameMap.get(ms.nodeId) || ms.label || (NODE_TYPE_LABEL[ms.nodeType] ?? ms.nodeType)
-          const mOutput = task.variables?.[ms.nodeId] ?? task.output?.[ms.nodeId]
-          // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
-          // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
-          const mVerdict =
-            mOutput && typeof mOutput === 'object'
-              ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
-              : undefined
-          const verdictBadge =
-            mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
-            : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
-            : null
+        {members.map((ms) => {
+          const isFresh = (threadPolicyMap.get(ms.nodeId) ?? 'continue') === 'fresh'
+          return isFresh ? (
+            <FreshMemberCard
+              key={ms.nodeId} member={ms} rounds={rounds} theme={theme}
+              nodeNameMap={nodeNameMap} mutedText={mutedText}
+            />
+          ) : (
+            <ContinueMemberCard
+              key={ms.nodeId} member={ms} task={task} theme={theme}
+              nodeNameMap={nodeNameMap} mutedText={mutedText}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** 每轮独立成员：按轮轨迹（rounds 快照），点击轮次行展开该轮完整输出。 */
+function FreshMemberCard({
+  member, rounds, theme, nodeNameMap, mutedText,
+}: {
+  member: NodeStageInfo
+  rounds: Record<string, Record<string, unknown>>
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+  mutedText: string
+}) {
+  const [openRound, setOpenRound] = useState<string | null>(null)
+  const label = nodeNameMap.get(member.nodeId) || member.label || member.nodeId
+  const mMeta = STATE_META[member.state]
+  // 该成员有输出的轮（倒序：最新在上）
+  const memberRounds = Object.entries(rounds)
+    .map(([r, snap]) => {
+      const out = snap[member.nodeId] as { response?: Record<string, unknown> } | undefined
+      return { round: r, out }
+    })
+    .filter((x) => x.out !== undefined)
+    .sort((a, b) => Number(b.round) - Number(a.round))
+  const latest = memberRounds[0]
+  const latestVerdict = latest?.out?.response?.verdict
+  const verdictBadge =
+    latestVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+    : latestVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+    : null
+  return (
+    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
+        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{label}</span>
+        <span className={`text-[11px] ${mutedText}`}>每轮独立 · {memberRounds.length} 轮</span>
+        {verdictBadge && (
+          <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+            {verdictBadge.text}
+          </span>
+        )}
+        <span className="text-[11px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+      </div>
+      {/* 每轮一行：轮号 + verdict + score + 意见首行；点击展开该轮完整输出 */}
+      <div className="mt-1.5 space-y-0.5">
+        {memberRounds.map(({ round, out }) => {
+          const resp = (out?.response ?? {}) as Record<string, unknown>
+          const v = String(resp.verdict ?? '')
+          const vc = v === 'approve' ? '#10B981' : v === 'revise' ? '#F59E0B' : '#71717a'
+          const score = resp.score != null ? ` ${String(resp.score)}分` : ''
+          const firstLine = String(resp.issues ?? resp.comment ?? '').split('\n').find((x) => x.trim()) ?? (v === 'approve' ? '（通过）' : '')
+          const open = openRound === round
           return (
-            <div
-              key={ms.nodeId}
-              className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'}`}
-            >
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[ms.nodeType] ?? <Flag size={11} />}</span>
-                <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{mLabel}</span>
-                {verdictBadge && (
-                  <span className="text-[9px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
-                    {verdictBadge.text}
-                  </span>
-                )}
-                <span className="text-[9px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
-                {(ms.duration || ms.tokenTotal) && (
-                  <span className={`text-[9px] font-mono ml-auto shrink-0 ${mutedText}`}>
-                    {ms.duration}
-                    {ms.duration && ms.tokenTotal ? ' · ' : ''}
-                    {ms.tokenTotal ? `${ms.tokenTotal.toLocaleString()} tk` : ''}
-                  </span>
-                )}
-              </div>
-              {/* 成员输出（response/结果——DataView 按类型渲染） */}
-              {mOutput !== undefined && (
-                <div className="mt-1.5 rounded border border-[#27272a] bg-[#09090b] p-2">
-                  <DataView value={mOutput} context="node_output" nodeType={ms.nodeType} showRaw={false} />
+            <div key={round}>
+              <button
+                type="button"
+                onClick={() => setOpenRound(open ? null : round)}
+                className={`w-full flex items-baseline gap-1.5 text-left px-1.5 py-1 rounded cursor-pointer transition-colors hover:bg-panel-hover`}
+              >
+                <span className="text-[11px] font-mono shrink-0" style={{ color: vc }}>R{round} {v}{score}</span>
+                <span className={`flex-1 min-w-0 truncate text-[11px] ${mutedText}`}>{firstLine}</span>
+                <ChevronRight size={11} className={`shrink-0 self-center transition-transform ${open ? 'rotate-90' : ''} ${mutedText}`} />
+              </button>
+              {open && (
+                <div className="mx-1.5 mt-0.5 mb-1 rounded border border-line bg-well p-2">
+                  <DataView value={out!} context="node_output" nodeType={member.nodeType} showRaw={false} />
                 </div>
-              )}
-              {ms.nodeType === 'agent' && ms.state !== 'pending' && (
-                <NodeAgentTrace taskId={task.id} nodeId={ms.nodeId} theme={theme} />
               )}
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/** 跨轮续接成员：一条完整会话（各轮同 thread）+ 最新轮输出 + Agent 明细。 */
+function ContinueMemberCard({
+  member, task, theme, nodeNameMap, mutedText,
+}: {
+  member: NodeStageInfo
+  task: TaskDetail
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+  mutedText: string
+}) {
+  const mMeta = STATE_META[member.state]
+  const mLabel = nodeNameMap.get(member.nodeId) || member.label || (NODE_TYPE_LABEL[member.nodeType] ?? member.nodeType)
+  const mOutput = task.variables?.[member.nodeId] ?? task.output?.[member.nodeId]
+  // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
+  // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
+  const mVerdict =
+    mOutput && typeof mOutput === 'object'
+      ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
+      : undefined
+  const verdictBadge =
+    mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+    : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+    : null
+  return (
+    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
+        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{mLabel}</span>
+        {verdictBadge && (
+          <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+            {verdictBadge.text}
+          </span>
+        )}
+        <span className="text-[11px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+        {(member.duration || member.tokenTotal) && (
+          <span className={`text-[11px] font-mono ml-auto shrink-0 ${mutedText}`}>
+            {member.duration}
+            {member.duration && member.tokenTotal ? ' · ' : ''}
+            {member.tokenTotal ? `${member.tokenTotal.toLocaleString()} tk` : ''}
+          </span>
+        )}
+      </div>
+      {/* 成员输出（response/结果——DataView 按类型渲染） */}
+      {mOutput !== undefined && (
+        <div className="mt-1.5 rounded border border-line bg-well p-2">
+          <DataView value={mOutput} context="node_output" nodeType={member.nodeType} showRaw={false} />
+        </div>
+      )}
+      {member.nodeType === 'agent' && member.state !== 'pending' && (
+        <NodeAgentTrace taskId={task.id} nodeId={member.nodeId} theme={theme} />
+      )}
     </div>
   )
 }
@@ -507,7 +609,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
     staleTime: 60_000,
     retry: 1,
   })
-  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
   const errAny = error as { statusCode?: number; response?: { status?: number }; message?: string } | null
   const errStatus = errAny?.statusCode ?? errAny?.response?.status
   const is404 = errStatus === 404
@@ -517,14 +619,14 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
         onClick={() => setExpanded((v) => !v)}
         className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
           theme === 'dark'
-            ? `border-[#27272a] bg-[#09090b] hover:border-[#1E5EFF]/50 hover:text-[#1E5EFF] ${expanded ? 'text-[#1E5EFF] border-[#1E5EFF]/40' : 'text-[#a1a1aa]'}`
-            : `border-slate-200 bg-slate-50 hover:border-[#1E5EFF]/50 hover:text-[#1E5EFF] ${expanded ? 'text-[#1E5EFF] border-[#1E5EFF]/40' : 'text-slate-600'}`
+            ? `border-line bg-well hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-ink-dim'}`
+            : `border-slate-200 bg-slate-50 hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-slate-600'}`
         }`}
       >
         <Workflow size={12} className="shrink-0" />
         Agent 执行明细
         {expanded && nodeTimeline?.message_count ? (
-          <span className={`text-[10px] font-normal ${mutedText}`}>· {nodeTimeline.message_count} 条消息</span>
+          <span className={`text-[11px] font-normal ${mutedText}`}>· {nodeTimeline.message_count} 条消息</span>
         ) : null}
         <ChevronRight
           size={12}
@@ -536,18 +638,18 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
           <Spin />
         </div>
       ) : error ? (
-        <div className={`text-[10px] italic ${theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'}`}>
+        <div className={`text-[11px] italic ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>
           {is404 ? '该节点暂无执行记录' : `加载失败：${errAny?.message ?? '请稍后重试'}`}
         </div>
       ) : nodeTimeline?.timeline?.length ? (
         <div className="space-y-1.5">
           {nodeTimeline.message_count ? (
-            <div className={`text-[10px] ${mutedText}`}>消息数 {nodeTimeline.message_count}</div>
+            <div className={`text-[11px] ${mutedText}`}>消息数 {nodeTimeline.message_count}</div>
           ) : null}
           <AgentTimeline entries={nodeTimeline.timeline} theme={theme} />
         </div>
       ) : (
-        <div className={`text-[10px] italic ${mutedText}`}>该节点暂无执行记录</div>
+        <div className={`text-[11px] italic ${mutedText}`}>该节点暂无执行记录</div>
       ))}
     </div>
   )
@@ -564,27 +666,16 @@ function Milestone({ color, label, time, subText }: {
   return (
     <div className="relative py-2">
       <div
-        className="absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-[#121214] z-10"
+        className="absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-line z-10"
         style={{ backgroundColor: color }}
       />
       <div className="flex items-center gap-2">
         <Flag size={12} style={{ color }} />
         <span className="text-xs font-medium" style={{ color }}>{label}</span>
-        <span className={`text-[10px] ${subText}`}>{fmtTime(time)}</span>
+        <span className={`text-[11px] ${subText}`}>{formatTimeShort(time)}</span>
       </div>
     </div>
   )
-}
-
-/* ─── 工具：ISO → 时:分:秒 ─── */
-
-function fmtTime(iso: string): string {
-  if (!iso) return '-'
-  try {
-    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return iso
-  }
 }
 
 /* ─── 构建阶段列表 ─── */

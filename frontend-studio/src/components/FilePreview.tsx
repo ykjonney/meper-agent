@@ -70,14 +70,14 @@ export function FilePreview({ filename, mime, text, imageUrl }: FilePreviewProps
       ) : null;
     case 'text':
       return (
-        <pre className={`text-[11px] text-[#d4d4d8] whitespace-pre-wrap font-mono leading-relaxed ${scrollCls}`}>
+        <pre className={`text-[11px] text-ink-soft whitespace-pre-wrap font-mono leading-relaxed ${scrollCls}`}>
           {text}
         </pre>
       );
     case 'binary':
     default:
       return (
-        <div className="flex flex-col items-center justify-center py-12 text-[#71717a] gap-2">
+        <div className="flex flex-col items-center justify-center py-12 text-ink-dim gap-2">
           <FileWarning className="w-6 h-6" />
           <span className="text-xs">该文件类型不支持预览，请下载查看</span>
         </div>
@@ -91,11 +91,11 @@ function HtmlPreview({ source }: { source: string }) {
   const [mode, setMode] = useState<'render' | 'source'>('render');
   return (
     <div className="flex-1 flex flex-col gap-2 min-h-0">
-      <div className="flex items-center gap-1 p-0.5 rounded-md bg-[#121214] border border-[#27272a] self-start shrink-0">
+      <div className="flex items-center gap-1 p-0.5 rounded-md bg-page border border-line self-start shrink-0">
         <button
           onClick={() => setMode('render')}
           className={`px-2 py-1 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
-            mode === 'render' ? 'bg-[#1E5EFF] text-white' : 'text-[#71717a] hover:text-white'
+            mode === 'render' ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
           }`}
         >
           <Eye className="w-3 h-3" /> 渲染
@@ -103,7 +103,7 @@ function HtmlPreview({ source }: { source: string }) {
         <button
           onClick={() => setMode('source')}
           className={`px-2 py-1 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
-            mode === 'source' ? 'bg-[#1E5EFF] text-white' : 'text-[#71717a] hover:text-white'
+            mode === 'source' ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
           }`}
         >
           <Code2 className="w-3 h-3" /> 源码
@@ -112,7 +112,7 @@ function HtmlPreview({ source }: { source: string }) {
       {mode === 'render' ? (
         // 用相对定位容器 + iframe 绝对定位填满，使 iframe 高度自适应弹窗（跟随拖拽缩放），
         // 不依赖外层 flex 高度链，对任意父容器都稳定生效。
-        <div className="relative flex-1 min-h-[240px] rounded-md border border-[#27272a] bg-white overflow-hidden">
+        <div className="relative flex-1 min-h-[240px] rounded-md border border-line bg-white overflow-hidden">
           <iframe
             title="html-preview"
             sandbox="allow-same-origin"
@@ -121,7 +121,7 @@ function HtmlPreview({ source }: { source: string }) {
           />
         </div>
       ) : (
-        <pre className="text-[11px] text-[#d4d4d8] whitespace-pre-wrap font-mono leading-relaxed flex-1 overflow-auto min-h-0">
+        <pre className="text-[11px] text-ink-soft whitespace-pre-wrap font-mono leading-relaxed flex-1 overflow-auto min-h-0">
           {source}
         </pre>
       )}
@@ -144,7 +144,7 @@ function highlightJson(jsonStr: string): { __html: string } {
     (match) => {
       let cls = 'text-emerald-400'; // number
       if (/^"/.test(match)) {
-        cls = /:$/.test(match) ? 'text-[#1E5EFF]' : 'text-amber-300'; // key : vs string
+        cls = /:$/.test(match) ? 'text-link' : 'text-amber-300'; // key : vs string
       } else if (/true|false/.test(match)) {
         cls = 'text-purple-400'; // boolean
       } else if (/null/.test(match)) {
@@ -168,7 +168,7 @@ function JsonPreview({ raw }: { raw: string }) {
   return (
     <div className="flex flex-col gap-2">
       {parseError && (
-        <div className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+        <div className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
           {parseError}
         </div>
       )}

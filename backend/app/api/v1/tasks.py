@@ -386,14 +386,15 @@ async def get_node_timeline(
     tuple_ = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
 
     # 循环体成员聚合读取：fresh thread_policy 的会话按轮存在
-    # ``{task}_{node}_rN`` 独立 thread 里（max_iterations 上限 20，枚举
-    # 便宜），只读 base thread 会永远"无执行记录"。continue 策略数据
-    # 在 base thread，两种策略都聚合成轮序视图（轮与轮以 user 输入
-    # 自然分界）。
+    # ``{task}_{node}_rN`` 独立 thread 里（枚举上限与校验器
+    # LOOP_MAX_ITERATIONS_LIMIT 对齐=100，枚举便宜），只读 base thread
+    # 会永远"无执行记录"。continue 策略数据在 base thread，两种策略都
+    # 聚合成轮序视图（轮与轮以 user 输入自然分界）。
     messages: list = []
     if tuple_ is not None and tuple_.checkpoint:
         messages.extend(tuple_.checkpoint.get("channel_values", {}).get("messages", []))
-    for rnd in range(1, 21):
+    from app.engine.workflow.validator import LOOP_MAX_ITERATIONS_LIMIT as _MAX_ITERS
+    for rnd in range(1, _MAX_ITERS + 1):
         rt = await checkpointer.aget_tuple(
             {"configurable": {"thread_id": f"{thread_id}_r{rnd}"}},
         )

@@ -94,13 +94,13 @@ export function AgentSpace({
   return (
     <div className="space-y-6">
       {/* Top action header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#27272a] pb-4.5 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-line pb-4.5 gap-4">
         <div className="space-y-0.5">
-          <h2 className="text-sm font-bold text-[#fafafa] flex items-center gap-2">
+          <h2 className="text-sm font-bold text-ink flex items-center gap-2">
             <Bot className="w-4 h-4 text-indigo-400 animate-pulse" />
             智能体成员看板 ({agents.length})
           </h2>
-          <p className="text-xs text-[#71717a]">配置与发布具备独立推理心智、专用微调工具、及特定提示词模版的 AI 单元。</p>
+          <p className="text-xs text-ink-dim">配置与发布具备独立推理心智、专用微调工具、及特定提示词模版的 AI 单元。</p>
         </div>
         {canWrite && (
           <button
@@ -119,7 +119,7 @@ export function AgentSpace({
       )}
 
       {isLoading ? (
-        <p className="text-xs text-[#71717a]">加载中…</p>
+        <p className="text-xs text-ink-dim">加载中…</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {agents.map((agent) => {
@@ -127,12 +127,12 @@ export function AgentSpace({
             return (
               <div
                 key={agent.id}
-                className="bg-[#18181b] border border-[#27272a] rounded-xl flex flex-col justify-between overflow-hidden relative hover:border-[#3f3f46] transition duration-200"
+                className="bg-panel border border-line rounded-xl flex flex-col justify-between overflow-hidden relative hover:border-line-strong transition duration-200"
               >
                 <div className="p-5 space-y-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-12 h-12 bg-[#121214] rounded-xl flex items-center justify-center text-2.5xl border border-[#27272a] shadow-inner select-none overflow-hidden">
+                      <div className="w-12 h-12 bg-page rounded-xl flex items-center justify-center text-2.5xl border border-line shadow-inner select-none overflow-hidden">
                         <AvatarRender value={agent.avatar} className="w-full h-full" textClassName="text-2.5xl" />
                       </div>
                       <div className="space-y-0.5 min-w-0">
@@ -144,7 +144,7 @@ export function AgentSpace({
                               : 'bg-amber-500'
                           }`} />
                         </h4>
-                        <span className="text-[10px] text-[#71717a] font-mono leading-none block truncate">ID: {agent.id}</span>
+                        <span className="text-[11px] text-ink-dim font-mono leading-none block truncate">ID: {agent.id}</span>
                       </div>
                     </div>
 
@@ -159,7 +159,7 @@ export function AgentSpace({
                           {onOpenDetail && (
                             <button
                               onClick={() => { setMenuOpenFor(null); onOpenDetail(agent.id); }}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[#d4d4d8] hover:bg-[#121214] hover:text-indigo-400 transition cursor-pointer"
+                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-ink-soft hover:bg-page hover:text-indigo-400 transition cursor-pointer"
                             >
                               <MessageSquare className="w-3.5 h-3.5" /> 详情与测试
                             </button>
@@ -168,11 +168,11 @@ export function AgentSpace({
                             <>
                               <button
                                 onClick={() => { setMenuOpenFor(null); onOpenEdit?.(agent.id); }}
-                                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[#d4d4d8] hover:bg-[#121214] hover:text-white transition cursor-pointer"
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-ink-soft hover:bg-page hover:text-white transition cursor-pointer"
                               >
                                 <Edit className="w-3.5 h-3.5" /> 编辑配置
                               </button>
-                              <div className="border-t border-[#27272a] my-1" />
+                              <div className="border-t border-line my-1" />
                               <button
                                 onClick={() => { setMenuOpenFor(null); void handleDelete(agent); }}
                                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-rose-400 hover:bg-rose-950/30 transition cursor-pointer"
@@ -185,7 +185,7 @@ export function AgentSpace({
                       }
                     >
                       <button
-                        className="flex-shrink-0 p-1 px-1.5 bg-[#121214] border border-[#27272a] rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+                        className="flex-shrink-0 p-1 px-1.5 bg-page border border-line rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
                         title="更多操作"
                       >
                         <MoreVertical className="w-3.5 h-3.5" />
@@ -194,16 +194,16 @@ export function AgentSpace({
                   </div>
 
                   <div className="space-y-2.5">
-                    <p className="text-xs text-[#a1a1aa] leading-relaxed min-h-[36px] line-clamp-2">{agent.description}</p>
+                    <p className="text-xs text-ink-dim leading-relaxed min-h-[36px] line-clamp-2">{agent.description}</p>
 
                     <div className="flex flex-wrap gap-1.5 pt-2">
                       {agent.skills.slice(0, 5).map((s) => (
-                        <span key={s} className="px-2 py-0.5 rounded-full bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa] font-mono truncate max-w-[120px]">
+                        <span key={s} className="px-2 py-0.5 rounded-full bg-page border border-line text-[11px] text-ink-dim font-mono truncate max-w-[120px]">
                           {s}
                         </span>
                       ))}
                       {agent.skills.length > 5 && (
-                        <span className="px-2 py-0.5 rounded-full bg-[#121214] border border-[#27272a] text-[10px] text-[#71717a] font-mono">
+                        <span className="px-2 py-0.5 rounded-full bg-page border border-line text-[11px] text-ink-dim font-mono">
                           +{agent.skills.length - 5}
                         </span>
                       )}
@@ -212,13 +212,13 @@ export function AgentSpace({
                 </div>
 
                 {/* Footer: publish/archive */}
-                <div className="px-5 py-3 border-t border-[#27272a] bg-[#121214]/40 flex items-center justify-between">
-                  <span className="text-[10px] text-[#71717a] font-sans">{agent.lastActive}</span>
+                <div className="px-5 py-3 border-t border-line bg-page/40 flex items-center justify-between">
+                  <span className="text-[11px] text-ink-dim font-sans">{agent.lastActive}</span>
                   {canWrite && (isPublished ? (
                     <button
                       onClick={() => archiveM.mutate(agent.id)}
                       disabled={archiveM.isPending}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-[#a1a1aa] hover:text-white border border-[#27272a] hover:bg-[#27272a] transition cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-ink-dim hover:text-white border border-line hover:bg-line transition cursor-pointer disabled:opacity-50"
                     >
                       {archiveM.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
                       归档
@@ -227,7 +227,7 @@ export function AgentSpace({
                     <button
                       onClick={() => publishM.mutate(agent.id)}
                       disabled={publishM.isPending}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white bg-emerald-600/80 hover:bg-emerald-600 transition cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-emerald-600/80 hover:bg-emerald-600 transition cursor-pointer disabled:opacity-50"
                     >
                       {publishM.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rocket className="w-3 h-3" />}
                       发布
@@ -243,13 +243,13 @@ export function AgentSpace({
       {/* CREATE dialog (name + description only; full config on the editor page) */}
       {isCreating && (
         <div id="modal_create_agent" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
-          <div className="w-full max-w-md bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-[#27272a] flex items-center justify-between bg-[#121214]/60">
+          <div className="w-full max-w-md bg-panel border border-line rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-line flex items-center justify-between bg-page/60">
               <h3 className="text-sm font-bold text-white flex items-center gap-2 font-sans">
                 <Plus className="w-4 h-4 text-indigo-400" />
                 创建独立 Agent
               </h3>
-              <button onClick={() => setIsCreating(false)} className="text-[#71717a] hover:text-white font-bold cursor-pointer">✕</button>
+              <button onClick={() => setIsCreating(false)} className="text-ink-dim hover:text-white font-bold cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={handleCreateSave} className="p-6 space-y-4">
@@ -259,7 +259,7 @@ export function AgentSpace({
                   type="text" required autoFocus value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="如: 全局分析官..."
-                  className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
                 />
               </div>
               <div className="space-y-1">
@@ -268,12 +268,12 @@ export function AgentSpace({
                   type="text" value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="这个 Agent 专门在哪些流程解决痛点..."
-                  className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
                 />
               </div>
-              <p className="text-[10px] text-[#52525b] italic">创建后自动进入编辑页，可配置模型、Prompt、工具等。</p>
-              <div className="p-4 border-t border-[#27272a] bg-[#121214] flex justify-end gap-3 pt-4 -mx-6 -mb-6">
-                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
+              <p className="text-[11px] text-ink-dim italic">创建后自动进入编辑页，可配置模型、Prompt、工具等。</p>
+              <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4 -mx-6 -mb-6">
+                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
                   取消
                 </button>
                 <button type="submit" disabled={createM.isPending} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-60 flex items-center gap-2">

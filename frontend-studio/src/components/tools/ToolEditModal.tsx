@@ -24,20 +24,20 @@ function CodeHelpPanel({ onInsertExample, dark }: {
   onInsertExample: () => void; dark: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const item = `flex gap-2 ${dark ? 'text-[#a1a1aa]' : 'text-slate-600'}`;
+  const item = `flex gap-2 ${dark ? 'text-ink-dim' : 'text-slate-600'}`;
   return (
     <div className={`rounded-lg border text-[11px] leading-relaxed ${
-      dark ? 'border-[#27272a] bg-[#121214]/60' : 'border-slate-200 bg-slate-50/70'
+      dark ? 'border-line bg-page/60' : 'border-slate-200 bg-slate-50/70'
     }`}>
       <button onClick={() => setOpen(!open)}
         className={`flex w-full items-center gap-1 px-2.5 py-1.5 cursor-pointer font-semibold ${
-          dark ? 'text-[#d4d4d8] hover:text-white' : 'text-slate-700 hover:text-slate-900'
+          dark ? 'text-ink-soft hover:text-white' : 'text-slate-700 hover:text-slate-900'
         }`}>
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
         代码怎么写？查看格式要求与可用依赖
       </button>
       {open && (
-        <div className={`px-3 pb-3 pt-0.5 space-y-1.5 border-t ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+        <div className={`px-3 pb-3 pt-0.5 space-y-1.5 border-t ${dark ? 'border-line' : 'border-slate-200'}`}>
           <div className={item}><span className="text-blue-400 shrink-0">入口</span>
             定义 <code className="font-mono text-blue-300">def run(...)</code>，参数名与「③ 运行参数」一致，调用时按名传入。</div>
           <div className={item}><span className="text-amber-400 shrink-0">凭证</span>
@@ -66,7 +66,7 @@ function ParamsTableEditor({ rows, onChange, inputCls, selectCls }: {
     onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[1fr_84px_1.5fr_54px_54px_28px] gap-1.5 text-[10px] text-[#71717a] px-0.5">
+      <div className="grid grid-cols-[1fr_84px_1.5fr_54px_54px_28px] gap-1.5 text-[11px] text-ink-dim px-0.5">
         <span>参数名</span><span>位置</span><span>说明（给使用者/AI 看）</span>
         <span className="text-center">凭证</span><span className="text-center">必填</span><span />
       </div>
@@ -145,7 +145,7 @@ function OutputFieldsTree({ fields, onChange, inputCls, selectCls, depth = 0 }: 
         </button>
       </div>
       {f.type === 'object' && (
-        <div className="ml-5 pl-3 border-l border-[#27272a] space-y-1.5">
+        <div className="ml-5 pl-3 border-l border-line space-y-1.5">
           <OutputFieldsTree fields={f.fields ?? []}
             onChange={(next) => update(i, { fields: next })}
             inputCls={inputCls} selectCls={selectCls} depth={depth + 1} />
@@ -156,7 +156,7 @@ function OutputFieldsTree({ fields, onChange, inputCls, selectCls, depth = 0 }: 
   return (
     <div className="space-y-1.5">
       {depth === 0 && fields.length > 0 && (
-        <div className="grid grid-cols-[1fr_84px_44px_1.3fr_28px] gap-1.5 text-[10px] text-[#71717a] px-0.5">
+        <div className="grid grid-cols-[1fr_84px_44px_1.3fr_28px] gap-1.5 text-[11px] text-ink-dim px-0.5">
           <span>字段名</span><span>类型</span><span className="text-center">列表</span><span>说明（调用方可见）</span><span />
         </div>
       )}
@@ -181,7 +181,7 @@ function ParamListEditor({ fields, onChange, mode, inputCls, selectCls }: {  fie
     : '值会加密存储（admin 在工具上统一配置）';
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[1fr_84px_1.4fr_52px_28px] gap-1.5 text-[10px] text-[#71717a] px-0.5">
+      <div className="grid grid-cols-[1fr_84px_1.4fr_52px_28px] gap-1.5 text-[11px] text-ink-dim px-0.5">
         <span>参数名</span><span>类型</span><span>说明（给使用者/AI 看）</span><span className="text-center">{label}</span><span />
       </div>
       {fields.map((f, i) => (
@@ -224,14 +224,14 @@ function FormSection({ step, title, hint, dark, children }: {
 }) {
   return (
     <div className={`rounded-xl border p-4 space-y-3 ${
-      dark ? 'border-[#27272a] bg-[#121214]/60' : 'border-slate-200 bg-slate-50/60'
+      dark ? 'border-line bg-page/60' : 'border-slate-200 bg-slate-50/60'
     }`}>
       <div className="space-y-0.5">
         <div className="flex items-center gap-2">
           <span className="w-5 h-5 rounded-full bg-blue-600/20 text-blue-500 text-[11px] font-bold flex items-center justify-center shrink-0">{step}</span>
           <span className={`text-sm font-bold ${dark ? 'text-white' : 'text-slate-900'}`}>{title}</span>
         </div>
-        {hint && <p className={`text-[11px] leading-relaxed pl-7 ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>{hint}</p>}
+        {hint && <p className={`text-[11px] leading-relaxed pl-7 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>{hint}</p>}
       </div>
       {children}
     </div>
@@ -309,16 +309,16 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
   // 控件基础样式（无 w-full——flex 行内按 w-full 抢占空间会把兄弟元素挤成 0 宽）
   const ctlBase = `px-2 py-1 rounded text-xs border outline-none ${
     dark
-      ? 'bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600'
+      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
       : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
   }`;
   const inputCls = `w-full ${ctlBase}`;
   const monoInputCls = `${inputCls} font-mono`;
   const selectCls = `${inputCls} cursor-pointer px-1`;
   const methodCls = `w-24 shrink-0 py-1.5 font-mono cursor-pointer ${ctlBase}`;
-  const chipCls = dark ? 'bg-[#27272a]' : 'bg-slate-100';
+  const chipCls = dark ? 'bg-line' : 'bg-slate-100';
   const plainInputCls = dark
-    ? 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600'
+    ? 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
     : 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500';
 
   /** 当前表单状态 → 工具定义（保存与试跑共用同一构造，防两路漂移） */
@@ -421,12 +421,12 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
     /* 点遮罩不关闭（防误触丢表单，与其余 ui Modal 行为一致）：只能经 头部✕/底部取消/保存 关闭 */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className={`w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden ${
-          dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
+          dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
         <div className={`flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b ${
-          dark ? 'border-[#27272a]' : 'border-slate-200'
+          dark ? 'border-line' : 'border-slate-200'
         }`}>
           <div>
             <h3 className="text-base font-bold flex items-center gap-2">
@@ -443,13 +443,13 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
                 </button>
               )}
             </h3>
-            <p className={`text-[11px] mt-0.5 ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>
+            <p className={`text-[11px] mt-0.5 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
               {isAdmin && !isEdit
                 ? '管理员创建即发布（免审）；配置凭证并开启后即可被 Agent 与工作流使用。'
                 : '创建后提交发布，经管理员审查、开启后才能被 Agent 与工作流使用。'}
             </p>
           </div>
-          <button onClick={busy ? undefined : handleDone} className={`cursor-pointer hover:opacity-70 ${busy ? 'opacity-50' : ''} ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
+          <button onClick={busy ? undefined : handleDone} className={`cursor-pointer hover:opacity-70 ${busy ? 'opacity-50' : ''} ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
         </div>
 
         {/* 内容区滚动 */}
@@ -469,22 +469,22 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
                       source === s
                         ? 'bg-blue-600/20 border-blue-600/60 text-blue-500'
                         : dark
-                          ? 'border-[#27272a] bg-transparent text-[#a1a1aa] hover:text-white'
+                          ? 'border-line bg-transparent text-ink-dim hover:text-white'
                           : 'border-slate-200 bg-transparent text-slate-500 hover:text-slate-900'
                     }`}>
                     <meta.icon size={13} className={meta.cls} />
                     <span className="font-semibold">{meta.label}</span>
-                    <span className={`text-[10px] ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>{desc}</span>
+                    <span className={`text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>{desc}</span>
                   </button>
                 );
               })}
             </div>
             <label className="space-y-1 block">
-              <span className={`text-xs ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`}>工具名称（字母数字开头，可含 - _，组织内唯一）</span>
+              <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>工具名称（字母数字开头，可含 - _，组织内唯一）</span>
               <input value={name} onChange={(e) => setName(e.target.value)} className={plainInputCls} placeholder="weather-query" />
             </label>
             <label className="space-y-1 block">
-              <span className={`text-xs ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`}>工具描述</span>
+              <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>工具描述</span>
               <input value={description} onChange={(e) => setDescription(e.target.value)} className={plainInputCls} placeholder="查询指定城市的实时天气" />
             </label>
           </div>
@@ -509,12 +509,12 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
               </button>
 
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`}>参数表——写一次，按位置发送</span>
+                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>参数表——写一次，按位置发送</span>
                 <ParamsTableEditor rows={apiParams} onChange={setApiParams}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
+                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
                 <OutputFieldsTree fields={outputFields} onChange={setOutputFields}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
@@ -528,7 +528,7 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
               <CodeEditor value={code} onChange={setCode}
                 placeholder={'import math\n\ndef run(radius: str) -> str:\n    """计算圆的面积"""\n    return str(math.pi * float(radius) ** 2)'} />
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-[#a1a1aa]' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
+                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
                 <OutputFieldsTree fields={outputFields} onChange={setOutputFields}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
@@ -561,16 +561,16 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
 
         {/* 底部按钮固定——关闭即保存草稿，试跑随时可用 */}
         <div className={`flex items-center justify-between shrink-0 px-6 py-4 border-t ${
-          dark ? 'border-[#27272a]' : 'border-slate-200'
+          dark ? 'border-line' : 'border-slate-200'
         }`}>
-          <span className={`text-[11px] ${dark ? 'text-[#71717a]' : 'text-slate-500'}`}>
+          <span className={`text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
             关闭时自动保存草稿，可随时回来修改
           </span>
           <div className="flex gap-2">
             <button onClick={handleTest} disabled={busy}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border cursor-pointer disabled:opacity-50 ${
                 dark
-                  ? 'border-[#3f3f46] text-[#d4d4d8] hover:border-blue-500/60 hover:text-blue-400'
+                  ? 'border-line-strong text-ink-soft hover:border-blue-500/60 hover:text-blue-400'
                   : 'border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600'
               }`}>
               <Play size={13} />试跑

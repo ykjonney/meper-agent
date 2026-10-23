@@ -69,7 +69,7 @@ async def test_e2e_bash_tool(sandbox_workdir):
         name="e2e",
         system_prompt="你是测试助手。如果用户让你执行命令，用 bash 工具。",
         builtin_tools=["bash"],
-        exclude_tools=["delegate_to_subagent", "ask_clarification", "tool_search", "glob", "grep", "read", "write"],
+        exclude_tools=["delegate_to_subagent", "ask_clarification", "glob", "grep", "read", "write"],
         sandbox=sb,
     )
     agent = create_agent(config, model=_make_llm())
@@ -87,7 +87,7 @@ async def test_e2e_write_read(sandbox_workdir):
         name="e2e",
         system_prompt="你是测试助手。按用户要求操作文件。",
         builtin_tools=["write", "read"],
-        exclude_tools=["delegate_to_subagent", "ask_clarification", "tool_search", "glob", "grep", "bash"],
+        exclude_tools=["delegate_to_subagent", "ask_clarification", "glob", "grep", "bash"],
         sandbox=sb,
     )
     agent = create_agent(config, model=_make_llm())
@@ -111,7 +111,7 @@ async def test_e2e_stream_events(sandbox_workdir):
         name="e2e",
         system_prompt="你是测试助手。用 bash 执行命令。",
         builtin_tools=["bash"],
-        exclude_tools=["delegate_to_subagent", "ask_clarification", "tool_search", "glob", "grep", "read", "write"],
+        exclude_tools=["delegate_to_subagent", "ask_clarification", "glob", "grep", "read", "write"],
         sandbox=sb,
     )
     agent = create_agent(config, model=_make_llm())

@@ -7,8 +7,8 @@
     langchain-anthropic 校验拒绝（"Received multiple non-consecutive
     system messages."）。
 
-本模块提供单一事实源 ``split_system_history``，供 compress_messages /
-SummarizationStrategy / SlidingWindowStrategy 等所有压缩实现复用，
+本模块提供单一事实源 ``split_system_history``，供图节点与图像处理等
+所有需要 system / history 分离的实现复用，
 避免每个实现各自重写一遍 system 抽取逻辑导致行为漂移。
 """
 from __future__ import annotations

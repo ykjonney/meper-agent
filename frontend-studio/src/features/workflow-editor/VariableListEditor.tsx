@@ -111,7 +111,7 @@ export default function VariableListEditor({
       dataIndex: 'name',
       key: 'name',
       render: (name: unknown) => (
-        <code className="text-xs font-mono text-[#fafafa]">{String(name)}</code>
+        <code className="text-xs font-mono text-ink">{String(name)}</code>
       ),
     },
     {
@@ -128,7 +128,7 @@ export default function VariableListEditor({
       key: 'type',
       render: (type: unknown) => (
         <Tag
-          className="!m-0 !text-[10px] !px-1.5 !py-0"
+          className="!m-0 !text-[11px] !px-1.5 !py-0"
           color={getTypeColor(String(type))}
         >
           {getTypeIcon(String(type))} {getTypeLabel(String(type))}
@@ -196,7 +196,7 @@ export default function VariableListEditor({
           className="!text-xs"
         />
       ) : (
-        <div className="text-[10px] text-[#71717a] text-center py-3 border border-dashed border-[#27272a] rounded">
+        <div className="text-[11px] text-ink-dim text-center py-3 border border-dashed border-line rounded">
           {readonly ? '无可配置的输出变量' : '暂无变量，点击上方按钮添加'}
         </div>
       )}

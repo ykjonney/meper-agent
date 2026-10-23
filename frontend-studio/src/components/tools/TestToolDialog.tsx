@@ -53,10 +53,10 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
     }
   };
 
-  const muted = dark ? 'text-[#71717a]' : 'text-slate-500';
+  const muted = dark ? 'text-ink-dim' : 'text-slate-500';
   const ctlCls = `px-2 py-1.5 rounded text-xs border outline-none ${
     dark
-      ? 'bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600'
+      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
       : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
   }`;
 
@@ -83,9 +83,9 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-6" onClick={phase === 'running' && stage === 'done' ? onClose : undefined}>
       <div className={`w-full max-w-xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-        dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
+        dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
       }`} onClick={(e) => e.stopPropagation()}>
-        <div className={`flex items-start justify-between shrink-0 px-5 pt-4 pb-3 border-b ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+        <div className={`flex items-start justify-between shrink-0 px-5 pt-4 pb-3 border-b ${dark ? 'border-line' : 'border-slate-200'}`}>
           <div>
             <h3 className="text-base font-bold flex items-center gap-1.5">
               <Wrench size={15} className="text-blue-500" />AI 测试工具
@@ -94,7 +94,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
               以打开时的表单定义为快照：AI 生成用例并自动试跑，不落库、不影响治理状态
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
+          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
@@ -151,10 +151,10 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                 <div className={`py-8 text-center text-xs ${muted}`}>AI 正在生成测试用例…</div>
               )}
               {cases.map((c, i) => (
-                <div key={i} className={`rounded-lg border p-3 space-y-1.5 ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+                <div key={i} className={`rounded-lg border p-3 space-y-1.5 ${dark ? 'border-line' : 'border-slate-200'}`}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold truncate">{c.name}</span>
-                    {c.description && <span className={`text-[10px] ${muted} truncate`}>{c.description}</span>}
+                    {c.description && <span className={`text-[11px] ${muted} truncate`}>{c.description}</span>}
                   </div>
                   <div className={`text-[11px] font-mono break-words ${muted}`}>
                     {JSON.stringify(c.params)}
@@ -170,7 +170,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                   </span>
                   <button onClick={() => setPhase('confirm')}
                     className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer ${
-                      dark ? 'border border-[#27272a] hover:bg-[#27272a]' : 'border border-slate-200 hover:bg-slate-50'
+                      dark ? 'border border-line hover:bg-line' : 'border border-slate-200 hover:bg-slate-50'
                     }`}>
                     重新测试
                   </button>

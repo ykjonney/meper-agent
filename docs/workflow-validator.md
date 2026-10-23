@@ -286,7 +286,7 @@ def test_my_new_rule():
 
 ## Loop 节点校验（M3，ADR 见 `loop-node-adr.md`）
 
-loop 节点 = 受控循环（闭包子图），config：`{body: [...], body_entry, max_iterations(1..20), converge_expr?}`。
+loop 节点 = 受控循环（闭包子图），config：`{body: [...], body_entry, max_iterations(1..100), converge_expr?}`。
 循环体成员的下游必须封闭在体内（出口由 loop 节点的下游接线接管）；体本身必须是 DAG（循环由 loop 驱动而非回边表达）。
 收敛表达式为 Jinja2 布尔表达式，**比较运算须整体在花括号内**：`{{ critic.verdict == 'approve' }}`（`{{x}} == 'y'` 会被渲染成非空字符串恒真）。
 
@@ -294,8 +294,9 @@ loop 节点 = 受控循环（闭包子图），config：`{body: [...], body_entr
 |---|---|---|
 | `LOOP_BODY_EMPTY` | ERROR | body 为空或成员节点不存在 |
 | `LOOP_ENTRY_NOT_IN_BODY` | ERROR | body_entry 不是 body 成员 |
-| `LOOP_MAX_ITERATIONS_RANGE` | ERROR | max_iterations 不在 1..20 |
+| `LOOP_MAX_ITERATIONS_RANGE` | ERROR | max_iterations 不在 1..100 |
 | `LOOP_NESTED_NOT_SUPPORTED` | ERROR | body 成员含 loop 节点（嵌套循环暂不支持） |
+| `LOOP_BODY_LABEL_CONFLICT` | ERROR | body 成员同名——输出变量与轮次快照按步骤名区分，同名会互相覆盖 |
 | `LOOP_STRUCTURAL_NODE_IN_BODY` | ERROR | body 成员含 start/end（结构性节点不可入体） |
 | `LOOP_BODY_NOT_CLOSED` | ERROR | 体成员的下游指向 body 之外（不得旁路） |
 | `LOOP_BODY_CYCLE` | ERROR | body 内部存在环（体应是 DAG） |

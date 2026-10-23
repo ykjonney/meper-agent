@@ -90,6 +90,32 @@ class Settings(BaseSettings):
     # (the background LLM summary will backfill once ready).
     COMPRESSION_HARD_LIMIT_RATIO: float = 0.9
 
+    # ── 文档水位线压缩（message / Task 文档的两级水位线，16MB BSON 硬墙）──
+    # 阶段1 触发线（MB）：超过开始 preview+外置压缩（可逆），压回该线以下停。
+    DOC_COMPACT_HIGH_MB: int = 10
+    # 阶段2 丢弃线（MB）：阶段1 压完仍超则丢弃最早载荷条目（不可逆）。
+    # 14→16MB 的缓冲留给两次检查之间的文档增长。
+    DOC_COMPACT_DISCARD_MB: int = 14
+    # 影子账本触发线（MB）：session.compaction_bytes（thread 侧压缩累计掉的
+    # 原文体量 = session 永久保留的全文体量）累计超过即异步压缩该会话文档。
+    # 取值低于 DOC_COMPACT_HIGH_MB 以预留 BSON 结构开销余量。
+    DOC_COMPACT_SHADOW_TRIGGER_MB: int = 8
+    # 单条 tool_result 写入硬上限（字符）：超出截断+标记（防极端单文档；
+    # recall 走 tool_output_archives 不受影响）。
+    TOOL_RESULT_MAX_CHARS: int = 100_000
+
+    # ── 长任务巡检（beat）──
+    # 慢任务警告阈值（分钟）：RUNNING 超过此时长发站内信+timeline 警告。
+    TASK_SLOW_WARN_MINUTES: int = 30
+    # 重复告警间隔（分钟）：同一任务的慢告警最小间隔。
+    TASK_SLOW_WARN_REPEAT_MINUTES: int = 60
+    # 孤儿判定（分钟）：RUNNING 且 updated_at 超过此时长视为孤儿 → FAILED。
+    TASK_ORPHAN_MINUTES: int = 30
+    # 完结任务 checkpoint 保留期（天）：completed/failed/cancelled 任务的
+    # agent thread checkpoints 到期删除（0=禁用）。代价：到期后前端"节点
+    # 执行明细"不可回看（任务结果/timeline 不受影响）。
+    TASK_CHECKPOINT_RETENTION_DAYS: int = 30
+
     # Image multimodal input (chat attachments → LLM image_url blocks).
     # Per-turn image count cap; excess images degrade to text placeholders.
     IMAGE_MAX_PER_TURN: int = 4
@@ -140,7 +166,6 @@ class Settings(BaseSettings):
     # 用户资产根（个人技能等持久数据）：``{HOMES_CONTAINER_DIR}/{uid}/skills/{name}/``。
     # None = derive from SKILLS_HOST_DIR 的同级目录 ``{parent}/homes``。
     HOMES_CONTAINER_DIR: str | None = None
-    HOMES_HOST_DIR: str = "~/.agent-flow/data/homes"
 
     # Workspace filesystem — root directory for per-Session workspaces.
     # Layout: ``{WORKSPACES_CONTAINER_DIR}/{user_id}/{session_id}/{input,output,tmp}``.
@@ -299,6 +324,23 @@ class Settings(BaseSettings):
     # 整镜像拉取耗时。失败只记日志不阻断启动。
     SANDBOX_PREPULL_IMAGE: bool = True
 
+    # 复用模式：每工作区长驻容器（命令经 docker exec 执行），省每命令容器
+    # 冷启动。False = 旧行为（每命令一次性容器），一键回退。工作区天然按
+    # 用户划分 → 多用户不共容器；复用只发生在同一会话/任务内部。
+    SANDBOX_REUSE_CONTAINER: bool = True
+
+    # 进程内存活复用容器上限（LRU 驱逐最久未用；0 = 不限）。节点总量 =
+    # worker 并发数 × 本值。须大于 SANDBOX_MAX_CONCURRENT_CONTAINERS
+    # （LRU 驱逐需要有空闲容器可逐）。
+    SANDBOX_MAX_CONTAINERS: int = 32
+
+    # 复用容器闲置回收（秒）：容器内 last-used 超过此值 → beat 巡检删除。
+    # 实际驻留 ≈ 本值 + 巡检周期（sweep-orphan-sandboxes，60s 一轮）。
+    SANDBOX_CONTAINER_IDLE_TIMEOUT: int = 300
+
+    # 复用容器寿命兜底（秒）：created-at 超过此值无条件删除。
+    SANDBOX_CONTAINER_MAX_LIFETIME: int = 86400
+
     # When True, bash runs inside Docker container.
     # When False (default), bash degrades to host subprocess execution
     # (see SANDBOX_FALLBACK).
@@ -363,11 +405,7 @@ class Settings(BaseSettings):
     RUN_CODE_MAX_OUTPUT_BYTES: int = 50 * 1024
 
     # ── Channels (inbound IM integrations) ──
-    CHANNEL_INBOUND_ACK_TIMEOUT_MS: int = 2000
-    CHANNEL_EVENT_LOG_TTL_HOURS: int = 24
-    CHANNEL_MAX_RETRIES: int = 3
     CHANNEL_SEND_MAX_RETRIES: int = 3
-    CHANNEL_DEFAULT_REPLY_ON_FAILURE: str = "处理失败,请稍后重试或联系管理员"
     CHANNEL_DEGRADED_ON_CONSECUTIVE_FAILURES: int = 5
 
     # ── Channels / long-connection (no-public-URL receive mode) ──
@@ -377,7 +415,6 @@ class Settings(BaseSettings):
     CHANNEL_DINGTALK_LONG_CONNECTION_ENABLED: bool = True
     CHANNEL_WECOM_LONG_CONNECTION_ENABLED: bool = False  # no SDK yet
     CHANNEL_CONNECTION_RECONNECT_INTERVAL: int = 10  # seconds between retries
-    CHANNEL_CONNECTION_STARTUP_DELAY: float = 2.0  # startup grace before first connect
 
     # ── Channels / IM 会话延续 ──
     # channel:{ch}:{chat} 身份域内复用最近活跃 session（单聊连续多轮、群聊

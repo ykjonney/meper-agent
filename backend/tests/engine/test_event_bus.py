@@ -1,4 +1,4 @@
-"""Tests for the in-process Event Bus — pub/sub, retry, dead letter."""
+"""Tests for the in-process Event Bus — pub/sub delivery."""
 from __future__ import annotations
 
 import pytest
@@ -44,44 +44,6 @@ class TestEventCreation:
         assert event.task_id == "task_001"
 
 
-class TestEventBusSubscribe:
-    """EventBus subscription management."""
-
-    def setup_method(self):
-        self.bus = EventBus()
-
-    def test_subscribe(self):
-        """Should register a handler for an event type."""
-        async def handler(event): pass
-
-        self.bus.subscribe("task.completed", handler)
-        stats = self.bus.stats()
-        assert stats["total_subscribers"] == 1
-        assert "task.completed" in stats["subscribers"]
-
-    def test_subscribe_wildcard(self):
-        """Should support wildcard subscription."""
-        async def handler(event): pass
-
-        self.bus.subscribe("*", handler)
-        stats = self.bus.stats()
-        assert stats["total_subscribers"] == 1
-
-    def test_unsubscribe_found(self):
-        """Should remove a registered handler."""
-        async def handler(event): pass
-
-        self.bus.subscribe("task.completed", handler, handler_name="test_handler")
-        assert self.bus.unsubscribe("task.completed", handler) is True
-        assert self.bus.stats()["total_subscribers"] == 0
-
-    def test_unsubscribe_not_found(self):
-        """Should return False for unknown handler."""
-        async def handler(event): pass
-
-        assert self.bus.unsubscribe("unknown", handler) is False
-
-
 class TestEventBusPublish:
     """EventBus publishing and delivery."""
 
@@ -104,82 +66,6 @@ class TestEventBusPublish:
 
         assert len(received) == 1
         assert received[0].task_id == "task_001"
-
-    @pytest.mark.asyncio
-    async def test_dedup_suppresses_burst_duplicate(self):
-        """Same event published twice in quick succession → handler called once."""
-        from datetime import UTC, datetime, timedelta
-
-        received = []
-
-        async def handler(event):
-            received.append(event)
-
-        self.bus.subscribe("task.completed", handler, handler_name="h1")
-
-        now = datetime.now(UTC)
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed",
-            task_id="task_001",
-            to_status="completed",
-            timestamp=now,
-        ))
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed",
-            task_id="task_001",
-            to_status="completed",
-            timestamp=now + timedelta(seconds=5),
-        ))
-
-        assert len(received) == 1
-
-    @pytest.mark.asyncio
-    async def test_dedup_allows_after_ttl_expiry(self):
-        """Same event after TTL window → handler called again."""
-        from datetime import UTC, datetime, timedelta
-
-        received = []
-
-        async def handler(event):
-            received.append(event)
-
-        self.bus.subscribe("task.completed", handler, handler_name="h1")
-
-        t0 = datetime.now(UTC)
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed",
-            task_id="task_001",
-            to_status="completed",
-            timestamp=t0,
-        ))
-        # Second publish 120s later — beyond the 60s TTL
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed",
-            task_id="task_001",
-            to_status="completed",
-            timestamp=t0 + timedelta(seconds=120),
-        ))
-
-        assert len(received) == 2
-
-    @pytest.mark.asyncio
-    async def test_dedup_distinct_tasks_not_blocked(self):
-        """Different task_ids → distinct event keys → both delivered."""
-        received = []
-
-        async def handler(event):
-            received.append(event.task_id)
-
-        self.bus.subscribe("task.completed", handler, handler_name="h1")
-
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed", task_id="task_a", to_status="completed",
-        ))
-        await self.bus.publish(TaskEvent(
-            event_type="task.completed", task_id="task_b", to_status="completed",
-        ))
-
-        assert received == ["task_a", "task_b"]
 
     @pytest.mark.asyncio
     async def test_publish_delivers_to_wildcard(self):
@@ -215,7 +101,7 @@ class TestEventBusPublish:
     async def test_publish_no_subscribers(self):
         """Should not error when no subscribers exist."""
         result = await self.bus.publish(TaskEvent(event_type="task.nobody", task_id="task_001"))
-        assert result == []
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_sync_handler(self):
@@ -230,76 +116,25 @@ class TestEventBusPublish:
 
         assert len(received) == 1
 
-
-class TestEventBusRetryAndDeadLetter:
-    """EventBus retry logic and dead-letter queue."""
-
-    def setup_method(self):
-        self.bus = EventBus()
-
     @pytest.mark.asyncio
-    async def test_retry_on_failure(self):
-        """Should retry failed handlers."""
-        call_count = 0
+    async def test_failing_handler_does_not_break_others(self):
+        """A failing handler is logged; remaining handlers still run."""
+        received = []
 
         async def failing_handler(event):
-            nonlocal call_count
-            call_count += 1
             raise ValueError("handler failed")
 
+        async def ok_handler(event):
+            received.append(event)
+
         self.bus.subscribe("task.failed", failing_handler)
-        dead_letters = await self.bus.publish(TaskEvent(
+        self.bus.subscribe("task.failed", ok_handler)
+        await self.bus.publish(TaskEvent(
             event_type="task.failed",
             task_id="task_001",
         ))
 
-        assert len(dead_letters) == 1
-        # Should have been retried MAX_RETRIES (3) times
-        assert call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_dead_letter_record(self):
-        """Should create dead letter record for failed handler."""
-        async def handler(event):
-            raise RuntimeError("boom")
-
-        self.bus.subscribe("task.error", handler)
-        dead_letters = await self.bus.publish(TaskEvent(
-            event_type="task.error",
-            task_id="task_001",
-        ))
-
-        assert len(dead_letters) == 1
-        record = dead_letters[0]
-        assert record.event.task_id == "task_001"
-        assert "boom" in record.error
-        assert record.attempts == 3
-
-    @pytest.mark.asyncio
-    async def test_dead_letter_queue_accumulates(self):
-        """Should accumulate dead letters in the queue."""
-        async def handler(event):
-            raise ValueError("fail")
-
-        self.bus.subscribe("task.fail", handler)
-        await self.bus.publish(TaskEvent(event_type="task.fail", task_id="task_001"))
-        await self.bus.publish(TaskEvent(event_type="task.fail", task_id="task_002"))
-
-        assert len(self.bus.dead_letter_queue) == 2
-
-    @pytest.mark.asyncio
-    async def test_clear_dead_letters(self):
-        """Should clear dead letter queue."""
-        async def handler(event):
-            raise ValueError("fail")
-
-        self.bus.subscribe("task.fail", handler)
-        await self.bus.publish(TaskEvent(event_type="task.fail", task_id="task_001"))
-
-        assert self.bus.dead_letter_queue
-        cleared = self.bus.clear_dead_letters()
-        assert cleared == 1
-        assert len(self.bus.dead_letter_queue) == 0
+        assert len(received) == 1
 
 
 class TestEventBusSingleton:
@@ -315,30 +150,3 @@ class TestEventBusSingleton:
         """event_bus shorthand should work."""
         from app.engine.events import event_bus
         assert event_bus is not None
-
-
-class TestEventBusStats:
-    """EventBus statistics."""
-
-    def setup_method(self):
-        self.bus = EventBus()
-
-    def test_stats_empty(self):
-        """Should return empty stats for new bus."""
-        stats = self.bus.stats()
-        assert stats["total_subscribers"] == 0
-        assert stats["dead_letter_count"] == 0
-
-    def test_stats_with_subscribers(self):
-        """Should reflect registered subscribers."""
-        async def h1(event): pass
-        async def h2(event): pass
-
-        self.bus.subscribe("task.a", h1)
-        self.bus.subscribe("task.b", h2)
-        self.bus.subscribe("task.b", h1)
-
-        stats = self.bus.stats()
-        assert stats["total_subscribers"] == 3
-        assert stats["subscribers"]["task.a"] == 1
-        assert stats["subscribers"]["task.b"] == 2

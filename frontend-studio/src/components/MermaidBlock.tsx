@@ -98,14 +98,14 @@ export function MermaidBlock({ code }: { code: string }) {
           <p className="text-[11px] text-amber-400 mb-1 font-semibold">
             Mermaid 图解析失败：{error}
           </p>
-          <pre className="text-[11px] text-[#a1a1aa] whitespace-pre-wrap font-mono">{code}</pre>
+          <pre className="text-[11px] text-ink-dim whitespace-pre-wrap font-mono">{code}</pre>
         </div>
       ) : !svg ? (
-        <div className="my-3 h-16 animate-pulse rounded-lg bg-[#27272a]" />
+        <div className="my-3 h-16 animate-pulse rounded-lg bg-line" />
       ) : (
         // SVG output is produced locally by mermaid under securityLevel: strict.
         <div
-          className="my-3 overflow-x-auto rounded-lg border border-[#27272a] bg-[#18181b] p-3 [&_svg]:mx-auto [&_svg]:max-w-full [&_svg]:h-auto"
+          className="my-3 overflow-x-auto rounded-lg border border-line bg-panel p-3 [&_svg]:mx-auto [&_svg]:max-w-full [&_svg]:h-auto"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       )}

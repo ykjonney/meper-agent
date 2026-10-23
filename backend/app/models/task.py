@@ -87,10 +87,6 @@ class Checkpoint(BaseModel):
     kind: str = "pause"
     # progress 专属：当前 loop 的续跑位置 {loop_node_id, round=最后完整轮}。
     loop_state: dict[str, Any] = Field(default_factory=dict)
-    # 循环工作台快照（app/engine/workflow/loop_workspace.py，refine 模板）：
-    # pause/progress 两类 checkpoint 都带——体内暂停与轮间崩溃恢复都不丢
-    # 已吸收状态（issues/产物 digest/verdict 轨迹）。
-    workspace: dict[str, Any] | None = None
 
 
 class Task(BaseModel):
@@ -127,6 +123,9 @@ class Task(BaseModel):
     # 终止（M3 前置：loop 是 token 大户，无预算控制不敢上线迭代范式）。
     # 与 agent 会话级 max_tokens 互补：那是单节点 REACT 循环内的护栏。
     token_budget: int = Field(default=0, ge=0)
+    # 最近一次进入 RUNNING 的时间（ISO）。慢任务警告扫描的时间基准
+    # （beat running_task_scan：超过 TASK_SLOW_WARN_MINUTES 发站内信）。
+    started_at: str = ""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

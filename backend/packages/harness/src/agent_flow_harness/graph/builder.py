@@ -8,7 +8,7 @@ Topology (v0.3 — node-based, replacing the monolithic react_node for-loop)::
                        └────────────┘                    │
                                                          │ (fixed edge)
                                                          └─→ compress (next loop)
-                                ├─ no tool_calls → [guard_out*] → END
+                                ├─ no tool_calls → END
                                 └─ error / depth-limit → END
 
 Each step of the former ``react_node`` inner loop is now an independent node
@@ -137,13 +137,6 @@ def build_agent_graph(
         for a, b in zip(in_names, in_names[1:], strict=False):
             builder.add_edge(a, b)
         builder.add_edge(in_names[-1], "compress")
-
-        # NOTE: guard_out (post-execution checks) are not wired in v0.3.
-        # The native tools_condition routes "no tool calls" straight to END,
-        # leaving no intermediate node for guard_out. Supporting post-guard
-        # requires a custom conditional-edge function that routes to a
-        # guard_out chain instead of END. Will be added when a post-guard
-        # use case arises.
 
     return builder.compile(checkpointer=checkpointer)
 

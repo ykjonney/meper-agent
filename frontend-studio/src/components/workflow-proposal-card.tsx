@@ -68,10 +68,10 @@ export default function WorkflowProposalCard({
 
       {/* Body — solid dark inner block for high text contrast (mirrors
           ask_clarification / ClarificationFormCard). */}
-      <div className="mx-2.5 mb-2.5 rounded-lg bg-[#121214] border border-[#27272a] px-3.5 py-3 space-y-2">
+      <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3 space-y-2">
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-indigo-400">工作流:</span>
-          <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-[#fafafa] border border-indigo-500/30">
+          <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-ink border border-indigo-500/30">
             {proposal.workflow_name}
           </span>
         </div>
@@ -79,7 +79,7 @@ export default function WorkflowProposalCard({
         {proposal.workflow_description && (
           <div>
             <span className="text-[11px] text-indigo-400">描述:</span>
-            <p className="text-xs text-[#fafafa] mt-0.5 leading-relaxed">
+            <p className="text-xs text-ink mt-0.5 leading-relaxed">
               {proposal.workflow_description}
             </p>
           </div>
@@ -91,10 +91,10 @@ export default function WorkflowProposalCard({
             <div className="mt-0.5 space-y-0.5">
               {inputEntries.map(([key, value]) => (
                 <div key={key} className="flex items-start gap-2">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#27272a] text-[#a1a1aa] shrink-0">
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-ink-dim shrink-0">
                     {key}
                   </span>
-                  <span className="text-xs text-[#fafafa] break-all">
+                  <span className="text-xs text-ink break-all">
                     {typeof value === 'string' ? value : JSON.stringify(value)}
                   </span>
                 </div>
@@ -104,7 +104,7 @@ export default function WorkflowProposalCard({
         )}
 
         {proposal.has_human_node && (
-          <div className="text-[10px] text-amber-400">⚠ 该工作流包含人工审批节点</div>
+          <div className="text-[11px] text-amber-400">⚠ 该工作流包含人工审批节点</div>
         )}
 
         {/* Actions — inside the solid block so buttons read clearly too. */}
@@ -122,7 +122,7 @@ export default function WorkflowProposalCard({
               <button
                 type="button"
                 onClick={handleReject}
-                className="px-3.5 py-1.5 rounded-lg text-xs bg-[#09090b] border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] transition cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-line transition cursor-pointer inline-flex items-center gap-1.5"
               >
                 <XCircle size={13} />
                 拒绝
@@ -131,7 +131,7 @@ export default function WorkflowProposalCard({
                 <button
                   type="button"
                   onClick={onDismiss}
-                  className="text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+                  className="text-xs text-ink-dim hover:text-ink-dim transition cursor-pointer"
                 >
                   忽略
                 </button>

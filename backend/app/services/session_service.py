@@ -6,8 +6,29 @@ from typing import Any
 
 from loguru import logger
 
+from app.core.config import settings
 from app.db.mongodb import get_database
 from app.models.session import Message, Session
+
+
+def _truncate_tool_result_entries(entries: list[dict]) -> list[dict]:
+    """单条 tool_result 写入硬上限：超 TOOL_RESULT_MAX_CHARS 截断+标记。
+
+    recall 的原文来源是 tool_output_archives（压缩时归档），此处截断只
+    影响 UI 展示细节（百万字符的结果前端本就渲染不动）。
+    """
+    limit = settings.TOOL_RESULT_MAX_CHARS
+    for entry in entries:
+        if entry.get("type") != "tool_result":
+            continue
+        content = entry.get("content")
+        if isinstance(content, str) and len(content) > limit:
+            entry["content"] = (
+                content[:limit]
+                + f"\n[结果超 {limit} 字符已截断；完整原文可通过 recall 工具回溯]"
+            )
+            entry["content_truncated"] = True
+    return entries
 
 
 class SessionService:
@@ -167,8 +188,41 @@ class SessionService:
 
         result = await SessionService._collection().delete_one({"_id": session_id})
         if result.deleted_count > 0:
+            # 先收集 message ids（文档水位线压缩的外置文件按 origin_id 关联）
+            msg_ids = [
+                doc["_id"]
+                async for doc in MessageService._collection().find(
+                    {"session_id": session_id}, {"_id": 1},
+                )
+            ]
             # Delete all messages in this session
             await MessageService._collection().delete_many({"session_id": session_id})
+
+            # 级联删文档压缩外置文件（doc_compaction kind，origin=消息），
+            # 防 file_library 孤儿堆积。失败不阻断会话删除。
+            try:
+                from app.models.file_library import FileConsumerKind
+                from app.services.file_service import FileService
+                from app.services.file_storage import LocalFileStorage
+
+                svc = FileService(storage=LocalFileStorage())
+                file_ids = [
+                    str(doc["_id"])
+                    async for doc in svc._file_refs().find(
+                        {
+                            "origin_kind": FileConsumerKind.DOC_COMPACTION,
+                            "origin_id": {"$in": msg_ids},
+                        },
+                        {"_id": 1},
+                    )
+                ]
+                for fid in file_ids:
+                    await svc.delete(fid)
+            except Exception as exc:
+                logger.debug(
+                    "session_compaction_files_cleanup_failed",
+                    session_id=session_id, error=str(exc),
+                )
 
             # Clean up LangGraph checkpointer thread (thread_id == session_id).
             # The full agent execution history (state snapshots, tool_calls,
@@ -209,6 +263,23 @@ class SessionService:
             except Exception as exc:
                 logger.warning(
                     "workspace_cleanup_failed",
+                    session_id=session_id,
+                    error=str(exc),
+                )
+
+            # 删除复用沙盒容器（幂等；失败不阻塞，闲置回收兜底）
+            try:
+                if session_doc:
+                    from app.engine.harness_integration.sandbox_lifecycle import (
+                        destroy_workspace_sandbox,
+                    )
+                    from app.engine.tool.workspace import WorkspaceManager
+
+                    ws = WorkspaceManager.get_workspace(session_doc["user_id"], session_id)
+                    destroy_workspace_sandbox(ws.root)
+            except Exception as exc:
+                logger.warning(
+                    "sandbox_container_cleanup_failed",
                     session_id=session_id,
                     error=str(exc),
                 )
@@ -280,6 +351,12 @@ class MessageService:
 
         Returns:
             Created message document.
+
+        文档水位线防线（一次性写入定型的不可变文档，全部在落库前同步做）：
+          ① 单条 tool_result 超 TOOL_RESULT_MAX_CHARS 截断+标记（recall 走
+             tool_output_archives，不受影响）；
+          ② 文档估算超 10MB → 两阶段压缩（最老 tool_result preview+外置；
+             压后仍超 14MB 丢最老载荷条目）。落库文档恒 <10MB。
         """
         msg = Message(
             session_id=session_id,
@@ -309,11 +386,28 @@ class MessageService:
             if msg.display_text:
                 doc["display_text"] = msg.display_text
 
+        # ── 文档水位线防线（仅 agent 消息有 timeline_entries 载荷）──
+        if msg.timeline_entries:
+            from app.services.doc_compaction_service import compact_timeline_entries
+
+            truncated = _truncate_tool_result_entries(msg.timeline_entries)
+            session_doc = await SessionService.get_session(session_id)
+            owner_user_id = str((session_doc or {}).get("user_id") or "")
+            compacted, _changed = await compact_timeline_entries(
+                truncated,
+                owner_user_id=owner_user_id,
+                origin_id=str(msg.id),
+                other_fields={"session_id": session_id, "role": role},
+            )
+            msg.timeline_entries = compacted
+            doc["timeline_entries"] = compacted
+
         await MessageService._collection().insert_one(doc)
 
         # Update session metadata
+        session_doc = session_doc if msg.timeline_entries else await SessionService.get_session(session_id)
         update_fields: dict = {
-            "message_count": (await SessionService.get_session(session_id) or {}).get("message_count", 0) + 1,
+            "message_count": (session_doc or {}).get("message_count", 0) + 1,
         }
         # Only set title from user message if session title is still empty.
         # Truncate to 30 chars + ellipsis (matches the chat sidebar's width).
@@ -359,6 +453,11 @@ class MessageService:
                 request_id=request_id,
             )
             return
+
+        # 单条写入硬上限（与 add_message 同防线）：追加的 tool_result 超
+        # TOOL_RESULT_MAX_CHARS 截断+标记。追加量通常小（resume 合成结果），
+        # 文档级水位线由影子账本触发的异步压缩兜底。
+        timeline_entries = _truncate_tool_result_entries(list(timeline_entries))
 
         # Atomically append entries + merge token_usage
         update_doc: dict[str, Any] = {
@@ -459,7 +558,9 @@ class MessageService:
 
         recall_tool_result 的兜底数据源：压缩归档机制上线前已压缩的存量
         chat 会话，原文只存在于 messages.timeline_entries（展示侧不压缩）。
-        未命中返回 None（渠道会话默认不落 messages，miss 属预期）。
+        文档水位线压缩后条目带 content_extern 引用 → 加载外置全文返回
+        （recall 链不断）。未命中返回 None（渠道会话默认不落 messages，
+        miss 属预期）。
         """
         doc = await MessageService._collection().find_one(
             {
@@ -476,4 +577,13 @@ class MessageService:
         if not entries:
             return None
         content = entries[0].get("content")
-        return content if isinstance(content, str) else None
+        if not isinstance(content, str):
+            return None
+        extern = entries[0].get("content_extern")
+        if isinstance(extern, dict) and extern:
+            from app.services.doc_compaction_service import load_extern_content
+
+            full = await load_extern_content(extern)
+            if full is not None:
+                return full
+        return content

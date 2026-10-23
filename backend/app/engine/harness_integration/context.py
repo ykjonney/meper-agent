@@ -814,6 +814,8 @@ async def resolve_harness_context(
         # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
         bind_source_mapper=sandbox_bind_source_mapper(),
         max_concurrent=settings.SANDBOX_MAX_CONCURRENT_CONTAINERS,
+        reuse_container=settings.SANDBOX_REUSE_CONTAINER,
+        max_containers=settings.SANDBOX_MAX_CONTAINERS,
     )
 
     # 7. workspace
@@ -1036,10 +1038,30 @@ def _schedule_archive(tool_call_id: str, original: str) -> None:
         )
         _archive_tasks.add(task)
         task.add_done_callback(_archive_tasks.discard)
+        # ── 影子账本：文档水位线压缩的触发信号 ──
+        # thread 里被压缩掉的原文体量 = session 里永久保留的全文体量
+        # （同一数据两份拷贝）。累计进 session.compaction_bytes，超触发线
+        # 则异步压缩该会话的 message 文档。workflow 场景 thread_id 非
+        # session id，$inc 自然 miss（Task 侧走 bsonSize 直接测量）。
+        sub_task = loop.create_task(
+            _record_compaction_bytes_quietly(thread_id, len(original))
+        )
+        _archive_tasks.add(sub_task)
+        sub_task.add_done_callback(_archive_tasks.discard)
     except Exception:
         logger.debug(
             "tool_output_archive_schedule_failed", tool_call_id=tool_call_id
         )
+
+
+async def _record_compaction_bytes_quietly(session_id: str, nbytes: int) -> None:
+    """记账失败不影响压缩主流程（下次压缩事件重新累计）。"""
+    try:
+        from app.services.doc_compaction_service import record_compaction_bytes
+
+        await record_compaction_bytes(session_id, nbytes)
+    except Exception:
+        logger.debug("compaction_bytes_record_failed", session_id=session_id)
 
 
 def _make_tool_output_reference_formatter(recorder=None):

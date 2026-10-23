@@ -123,7 +123,7 @@ export default function WorkflowNodeConfigPanel({
         ((ln.config as Record<string, unknown>).body as string[] | undefined)?.includes(selectedNode.node_id),
     )
     return (
-      <div className="border border-[#27272a] rounded-xl bg-[#18181b] p-4">
+      <div className="border border-line rounded-xl bg-panel p-4">
         {ownerLoop && onSelectNode && (
           <button
             type="button"
@@ -136,12 +136,12 @@ export default function WorkflowNodeConfigPanel({
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: nt?.color }} />
-            <span className="text-sm font-medium text-[#fafafa]">
+            <span className="text-sm font-medium text-ink">
               {nt?.label ?? selectedNode.type} 配置
             </span>
             {nt?.description && <HelpHint text={nt.description} />}
           </div>
-          <Tag className="!m-0 !text-[10px]">{selectedNode.node_id}</Tag>
+          <Tag className="!m-0 !text-[11px]">{selectedNode.node_id}</Tag>
         </div>
 
         {/* 节点名称（label）：节点级字段，所有类型通用，随保存透传后端 */}
@@ -164,7 +164,7 @@ export default function WorkflowNodeConfigPanel({
         onSelectNode={onSelectNode}
       />
         {onNodeDelete && selectedNode.node_id && (
-          <div className="mt-4 pt-3 border-t border-[#27272a]">
+          <div className="mt-4 pt-3 border-t border-line">
             <Popconfirm
               title="确定删除这个节点？"
               description="关联的连接也会被删除。"
@@ -189,7 +189,7 @@ export default function WorkflowNodeConfigPanel({
 
   // 未选中
   return (
-    <div className="border border-[#27272a] rounded-xl bg-[#18181b] p-6 text-center text-xs text-[#71717a]">
+    <div className="border border-line rounded-xl bg-panel p-6 text-center text-xs text-ink-dim">
       <ListTree size={24} className="mx-auto mb-2" />
       <p>选择一个节点进行配置</p>
     </div>

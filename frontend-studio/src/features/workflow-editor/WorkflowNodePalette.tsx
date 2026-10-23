@@ -61,7 +61,7 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
               key={type}
               draggable
               onDragStart={(e) => handleDragStart(e, type)}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-[#27272a]/60 bg-[#121214] cursor-grab active:cursor-grabbing hover:border-[#1E5EFF] hover:bg-[#1E5EFF]/10 transition-all select-none"
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-line/60 bg-page cursor-grab active:cursor-grabbing hover:border-[#1E5EFF] hover:bg-[#1E5EFF]/10 transition-all select-none"
               title={cfg.description}
             >
               {/* 彩色图标 */}
@@ -72,8 +72,8 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
                 {cfg.icon}
               </span>
               <div className="min-w-0">
-                <div className="text-xs font-medium text-[#fafafa]">{cfg.label}</div>
-                <div className="text-[10px] text-[#71717a] truncate">{cfg.description}</div>
+                <div className="text-xs font-medium text-ink">{cfg.label}</div>
+                <div className="text-[11px] text-ink-dim truncate">{cfg.description}</div>
               </div>
             </div>
           )

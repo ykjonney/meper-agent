@@ -302,7 +302,7 @@ const VariableChipEditor = forwardRef<
   )
 
   const baseCls =
-    'var-editor w-full rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] ' +
+    'var-editor w-full rounded-md border border-line bg-page text-ink ' +
     'px-2.5 py-1.5 text-xs leading-relaxed font-mono ' +
     'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors ' +
     'scrollbar-custom ' +

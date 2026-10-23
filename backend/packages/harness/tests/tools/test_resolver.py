@@ -11,15 +11,15 @@ def test_resolve_variable_loads_tool():
     """'模块:符号' → 动态 import + 返回对象。"""
     from langchain_core.tools import BaseTool
 
-    ts = resolve_variable("agent_flow_harness.interaction:tool_search", BaseTool)
-    assert ts.name == "tool_search"
+    ts = resolve_variable("agent_flow_harness.interaction:ask_clarification", BaseTool)
+    assert ts.name == "ask_clarification"
 
 
 def test_resolve_variable_wrong_type_raises():
     """类型不匹配 → TypeError。"""
-    # tool_search 是 BaseTool，期望 dict 类型 → 应报错
+    # ask_clarification 是 BaseTool，期望 dict 类型 → 应报错
     with pytest.raises(TypeError):
-        resolve_variable("agent_flow_harness.interaction:tool_search", dict)
+        resolve_variable("agent_flow_harness.interaction:ask_clarification", dict)
 
 
 def test_resolve_variable_missing_symbol_raises():
@@ -58,14 +58,14 @@ def test_registry_resolve_with_use_field():
         "tools": [
             {
                 "name": "search",
-                "use": "agent_flow_harness.interaction:tool_search",
+                "use": "agent_flow_harness.interaction:ask_clarification",
                 "enabled": True,
             }
         ]
     }
     resolved = reg.resolve(agent_doc)
     assert len(resolved) == 1
-    assert resolved[0].name == "tool_search"
+    assert resolved[0].name == "ask_clarification"
 
 
 def test_registry_resolve_without_use_uses_lookup():
@@ -99,12 +99,12 @@ def test_registry_resolve_use_and_lookup_mix():
     agent_doc = {
         "tools": [
             {"name": "local_tool", "enabled": True},
-            {"name": "ts", "use": "agent_flow_harness.interaction:tool_search", "enabled": True},
+            {"name": "ac", "use": "agent_flow_harness.interaction:ask_clarification", "enabled": True},
         ]
     }
     resolved = reg.resolve(agent_doc)
     names = sorted(t.name for t in resolved)
-    assert names == ["local_tool", "tool_search"]
+    assert names == ["ask_clarification", "local_tool"]
 
 
 def test_registry_resolve_bad_use_skipped():

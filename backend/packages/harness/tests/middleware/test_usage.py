@@ -178,3 +178,96 @@ def test_resolve_by_name():
     mws = resolve_middleware([{"name": "usage"}])
     assert len(mws) == 1
     assert isinstance(mws[0], UsageMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# cached_input_tokens（KV-cache 命中可观测，Manus：生产 agent 最重要指标）
+# ---------------------------------------------------------------------------
+
+
+def _ai_with_usage_metadata(
+    *, input_t: int, output_t: int, cached: int,
+) -> AIMessage:
+    """构造带 LangChain 标准 usage_metadata（含 input_token_details）的消息。"""
+    return AIMessage(
+        content="ok",
+        usage_metadata={
+            "input_tokens": input_t,
+            "output_tokens": output_t,
+            "total_tokens": input_t + output_t,
+            "input_token_details": {"cached_tokens": cached},
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_cached_tokens_from_usage_metadata():
+    """LangChain usage_metadata.input_token_details.cached_tokens 被提取累计。"""
+    mw = UsageMiddleware()
+    resp = _ai_with_usage_metadata(input_t=1000, output_t=50, cached=800)
+    await mw.before_llm({})
+    await mw.after_llm({}, resp)
+    s = mw.summary
+    assert s["cached_input_tokens"] == 800
+    # cached 是 input 的子集——纯观测字段，不改计费口径。
+    assert s["input_tokens"] == 1000
+    assert s["total_tokens"] == 1050
+
+
+@pytest.mark.asyncio
+async def test_cached_tokens_accumulate_across_calls():
+    mw = UsageMiddleware()
+    for cached in (100, 200, 300):
+        resp = _ai_with_usage_metadata(input_t=500, output_t=10, cached=cached)
+        await mw.before_llm({})
+        await mw.after_llm({}, resp)
+    assert mw.summary["cached_input_tokens"] == 600
+
+
+@pytest.mark.asyncio
+async def test_cached_tokens_from_openai_fallback_details():
+    """兜底路径：response_metadata.token_usage.prompt_tokens_details.cached_tokens。"""
+    mw = UsageMiddleware()
+    resp = AIMessage(
+        content="ok",
+        response_metadata={
+            "token_usage": {
+                "prompt_tokens": 400,
+                "completion_tokens": 10,
+                "total_tokens": 410,
+                "prompt_tokens_details": {"cached_tokens": 320},
+            },
+        },
+    )
+    await mw.before_llm({})
+    await mw.after_llm({}, resp)
+    assert mw.summary["cached_input_tokens"] == 320
+
+
+@pytest.mark.asyncio
+async def test_cached_tokens_from_anthropic_fallback():
+    """兜底路径：Anthropic usage.cache_read_input_tokens。"""
+    mw = UsageMiddleware()
+    resp = AIMessage(
+        content="ok",
+        response_metadata={
+            "usage": {
+                "input_tokens": 400,
+                "output_tokens": 10,
+                "cache_read_input_tokens": 350,
+            },
+        },
+    )
+    await mw.before_llm({})
+    await mw.after_llm({}, resp)
+    assert mw.summary["cached_input_tokens"] == 350
+
+
+@pytest.mark.asyncio
+async def test_cached_tokens_zero_when_absent():
+    """无缓存数据时 cached=0（不抛错、不影响其它字段）。"""
+    mw = UsageMiddleware()
+    resp = _ai_with_openai_usage(prompt=100, completion=20)
+    await mw.before_llm({})
+    await mw.after_llm({}, resp)
+    assert mw.summary["cached_input_tokens"] == 0

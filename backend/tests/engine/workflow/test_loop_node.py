@@ -88,7 +88,7 @@ class TestLoopValidation:
         assert "LOOP_ENTRY_NOT_IN_BODY" in _codes(result.issues)
 
     def test_max_iterations_range(self) -> None:
-        for bad in (0, 21, "5", None):
+        for bad in (0, 101, "5", None):
             result = validate_workflow(_wf([
                 _loop_node(["writer"], "writer", max_iter=bad),  # type: ignore[arg-type]
                 {"node_id": "writer", "type": "agent", "config": {}},
@@ -103,6 +103,31 @@ class TestLoopValidation:
             {"node_id": "x", "type": "agent", "config": {}},
         ]))
         assert "LOOP_NESTED_NOT_SUPPORTED" in _codes(result.issues)
+
+    def test_body_label_conflict_rejected(self) -> None:
+        """体成员同名 → 工作台产物槽（key=label）共享会互相打断版本链。"""
+        nodes = [
+            _loop_node(["writer", "critic"], "writer"),
+            {"node_id": "writer", "type": "agent", "label": "撰稿",
+             "config": {"next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent", "label": "撰稿",
+             "config": {}},
+        ]
+        result = validate_workflow(_wf(nodes))
+        assert "LOOP_BODY_LABEL_CONFLICT" in _codes(result.issues)
+
+        # 不同名（含未设 label 回退 node_id）→ 通过。
+        nodes[2]["label"] = "评审"
+        result = validate_workflow(_wf(nodes))
+        assert "LOOP_BODY_LABEL_CONFLICT" not in _codes(result.issues)
+
+        # 循环外同名不受影响（槽隔离只在 body 内）。
+        result = validate_workflow(_wf([
+            *nodes,
+            {"node_id": "outside", "type": "agent", "label": "撰稿",
+             "config": {}},
+        ]))
+        assert "LOOP_BODY_LABEL_CONFLICT" not in _codes(result.issues)
 
     def test_structural_nodes_rejected(self) -> None:
         result = validate_workflow(_wf([
@@ -422,3 +447,330 @@ class TestReturnEdgeExecution:
         assert calls.count("worker") == 2
         assert calls.count("checker") == 2
         assert engine._pool.get("loop1")["iterations"] == 2
+
+
+class TestLoopNoteAndStall:
+    """工作台退役后的轻量机制：值级 sha 空转检测。"""
+
+    @staticmethod
+    def _static_executors(nodes):
+        """writer 每轮输出恒定（同 sha）；critic 恒 reject（不收敛）。"""
+        def _get(node_type: str, node_id: str, cfg: dict) -> MagicMock:
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            elif node_id == "critic":
+                async def _critic(variables):
+                    return NodeResult(success=True, output={"verdict": "reject"})
+                ex.execute = _critic
+            else:
+                async def _writer(variables):
+                    # 记录收到的变量（断言 loop_note 注入）
+                    _writer.seen = variables
+                    return NodeResult(success=True, output={"draft": "恒定输出"})
+                ex.execute = _writer
+            return ex
+        return _get
+
+    @pytest.mark.asyncio
+    async def test_stalled_after_streak_of_identical_outputs(self) -> None:
+        """成员输出连续 STALL_STREAK(2) 轮 sha 不变 → 提前结束 + stalled 标记。"""
+        nodes = [
+            _loop_node(["writer", "critic"], "writer", max_iter=5),
+            {"node_id": "writer", "type": "agent", "config": {"next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent", "config": {}},
+        ]
+        engine = _engine(nodes)
+        with patch("app.engine.workflow.engine.get_node_executor",
+                   side_effect=self._static_executors(nodes)), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+        loop_out = engine._pool.get("loop1")
+        # 轮1 建 sha 基线(streak=0)；轮2 与上轮相同(streak=1)；轮3 再次
+        # 相同(streak=2=STALL_STREAK) → 轮3 末 stalled 提前结束（而非跑满 5）
+        assert loop_out["iterations"] == 3
+        assert loop_out["stalled"] is True
+
+    @staticmethod
+    def _changing_executors():
+        """输出每轮变化（sha 前进）→ 不应触发 stalled。"""
+        call_n = {"n": 0}
+
+        def _get(node_type: str, node_id: str, cfg: dict) -> MagicMock:
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            else:
+                async def _run(variables):
+                    call_n["n"] += 1
+                    return NodeResult(success=True, output={"draft": f"第{call_n['n']}版"})
+                ex.execute = _run
+            return ex
+        return _get
+
+    @pytest.mark.asyncio
+    async def test_no_stall_when_output_evolves(self) -> None:
+        nodes = [
+            _loop_node(["writer"], "writer", max_iter=3, converge=None),
+            {"node_id": "writer", "type": "agent", "config": {}},
+        ]
+        engine = _engine(nodes)
+        with patch("app.engine.workflow.engine.get_node_executor",
+                   side_effect=self._changing_executors()), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+        loop_out = engine._pool.get("loop1")
+        assert loop_out["iterations"] == 3
+        assert "stalled" not in loop_out or loop_out["stalled"] is not True
+
+
+class TestCrossRoundReference:
+    """跨轮引用模型（工作台退役后的核心语义，变量池时序保证）：
+
+    - 先引前（后执行者引用先执行者）＝ 取本轮最新值
+    - 前引后（先执行者引用后执行者）＝ 取上一轮值
+    - 首轮前引后 ＝ 变量未定义（空）
+    """
+
+    @staticmethod
+    def _recording_executors(nodes, critic_verdicts: list[str]):
+        """记录每个成员每轮收到的全量变量（断言跨轮引用语义）。"""
+        seen: dict[str, list[dict]] = {}
+
+        def _get(node_type: str, node_id: str, cfg: dict) -> MagicMock:
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            elif node_id == "critic":
+                idx = {"n": 0}
+
+                async def _critic(variables):
+                    seen.setdefault("critic", []).append(dict(variables))
+                    v = critic_verdicts[min(idx["n"], len(critic_verdicts) - 1)]
+                    idx["n"] += 1
+                    return NodeResult(success=True, output={"verdict": v, "comment": f"意见{idx['n']}"})
+                ex.execute = _critic
+            else:
+                async def _writer(variables):
+                    seen.setdefault("writer", []).append(dict(variables))
+                    return NodeResult(success=True, output={"response": "稿"})
+                ex.execute = _writer
+            ex.seen = seen
+            return ex
+        return _get, seen
+
+    @pytest.mark.asyncio
+    async def test_forward_reference_gets_previous_round_value(self) -> None:
+        """前引后（writer 引用 critic.verdict）：轮1 未定义；轮2 起取上轮值。"""
+        nodes = [
+            _loop_node(["writer", "critic"], "writer", max_iter=2, converge=None),
+            {"node_id": "writer", "type": "agent",
+             "config": {"input_query": "按意见改：{{critic.verdict}}",
+                        "next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent", "config": {}},
+        ]
+        engine = _engine(nodes)
+        factory, seen = self._recording_executors(nodes, ["reject", "approve"])
+        with patch("app.engine.workflow.engine.get_node_executor", side_effect=factory), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+
+        writer_rounds = seen["writer"]
+        assert len(writer_rounds) == 2
+        # 轮 1：critic 尚未执行过 → 池中无其输出（首轮冷启动事实）
+        assert "critic" not in writer_rounds[0]
+        # 轮 2：critic 已在轮 1 执行 → writer 轮 2 拿到的是轮 1 的值
+        # （variables 为 pool.get_all() 嵌套形态；writer 的任务模板里
+        #  {{critic.verdict}} 由 ExpressionEngine 点路径取到同一值）
+        assert writer_rounds[1]["critic"]["verdict"] == "reject"
+
+    @pytest.mark.asyncio
+    async def test_backward_reference_gets_current_round_value(self) -> None:
+        """先引前（critic 引用 writer.response）：每轮拿本轮最新值。"""
+        nodes = [
+            _loop_node(["writer", "critic"], "writer", max_iter=2, converge=None),
+            {"node_id": "writer", "type": "agent",
+             "config": {"next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent",
+             "config": {"input_query": "评审：{{writer.response}}"}},
+        ]
+        engine = _engine(nodes)
+        factory, seen = self._recording_executors(nodes, ["reject", "approve"])
+        with patch("app.engine.workflow.engine.get_node_executor", side_effect=factory), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+
+        critic_rounds = seen["critic"]
+        assert len(critic_rounds) == 2
+        # 每轮 critic 执行时 writer 已在本轮跑完 → 本轮值（裸键=最新）
+        for rnd_vars in critic_rounds:
+            assert rnd_vars["writer"]["response"] == "稿"
+
+    @pytest.mark.asyncio
+    async def test_bare_key_is_latest_round_and_rounds_immutable(self) -> None:
+        """裸键=最新轮值；rounds 快照各轮独立（不可变历史）。"""
+        nodes = [
+            _loop_node(["worker"], "worker", max_iter=3, converge=None),
+            {"node_id": "worker", "type": "agent", "config": {}},
+        ]
+        call_n = {"n": 0}
+
+        def _get(node_type: str, node_id: str, cfg: dict) -> MagicMock:
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            else:
+                async def _run(variables):
+                    call_n["n"] += 1
+                    return NodeResult(success=True, output={"response": f"第{call_n['n']}版"})
+                ex.execute = _run
+            return ex
+
+        engine = _engine(nodes)
+        with patch("app.engine.workflow.engine.get_node_executor", side_effect=_get), \
+             patch("app.engine.workflow.engine.TaskService", new=_ts_mock()), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+
+        # 裸键 = 最新轮（第 3 版）
+        assert engine._pool.get("worker.response") == "第3版"
+        loop_out = engine._pool.get("loop1")
+        # rounds 各轮独立且按轮序固化
+        assert loop_out["rounds"]["1"]["worker"]["response"] == "第1版"
+        assert loop_out["rounds"]["3"]["worker"]["response"] == "第3版"
+
+
+class TestLoopTimelineEvents:
+    """循环的 timeline 事件序列与轮次键（跳过/重入语义）。"""
+
+    @staticmethod
+    def _collecting_ts(events: list[dict]) -> MagicMock:
+        ts = _ts_mock()
+        async def _append(task_id, event_type, data=None, actor="system"):
+            events.append({"event_type": event_type, "data": data or {}})
+        ts.append_timeline_event = _append
+        return ts
+
+    @pytest.mark.asyncio
+    async def test_round_events_and_stalled_event_sequence(self) -> None:
+        """恒定输出 → 事件序列 round_start/round_complete ×3 + stalled（第3轮末）。"""
+        nodes = [
+            _loop_node(["worker"], "worker", max_iter=5, converge=None),
+            {"node_id": "worker", "type": "agent", "config": {}},
+        ]
+        events: list[dict] = []
+        engine = _engine(nodes)
+
+        def _get(node_type: str, node_id: str, cfg: dict) -> MagicMock:
+            ex = MagicMock()
+            if node_id == "loop1":
+                ex.execute = AsyncMock(return_value=_loop_result(cfg))
+            else:
+                async def _run(variables):
+                    return NodeResult(success=True, output={"response": "恒定"})
+                ex.execute = _run
+            return ex
+
+        with patch("app.engine.workflow.engine.get_node_executor", side_effect=_get), \
+             patch("app.engine.workflow.engine.TaskService", new=self._collecting_ts(events)), \
+             patch("app.db.mongodb.get_database", new=_db_mock()):
+            await engine._execute_node("loop1")
+
+        # 只断言循环级事件（node_start/complete 为 worker 每轮的常规事件混在其中）
+        seq = [e["event_type"] for e in events if e["event_type"].startswith("loop_")]
+        # 3 轮（streak=2 于第 3 轮触发）+ stalled 事件在最后一轮 complete 之后
+        assert seq == [
+            "loop_round_start", "loop_round_complete",
+            "loop_round_start", "loop_round_complete",
+            "loop_round_start", "loop_round_complete",
+            "loop_stalled",
+        ]
+        # 全量序列的最后一个事件即 stalled（其后无其他事件）
+        assert events[-1]["event_type"] == "loop_stalled"
+        assert events[-1]["data"].get("round") == 3
+        # worker 的常规 node 事件仍在（每轮一对，loop 轮窗口内）
+        node_starts = [e for e in events if e["event_type"] == "node_start"]
+        assert len(node_starts) >= 3
+
+
+class TestBodyCrossReference:
+    """体成员互相引用（跨轮引用模型）：前引后=上轮值，校验放行。"""
+
+    def test_writer_referencing_critic_allowed(self) -> None:
+        """writer 任务引用 critic.comment（前向，合法——拿上轮意见）。"""
+        wf = _wf([
+            _loop_node(["writer", "critic"], "writer"),
+            {"node_id": "writer", "type": "agent",
+             "config": {"input_query": "上轮意见：{{critic.comment}}",
+                        "next_nodes": [{"target": "critic"}]}},
+            {"node_id": "critic", "type": "agent", "config": {}},
+        ])
+        result = validate_workflow(wf)
+        assert "FORWARD_REFERENCE" not in _codes(result.issues)
+
+    def test_outside_forward_reference_still_rejected(self) -> None:
+        """循环外的前向引用仍拦截（真正拿不到值）。"""
+        wf = _wf([
+            {"node_id": "upstream", "type": "agent",
+             "config": {"input_query": "{{downstream.response}}",
+                        "next_nodes": [{"target": "downstream"}]}},
+            {"node_id": "downstream", "type": "agent", "config": {}},
+        ])
+        result = validate_workflow(wf)
+        assert "FORWARD_REFERENCE" in _codes(result.issues)
+
+
+class TestRepairUnescapedInnerQuotes:
+    """内嵌引号修复：评审意见引用原文导致 JSON 字符串提前闭合（实测形态）。"""
+
+    def test_repairs_real_failure_shape(self) -> None:
+        """实测失败形态：issues 值内含未转义引号（引用策划师原文）。"""
+        import json
+
+        from app.engine.workflow.node_executor import _repair_unescaped_inner_quotes
+
+        broken = (
+            '{"verdict":"revise","score":"6.7","issues":"人群匹配（7分）：'
+            '仅锁定"重度咖啡因使用者+办公室白领"，未区分"对现有咖啡不满"的'
+            '细分，付费意愿调研应加入痛点归因，锁定"愿为免广告者"为核心人群"}'
+        )
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(broken)  # 修复前非法（实测报错形态）
+
+        repaired = _repair_unescaped_inner_quotes(broken)
+        value = json.loads(repaired)  # 修复后可解析
+        assert value["verdict"] == "revise"
+        # 引号被转义保留在字符串值内（不丢信息）
+        assert "重度咖啡因使用者" in value["issues"]
+
+    def test_valid_json_untouched(self) -> None:
+        """合法 JSON 零改动。"""
+        from app.engine.workflow.node_executor import _repair_unescaped_inner_quotes
+        ok = '{"verdict":"approve","issues":"通过"}'
+        assert _repair_unescaped_inner_quotes(ok) == ok
+
+    def test_extract_chain_recovers_real_failure(self) -> None:
+        """端到端：修复链（裸换行+内嵌引号组合）从实测失败输出中恢复 JSON。"""
+        from app.engine.workflow.node_executor import _extract_json_payload
+        broken = (
+            '{"verdict":"revise","issues":"人群匹配（7分）：仅锁定"重度咖啡因"群体，'
+            '未区分细分场景\n卖点锐度：同质化明显，建议差异化\n'
+            '渠道效率：单渠道试销样本偏小"}'
+        )
+        value, err = _extract_json_payload(broken)
+        assert value is not None, err
+        assert value["verdict"] == "revise"
+
+    def test_structural_close_not_escaped(self) -> None:
+        """引号后跟 : , } ] 时不误转义（结构闭合保持）。"""
+        from app.engine.workflow.node_executor import _repair_unescaped_inner_quotes
+        ok = '{"a":"文本 "引号" 结尾","b":"x"}'
+        repaired = _repair_unescaped_inner_quotes(ok)
+        import json
+        value = json.loads(repaired)
+        assert value["b"] == "x"
+        assert "引号" in value["a"]

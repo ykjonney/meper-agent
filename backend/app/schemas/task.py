@@ -43,14 +43,6 @@ class TaskIntervene(BaseModel):
     variables: dict[str, Any] | None = None
 
 
-class TaskUpdateVariables(BaseModel):
-    """Request body for updating Task variables."""
-
-    variables: dict[str, Any]
-    reason: str | None = None
-    version: int = Field(..., ge=1)
-
-
 # ── Response Schemas ──
 
 class TimelineEventResponse(BaseModel):

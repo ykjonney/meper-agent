@@ -198,7 +198,7 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
   )
 
   const dark = theme === 'dark'
-  const card = dark ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'
+  const card = dark ? 'bg-panel border-line' : 'bg-white border-slate-200'
   const canInterrupt = voiceState === 'speaking' || voiceState === 'thinking'
 
   const bubble = (t: TurnMsg) => (
@@ -206,13 +206,13 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
       <div className={`max-w-[80%] px-3 py-2 rounded-lg text-sm leading-relaxed whitespace-pre-wrap break-words ${
         t.role === 'user'
           ? 'bg-indigo-500 text-white'
-          : (dark ? 'bg-[#27272a] text-[#fafafa]' : 'bg-slate-100 text-slate-800')
+          : (dark ? 'bg-line text-ink' : 'bg-slate-100 text-slate-800')
       }`}>{t.text}</div>
     </div>
   )
 
   return (
-    <div className={`h-full w-full flex flex-col p-4 gap-3 ${dark ? 'text-[#fafafa]' : 'text-slate-800'}`}>
+    <div className={`h-full w-full flex flex-col p-4 gap-3 ${dark ? 'text-ink' : 'text-slate-800'}`}>
       {/* Top bar: agent picker + connection */}
       <div className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${card}`}>
         <span className="text-xs opacity-60">智能体</span>
@@ -221,7 +221,7 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
           onChange={(e) => setAgentId(e.target.value)}
           disabled={recorder.recording || turnActive || canInterrupt}
           className={`text-sm px-2 py-1 rounded border outline-none cursor-pointer disabled:opacity-50 ${
-            dark ? 'bg-[#09090b] border-[#27272a] text-[#fafafa]' : 'bg-slate-50 border-slate-200'
+            dark ? 'bg-well border-line text-ink' : 'bg-slate-50 border-slate-200'
           }`}
         >
           {agents.length === 0 && <option value="">（暂无智能体）</option>}
@@ -283,7 +283,7 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
           )}
         </div>
 
-        <div className={`text-xs ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>
+        <div className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
           {recorder.recording ? '松开结束，Agent 会语音回复' : '按住麦克风（或空格）说话，松开自动发送（需配置语音 ASR/TTS 凭证）'}
         </div>
         {(recorder.error || errorMsg) && (
@@ -297,7 +297,7 @@ export function VoiceHomepage({ agents, theme }: { agents: Agent[]; theme: 'dark
         {agentBufRef.current && bubble({ key: 'cur', role: 'agent', text: agentBufRef.current })}
         {partial && <div className="text-xs text-indigo-400 mt-1">{partial}…</div>}
         {!turns.length && !partial && !agentBufRef.current && (
-          <div className={`text-xs ${dark ? 'text-[#52525b]' : 'text-slate-400'}`}>
+          <div className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
             对话转写会显示在这里
           </div>
         )}

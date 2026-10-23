@@ -254,6 +254,12 @@ async def _build_kb_declaration(kb_ids: list[str]) -> str:
     if not kb_docs:
         return ""
 
+    # KV-cache 前缀稳定：Mongo $in 不保证返回顺序与 kb_ids 一致——按
+    # agent 配置里的 kb_ids 顺序重排，保证同一配置每次组装的 system
+    # prompt 逐字节一致（顺序抖动会打断 provider 前缀缓存，10 倍价差）。
+    by_id = {str(d.get("_id")): d for d in kb_docs}
+    kb_docs = [by_id[i] for i in map(str, kb_ids) if i in by_id]
+
     has_tree = any(d.get("type", "tree") == "tree" for d in kb_docs)
     has_vector = any(d.get("type") == "vector" for d in kb_docs)
 
@@ -350,10 +356,12 @@ async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
 
         conn_name = conn_doc.get("name", "Unknown")
         col = get_database()["tools"]
+        # sort 固定自然序：无 sort 时 Mongo 返回顺序无保证——顺序抖动会
+        # 打断 system prompt 前缀缓存（KV-cache，10 倍价差）。
         cursor = col.find({
             "mcp_connection_id": conn_id,
             "source": "mcp",
-        })
+        }).sort("_id", 1)
         tool_docs = await cursor.to_list(length=100)
 
         if not tool_docs:
@@ -800,6 +808,11 @@ def _build_output_contract_section(response_schema: dict) -> list[str]:
         "downstream nodes. It MUST be "
         + ("a JSON array of objects, each with fields:" if is_array else "a JSON object with fields:"),
         "no prose, no markdown fences, nothing outside the JSON.",
+        "String values MUST NOT contain unescaped double quotes — use Chinese",
+        "quotes（「」“”）inside text; when a string carries multiple items,",
+        "separate them with newlines (\\n), never by closing and reopening",
+        "the string. Getting this wrong makes the JSON unparseable and the",
+        "node fail.",
         "If the input is too vague or incomplete to produce a meaningful",
         "answer, call **abort_workflow** instead of producing JSON.",
         "",

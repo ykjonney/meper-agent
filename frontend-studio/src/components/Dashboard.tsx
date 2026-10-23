@@ -21,6 +21,7 @@ import {
   type DailyTrendItem,
 } from '../services/execution-logs-api';
 import { usePermission } from '../hooks/use-permission';
+import { formatTimeFull } from '../lib/formatTime'
 
 interface DashboardProps {
   onSelectTab: (tab: string) => void;
@@ -145,20 +146,20 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-gradient-to-br from-[#121214] to-[#18181b] rounded-xl border border-[#27272a] shadow-xl overflow-hidden relative">
+      <div className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-gradient-to-br from-page to-panel rounded-xl border border-line shadow-xl overflow-hidden relative">
         <div className="absolute top-0 right-0 w-80 h-40 bg-indigo-500/10 blur-[80px] rounded-full pointer-events-none" />
         <div className="space-y-1 relative z-10">
-          <h1 className="text-xl font-bold text-[#fafafa] tracking-tight flex items-center gap-2 font-sans">
+          <h1 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2 font-sans">
             仪表盘 <span className="text-xl">📊</span>
           </h1>
-          <p className="text-[#a1a1aa] text-xs max-w-xl">
+          <p className="text-ink-dim text-xs max-w-xl">
             聚合自 /tasks/stats、/agents、/tasks{canReadExecs ? '、/execution-stats、/execution-logs/daily' : ''}。当前并发上限 {maxConcurrent}，运行中 {running}，待执行 {pending}。
           </p>
         </div>
         <div className="mt-4 md:mt-0 flex gap-3 relative z-10">
           <button
             onClick={() => onSelectTab('workflows')}
-            className="px-4 py-2 text-xs font-semibold text-[#a1a1aa] hover:text-white bg-[#121214] hover:bg-[#1c1c1f] rounded-lg border border-[#27272a] transition shadow-inner flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 text-xs font-semibold text-ink-dim hover:text-white bg-page hover:bg-panel-hover rounded-lg border border-line transition shadow-inner flex items-center gap-1.5 cursor-pointer"
           >
             <Brain className="w-4 h-4 text-indigo-400" />
             设计工作流
@@ -258,14 +259,14 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
 
       {/* Chart + node health */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-8 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+        <div className="lg:col-span-8 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+              <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
                 <TrendingUp className="w-4 h-4 text-indigo-400" />
                 近 7 天任务创建趋势
               </h3>
-              <span className="text-amber-400 text-[10px] font-mono">
+              <span className="text-amber-400 text-[11px] font-mono">
                 GAP: 由 task created_at 近似，非专用时序端点
               </span>
             </div>
@@ -303,7 +304,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                   return (
                     <g key={i}>
                       <circle cx={x} cy={y} r="5" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2" />
-                      <text x={x} y={y - 10} textAnchor="middle" className="fill-[#a1a1aa] text-[10px] font-mono font-semibold">
+                      <text x={x} y={y - 10} textAnchor="middle" className="fill-ink-dim text-[11px] font-mono font-semibold">
                         {p.val}
                       </text>
                     </g>
@@ -313,7 +314,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             </div>
           </div>
 
-          <div className="flex justify-between border-t border-[#27272a] pt-3 mt-4 text-[10px] text-[#71717a] font-mono font-semibold">
+          <div className="flex justify-between border-t border-line pt-3 mt-4 text-[11px] text-ink-dim font-mono font-semibold">
             {chartPoints.map((p, idx) => (
               <span key={idx}>{p.label}</span>
             ))}
@@ -321,9 +322,9 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
         </div>
 
         {/* Concurrency / stats panel */}
-        <div className="lg:col-span-4 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+        <div className="lg:col-span-4 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
           <div className="space-y-4">
-            <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+            <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
               <Terminal className="w-4 h-4 text-emerald-400" />
               任务执行引擎状态
             </h3>
@@ -345,14 +346,14 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
       {/* Execution trend + channel breakdown（admin；真实按日聚合，缺日补零） */}
       {canReadExecs && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-8 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+          <div className="lg:col-span-8 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+                <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
                   <Activity className="w-4 h-4 text-indigo-400" />
                   近 7 天 Agent 调用趋势
                 </h3>
-                <span className="flex items-center gap-3 text-[10px] font-mono text-[#71717a]">
+                <span className="flex items-center gap-3 text-[11px] font-mono text-ink-dim">
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-0.5 bg-indigo-500 inline-block" /> 调用
                   </span>
@@ -363,7 +364,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
               </div>
 
               {execTrend.length === 0 ? (
-                <div className="h-44 flex items-center justify-center text-xs text-[#71717a]">加载趋势…</div>
+                <div className="h-44 flex items-center justify-center text-xs text-ink-dim">加载趋势…</div>
               ) : (
                 <div className="relative w-full h-44 flex items-end">
                   <svg className="w-full h-full overflow-visible">
@@ -399,7 +400,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                       return (
                         <g key={p.date}>
                           <circle cx={x} cy={y} r="5" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2" />
-                          <text x={x} y={y - 10} textAnchor="middle" className="fill-[#a1a1aa] text-[10px] font-mono font-semibold">
+                          <text x={x} y={y - 10} textAnchor="middle" className="fill-ink-dim text-[11px] font-mono font-semibold">
                             {p.calls}
                           </text>
                         </g>
@@ -410,7 +411,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
               )}
             </div>
 
-            <div className="flex justify-between border-t border-[#27272a] pt-3 mt-4 text-[10px] text-[#71717a] font-mono font-semibold">
+            <div className="flex justify-between border-t border-line pt-3 mt-4 text-[11px] text-ink-dim font-mono font-semibold">
               {execTrend.map((p) => (
                 <span key={p.date}>{execDayLabel(p.date)}</span>
               ))}
@@ -418,9 +419,9 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           </div>
 
           {/* 渠道分布（来自 /execution-stats channels） */}
-          <div className="lg:col-span-4 p-5 bg-[#18181b] rounded-xl border border-[#27272a] flex flex-col justify-between">
+          <div className="lg:col-span-4 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-[#fafafa] flex items-center gap-1.5">
+              <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
                 <Terminal className="w-4 h-4 text-indigo-400" />
                 调用渠道分布
               </h3>
@@ -447,13 +448,13 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
 
       {/* 运行账：任务 | 执行记录 tab 切换（同卡片内切换；任务全员可见、
           执行记录仅 execution:read:all） */}
-      <div className="p-5 bg-[#18181b] rounded-xl border border-[#27272a] space-y-4">
+      <div className="p-5 bg-panel rounded-xl border border-line space-y-4">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-          <div className="flex items-center gap-1 p-1 bg-[#121214] border border-[#27272a] rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-page border border-line rounded-lg">
             <button
               onClick={() => setHistoryTab('tasks')}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
-                historyTab === 'tasks' ? 'bg-[#27272a] text-[#fafafa]' : 'text-[#a1a1aa] hover:text-white'
+                historyTab === 'tasks' ? 'bg-line text-ink' : 'text-ink-dim hover:text-white'
               }`}
             >
               任务运行历史
@@ -462,7 +463,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
               <button
                 onClick={() => setHistoryTab('execs')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
-                  historyTab === 'execs' ? 'bg-[#27272a] text-[#fafafa]' : 'text-[#a1a1aa] hover:text-white'
+                  historyTab === 'execs' ? 'bg-line text-ink' : 'text-ink-dim hover:text-white'
                 }`}
               >
                 Agent 执行记录
@@ -477,7 +478,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                 value={filterSearch}
                 onChange={(e) => setFilterSearch(e.target.value)}
                 placeholder="搜索工作流或ID..."
-                className="pl-8 pr-3 py-1.5 w-60 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-[#fafafa] focus:outline-none focus:border-indigo-500 transition font-sans font-medium"
+                className="pl-8 pr-3 py-1.5 w-60 text-xs bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-indigo-500 transition font-sans font-medium"
               />
             </div>
           ) : (
@@ -490,42 +491,42 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
         </div>
 
         {historyTab === 'tasks' && tasksLoading ? (
-          <div className="flex items-center justify-center py-8 text-[#71717a] text-xs">
+          <div className="flex items-center justify-center py-8 text-ink-dim text-xs">
             <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载任务…
           </div>
         ) : historyTab === 'tasks' && filteredTasks.length === 0 ? (
-          <div className="text-center py-8 text-[#71717a] text-xs">暂无任务记录</div>
+          <div className="text-center py-8 text-ink-dim text-xs">暂无任务记录</div>
         ) : historyTab === 'tasks' && (
           <div className={`overflow-x-auto transition-opacity ${tasksFetching ? 'opacity-60' : ''}`}>
-            <table className="w-full text-xs text-left text-[#a1a1aa] leading-normal font-sans">
+            <table className="w-full text-xs text-left text-ink-dim leading-normal font-sans">
               <thead>
-                <tr className="border-b border-[#27272a] text-[#71717a] font-bold">
-                  <th className="py-2.5 px-3 uppercase tracking-wider text-[10px]">任务 ID</th>
-                  <th className="py-2.5 px-3 uppercase tracking-wider text-[10px]">工作流</th>
-                  <th className="py-2.5 px-3 uppercase tracking-wider text-[10px]">创建时间</th>
-                  <th className="py-2.5 px-3 uppercase tracking-wider text-[10px]">状态</th>
-                  <th className="py-2.5 px-3 uppercase tracking-wider text-[10px]">版本</th>
-                  <th className="py-2.5 px-3 text-right uppercase tracking-wider text-[10px]">操作</th>
+                <tr className="border-b border-line text-ink-dim font-bold">
+                  <th className="py-2.5 px-3 uppercase tracking-wider text-[11px]">任务 ID</th>
+                  <th className="py-2.5 px-3 uppercase tracking-wider text-[11px]">工作流</th>
+                  <th className="py-2.5 px-3 uppercase tracking-wider text-[11px]">创建时间</th>
+                  <th className="py-2.5 px-3 uppercase tracking-wider text-[11px]">状态</th>
+                  <th className="py-2.5 px-3 uppercase tracking-wider text-[11px]">版本</th>
+                  <th className="py-2.5 px-3 text-right uppercase tracking-wider text-[11px]">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#27272a]/40">
+              <tbody className="divide-y divide-line/40">
                 {filteredTasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-[#121214]/60 transition-colors">
-                    <td className="py-3 px-3 font-mono text-[#fafafa] text-[11px]">{task.id.slice(-10)}</td>
+                  <tr key={task.id} className="hover:bg-page/60 transition-colors">
+                    <td className="py-3 px-3 font-mono text-ink text-[11px]">{task.id.slice(-10)}</td>
                     <td className="py-3 px-3">
-                      <span className="font-semibold text-[#fafafa] font-mono text-[11px]">{task.workflow_id}</span>
+                      <span className="font-semibold text-ink font-mono text-[11px]">{task.workflow_id}</span>
                     </td>
-                    <td className="py-3 px-3 text-[#71717a] flex items-center gap-1">
+                    <td className="py-3 px-3 text-ink-dim flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-slate-600" />
-                      {formatTime(task.created_at)}
+                      {formatTimeFull(task.created_at)}
                     </td>
                     <td className="py-3 px-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${taskStatusBadge(task.status)}`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${taskStatusBadge(task.status)}`}>
                         <span className={`w-1 h-1 rounded-full ${taskStatusDot(task.status)}`} />
                         {task.status}
                       </span>
                     </td>
-                    <td className="py-3 px-3 font-mono text-[#a1a1aa]">v{task.version}</td>
+                    <td className="py-3 px-3 font-mono text-ink-dim">v{task.version}</td>
                     <td className="py-3 px-3 text-right">
                       <button
                         onClick={() => openTrace(task, onViewTask)}
@@ -611,13 +612,13 @@ interface MetricCardProps {
 
 function MetricCard({ title, value, note, icon: Icon, color, bg, loading }: MetricCardProps) {
   return (
-    <div className="p-5 rounded-xl border bg-[#121214] border-[#27272a] shadow-sm flex items-start justify-between relative overflow-hidden transition-all duration-250 hover:border-[#71717a]">
+    <div className="p-5 rounded-xl border bg-page border-line shadow-sm flex items-start justify-between relative overflow-hidden transition-all duration-250 hover:border-line-strong">
       <div className="space-y-1">
-        <span className="text-[#a1a1aa] text-xs font-semibold tracking-wide">{title}</span>
-        <p className="text-xl font-bold text-[#fafafa] font-mono">
+        <span className="text-ink-dim text-xs font-semibold tracking-wide">{title}</span>
+        <p className="text-xl font-bold text-ink font-mono">
           {loading ? <Loader2 className="w-4 h-4 animate-spin inline" /> : value}
         </p>
-        <p className="text-[#71717a] text-[11px]">{note}</p>
+        <p className="text-ink-dim text-[11px]">{note}</p>
       </div>
       <div className={`p-2.5 rounded-lg ${bg}`}>
         <Icon className={`w-4 h-4 ${color}`} />
@@ -628,14 +629,14 @@ function MetricCard({ title, value, note, icon: Icon, color, bg, loading }: Metr
 
 function StatRow({ name, value, status, desc }: { name: string; value: string; status: 'normal' | 'building'; desc: string }) {
   return (
-    <div className="p-2.5 bg-[#121214]/60 rounded-lg border border-[#27272a] text-[11px]">
+    <div className="p-2.5 bg-page/60 rounded-lg border border-line text-[11px]">
       <div className="flex justify-between items-center mb-1">
-        <span className="font-semibold text-[#fafafa]">{name}</span>
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${status === 'normal' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+        <span className="font-semibold text-ink">{name}</span>
+        <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold ${status === 'normal' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
           {value}
         </span>
       </div>
-      <span className="text-[#71717a]">{desc}</span>
+      <span className="text-ink-dim">{desc}</span>
     </div>
   );
 }
@@ -660,14 +661,6 @@ function build7DayChart(tasks: TaskSummary[]): { label: string; val: number }[] 
   return days.map(({ label, val }) => ({ label, val }));
 }
 
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 function taskStatusBadge(status: string): string {
   switch (status) {
     case 'running':
@@ -680,7 +673,7 @@ function taskStatusBadge(status: string): string {
     case 'cancelled':
       return 'bg-red-500/10 text-red-400';
     default:
-      return 'bg-[#27272a] text-[#a1a1aa]';
+      return 'bg-line text-ink-dim';
   }
 }
 
@@ -694,7 +687,7 @@ function taskStatusDot(status: string): string {
     case 'cancelled':
       return 'bg-red-400';
     default:
-      return 'bg-[#71717a]';
+      return 'bg-ink-dim';
   }
 }
 

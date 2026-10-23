@@ -74,19 +74,19 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
           <HelpHint text="审批完成后，审批结论、意见、审批人和审批时间会写入流程变量，供下游节点引用。" />
         </label>
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="success">通过</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人点击后，任务继续执行
             </span>
           </div>
-          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="error">驳回</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人点击后，任务标记为失败并终止
             </span>
           </div>
-          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-[#27272a] bg-[#1e1e22]">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="purple">意见</Tag>
             <span className="text-xs text-slate-400 flex-1">
               审批人在通过或驳回时填写，可留空
@@ -99,7 +99,7 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
       <div>
         <label className="block text-xs text-slate-400 mb-1">超时时间 (分钟)</label>
         <input
-          className="w-full px-2 py-1.5 rounded border border-[#27272a] bg-[#121214] text-[#fafafa] text-sm focus:outline-none focus:border-[#8B5CF6]"
+          className="w-full px-2 py-1.5 rounded border border-line bg-page text-ink text-sm focus:outline-none focus:border-[#8B5CF6]"
           type="number"
           value={typeof config?.timeout_minutes === 'number' ? config.timeout_minutes : 60}
           onChange={(e) =>
