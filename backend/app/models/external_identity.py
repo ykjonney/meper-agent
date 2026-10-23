@@ -1,4 +1,4 @@
-"""External identity mapping model for MongoDB.
+"""External identity mapping — sub composition for MongoDB identity docs.
 
 Maps an external sub (``{app_id}:{identity_key}`` — application-namespaced)
 to a platform user. This enables cross-application access: regardless of
@@ -6,10 +6,6 @@ which application context the request carries, identities bound by the
 same platform user all resolve to the same platform_user_id, whose
 ``user_mcp_credentials`` holds credential bindings per application.
 """
-from pydantic import BaseModel, Field
-from pydantic.config import ConfigDict
-
-from app.models.base import generate_id, utc_now
 
 
 def compose_sub(app_id: str, identity_key: str) -> str:
@@ -29,15 +25,3 @@ def compose_sub(app_id: str, identity_key: str) -> str:
     - runtime: compose_sub(app_id, introspection 的 sub/username)
     """
     return f"{app_id}:{identity_key}"
-
-
-class ExternalIdentity(BaseModel):
-    """MongoDB external_identities document model."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: str = Field(default_factory=lambda: generate_id("extid"), alias="_id")
-    sub: str = Field(..., description="{app_id}:{identity_key} 组合，全局唯一")
-    platform_user_id: str = Field(..., description="关联平台 User._id")
-    created_at: str = Field(default_factory=lambda: utc_now().isoformat())
-    updated_at: str = Field(default_factory=lambda: utc_now().isoformat())

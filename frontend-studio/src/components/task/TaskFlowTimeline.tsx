@@ -26,6 +26,7 @@ import { getNodeExecState, hasTaskRejectSignal, computeSupersededEventIdxs, type
 import { DataView } from './DataView'
 import { Spin } from '../ui'
 import AgentTimeline from './AgentTimeline'
+import { formatTimeShort } from '../../lib/formatTime'
 
 /* ─── 节点类型 → 图标 / 中文标签（与 WorkflowDesigner 的 NODE_TYPE_CONFIGS 对齐） ─── */
 
@@ -89,6 +90,15 @@ const EVENT_META: Record<string, { label: string; color: string }> = {
   intervene_retry: { label: '人工重试', color: '#F59E0B' },
   // rewind 退回重跑（后端事件名即 rewoun）：data 含 rewound_nodes
   rewoun: { label: '已退回重跑', color: '#F59E0B' },
+  // 子 Agent 委派（M2.1 委派可观测）：data 含 subagent/task/status/rounds
+  subagent_delegation: { label: '子 Agent 委派', color: '#8B5CF6' },
+  // 工作流级 token 预算耗尽（M3 前置）：data 含 total_tokens/token_budget
+  token_budget_exceeded: { label: 'Token 预算耗尽', color: '#EF4444' },
+  // loop 轮次（M3）：data 含 round/max_iterations/converged
+  loop_round_start: { label: '循环轮开始', color: '#A855F7' },
+  loop_round_complete: { label: '循环轮完成', color: '#A855F7' },
+  // 慢任务警告（beat 巡检）：data 含 elapsed_minutes/warn_minutes
+  task_running_slow: { label: '运行缓慢提醒', color: '#F59E0B' },
 }
 
 /** 审批已完成事件类型集合（用于过滤冗余的 waiting_human / human node_complete） */
@@ -108,6 +118,22 @@ const TERMINAL_LABEL: Record<string, string> = {
 /** 节点事件 → 中文标签（拼类型前缀，如 "Agent 节点开始"） */
 function nodeEventLabel(evt: TimelineEvent): string {
   const meta = EVENT_META[evt.event_type] ?? { label: evt.event_type, color: '#94A3B8' }
+  // loop 轮次：label 直接带轮号（"循环第 2/5 轮"，converged 时带收敛标记）
+  if (evt.event_type === 'loop_round_start' || evt.event_type === 'loop_round_complete') {
+    const round = typeof evt.data?.round === 'number' ? evt.data.round : '?'
+    // 存量 loop_round_complete 事件不带 max_iterations——省略分母而非显示 "?"
+    const max = typeof evt.data?.max_iterations === 'number' ? `/${evt.data.max_iterations}` : ''
+    const conv = evt.data?.converged === true ? ' · 已收敛' : ''
+    return `循环第 ${round}${max} 轮${evt.event_type === 'loop_round_complete' ? conv : ''}`
+  }
+  // 子 Agent 委派：直接显示执行主体名（用户一眼看到是谁在干活，而非工具名）
+  if (evt.event_type === 'subagent_delegation') {
+    const sub = (evt.data?.subagent as string | undefined) ?? ''
+    const status = (evt.data?.status as string | undefined) ?? ''
+    const dur = typeof evt.data?.duration_ms === 'number' ? `${(evt.data.duration_ms / 1000).toFixed(1)}s` : ''
+    const tail = [status === 'ok' ? '' : status, dur].filter(Boolean).join(' · ')
+    return sub ? `子 Agent ${sub}${tail ? `（${tail}）` : ''}` : meta.label
+  }
   const nodeType = evt.data?.node_type as string | undefined
   const isNodeEvent = !!nodeType && (
     evt.event_type === 'node_start' ||
@@ -139,6 +165,10 @@ function filterEventData(evt: TimelineEvent, nodeOutputExists: boolean): Record<
   for (const [k, v] of Object.entries(evt.data ?? {})) {
     if (REDUNDANT_EVENT_DATA_KEYS.has(k)) continue
     if (k === 'output_summary' && nodeOutputExists) continue
+    // 循环轮事件：round/max_iterations/converged 已被事件标签（"循环第
+    // N/M 轮·已收敛"）完整消费，剩余 data 纯冗余
+    if ((evt.event_type === 'loop_round_start' || evt.event_type === 'loop_round_complete') &&
+        (k === 'round' || k === 'max_iterations' || k === 'converged')) continue
     out[k] = v
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -179,22 +209,36 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     return map
   }, [wf])
 
+  // 体成员的跨轮记忆策略（wf 节点 config.loop_thread_policy）——决定
+  // 循环详情里哪些成员单独展示（continue）哪些已并入工作台（fresh）
+  const threadPolicyMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const n of wf?.nodes ?? []) {
+      if (n.node_id) {
+        map.set(n.node_id, String(
+          ((n.config ?? {}) as Record<string, unknown>).loop_thread_policy ?? 'continue',
+        ))
+      }
+    }
+    return map
+  }, [wf])
+
   // 生命周期里程碑：创建 / 终态（完成·失败·取消）
   const createdEvt = task.timeline.find((e) => e.event_type === 'created' || e.event_type === 'started')
   const terminalEvt = task.timeline.find((e) =>
     ['completed', 'failed', 'task_failed', 'cancelled'].includes(e.event_type))
 
   if (stages.length === 0 && !createdEvt) {
-    return <div className="text-xs text-[#71717a] italic">暂无执行事件</div>
+    return <div className="text-xs text-ink-dim italic">暂无执行事件</div>
   }
 
-  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
-  const subText = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500'
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const subText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
 
   return (
     <div className="relative pl-6">
       {/* 竖向连接线 */}
-      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] ${theme === 'dark' ? 'bg-[#27272a]' : 'bg-slate-200'}`} />
+      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] ${theme === 'dark' ? 'bg-line' : 'bg-slate-200'}`} />
 
       {/* 创建里程碑 */}
       {createdEvt && (
@@ -209,13 +253,22 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
         const nodeLabel = nodeNameMap.get(stage.nodeId) || stage.label || (NODE_TYPE_LABEL[stage.nodeType] ?? stage.nodeType)
         // 节点完整输出：variables（暂停/干预时写入）优先，正常完成的任务回落到
         // output（完成时写入的完整变量池快照，同样按 node_id 取）。
-        const output = task.variables?.[stage.nodeId] ?? task.output?.[stage.nodeId]
+        const rawOutput = task.variables?.[stage.nodeId] ?? task.output?.[stage.nodeId]
+        // 循环节点：配置回显与 rounds 原始快照属实现细节（工作台已投影），
+        // 只展示轮数/收敛/工作台
+        const output = stage.nodeType === 'loop' && rawOutput && typeof rawOutput === 'object'
+          ? Object.fromEntries(
+              Object.entries(rawOutput as Record<string, unknown>).filter(
+                ([k]) => ['iterations', 'converged', 'stalled', 'workspace'].includes(k),
+              ),
+            )
+          : rawOutput
         return (
           <div key={stage.nodeId} className="relative py-1.5">
             {/* 左侧状态圆点 */}
             <div
               className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 z-10 flex items-center justify-center ${
-                theme === 'dark' ? 'border-[#121214]' : 'border-white'
+                theme === 'dark' ? 'border-line' : 'border-white'
               }`}
               style={{ backgroundColor: meta.color }}
             />
@@ -238,15 +291,15 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                     : state === 'waiting'
                       ? 'border-[#8B5CF6]/40 bg-[#8B5CF6]/5'
                       : theme === 'dark'
-                        ? 'border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]'
+                        ? 'border-line bg-panel hover:border-line-strong'
                         : 'border-slate-200 bg-white hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className={`shrink-0 ${subText}`}>{NODE_TYPE_ICON[stage.nodeType] ?? <Flag size={13} />}</span>
-                <span className={`text-xs font-medium truncate flex-1 ${theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'}`}>{nodeLabel}</span>
+                <span className={`text-xs font-medium truncate flex-1 ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{nodeLabel}</span>
                 <span
-                  className="inline-flex items-center gap-1 text-[10px] font-medium shrink-0"
+                  className="inline-flex items-center gap-1 text-[11px] font-medium shrink-0"
                   style={{ color: meta.color }}
                 >
                   {meta.icon} {meta.label}
@@ -259,7 +312,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 
               {/* 耗时 / Token 消耗 */}
               {(stage.duration || stage.tokenTotal) && (
-                <div className={`text-[10px] mt-1 font-mono ${mutedText}`}>
+                <div className={`text-[11px] mt-1 font-mono ${mutedText}`}>
                   {stage.duration && <>耗时 {stage.duration}</>}
                   {stage.duration && stage.tokenTotal ? ' · ' : ''}
                   {stage.tokenTotal && <>{stage.tokenTotal.toLocaleString()} tokens</>}
@@ -272,7 +325,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
               {isExpanded && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className={`mt-2 pt-2 space-y-2.5 ${theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'} border-t`}
+                  className={`mt-2 pt-2 space-y-2.5 ${theme === 'dark' ? 'border-line' : 'border-slate-200'} border-t`}
                 >
                   {/* 事件列表（保留旧的中文标签 / actor / 可折叠 data） */}
                   {stage.events.length > 0 && (
@@ -288,24 +341,24 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                         // 保留作唯一线索），过滤后为空的事件不再渲染「详细数据」区块。
                         const filteredData = filterEventData(evt, output !== undefined)
                         return (
-                          <div key={idx} className={`text-[10px]${superseded ? ' opacity-50' : ''}`}>
+                          <div key={idx} className={`text-[11px]${superseded ? ' opacity-50' : ''}`}>
                             <div className="flex items-baseline gap-1.5 flex-wrap">
                               <span className="font-medium" style={{ color: emeta.color }}>{label}</span>
                               {superseded && (
-                                <span className="text-[9px] text-[#a1a1aa] bg-[#27272a] rounded px-1 py-0.5">已废弃</span>
+                                <span className="text-[11px] text-ink-dim bg-line rounded px-1 py-0.5">已废弃</span>
                               )}
-                              <span className={mutedText}>{fmtTime(evt.timestamp)}</span>
+                              <span className={mutedText}>{formatTimeShort(evt.timestamp)}</span>
                               {evt.actor && evt.actor !== 'system' && (
                                 <span className={mutedText}>· {evt.actor}</span>
                               )}
                             </div>
                             {filteredData && (
-                              <details className="mt-1 group rounded-lg border border-[#27272a] bg-[#09090b] overflow-hidden">
-                                <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium ${mutedText} hover:text-[#1E5EFF] hover:bg-[#18181b]/40 transition-colors [&::-webkit-details-marker]:hidden`}>
+                              <details className="mt-1 group rounded-lg border border-line bg-well overflow-hidden">
+                                <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium ${mutedText} hover:text-link hover:bg-panel/40 transition-colors [&::-webkit-details-marker]:hidden`}>
                                   <ChevronRight className="w-3 h-3 shrink-0 group-open:rotate-90 transition-transform" />
                                   详细数据
                                 </summary>
-                                <div className="p-2.5 border-t border-[#27272a]">
+                                <div className="p-2.5 border-t border-line">
                                   <DataView value={filteredData} context="event_data" showRaw={false} />
                                 </div>
                               </details>
@@ -318,15 +371,29 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
 
                   {/* 节点输出 */}
                   <div>
-                    <div className={`text-[10px] uppercase tracking-wider mb-1 ${mutedText}`}>节点输出</div>
+                    <div className={`text-[11px] uppercase tracking-wider mb-1 ${mutedText}`}>节点输出</div>
                     {output === undefined ? (
-                      <div className={`text-[10px] italic ${mutedText}`}>无</div>
+                      <div className={`text-[11px] italic ${mutedText}`}>无</div>
                     ) : (
-                      <div className="rounded-lg border border-[#27272a] bg-[#09090b] p-2.5">
+                      <div className="rounded-lg border border-line bg-well p-2.5">
                         <DataView value={output} context="node_output" nodeType={stage.nodeType} showRaw={false} />
                       </div>
                     )}
                   </div>
+
+                  {/* 循环体成员（角色视角）：所有成员都展示——续接成员
+                      一条完整会话（跨轮同 thread）；每轮独立成员按轮渲染
+                      轨迹（rounds 快照），工作台退役后这是其产出的唯一视图 */}
+                  {stage.nodeType === 'loop' && stage.members && stage.members.length > 0 && (
+                    <LoopMembers
+                      members={stage.members}
+                      task={task}
+                      theme={theme}
+                      nodeNameMap={nodeNameMap}
+                      threadPolicyMap={threadPolicyMap}
+                      loopNodeId={stage.nodeId}
+                    />
+                  )}
 
                   {/* Agent 节点执行明细：stage 展开即自动加载（每节点独立缓存，互不干扰） */}
                   {stage.nodeType === 'agent' && state !== 'pending' && (
@@ -352,6 +419,182 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
   )
 }
 
+/* ─── 子组件：循环体成员（角色视角） ─── */
+
+/**
+ * 循环体成员（角色视角）——所有成员都展示（工作台退役后这里是 fresh
+ * 成员产出的唯一视图）：
+ * - 跨轮续接（continue）：一条完整会话 + 最新轮输出 + Agent 明细
+ * - 每轮独立（fresh）：按轮渲染轨迹（rounds 快照的该成员各轮输出：
+ *   轮号 + verdict 徽标 + 意见首行），点击轮次行展开该轮完整输出
+ */
+function LoopMembers({
+  members, task, theme, nodeNameMap, threadPolicyMap, loopNodeId,
+}: {
+  members: NodeStageInfo[]
+  task: TaskDetail
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+  threadPolicyMap: Map<string, string>
+  loopNodeId: string
+}) {
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const loopOutput = (task.output ?? task.variables)?.[loopNodeId] as
+    | { rounds?: Record<string, Record<string, unknown>> }
+    | undefined
+  const rounds = loopOutput?.rounds ?? {}
+
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <div className={`text-[11px] uppercase tracking-wider mb-1 ${mutedText}`}>循环成员（{members.length}）</div>
+      <div className="space-y-1.5">
+        {members.map((ms) => {
+          const isFresh = (threadPolicyMap.get(ms.nodeId) ?? 'continue') === 'fresh'
+          return isFresh ? (
+            <FreshMemberCard
+              key={ms.nodeId} member={ms} rounds={rounds} theme={theme}
+              nodeNameMap={nodeNameMap} mutedText={mutedText}
+            />
+          ) : (
+            <ContinueMemberCard
+              key={ms.nodeId} member={ms} task={task} theme={theme}
+              nodeNameMap={nodeNameMap} mutedText={mutedText}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** 每轮独立成员：按轮轨迹（rounds 快照），点击轮次行展开该轮完整输出。 */
+function FreshMemberCard({
+  member, rounds, theme, nodeNameMap, mutedText,
+}: {
+  member: NodeStageInfo
+  rounds: Record<string, Record<string, unknown>>
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+  mutedText: string
+}) {
+  const [openRound, setOpenRound] = useState<string | null>(null)
+  const label = nodeNameMap.get(member.nodeId) || member.label || member.nodeId
+  const mMeta = STATE_META[member.state]
+  // 该成员有输出的轮（倒序：最新在上）
+  const memberRounds = Object.entries(rounds)
+    .map(([r, snap]) => {
+      const out = snap[member.nodeId] as { response?: Record<string, unknown> } | undefined
+      return { round: r, out }
+    })
+    .filter((x) => x.out !== undefined)
+    .sort((a, b) => Number(b.round) - Number(a.round))
+  const latest = memberRounds[0]
+  const latestVerdict = latest?.out?.response?.verdict
+  const verdictBadge =
+    latestVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+    : latestVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+    : null
+  return (
+    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
+        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{label}</span>
+        <span className={`text-[11px] ${mutedText}`}>每轮独立 · {memberRounds.length} 轮</span>
+        {verdictBadge && (
+          <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+            {verdictBadge.text}
+          </span>
+        )}
+        <span className="text-[11px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+      </div>
+      {/* 每轮一行：轮号 + verdict + score + 意见首行；点击展开该轮完整输出 */}
+      <div className="mt-1.5 space-y-0.5">
+        {memberRounds.map(({ round, out }) => {
+          const resp = (out?.response ?? {}) as Record<string, unknown>
+          const v = String(resp.verdict ?? '')
+          const vc = v === 'approve' ? '#10B981' : v === 'revise' ? '#F59E0B' : '#71717a'
+          const score = resp.score != null ? ` ${String(resp.score)}分` : ''
+          const firstLine = String(resp.issues ?? resp.comment ?? '').split('\n').find((x) => x.trim()) ?? (v === 'approve' ? '（通过）' : '')
+          const open = openRound === round
+          return (
+            <div key={round}>
+              <button
+                type="button"
+                onClick={() => setOpenRound(open ? null : round)}
+                className={`w-full flex items-baseline gap-1.5 text-left px-1.5 py-1 rounded cursor-pointer transition-colors hover:bg-panel-hover`}
+              >
+                <span className="text-[11px] font-mono shrink-0" style={{ color: vc }}>R{round} {v}{score}</span>
+                <span className={`flex-1 min-w-0 truncate text-[11px] ${mutedText}`}>{firstLine}</span>
+                <ChevronRight size={11} className={`shrink-0 self-center transition-transform ${open ? 'rotate-90' : ''} ${mutedText}`} />
+              </button>
+              {open && (
+                <div className="mx-1.5 mt-0.5 mb-1 rounded border border-line bg-well p-2">
+                  <DataView value={out!} context="node_output" nodeType={member.nodeType} showRaw={false} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** 跨轮续接成员：一条完整会话（各轮同 thread）+ 最新轮输出 + Agent 明细。 */
+function ContinueMemberCard({
+  member, task, theme, nodeNameMap, mutedText,
+}: {
+  member: NodeStageInfo
+  task: TaskDetail
+  theme: 'light' | 'dark'
+  nodeNameMap: Map<string, string>
+  mutedText: string
+}) {
+  const mMeta = STATE_META[member.state]
+  const mLabel = nodeNameMap.get(member.nodeId) || member.label || (NODE_TYPE_LABEL[member.nodeType] ?? member.nodeType)
+  const mOutput = task.variables?.[member.nodeId] ?? task.output?.[member.nodeId]
+  // 评审结论（输出契约的 verdict 字段）：执行"已完成"≠审核"通过"，
+  // 评审成员需第二维度徽标区分（approve=通过 / revise=需修改）
+  const mVerdict =
+    mOutput && typeof mOutput === 'object'
+      ? (mOutput as { response?: { verdict?: unknown } }).response?.verdict
+      : undefined
+  const verdictBadge =
+    mVerdict === 'approve' ? { text: '审核通过', color: '#10B981' }
+    : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
+    : null
+  return (
+    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
+        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{mLabel}</span>
+        {verdictBadge && (
+          <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
+            {verdictBadge.text}
+          </span>
+        )}
+        <span className="text-[11px] font-medium shrink-0" style={{ color: mMeta.color }}>{mMeta.icon} {mMeta.label}</span>
+        {(member.duration || member.tokenTotal) && (
+          <span className={`text-[11px] font-mono ml-auto shrink-0 ${mutedText}`}>
+            {member.duration}
+            {member.duration && member.tokenTotal ? ' · ' : ''}
+            {member.tokenTotal ? `${member.tokenTotal.toLocaleString()} tk` : ''}
+          </span>
+        )}
+      </div>
+      {/* 成员输出（response/结果——DataView 按类型渲染） */}
+      {mOutput !== undefined && (
+        <div className="mt-1.5 rounded border border-line bg-well p-2">
+          <DataView value={mOutput} context="node_output" nodeType={member.nodeType} showRaw={false} />
+        </div>
+      )}
+      {member.nodeType === 'agent' && member.state !== 'pending' && (
+        <NodeAgentTrace taskId={task.id} nodeId={member.nodeId} theme={theme} />
+      )}
+    </div>
+  )
+}
+
 /* ─── 子组件：Agent 节点执行明细（挂载即自动加载，每节点独立缓存） ─── */
 
 function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: string; theme: 'light' | 'dark' }) {
@@ -366,7 +609,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
     staleTime: 60_000,
     retry: 1,
   })
-  const mutedText = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
   const errAny = error as { statusCode?: number; response?: { status?: number }; message?: string } | null
   const errStatus = errAny?.statusCode ?? errAny?.response?.status
   const is404 = errStatus === 404
@@ -376,14 +619,14 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
         onClick={() => setExpanded((v) => !v)}
         className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
           theme === 'dark'
-            ? `border-[#27272a] bg-[#09090b] hover:border-[#1E5EFF]/50 hover:text-[#1E5EFF] ${expanded ? 'text-[#1E5EFF] border-[#1E5EFF]/40' : 'text-[#a1a1aa]'}`
-            : `border-slate-200 bg-slate-50 hover:border-[#1E5EFF]/50 hover:text-[#1E5EFF] ${expanded ? 'text-[#1E5EFF] border-[#1E5EFF]/40' : 'text-slate-600'}`
+            ? `border-line bg-well hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-ink-dim'}`
+            : `border-slate-200 bg-slate-50 hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-slate-600'}`
         }`}
       >
         <Workflow size={12} className="shrink-0" />
         Agent 执行明细
         {expanded && nodeTimeline?.message_count ? (
-          <span className={`text-[10px] font-normal ${mutedText}`}>· {nodeTimeline.message_count} 条消息</span>
+          <span className={`text-[11px] font-normal ${mutedText}`}>· {nodeTimeline.message_count} 条消息</span>
         ) : null}
         <ChevronRight
           size={12}
@@ -395,18 +638,18 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
           <Spin />
         </div>
       ) : error ? (
-        <div className={`text-[10px] italic ${theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'}`}>
+        <div className={`text-[11px] italic ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>
           {is404 ? '该节点暂无执行记录' : `加载失败：${errAny?.message ?? '请稍后重试'}`}
         </div>
       ) : nodeTimeline?.timeline?.length ? (
         <div className="space-y-1.5">
           {nodeTimeline.message_count ? (
-            <div className={`text-[10px] ${mutedText}`}>消息数 {nodeTimeline.message_count}</div>
+            <div className={`text-[11px] ${mutedText}`}>消息数 {nodeTimeline.message_count}</div>
           ) : null}
           <AgentTimeline entries={nodeTimeline.timeline} theme={theme} />
         </div>
       ) : (
-        <div className={`text-[10px] italic ${mutedText}`}>该节点暂无执行记录</div>
+        <div className={`text-[11px] italic ${mutedText}`}>该节点暂无执行记录</div>
       ))}
     </div>
   )
@@ -423,27 +666,16 @@ function Milestone({ color, label, time, subText }: {
   return (
     <div className="relative py-2">
       <div
-        className="absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-[#121214] z-10"
+        className="absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-line z-10"
         style={{ backgroundColor: color }}
       />
       <div className="flex items-center gap-2">
         <Flag size={12} style={{ color }} />
         <span className="text-xs font-medium" style={{ color }}>{label}</span>
-        <span className={`text-[10px] ${subText}`}>{fmtTime(time)}</span>
+        <span className={`text-[11px] ${subText}`}>{formatTimeShort(time)}</span>
       </div>
     </div>
   )
-}
-
-/* ─── 工具：ISO → 时:分:秒 ─── */
-
-function fmtTime(iso: string): string {
-  if (!iso) return '-'
-  try {
-    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return iso
-  }
 }
 
 /* ─── 构建阶段列表 ─── */
@@ -471,16 +703,76 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
   // 展示保留（标记「已废弃」），状态推导 / 耗时 / token 剔除，避免旧轮误导
   const supersededIdxs = computeSupersededEventIdxs(timeline)
 
+  // ── 循环体成员归属：loop_round_start..loop_round_complete 窗口内带
+  // round 的节点事件属于该 loop（引擎 engine.py 注入 round）。成员不进
+  // 顶层 stage——在循环节点卡片内按轮查看（用户视角：循环是节点的内部
+  // 实现，成员平铺在顶层是泄漏实现细节）。
+  type MemberKey = `${string}|${number}|${string}` // loopId|round|nodeId
+  const memberEvents = new Map<MemberKey, TimelineEvent[]>()
+  let curLoop: string | null = null
+
   // 收集每个节点的相关事件 + 首次出现顺序（全量收集，不做状态相关过滤）
   const order: string[] = []
   const eventsByNode = new Map<string, TimelineEvent[]>()
   const supersededByNode = new Map<string, Set<TimelineEvent>>()
   const typeByNode = new Map<string, string>()
 
+  const buildStage = (
+    nodeId: string, nodeType: string, evts: TimelineEvent[], superseded?: Set<TimelineEvent>,
+  ): NodeStageInfo => {
+    const liveEvts = superseded ? evts.filter((e) => !superseded.has(e)) : evts
+    const nodeVars = task.variables?.[nodeId]
+    const decision =
+      nodeVars && typeof nodeVars === 'object' && typeof (nodeVars as { decision?: unknown }).decision === 'string'
+        ? (nodeVars as { decision: string }).decision
+        : undefined
+    const state = getNodeExecState(liveEvts, nodeId === pausedNode, decision, taskRejected)
+    const startEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_start')
+    const endEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_complete' || e.event_type === 'node_failed')
+    const duration = (startEvt && endEvt) ? humanDuration(startEvt.timestamp, endEvt.timestamp) : undefined
+    const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
+    const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
+    const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
+    let displayEvents = hasAnyApproval && nodeType === 'human'
+      ? evts.filter((e) => e.event_type !== 'node_complete')
+      : evts
+    // 循环节点：轮事件（循环第 N 轮）已承载执行语义，节点自身的
+    // node_start/node_complete 是执行器回显的管道事件，展示纯噪声
+    if (nodeType === 'loop' && evts.some((e) => e.event_type.startsWith('loop_round_'))) {
+      displayEvents = displayEvents.filter(
+        (e) => e.event_type !== 'node_start' && e.event_type !== 'node_complete',
+      )
+    }
+    return { nodeId, nodeType, state, events: displayEvents, superseded, duration, label, tokenTotal }
+  }
+
   timeline.forEach((evt, idx) => {
     const nodeId = typeof evt.data?.node_id === 'string' ? evt.data.node_id : undefined
     const nodeType = typeof evt.data?.node_type === 'string' ? evt.data.node_type : undefined
     if (!nodeId) return
+
+    // 循环轮窗口开合（loop_round_* 事件归属 loop 自身的 stage）
+    if (evt.event_type === 'loop_round_start') {
+      curLoop = nodeId
+    } else if (evt.event_type === 'loop_round_complete') {
+      curLoop = null
+    }
+
+    // 体成员事件（带 round 且处于轮窗口内）→ 按轮聚合，不进顶层
+    const evtRound = Number(evt.data?.round ?? 0)
+    if (curLoop && evtRound > 0 && nodeId !== curLoop) {
+      const key = `${curLoop}|${evtRound}|${nodeId}` as MemberKey
+      const list = memberEvents.get(key) ?? []
+      list.push(evt)
+      memberEvents.set(key, list)
+      // 循环节点首次出现顺序兜底登记（正常其 node_start 已在窗口前登记）
+      if (!order.includes(curLoop)) order.push(curLoop)
+      if (!eventsByNode.has(curLoop)) eventsByNode.set(curLoop, [])
+      if (nodeType) typeByNode.set(nodeId, nodeType)
+      if (!typeByNode.has(curLoop)) typeByNode.set(curLoop, 'loop')
+      return
+    }
+
     if (!eventsByNode.has(nodeId)) {
       eventsByNode.set(nodeId, [])
       order.push(nodeId)
@@ -496,35 +788,37 @@ function buildStages(task: TaskDetail): NodeStageInfo[] {
     if (nodeType) typeByNode.set(nodeId, nodeType)
   })
 
+  // ── 顶层 stages（成员已剔除；loop stage 附跨轮聚合的 members）──
+  // 成员按 (loop, node) 聚合全部轮次事件：continue 成员一条完整会话展示
+  // 一次；fresh 成员的轮次产出已被工作台吸收（verdict/issues 轨迹），
+  // 前端按 wf 的 loop_thread_policy 决定是否单独展示。token 取各轮汇总
+  // （continue 成员跨轮的总消耗）。
+  const membersByLoop = new Map<string, NodeStageInfo[]>()
+  for (const [key, evts] of memberEvents) {
+    const [loopId, , nodeId] = key.split('|')
+    const nodeType = typeByNode.get(nodeId) ?? 'agent'
+    const sub = buildStage(nodeId, nodeType, evts)
+    sub.tokenTotal = evts.reduce((sum, e) => {
+      const u = e.event_type === 'node_complete' ? (e.data?.usage as { total_tokens?: number } | undefined) : undefined
+      return sum + (typeof u?.total_tokens === 'number' ? u.total_tokens : 0)
+    }, 0) || sub.tokenTotal
+    const arr = membersByLoop.get(loopId) ?? []
+    const existing = arr.find((m) => m.nodeId === nodeId)
+    if (existing) {
+      existing.events = [...existing.events, ...evts]
+    } else {
+      arr.push(sub)
+    }
+    membersByLoop.set(loopId, arr)
+  }
+
   return order.map((nodeId) => {
     const evts = eventsByNode.get(nodeId)!
-    const superseded = supersededByNode.get(nodeId)
-    const liveEvts = superseded ? evts.filter((e) => !superseded.has(e)) : evts
     const nodeType = typeByNode.get(nodeId) ?? 'agent'
-    // 决策兜底：存量任务的 reject 事件不带 node_id，无法归属到节点，
-    // 用 variables 里的 decision 字段识别被拒绝的 human 节点
-    const nodeVars = task.variables?.[nodeId]
-    const decision =
-      nodeVars && typeof nodeVars === 'object' && typeof (nodeVars as { decision?: unknown }).decision === 'string'
-        ? (nodeVars as { decision: string }).decision
-        : undefined
-    // 任务级拒绝兜底：存量超时事件（timeout auto_reject/fail）同样不带 node_id，
-    // 暂停节点凭任务级信号判为已拒绝（超时 fail 不清空 checkpoint）
-    const state = getNodeExecState(liveEvts, nodeId === pausedNode, decision, taskRejected)
-    // 耗时取「最新一轮」（过滤废弃后最后一个 start / end）——rewind 多轮重跑下，
-    // 旧轮起点配新轮终点会把耗时算成跨轮总长
-    const startEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_start')
-    const endEvt = [...liveEvts].reverse().find((e) => e.event_type === 'node_complete' || e.event_type === 'node_failed')
-    const duration = (startEvt && endEvt) ? humanDuration(startEvt.timestamp, endEvt.timestamp) : undefined
-    const label = typeof evts[0]?.data?.node_label === 'string' ? evts[0].data.node_label as string : ''
-    // 节点 token 用量（仅 agent 节点的 node_complete 事件 data.usage 携带）
-    const usage = endEvt?.data?.usage as { total_tokens?: number } | undefined
-    const tokenTotal = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined
-    // 展示事件：审批完成后隐藏 human 节点的 node_complete（语义被审批事件取代），仅影响列表
-    const displayEvents = hasAnyApproval && nodeType === 'human'
-      ? evts.filter((e) => e.event_type !== 'node_complete')
-      : evts
-    return { nodeId, nodeType, state, events: displayEvents, superseded, duration, label, tokenTotal }
+    const stage = buildStage(nodeId, nodeType, evts, supersededByNode.get(nodeId))
+    const members = membersByLoop.get(nodeId)
+    if (nodeType === 'loop' && members) stage.members = members
+    return stage
   })
 }
 

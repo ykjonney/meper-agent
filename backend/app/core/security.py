@@ -143,25 +143,6 @@ def decode_token(token: str) -> dict[str, Any]:
         ) from exc
 
 
-def decode_access_token(token: str) -> dict[str, Any] | None:
-    """Decode and validate a JWT access token. Returns payload dict or None.
-
-    Unlike decode_token(), this does NOT raise — it returns None on any failure.
-    Designed for WebSocket auth where exceptions are awkward.
-    """
-    try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-        if payload.get("type") != "access":
-            return None
-        return payload
-    except Exception:
-        return None
-
-
 # ---------------------------------------------------------------------------
 # FastAPI Depends — JWT authentication (Decision 2.1 + 2.3)
 # ---------------------------------------------------------------------------

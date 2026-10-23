@@ -134,6 +134,7 @@ async def create_task(
         created_by=current_user.id,
         created_by_type="user",
         scheduled_at=body.scheduled_at,
+        token_budget=body.token_budget,
     )
     return _doc_to_full_response(doc)
 
@@ -384,13 +385,27 @@ async def get_node_timeline(
     checkpointer = get_checkpointer()
     tuple_ = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
 
-    if tuple_ is None or not tuple_.checkpoint:
+    # 循环体成员聚合读取：fresh thread_policy 的会话按轮存在
+    # ``{task}_{node}_rN`` 独立 thread 里（枚举上限与校验器
+    # LOOP_MAX_ITERATIONS_LIMIT 对齐=100，枚举便宜），只读 base thread
+    # 会永远"无执行记录"。continue 策略数据在 base thread，两种策略都
+    # 聚合成轮序视图（轮与轮以 user 输入自然分界）。
+    messages: list = []
+    if tuple_ is not None and tuple_.checkpoint:
+        messages.extend(tuple_.checkpoint.get("channel_values", {}).get("messages", []))
+    from app.engine.workflow.validator import LOOP_MAX_ITERATIONS_LIMIT as _MAX_ITERS
+    for rnd in range(1, _MAX_ITERS + 1):
+        rt = await checkpointer.aget_tuple(
+            {"configurable": {"thread_id": f"{thread_id}_r{rnd}"}},
+        )
+        if rt is not None and rt.checkpoint:
+            messages.extend(rt.checkpoint.get("channel_values", {}).get("messages", []))
+
+    if not messages:
         raise NotFoundError(
             code="NODE_TIMELINE_NOT_FOUND",
             message=f"节点 {node_id} 无执行记录",
         )
-
-    messages = tuple_.checkpoint.get("channel_values", {}).get("messages", [])
     # 执行明细是调试视图：thinking 块必须渲染（不受 enable_thinking 开关
     # 过滤——节点输出契约 v3 已移除 thinking 字段，这里是唯一查看处）。
     timeline = messages_to_timeline_entries(

@@ -538,6 +538,170 @@ async def resolve_all_tools(
     return all_tools, errors
 
 
+async def load_subagent_bundles(
+    subagent_cfgs: list,
+    logger_event: str = "subagent_unavailable",
+    *,
+    exclude_agent_id: str = "",
+    **log_kwargs: Any,
+) -> tuple[list[dict], list[dict]]:
+    """拉取 published 子 agent 文档，组装 bundles + 声明条目（M1/M2 共用）。
+
+    输入兼容两种形态（workflow 节点 config.subagents / chat 侧 agent.subagent_ids）：
+    - [{"agent_id": str, "timeout_ms"?: int}, ...]
+    - ["agent_id", ...]
+
+    published-only：draft/archived/不存在/重复声明一律静默跳过（执行照常，
+    只是少一个可委派对象）——与 spawn 治理同风格：运行时只信任已发布定义。
+
+    自引用防御：exclude_agent_id（父 agent 自身 id）被跳过——运行时委派
+    深度恒为 1（子 agent 无 delegate 工具），自引用不会死循环，但属配置
+    卫生问题（前端已挡，此处防 API 直改绕过）。互相引用（A↔B）无需防御：
+    subagent_ids 只在该 agent 作为主 agent 时生效，作为子 agent 执行时
+    其配置不参与。
+
+    Returns:
+        (bundles, decls)——bundles 传 resolve_harness_context 的 subagents
+        参数（装配 SubAgentContext + 注入 delegate 工具）；decls 传
+        build_system_prompt/render_system_prompt_full 的 subagents 参数
+        （工具声明与 registry 同源，防双路径漂移）。
+    """
+    from app.db.mongodb import get_database
+
+    bundles: list[dict] = []
+    decls: list[dict] = []
+    seen_ids: set[str] = set()
+    db = get_database()
+    for item in subagent_cfgs:
+        if isinstance(item, dict):
+            sub_agent_id = str(item.get("agent_id") or "").strip()
+            timeout_ms = int(item.get("timeout_ms") or 120_000)
+        elif isinstance(item, str):
+            sub_agent_id = item.strip()
+            timeout_ms = 120_000
+        else:
+            continue
+        if not sub_agent_id or sub_agent_id in seen_ids:
+            continue
+        if exclude_agent_id and sub_agent_id == exclude_agent_id:
+            continue  # 自引用防御
+        seen_ids.add(sub_agent_id)
+        sub_doc = await db["agents"].find_one(
+            {"_id": sub_agent_id, "status": "published"},
+        )
+        if sub_doc is None:
+            logger.warning(
+                logger_event,
+                sub_agent_id=sub_agent_id,
+                reason="not_found_or_not_published",
+                **log_kwargs,
+            )
+            continue
+        sub_name = str(sub_doc.get("name") or "").strip()
+        if not sub_name:
+            continue
+        bundles.append({"agent_doc": sub_doc, "timeout_ms": timeout_ms})
+        sub_desc = str(sub_doc.get("description") or "").strip()
+        decls.append({
+            "name": sub_name,
+            "description": sub_desc or f"专门执行特定任务的子 Agent（{sub_name}）",
+        })
+    return bundles, decls
+
+
+async def _build_subagent_environment(
+    subagent_bundles: list[dict],
+    state: dict,
+    execution_context: str,
+) -> tuple[Any, list[dict], list[dict]]:
+    """按节点声明的子 agent bundle 装配 SubAgentContext（M1 委派接线）。
+
+    bundle = {"agent_doc": <published agent 文档>, "timeout_ms": int}——
+    published 过滤由调用方（AgentNodeExecutor 拉取时）保证。
+
+    装配语义：
+    - spec.system_prompt 用子 agent 自身 slot 渲染（execution_context 同父，
+      自包含模板，不注入变量池——子 agent 不依赖父节点变量）
+    - 工具集按子 agent 配置完整解析（MCP/KB/skill/自定义），经
+      tools_provider 预解析注入——harness 静态 tool_registry 取不到动态工具
+    - LLM 按子 agent default_model 预构建（每 agent 可独立配模型）
+    - 单个子 agent 装配失败不炸整节点：跳过并记 load_error（LLM 可见的
+      降级，与 MCP 工具加载失败同语义）
+
+    Returns:
+        (subagent_ctx, declaration_entries, load_errors)——ctx 为 None 表示
+        没有任何子 agent 装配成功。
+    """
+    from agent_flow_harness import SubAgentContext, SubAgentRegistry, SubAgentSpec
+    from agent_flow_harness.tools.registry import ToolRegistry
+
+    from app.engine.agent.slot_renderer import render_system_prompt_full
+    from app.engine.llm_factory import get_llm_client
+
+    registry = SubAgentRegistry()
+    tools_by_name: dict[str, list] = {}
+    llm_by_name: dict[str, Any] = {}
+    decls: list[dict] = []
+    errors: list[dict] = []
+
+    for bundle in subagent_bundles:
+        doc = bundle.get("agent_doc") or {}
+        name = str(doc.get("name") or "").strip()
+        if not name or name in tools_by_name:
+            errors.append({
+                "tool": "delegate_to_subagent",
+                "error": f"子 Agent 名称为空或重复: {name or '<empty>'}",
+            })
+            continue
+        try:
+            system_prompt = await render_system_prompt_full(
+                doc, execution_context=execution_context,
+            )
+            sub_tools, _tool_errors = await resolve_all_tools(
+                doc,
+                user_id=state.get("user_id", ""),
+                session_id=state.get("session_id", ""),
+                loaded_tracker=set(),
+                request_id=state.get("request_id", ""),
+                execution_context=execution_context,
+            )
+            sub_llm = await get_llm_client(doc)
+        except Exception as exc:  # 单个子 agent 失败降级，不炸节点
+            errors.append({
+                "tool": f"subagent:{name}",
+                "error": str(exc),
+            })
+            continue
+        description = str(doc.get("description") or "").strip()
+        spec = SubAgentSpec(
+            name=name,
+            # description 为空给兜底——委派声明里没有说明的子 agent 会被 LLM 冷落
+            description=description or f"专门执行特定任务的子 Agent（{name}）",
+            system_prompt=system_prompt,
+            timeout_ms=int(bundle.get("timeout_ms") or 120_000),
+        )
+        registry.register(spec)
+        tools_by_name[name] = sub_tools
+        llm_by_name[name] = sub_llm
+        decls.append({"name": name, "description": spec.description})
+
+    if not decls:
+        return None, [], errors
+
+    # providers 优先于 tool_registry/build_llm（宿主预解析通道，见
+    # harness SubAgentContext docstring）；delegate 排除由 harness 的
+    # resolve_tools 统一保证（深度=1）。
+    sub_ctx = SubAgentContext(
+        registry=registry,
+        tool_registry=ToolRegistry(),
+        build_llm=lambda cfg: None,  # noqa: ARG005 — provider 优先，占位
+        parent_llm=None,
+        tools_provider=lambda spec: tools_by_name.get(spec.name, []),
+        llm_provider=lambda spec: llm_by_name[spec.name],
+    )
+    return sub_ctx, decls, errors
+
+
 async def resolve_harness_context(
     agent: dict,
     state: dict,
@@ -547,6 +711,7 @@ async def resolve_harness_context(
     user_token: str | None = None,
     require_user_credentials: bool = False,
     execution_context: str = "chat",
+    subagents: list[dict] | None = None,
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
@@ -648,6 +813,9 @@ async def resolve_harness_context(
         container_skills_dir=settings.SANDBOX_CONTAINER_SKILLS_DIR,
         # backend 容器化时把 volumes 源换算成 daemon 可见的宿主路径
         bind_source_mapper=sandbox_bind_source_mapper(),
+        max_concurrent=settings.SANDBOX_MAX_CONCURRENT_CONTAINERS,
+        reuse_container=settings.SANDBOX_REUSE_CONTAINER,
+        max_containers=settings.SANDBOX_MAX_CONTAINERS,
     )
 
     # 7. workspace
@@ -769,6 +937,29 @@ async def resolve_harness_context(
 
     spawn_token = set_spawn_agent_context(str(agent_doc.get("_id", "") or agent_id))
 
+    # ── 子 agent 委派环境（M1）：节点声明了 config.subagents 时装配 ──
+    # 装配成功才注入 delegate_to_subagent 工具（声明才可见），usage 累计器
+    # 经 hctx 暴露给 execution.py 在 run 结束后并入父级 usage（账本冒泡）。
+    subagent_token = None
+    subagent_ctx_obj = None
+    subagent_decls: list[dict] = []
+    if subagents:
+        subagent_ctx_obj, subagent_decls, sub_errors = await _build_subagent_environment(
+            subagents, state, execution_context,
+        )
+        load_errors.extend(sub_errors)
+        if subagent_ctx_obj is not None:
+            from agent_flow_harness import set_subagent_context
+            from agent_flow_harness.subagents import delegate_to_subagent
+
+            subagent_token = set_subagent_context(subagent_ctx_obj)
+            all_tools = [*all_tools, delegate_to_subagent]
+            logger.debug(
+                "subagent_env_ready",
+                agent_id=agent_id,
+                subagents=[d["name"] for d in subagent_decls],
+            )
+
     return {
         "agent_doc": agent_doc,
         "llm": llm,
@@ -785,6 +976,16 @@ async def resolve_harness_context(
         # 执行过程记录器——execution.py 经 recorder_sink 暴露给调用方。
         "recorder": recorder,
         "spawn_token": spawn_token,
+        # 子 agent 委派环境（M1）——release 成对 reset；usage_totals 由
+        # execution.py 在 run 结束后读取并入父级 usage；decls 供调用方
+        # 构建工具声明（与 SubAgentRegistry 同源）。
+        "subagent_token": subagent_token,
+        "subagent_usage": subagent_ctx_obj.usage_totals if subagent_ctx_obj else None,
+        # 委派执行 trace（delegate finally 提交）——execution.py 在 run 结束
+        # 后消费：chat 语义 mark 进 recorder(→execution_log)，workflow 语义
+        # 经 result 透传给 AgentNodeExecutor 落 Task timeline。
+        "subagent_traces": subagent_ctx_obj.delegation_traces if subagent_ctx_obj else None,
+        "subagents": subagent_decls,
         # DEBUG 分段计时（关闭时为 None；execution.py 汇总进 agent_phase_timing 日志）
         "_timing_phases": timing_phases,
         # 压缩配置(全局可配)。
@@ -837,10 +1038,30 @@ def _schedule_archive(tool_call_id: str, original: str) -> None:
         )
         _archive_tasks.add(task)
         task.add_done_callback(_archive_tasks.discard)
+        # ── 影子账本：文档水位线压缩的触发信号 ──
+        # thread 里被压缩掉的原文体量 = session 里永久保留的全文体量
+        # （同一数据两份拷贝）。累计进 session.compaction_bytes，超触发线
+        # 则异步压缩该会话的 message 文档。workflow 场景 thread_id 非
+        # session id，$inc 自然 miss（Task 侧走 bsonSize 直接测量）。
+        sub_task = loop.create_task(
+            _record_compaction_bytes_quietly(thread_id, len(original))
+        )
+        _archive_tasks.add(sub_task)
+        sub_task.add_done_callback(_archive_tasks.discard)
     except Exception:
         logger.debug(
             "tool_output_archive_schedule_failed", tool_call_id=tool_call_id
         )
+
+
+async def _record_compaction_bytes_quietly(session_id: str, nbytes: int) -> None:
+    """记账失败不影响压缩主流程（下次压缩事件重新累计）。"""
+    try:
+        from app.services.doc_compaction_service import record_compaction_bytes
+
+        await record_compaction_bytes(session_id, nbytes)
+    except Exception:
+        logger.debug("compaction_bytes_record_failed", session_id=session_id)
 
 
 def _make_tool_output_reference_formatter(recorder=None):
@@ -894,6 +1115,10 @@ def release_harness_context(hctx: dict) -> None:
     from app.engine.agent.builtin_tools import reset_workspace_context
     from app.engine.agent.spawn_tools import reset_spawn_agent_context
 
+    if hctx.get("subagent_token") is not None:
+        from agent_flow_harness import reset_subagent_context
+
+        reset_subagent_context(hctx["subagent_token"])
     if hctx.get("spawn_token") is not None:
         reset_spawn_agent_context(hctx["spawn_token"])
     reset_sandbox_context(hctx["sb_token"])

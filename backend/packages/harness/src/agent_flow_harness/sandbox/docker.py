@@ -12,6 +12,12 @@ DockerSandboxConfig 注入。降级策略 fail-closed：沙箱禁用或 Docker �
 - tmpfs for /tmp
 - 非 root 用户执行
 
+运行时治理：
+- docker client 进程级复用（_get_docker_client，每命令省 from_env+ping）
+- max_concurrent>0 时进程级信号量限并发（含 subprocess 降级路径）
+- 容器打 agent-flow.* label，供外部孤儿清扫任务识别遗留容器
+- stdout/stderr 分流回收
+
 用法：
     config = DockerSandboxConfig(image="agent-sandbox:latest", enabled=True)
     sandbox = DockerSandbox(sandbox_id="s1", work_dir=Path("/workspace"),
@@ -21,18 +27,154 @@ DockerSandboxConfig 注入。降级策略 fail-closed：沙箱禁用或 Docker �
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
 
 logger = structlog.get_logger(__name__)
+
+
+# ── 进程级共享资源（docker client / 并发信号量）────────────────────────
+# DockerSandbox 每次执行装配都新建实例，但 client 与并发上限是进程级概念，
+# 必须放模块级单例，否则复用/限流失效。
+
+_docker_client: Any = None
+_client_lock = threading.Lock()
+
+
+def _get_docker_client() -> Any:
+    """进程级复用 docker client（每命令 from_env+ping 有百毫秒级开销）。
+
+    失败时清空缓存，下次调用重试（daemon 可能恢复）。线程安全性由
+    docker-py 内部的 urllib3 连接池保证。
+    """
+    global _docker_client
+    if _docker_client is not None:
+        return _docker_client
+    with _client_lock:
+        if _docker_client is not None:
+            return _docker_client
+        try:
+            import docker  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise _DockerUnavailableError("docker package not installed") from exc
+        try:
+            client = docker.from_env(timeout=30)
+            client.ping()
+        except Exception as exc:
+            raise _DockerUnavailableError(str(exc)) from exc
+        _docker_client = client
+        return client
+
+
+def _reset_docker_client() -> None:
+    """清空 client 缓存（测试用；daemon 重启后请求失败会自然重建）。"""
+    global _docker_client
+    with _client_lock:
+        _docker_client = None
+
+
+_semaphore: threading.BoundedSemaphore | None = None
+_semaphore_limit = 0
+_semaphore_lock = threading.Lock()
+
+
+def _get_semaphore(limit: int) -> threading.BoundedSemaphore:
+    """按 limit 取进程级并发信号量（limit 变化时重建——仅测试场景）。"""
+    global _semaphore, _semaphore_limit
+    with _semaphore_lock:
+        if _semaphore is None or _semaphore_limit != limit:
+            _semaphore = threading.BoundedSemaphore(limit)
+            _semaphore_limit = limit
+        return _semaphore
+
+
+# ── 复用模式：进程级常驻容器注册表 ──────────────────────────────────────
+# 每工作区长驻容器（docker exec 执行命令），省每命令容器冷启动。容器键 =
+# (image, network_mode, mounts)，确定性命名 → 跨进程重启可按名收养。
+# 工作区天然按用户划分，故多用户绝不共容器。
+
+# 容器内 last-used 时间戳文件（tmpfs）。docker label 不可变，只能落容器内；
+# beat 闲置回收任务 exec 读它判断驻留。app 侧共用本常量。
+SANDBOX_LAST_USED_FILE = "/tmp/.agent-flow-last-used"
+
+_CONTAINERS_PREFIX = "agent-flow-sbx-"
+
+
+class _RegistryEntry:
+    """注册表条目：容器对象 + LRU 时间戳 + exec 占用计数。"""
+
+    __slots__ = ("container", "last_used", "busy")
+
+    def __init__(self, container: Any) -> None:
+        self.container = container
+        self.last_used = time.monotonic()
+        self.busy = 0
+
+
+_containers: dict[str, _RegistryEntry] = {}
+_registry_lock = threading.Lock()
+
+
+def sandbox_container_name(
+    mounts: dict[str, Path] | None, image: str, network_mode: str
+) -> str:
+    """确定性容器名：同键必同名（复用查找与跨进程收养的依据）。"""
+    key = "|".join(
+        [
+            image,
+            network_mode,
+            *[f"{n}:{Path(p).resolve()}" for n, p in sorted((mounts or {}).items())],
+        ]
+    )
+    return _CONTAINERS_PREFIX + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+
+def remove_sandbox_container(name: str) -> bool:
+    """按名移除复用容器（幂等）。app 在 session/task 删除时调用。
+
+    先查进程注册表，未命中（跨进程/已重启）直接找 daemon。
+    """
+    with _registry_lock:
+        entry = _containers.pop(name, None)
+    removed = False
+    if entry is not None:
+        with contextlib.suppress(Exception):
+            entry.container.remove(force=True)
+            removed = True
+    try:
+        _get_docker_client().containers.get(name).remove(force=True)
+        removed = True
+    except Exception:
+        pass
+    return removed
+
+
+def _evict_locked() -> None:
+    """LRU 驱逐（调用方持 _registry_lock）：删最久未用的空闲容器直至有余量。
+
+    全部 busy 时提前返回——上层约束 max_containers > max_concurrent 保证
+    不会发生（信号量限制同时在执行的命令数 < 容器上限）。
+    """
+    # 注意：调用方传入 limit 之前已判断；此处直接读 dict 长度由调用方循环控制
+    candidates = [(n, e) for n, e in _containers.items() if e.busy == 0]
+    if not candidates:
+        return
+    name, entry = min(candidates, key=lambda kv: kv[1].last_used)
+    del _containers[name]
+    with contextlib.suppress(Exception):
+        entry.container.remove(force=True)
+    logger.info("sandbox_container_evicted", container=name)
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -64,6 +206,9 @@ class DockerSandboxConfig:
         container_skills_dir: str = "/skills",
         allow_local_fallback: bool = False,
         bind_source_mapper: Callable[[str], str] | None = None,
+        max_concurrent: int = 0,
+        reuse_container: bool = False,
+        max_containers: int = 0,
     ) -> None:
         self.image = image
         self.enabled = enabled
@@ -83,6 +228,27 @@ class DockerSandboxConfig:
         # docker run 的 volumes 源；read/write 等宿主侧文件操作仍用进程
         # 视角路径。默认 None = 同路径（本地开发）。
         self.bind_source_mapper = bind_source_mapper
+        # 进程级最大并发容器数（含 subprocess 降级路径）。0 = 不限（默认，
+        # 向后兼容）。按内存估算：每容器 mem_limit（默认 512m）→ 8 ≈ 4GB。
+        # 注意 Celery prefork 每个并发槽位一个子进程，节点总上限 =
+        # worker 并发数 × 本值。
+        self.max_concurrent = max_concurrent
+        # 复用模式：每工作区长驻容器，命令经 docker exec 执行（省每命令
+        # 冷启动）。False = 旧行为（每命令一次性容器），一键回退。
+        self.reuse_container = reuse_container
+        # 进程内存活复用容器上限（LRU 驱逐最久未用；0 = 不限）。
+        # 不变量：须大于 max_concurrent，保证超限时总有空闲容器可驱逐。
+        self.max_containers = max_containers
+        if (
+            self.reuse_container
+            and self.max_containers
+            and self.max_concurrent
+            and self.max_containers <= self.max_concurrent
+        ):
+            raise ValueError(
+                "max_containers must exceed max_concurrent — LRU eviction "
+                "needs an idle (not busy) container to evict at the cap"
+            )
 
 
 class _DockerUnavailableError(Exception):
@@ -151,9 +317,34 @@ class DockerSandbox(Sandbox):
         """执行命令：Docker（enabled）；本机 subprocess 仅在显式允许时降级。
 
         env 为额外注入的环境变量（凭证等），容器/子进程内可见，宿主进程不受影响。
+        配置了 max_concurrent>0 时，整条命令生命周期（含降级路径）受进程级
+        信号量约束，超限排队等待。
         """
         effective_timeout = timeout if timeout is not None else self._timeout
+        limit = self._config.max_concurrent
+        if limit <= 0:
+            return self._execute_dispatch(command, effective_timeout, env)
+        semaphore = _get_semaphore(limit)
+        queue_start = time.monotonic()
+        semaphore.acquire()
+        try:
+            waited = time.monotonic() - queue_start
+            if waited >= 0.1:
+                logger.info(
+                    "sandbox_queue_wait",
+                    sandbox_id=self._id,
+                    waited_ms=round(waited * 1000),
+                    limit=limit,
+                )
+            return self._execute_dispatch(command, effective_timeout, env)
+        finally:
+            semaphore.release()
 
+    def _execute_dispatch(
+        self, command: str, effective_timeout: int, env: dict[str, str] | None
+    ) -> SandboxResult:
+        """选择执行通道：禁用/不可用时走 fail-closed 降级闸；复用模式走
+        常驻容器 exec，否则每命令一次性容器。"""
         if not self._config.enabled:
             return self._fallback_or_refuse(
                 command, effective_timeout,
@@ -162,6 +353,8 @@ class DockerSandbox(Sandbox):
             )
 
         try:
+            if self._config.reuse_container:
+                return self._execute_docker_reused(command, effective_timeout, env)
             return self._execute_docker(command, effective_timeout, env)
         except _DockerUnavailableError as exc:
             return self._fallback_or_refuse(
@@ -227,16 +420,7 @@ class DockerSandbox(Sandbox):
         self, command: str, timeout: int, env: dict[str, str] | None = None
     ) -> SandboxResult:
         """Docker 容器内执行（从 backend SandboxExecutor 提取）。"""
-        try:
-            import docker  # type: ignore[import-untyped]
-        except ImportError as exc:
-            raise _DockerUnavailableError("docker package not installed") from exc
-
-        try:
-            client = docker.from_env(timeout=30)
-            client.ping()
-        except Exception as exc:
-            raise _DockerUnavailableError(str(exc)) from exc
+        client = _get_docker_client()
 
         volumes = self._build_volumes()
 
@@ -265,7 +449,15 @@ class DockerSandbox(Sandbox):
                 tmpfs={"/tmp": "size=64m,noexec"},
                 detach=True,
                 auto_remove=False,
+                # 孤儿清扫依据（app 侧 beat 任务按 label 扫描强删遗留容器）
+                labels={
+                    "agent-flow.sandbox": "true",
+                    "agent-flow.sandbox-id": self._id,
+                    "agent-flow.created-at": str(int(time.time())),
+                },
             )
+        except _DockerUnavailableError:
+            raise
         except Exception as exc:
             raise _DockerUnavailableError(str(exc)) from exc
 
@@ -280,13 +472,15 @@ class DockerSandbox(Sandbox):
 
         duration = time.monotonic() - start
 
+        # stdout/stderr 分开取（合并调用会把 stderr 混进 stdout，stderr 丢失）
         try:
-            logs = container.logs(stdout=True, stderr=True)
-            stdout_raw = logs if isinstance(logs, bytes) else b""
-            stderr_raw = b""
+            stdout_raw = container.logs(stdout=True, stderr=False)
+            stderr_raw = container.logs(stdout=False, stderr=True)
         except Exception:
             stdout_raw = b""
             stderr_raw = b""
+        stdout_raw = stdout_raw if isinstance(stdout_raw, bytes) else b""
+        stderr_raw = stderr_raw if isinstance(stderr_raw, bytes) else b""
 
         with contextlib.suppress(Exception):
             container.remove(force=True)
@@ -301,6 +495,162 @@ class DockerSandbox(Sandbox):
             stdout=stdout,
             stderr=stderr,
             exit_code=exit_code,
+            duration=duration,
+            timed_out=timed_out,
+        )
+
+    def _acquire_reused_container(self, client: Any) -> tuple[str, _RegistryEntry]:
+        """获取（或创建/收养）当前 sandbox 的常驻容器。
+
+        查找顺序：进程注册表 → daemon 按名收养（跨进程重启）→ 新建。
+        丢弃已死条目；新建前按 max_containers 做 LRU 驱逐。
+        返回 (容器名, 注册表条目)。
+        """
+        # docker 包缺失已在 _get_docker_client 统一转 _DockerUnavailableError；
+        # 此处 import 仅取 errors.NotFound（mypy 对缺 stub 包只报一次，无需 ignore）
+        import docker
+
+        name = sandbox_container_name(
+            self._mounts, self._config.image, self._config.network_mode
+        )
+        with _registry_lock:
+            entry = _containers.get(name)
+            if entry is not None:
+                try:
+                    entry.container.reload()
+                    if entry.container.status == "running":
+                        return name, entry
+                except Exception:
+                    pass
+                # 容器已死/失联：剔除并兜底清理
+                _containers.pop(name, None)
+                with contextlib.suppress(Exception):
+                    entry.container.remove(force=True)
+
+            # daemon 收养（本进程没见过但 daemon 上有——后端重启场景）
+            container: Any = None
+            try:
+                container = client.containers.get(name)
+                container.reload()
+                if container.status == "running":
+                    logger.info("sandbox_container_adopted", container=name)
+                    entry = _RegistryEntry(container)
+                    _containers[name] = entry
+                    return name, entry
+                # 存在但已退出（exited/created/dead）→ 清掉走新建
+                with contextlib.suppress(Exception):
+                    container.remove(force=True)
+            except docker.errors.NotFound:
+                pass
+            except Exception:
+                # get/reload 失联等异常：清掉残骸后走新建（新建失败自然抛出）
+                if container is not None:
+                    with contextlib.suppress(Exception):
+                        container.remove(force=True)
+
+            # LRU 驱逐（持锁，含 remove 网络调用——acquire 阶段串行可接受，
+            # exec 长过程不持锁）
+            limit = self._config.max_containers
+            while limit and len(_containers) >= limit:
+                _evict_locked()
+
+            container = client.containers.run(
+                image=self._config.image,
+                command=["sleep", "infinity"],
+                name=name,
+                volumes=self._build_volumes(),
+                working_dir=f"{self._config.container_workspace_dir}/tmp",
+                user="sandbox",
+                network_mode=self._config.network_mode,
+                read_only=True,
+                security_opt=["no-new-privileges"],
+                mem_limit=self._config.mem_limit,
+                cpu_quota=self._config.cpu_quota,
+                cpu_period=100_000,
+                tmpfs={"/tmp": "size=64m,noexec"},
+                detach=True,
+                auto_remove=False,
+                labels={
+                    "agent-flow.sandbox": "true",
+                    "agent-flow.sandbox-id": self._id,
+                    "agent-flow.created-at": str(int(time.time())),
+                },
+            )
+            entry = _RegistryEntry(container)
+            _containers[name] = entry
+            return name, entry
+
+    def _exec_with_retry(
+        self, client: Any, timeout: int, command: str, env: dict[str, str] | None
+    ) -> tuple[int, bytes, bytes]:
+        """在常驻容器内 exec 命令；容器死亡时重建并重试一次。
+
+        单次 exec 完成 触碰 last-used + 执行 + 超时包裹（label 不可变，
+        last-used 落容器内 tmpfs 供 beat 闲置回收）。返回 (exit_code, stdout, stderr)。
+        """
+        inner = f"date +%s > {SANDBOX_LAST_USED_FILE}; {command}"
+        wrapped = ["timeout", "--kill-after=10", str(timeout), "bash", "-c", inner]
+        exec_env = {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONUNBUFFERED": "1",
+            **(env or {}),
+        }
+        workdir = f"{self._config.container_workspace_dir}/tmp"
+
+        for attempt in (1, 2):
+            name, entry = self._acquire_reused_container(client)
+            with _registry_lock:
+                entry.busy += 1
+            try:
+                code, out = entry.container.exec_run(
+                    wrapped, user="sandbox", workdir=workdir,
+                    environment=exec_env, demux=True,
+                )
+                stdout_raw = out[0] if isinstance(out, tuple) and isinstance(out[0], bytes) else b""
+                stderr_raw = out[1] if isinstance(out, tuple) and isinstance(out[1], bytes) else b""
+                with _registry_lock:
+                    entry.last_used = time.monotonic()
+                return code, stdout_raw, stderr_raw
+            except Exception as exc:
+                # 容器死亡（daemon 重启/OOM/手动删）：重建重试一次
+                with _registry_lock:
+                    _containers.pop(name, None)
+                if attempt == 2:
+                    raise
+                logger.warning(
+                    "sandbox_reused_exec_failed_recreating",
+                    container=name,
+                    error=str(exc),
+                )
+                with contextlib.suppress(Exception):
+                    entry.container.remove(force=True)
+            finally:
+                with _registry_lock:
+                    entry.busy -= 1
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def _execute_docker_reused(
+        self, command: str, timeout: int, env: dict[str, str] | None = None
+    ) -> SandboxResult:
+        """复用模式执行：常驻容器 + exec（vs _execute_docker 的每命令冷启动）。"""
+        client = _get_docker_client()
+        start = time.monotonic()
+
+        code, stdout_raw, stderr_raw = self._exec_with_retry(client, timeout, command, env)
+
+        duration = time.monotonic() - start
+        # timeout(1) 语义：124=TERM 到点、137=--kill-after KILL
+        timed_out = code in (124, 137)
+
+        stdout = _truncate(stdout_raw.decode("utf-8", "replace"), self._config.max_output_bytes)
+        stderr = _truncate(stderr_raw.decode("utf-8", "replace"), self._config.max_output_bytes)
+        if timed_out:
+            stderr += f"\n[timeout] Command exceeded {timeout}s and was killed."
+
+        return SandboxResult(
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=-1 if timed_out else code,
             duration=duration,
             timed_out=timed_out,
         )
@@ -530,4 +880,10 @@ def _truncate(text: str, max_bytes: int) -> str:
     return truncated + f"\n\n[truncated — output exceeded {max_bytes} bytes]"
 
 
-__all__ = ["DockerSandbox", "DockerSandboxConfig"]
+__all__ = [
+    "DockerSandbox",
+    "DockerSandboxConfig",
+    "SANDBOX_LAST_USED_FILE",
+    "remove_sandbox_container",
+    "sandbox_container_name",
+]

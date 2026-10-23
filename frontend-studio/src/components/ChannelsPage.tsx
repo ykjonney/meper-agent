@@ -99,18 +99,18 @@ function ChannelInstanceRow({
   const disconnected = channel.connection_status === 'long_connection_disconnected'
 
   return (
-    <div className="px-4 py-3 rounded-lg border border-[#27272a] bg-[#18181b] flex items-center gap-4">
+    <div className="px-4 py-3 rounded-lg border border-line bg-panel flex items-center gap-4">
       {/* 实例信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium text-[#fafafa] truncate">
+          <span className="text-xs font-medium text-ink truncate">
             {channel.name}
           </span>
           <Tag color={degraded ? 'warning' : channel.enabled ? 'success' : 'default'}>
             {degraded ? '已降级' : channel.enabled ? '运行中' : '已停用'}
           </Tag>
         </div>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-[#71717a] flex-wrap">
+        <div className="flex items-center gap-2 mt-1 text-[11px] text-ink-dim flex-wrap">
           <span>
             绑定智能体：
             <span className="text-slate-300">{agentName ?? channel.agent_id}</span>
@@ -119,7 +119,7 @@ function ChannelInstanceRow({
             <span className="flex items-center gap-1.5 text-slate-400">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  connected ? 'bg-emerald-400' : disconnected ? 'bg-red-400' : 'bg-[#52525b]'
+                  connected ? 'bg-emerald-400' : disconnected ? 'bg-red-400' : 'bg-line-strong'
                 }`}
               />
               {connected ? '已连接' : disconnected ? '已断开' : '未启动'}
@@ -153,7 +153,7 @@ function ChannelInstanceRow({
           <button
             title="编辑配置"
             onClick={onEdit}
-            className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-[#1E5EFF] cursor-pointer transition-colors"
+            className="p-1.5 rounded-lg hover:bg-line text-slate-400 hover:text-link cursor-pointer transition-colors"
           >
             <Pencil size={14} />
           </button>
@@ -161,7 +161,7 @@ function ChannelInstanceRow({
             title="删除"
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="p-1.5 rounded-lg hover:bg-[#27272a] text-slate-400 hover:text-red-400 cursor-pointer transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg hover:bg-line text-slate-400 hover:text-red-400 cursor-pointer transition-colors disabled:opacity-50"
           >
             <Trash2 size={14} />
           </button>
@@ -217,13 +217,13 @@ export function ChannelsPage() {
   return (
     <div className="space-y-4">
       {/* Tab 内容说明（页面标题由系统设置 Tab 承担） */}
-      <p className="text-[11px] text-[#71717a]">
+      <p className="text-[11px] text-ink-dim">
         接入飞书 / 钉钉，平台内新消息由绑定的智能体自动处理并回复；每个平台可接入多个应用
       </p>
 
       {/* 平台分组 */}
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-[#71717a]">
+        <div className="flex items-center justify-center py-16 text-ink-dim">
           <Loader2 size={18} className="animate-spin" />
         </div>
       ) : (
@@ -237,7 +237,7 @@ export function ChannelsPage() {
           return (
             <section
               key={provider}
-              className="rounded-xl border border-[#27272a] bg-[#121214]/40 p-4 space-y-3"
+              className="rounded-xl border border-line bg-page/40 p-4 space-y-3"
             >
               {/* 分组头：平台标识 + 新增 */}
               <div className="flex items-center justify-between">
@@ -249,8 +249,8 @@ export function ChannelsPage() {
                     {label.slice(0, 1)}
                   </div>
                   <div>
-                    <span className="text-sm font-semibold text-[#fafafa]">{label}</span>
-                    <span className="ml-2 text-[11px] text-[#71717a]">
+                    <span className="text-sm font-semibold text-ink">{label}</span>
+                    <span className="ml-2 text-[11px] text-ink-dim">
                       {instances.length > 0 ? `${instances.length} 个实例` : '尚未接入'}
                     </span>
                   </div>
@@ -258,7 +258,7 @@ export function ChannelsPage() {
                 {canWrite && (
                   <button
                     onClick={() => setModalTarget({ provider, label, channel: null })}
-                    className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-[#27272a] bg-[#18181b] hover:border-[#1E5EFF] hover:text-[#1E5EFF] text-slate-300 text-[11px] font-medium cursor-pointer transition-colors"
+                    className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-line bg-panel hover:border-[#1E5EFF] hover:text-link text-slate-300 text-[11px] font-medium cursor-pointer transition-colors"
                   >
                     <Plus size={12} /> 新增接入
                   </button>
@@ -267,7 +267,7 @@ export function ChannelsPage() {
 
               {/* 实例列表 */}
               {instances.length === 0 ? (
-                <p className="text-[11px] text-[#71717a] py-2">
+                <p className="text-[11px] text-ink-dim py-2">
                   点「新增接入」，填写平台应用凭据即可开始——采用长连接，无需公网回调地址。
                 </p>
               ) : (

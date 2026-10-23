@@ -3,8 +3,7 @@
 Public surface:
 
 * :class:`Middleware` protocol + :class:`MiddlewareChain` executor.
-* The three built-in middlewares — :class:`AuditMiddleware`,
-  :class:`PromptInjectionMiddleware`, :class:`TraceMiddleware`.
+* :class:`UsageMiddleware` — token/time accounting.
 * :data:`MIDDLEWARE_REGISTRY` + :func:`resolve_middleware` to build
   middlewares from an Agent document's ``middleware`` config entries.
 """
@@ -14,24 +13,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from agent_flow_harness.middleware.base import Middleware
-from agent_flow_harness.middleware.builtin import (
-    AuditMiddleware,
-    PromptInjectionMiddleware,
-    TraceMiddleware,
-    UsageMiddleware,
-)
+from agent_flow_harness.middleware.builtin import UsageMiddleware
 from agent_flow_harness.middleware.chain import MiddlewareChain
 
 if TYPE_CHECKING:
     pass
 
 MIDDLEWARE_REGISTRY: dict[str, type] = {
-    "audit": AuditMiddleware,
-    "prompt_injection": PromptInjectionMiddleware,
-    "trace": TraceMiddleware,
     "usage": UsageMiddleware,
 }
-
 
 def resolve_middleware(specs: list[dict[str, Any]] | None) -> list[Middleware]:
     """Resolve ``agent_doc["middleware"]`` specs into Middleware instances.
@@ -60,14 +50,10 @@ def resolve_middleware(specs: list[dict[str, Any]] | None) -> list[Middleware]:
         middlewares.append(cls(**config))
     return middlewares
 
-
 __all__ = [
-    "AuditMiddleware",
     "MIDDLEWARE_REGISTRY",
     "Middleware",
     "MiddlewareChain",
-    "PromptInjectionMiddleware",
-    "TraceMiddleware",
     "UsageMiddleware",
     "resolve_middleware",
 ]

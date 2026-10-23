@@ -167,3 +167,40 @@ async def test_tool_without_context_raises_tool_exception():
     """未注入 sandbox context → ToolException（wrapper 转 status="error"，不炸循环）。"""
     with pytest.raises(ToolException, match="sandbox not initialized"):
         await bash.ainvoke({"command": "x"})
+
+
+@pytest.mark.asyncio
+async def test_bash_does_not_block_event_loop():
+    """execute_command 是阻塞调用，必须经线程池卸载——阻塞期间事件循环上的
+    其他任务仍能推进（一条慢命令不能卡死整个循环）。"""
+    import asyncio
+    import time
+
+    sb = _mock_sandbox()
+
+    def _slow_exec(_command: str) -> SandboxResult:
+        time.sleep(0.3)
+        return SandboxResult(stdout="slow-done", stderr="", exit_code=0)
+
+    sb.execute_command.side_effect = _slow_exec
+    token = _set_ctx(sb)
+    try:
+        order: list[str] = []
+
+        async def _probe() -> None:
+            order.append("probe")
+
+        task = asyncio.create_task(bash.ainvoke({"command": "slow"}))
+        await asyncio.sleep(0.05)  # 让 bash 进入线程池执行
+        probe_task = asyncio.create_task(_probe())
+        result = await task
+        order.append("bash")
+        await probe_task
+        assert "slow-done" in result
+        # probe 必须在 bash 执行期间完成；若在协程内直调阻塞 API，
+        # probe 只能排在 bash 完成之后。
+        assert order.index("probe") < order.index("bash"), (
+            f"事件循环在 bash 执行期间被阻塞: order={order}"
+        )
+    finally:
+        reset_sandbox_context(token)

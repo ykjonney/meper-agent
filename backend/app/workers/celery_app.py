@@ -4,6 +4,8 @@ from app import _cycompat as _cycompat_module
 
 _cycompat_module.install()
 
+import threading
+
 from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
 from celery.signals import (  # type: ignore[import-untyped]
@@ -28,6 +30,8 @@ celery_app = Celery(
         "app.workers.tasks.human_timeout",
         "app.workers.tasks.wiki_source_extract",
         "app.workers.tasks.wiki_build",
+        "app.workers.tasks.checkpoint_prune",
+        "app.workers.tasks.running_task_scan",
     ],
 )
 
@@ -71,6 +75,26 @@ celery_app.conf.update(
             "task": "app.workers.tasks.human_timeout.sweep_timed_out_human_tasks",
             "schedule": 30.0,
         },
+        # 慢任务警告 + 孤儿清理（workflow 任务已去 Celery 超时/改 acks_early，
+        # 这两项是替代防线：慢任务只提醒不干预；孤儿=RUNNING 且 updated_at
+        # 超阈值 → FAILED）。
+        "scan-running-tasks": {
+            "task": "app.workers.tasks.running_task_scan.scan_running_tasks",
+            "schedule": 300.0,  # 5 分钟
+        },
+        # checkpoints 历史堆积治理：每 thread 保最新 5 条（O(N²)→O(N)）+
+        # 完结 task 保留期清理。历史堆积性质，每日一次足够。
+        "prune-checkpoints": {
+            "task": "app.workers.tasks.checkpoint_prune.prune_checkpoints",
+            "schedule": crontab(hour=5, minute=30),  # 每日 05:30，错开其他维护任务
+        },
+        # 孤儿沙盒容器清扫 / 复用容器闲置回收：按 label 扫描。
+        # 间隔须 ≪ SANDBOX_CONTAINER_IDLE_TIMEOUT（300s），否则闲置语义漂移
+        # （实际驻留 ≈ IDLE_TIMEOUT + 本间隔）。list+exec 探测负载可忽略。
+        "sweep-orphan-sandboxes": {
+            "task": "app.workers.tasks.maintenance.cleanup_orphan_sandboxes",
+            "schedule": 60.0,  # 1 分钟
+        },
     },
 )
 
@@ -97,6 +121,8 @@ def _init_worker(**_kwargs: object) -> None:
        （SystemExit → 子进程失败，celery 放弃后整个 worker 退出）。未激活
        降级模式对 backend 是"起服务给激活向导"，对 worker 没有意义——
        没有 API 就没有任务来源。
+    5. **沙盒镜像预拉取** — 后台 daemon 线程执行（不阻塞 worker 启动），
+       首笔沙盒执行免付整镜像 pull 耗时。失败只记日志。
     """
     # 1. 日志初始化 — 必须在打任何日志之前完成
     from app.core.logging import setup_logging
@@ -127,6 +153,12 @@ def _init_worker(**_kwargs: object) -> None:
         # fail-closed 已兜底：外部任务的 MCP 调用会被拦截器拒绝而非静默
         # 降级为内部静态凭证；内部任务不受影响。
         logger.error("mcp_resolver_init_failed", error=str(exc))
+
+    # 4. 沙盒镜像预拉取 — daemon 线程，不阻塞 worker 启动
+    if settings.SANDBOX_PREPULL_IMAGE:
+        from app.engine.harness_integration.sandbox_prepull import ensure_sandbox_image
+
+        threading.Thread(target=ensure_sandbox_image, name="sandbox-prepull", daemon=True).start()
 
 
 @task_prerun.connect

@@ -97,7 +97,7 @@ const timeStr = (hour: number, minute: number) =>
   `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 
 const timeInputCls =
-  'h-8 px-2.5 rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] text-xs ' +
+  'h-8 px-2.5 rounded-md border border-line bg-page text-ink text-xs ' +
   'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
 
 export default function TriggerSchedulePicker({ value, onChange, disabled = false }: Props) {
@@ -158,7 +158,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
               className={`h-7 px-3 rounded-md text-xs font-medium transition-colors border cursor-pointer
                 ${active
                   ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
-                  : 'bg-[#18181b] border-[#27272a] text-slate-300 hover:border-[#1E5EFF] hover:text-[#1E5EFF]'}
+                  : 'bg-panel border-line text-slate-300 hover:border-[#1E5EFF] hover:text-link'}
                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {f.label}
@@ -205,7 +205,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
                     className={`w-7 h-7 rounded text-xs border transition-colors cursor-pointer
                       ${selected
                         ? 'bg-[#1E5EFF] text-white border-[#1E5EFF]'
-                        : 'bg-[#18181b] text-slate-300 border-[#27272a] hover:border-[#1E5EFF]'}
+                        : 'bg-panel text-slate-300 border-line hover:border-[#1E5EFF]'}
                       ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {label}
@@ -248,7 +248,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
       </div>
 
       {state.frequency !== 'custom' && (
-        <div className="text-[10px] text-[#94A3B8] font-mono">Cron: {buildCron(state)}</div>
+        <div className="text-[11px] text-[#94A3B8] font-mono">Cron: {buildCron(state)}</div>
       )}
     </div>
   )

@@ -63,7 +63,7 @@ export function BuiltinToolsTab({ q, theme }: Props) {
     );
   }, [tools, q]);
 
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
 
   if (isLoading) {
     return <div className="py-12 text-center text-sm opacity-60">加载中…</div>;
@@ -88,11 +88,11 @@ function BuiltinCard({ tool, theme }: { tool: BuiltinTool; theme: 'dark' | 'ligh
   const { Icon, color } = iconFor(tool.name);
   const params = paramNames(tool.parameters);
   const card = theme === 'dark'
-    ? 'bg-[#18181b] border-[#27272a] hover:border-[#71717a]'
+    ? 'bg-panel border-line hover:border-line-strong'
     : 'bg-white border-slate-200 hover:border-slate-300';
-  const textMuted = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
   const chip = theme === 'dark'
-    ? 'bg-[#121214] border-[#27272a] text-[#a1a1aa]'
+    ? 'bg-page border-line text-ink-dim'
     : 'bg-slate-100 border-slate-200 text-slate-500';
 
   return (
@@ -109,13 +109,13 @@ function BuiltinCard({ tool, theme }: { tool: BuiltinTool; theme: 'dark' | 'ligh
         </div>
       </div>
       <div className={`flex flex-wrap gap-1.5 pt-1 border-t ${
-        theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'
+        theme === 'dark' ? 'border-line' : 'border-slate-200'
       }`}>
         {params.length === 0 ? (
-          <span className="text-[10px] text-[#52525b]">无参数</span>
+          <span className="text-[11px] text-ink-dim">无参数</span>
         ) : (
           params.map((p) => (
-            <span key={p} className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${chip}`}>
+            <span key={p} className={`px-1.5 py-0.5 rounded border text-[11px] font-mono ${chip}`}>
               {p}
             </span>
           ))

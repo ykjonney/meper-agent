@@ -35,6 +35,7 @@ const SPECIAL_TOOLS = new Set([
   'ask_clarification',
   'confirm_workflow',
   'request_app_authorization',
+  'delegate_to_subagent',
 ])
 
 /** 一段连续的普通工具分组。特殊工具作为独立的 ToolRun 单独渲染,打断聚合。 */
@@ -272,6 +273,61 @@ function ParseFileCard({ tool }: { tool: ToolRun }) {
           ),
           children: (
             <div className="tool-details">
+              <div className="tool-result-body">
+                <Markdown>{tool.result ?? ''}</Markdown>
+              </div>
+            </div>
+          ),
+        },
+      ]}
+    />
+  )
+}
+
+/** 从 delegate_to_subagent 的 args 里解析 {subagent_name, task}。 */
+function parseSubagentArgs(args?: string): { name: string; task: string } {
+  try {
+    const a: { subagent_name?: string; task?: string } = args ? JSON.parse(args) : {}
+    return { name: String(a.subagent_name || '子 Agent'), task: String(a.task || '') }
+  } catch {
+    return { name: '子 Agent', task: '' }
+  }
+}
+
+/** 委派子 Agent 专属卡片:标题直接显示"哪个子 Agent 在执行什么"——
+ * 用户一眼看到执行主体,而不是一个叫 delegate_to_subagent 的工具名。
+ * 执行中显示动态文案;完成展开可见委派任务与结论。 */
+function SubagentCard({ tool }: { tool: ToolRun }) {
+  const { name, task } = parseSubagentArgs(tool.args)
+  const running = tool.status === 'running'
+  return (
+    <Collapse
+      className={`tool-run tool-run-${tool.status}`}
+      size="small"
+      ghost
+      items={[
+        {
+          key: tool.id,
+          label: (
+            <div className="tool-title">
+              {statusIcon(tool)}
+              <RobotOutlined />
+              <span>{running ? `${name} 正在执行子任务…` : `子 Agent · ${name}`}</span>
+            </div>
+          ),
+          children: (
+            <div className="tool-details">
+              {task ? (
+                <div className="tool-delegation-task">
+                  <Typography.Text type="secondary">委派任务</Typography.Text>
+                  <Typography.Paragraph
+                    style={{ marginBottom: 8, whiteSpace: 'pre-wrap' }}
+                    ellipsis={{ rows: 6, expandable: true, symbol: '展开全部' }}
+                  >
+                    {task}
+                  </Typography.Paragraph>
+                </div>
+              ) : null}
               <div className="tool-result-body">
                 <Markdown>{tool.result ?? ''}</Markdown>
               </div>
@@ -642,6 +698,10 @@ function ToolResult({
     !tool.result.startsWith('[parse_file]')
   ) {
     return <ParseFileCard tool={tool} />
+  }
+  // delegate_to_subagent：子 Agent 委派专属卡片(直接显示执行主体名)。
+  if (tool.name === 'delegate_to_subagent') {
+    return <SubagentCard tool={tool} />
   }
   const isKnowledge = tool.name === 'kb_retrieve' || tool.name === 'search_kb'
   const title = isKnowledge ? '知识库检索' : tool.name

@@ -13,11 +13,6 @@ admin 为终端用户创建一条记录：填用户名称 + 绑定 N 个 MCP（�
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.models.base import generate_id, utc_now
 
 
 class McpTokenStatus(StrEnum):
@@ -45,35 +40,3 @@ class McpAuthType(StrEnum):
 
 # 通用 token 的前缀（对齐 API Key 的 af_live_ 风格）
 TOKEN_PREFIX = "meper_"
-
-
-class McpTokenCredential(BaseModel):
-    """MongoDB ``mcp_token_credentials`` 文档模型。
-
-    admin 每创建一个通用 token = 一条记录，直接挂该用户的全部 MCP 绑定。
-    通用 token 本身就是查绑定的 key（经记录 _id），无中间 user_id 映射。
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: str = Field(default_factory=lambda: generate_id("mcptok"), alias="_id")
-    name: str = Field(..., min_length=1, max_length=100, description="admin 填的用户名称")
-    token: str = Field(
-        ...,
-        min_length=1,
-        description=f"MEPER 生成的通用 token（{TOKEN_PREFIX} 前缀），全局唯一",
-    )
-    api_key_id: str = Field(default="", description="归属接入方 API Key（可选，隔离/审计）")
-    status: McpTokenStatus = Field(default=McpTokenStatus.ACTIVE)
-    mcp_bindings: dict[str, dict[str, Any]] = Field(
-        default_factory=dict,
-        description=(
-            "key = mcp_connection_id，value = 绑定凭证对象。两种形态：\n"
-            "token 型: {credential_type:'token', auth_type:'bearer', token:'enc:xxx'}\n"
-            "账密型:   {credential_type:'password', auth_type:'bearer', "
-            "username:'enc:x', password:'enc:y'}"
-        ),
-    )
-    created_at: str = Field(default_factory=lambda: utc_now().isoformat())
-    updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
-    created_by: str = Field(default="", description="创建该记录的平台 admin user_id")

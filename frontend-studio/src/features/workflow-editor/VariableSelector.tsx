@@ -253,23 +253,23 @@ export default function VariableSelector({
     const tooltipContent = (
       <div className="text-[11px]">
         <div><strong>{field.label}</strong> ({field.name})</div>
-        <div className="text-[10px] mt-0.5">{field.description}</div>
+        <div className="text-[11px] mt-0.5">{field.description}</div>
         <div className="flex items-center gap-1 mt-1">
           <span
-            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[8px] font-bold text-white"
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-white"
             style={{ backgroundColor: typeInfo.color }}
           >
             {typeInfo.icon}
           </span>
-          <span className="text-[10px]">类型: {typeInfo.label}</span>
+          <span className="text-[11px]">类型: {typeInfo.label}</span>
         </div>
         {field.constraints && field.isUserDefined && (
-          <div className="text-[10px] text-[#71717a] mt-0.5">
+          <div className="text-[11px] text-ink-dim mt-0.5">
             约束: {formatConstraints(field.constraints)}
           </div>
         )}
         {field.isUserDefined && (
-          <div className="text-[10px] text-[#3B82F6] mt-0.5">用户自定义变量</div>
+          <div className="text-[11px] text-link mt-0.5">用户自定义变量</div>
         )}
       </div>
     )
@@ -282,7 +282,7 @@ export default function VariableSelector({
           onClick={() => onInsert(group.nodeId, field.name)}
         >
           <span
-            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[8px] font-bold text-white shrink-0"
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-white shrink-0"
             style={{ backgroundColor: typeInfo.color }}
           >
             {typeInfo.icon}
@@ -300,10 +300,10 @@ export default function VariableSelector({
   ) => (
     <div className={`overflow-y-auto scrollbar-custom ${containerCls}`}>
       {upstreamGroups.length === 0 ? (
-        <div className="text-xs text-[#71717a] text-center py-4">
+        <div className="text-xs text-ink-dim text-center py-4">
           <Code className="text-base mb-2 block mx-auto" size={18} />
           暂无可用变量
-          <div className="text-[10px] mt-1 text-[#CBD5E1]">
+          <div className="text-[11px] mt-1 text-[#CBD5E1]">
             请先在画布中连接上游节点
           </div>
         </div>
@@ -317,11 +317,11 @@ export default function VariableSelector({
                   className="w-2 h-2 rounded-full inline-block shrink-0"
                   style={{ backgroundColor: group.color }}
                 />
-                <span className="text-xs font-medium text-[#fafafa] truncate">
+                <span className="text-xs font-medium text-ink truncate">
                   {group.nodeLabel}
                 </span>
                 <span
-                  className="text-[10px] text-[#71717a] font-mono ml-auto shrink-0 cursor-help"
+                  className="text-[11px] text-ink-dim font-mono ml-auto shrink-0 cursor-help"
                   title={`节点 ID：${group.nodeId}`}
                 >
                   #{shortNodeId(group.nodeId)}
@@ -344,8 +344,8 @@ export default function VariableSelector({
 
   const popoverTitle = (
     <div className="flex items-center justify-between text-xs">
-      <span className="font-medium text-[#fafafa]">选择变量</span>
-      <span className="text-[#71717a]">
+      <span className="font-medium text-ink">选择变量</span>
+      <span className="text-ink-dim">
         {totalAvailableVars > 0
           ? `${upstreamGroups.length} 个节点 · ${totalAvailableVars} 个字段`
           : '无可用变量'}

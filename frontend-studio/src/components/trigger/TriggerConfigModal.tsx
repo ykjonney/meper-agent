@@ -229,11 +229,11 @@ export default function TriggerConfigModal({
       <div className="space-y-4">
         {/* 工作流 */}
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-[#fafafa]">
+          <div className="text-xs font-medium text-ink">
             工作流{isEdit && '（不可更改）'}
           </div>
           {isEdit ? (
-            <div className="text-xs text-slate-400 px-2.5 h-8 flex items-center rounded-md border border-[#27272a] bg-[#121214]">
+            <div className="text-xs text-slate-400 px-2.5 h-8 flex items-center rounded-md border border-line bg-page">
               {editWorkflowName}
             </div>
           ) : (
@@ -251,14 +251,14 @@ export default function TriggerConfigModal({
 
         {/* 启用开关 */}
         <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-[#fafafa]">启用</span>
+          <span className="text-xs font-medium text-ink">启用</span>
           <Switch checked={enabled} onChange={setEnabled} size="small" />
           {enabled && <span className="text-[11px] text-emerald-400">● 已启用</span>}
         </div>
 
         {/* 触发类型 */}
         <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-[#fafafa]">触发类型</span>
+          <span className="text-xs font-medium text-ink">触发类型</span>
           <div className="flex gap-1.5">
             {(['cron', 'once'] as TriggerType[]).map((t) => {
               const active = triggerType === t
@@ -270,7 +270,7 @@ export default function TriggerConfigModal({
                   className={`h-7 px-3 rounded-md text-xs font-medium border cursor-pointer transition-colors
                     ${active
                       ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
-                      : 'bg-[#18181b] border-[#27272a] text-slate-300 hover:border-[#1E5EFF]'}`}
+                      : 'bg-panel border-line text-slate-300 hover:border-[#1E5EFF]'}`}
                 >
                   {t === 'cron' ? '重复执行' : '一次性'}
                 </button>
@@ -282,7 +282,7 @@ export default function TriggerConfigModal({
         {/* 调度配置 */}
         {triggerType === 'cron' ? (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-[#fafafa]">执行频率</div>
+            <div className="text-xs font-medium text-ink">执行频率</div>
             <TriggerSchedulePicker
               value={cronExpression}
               onChange={setCronExpression}
@@ -291,9 +291,9 @@ export default function TriggerConfigModal({
           </div>
         ) : (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-[#fafafa]">执行时间</div>
+            <div className="text-xs font-medium text-ink">执行时间</div>
             <TriggerOnceTimePicker value={executeAt} onChange={setExecuteAt} disabled={saving} />
-            <p className="text-[10px] text-[#71717a]">
+            <p className="text-[11px] text-ink-dim">
               到达此时间后触发一次，执行时间需晚于当前时间。
             </p>
           </div>
@@ -301,9 +301,9 @@ export default function TriggerConfigModal({
 
         {/* 输入参数（按开始节点变量结构化渲染） */}
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-[#fafafa]">输入参数</div>
+          <div className="text-xs font-medium text-ink">输入参数</div>
           {inputLoading ? (
-            <div className="flex items-center gap-2 text-[11px] text-[#71717a] py-2">
+            <div className="flex items-center gap-2 text-[11px] text-ink-dim py-2">
               <Loader2 size={13} className="animate-spin" /> 加载输入参数...
             </div>
           ) : variables.length > 0 ? (
@@ -316,16 +316,16 @@ export default function TriggerConfigModal({
                 showErrors={touched}
                 disabled={saving}
               />
-              <p className="text-[10px] text-[#71717a]">
+              <p className="text-[11px] text-ink-dim">
                 定时触发时按以上参数传入工作流。文本字段支持模板语法 {'{{ now() }}'} / {'{{ today() }}'}。
               </p>
             </>
           ) : workflowId ? (
-            <p className="text-[10px] text-[#71717a]">
+            <p className="text-[11px] text-ink-dim">
               该工作流未声明输入变量，无需填写。定时触发时若需模板变量（如 {'{{ now() }}'}），请在工作流开始节点中定义。
             </p>
           ) : (
-            <p className="text-[10px] text-[#71717a]">请先选择工作流。</p>
+            <p className="text-[11px] text-ink-dim">请先选择工作流。</p>
           )}
         </div>
       </div>

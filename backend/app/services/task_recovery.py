@@ -159,7 +159,11 @@ async def execute_timeout_action(
         TaskService.resume_task_execution(task_id)
 
 
-async def recover_orphan_running_tasks() -> None:
+async def recover_orphan_running_tasks(
+    *,
+    idle_seconds: int | None = None,
+    limit: int | None = None,
+) -> int:
     """Mark ``running`` tasks orphaned by a previous process as ``failed``.
 
     On startup, any task still in ``running`` is an orphan: its execution
@@ -170,24 +174,39 @@ async def recover_orphan_running_tasks() -> None:
 
     To avoid racing with tasks that the *current* process legitimately started
     during/just before lifespan, only tasks whose ``updated_at`` is older than
-    ``ORPHAN_RUNNING_GRACE_SECONDS`` are swept.
+    the idle window are swept.
+
+    Args:
+        idle_seconds: 判定窗口（默认 ORPHAN_RUNNING_GRACE_SECONDS=60s，供
+            FastAPI lifespan 启动清理用；beat 巡检传 TASK_ORPHAN_MINUTES
+            的分钟级窗口——acks_early 后 worker 被杀不重投，这是"卡
+            RUNNING"的唯一常驻防线）。
+        limit: 单轮处理上限（beat 巡检分批用）。
+
+    Returns:
+        本轮标记为 FAILED 的任务数。
     """
     db = get_database()
     from datetime import timedelta
 
-    cutoff = utc_now() - timedelta(seconds=ORPHAN_RUNNING_GRACE_SECONDS)
+    idle = idle_seconds if idle_seconds is not None else ORPHAN_RUNNING_GRACE_SECONDS
+    cutoff = utc_now() - timedelta(seconds=idle)
 
+    query = {"status": TaskStatus.RUNNING.value, "updated_at": {"$lt": cutoff}}
     cursor = db["tasks"].find(
-        {"status": TaskStatus.RUNNING.value, "updated_at": {"$lt": cutoff}},
+        query,
         {"_id": 1, "timeline": {"$slice": -3}, "updated_at": 1},
     )
+    if limit is not None:
+        cursor = cursor.limit(limit)
     orphans = await cursor.to_list(length=None)
     if not orphans:
         logger.debug("recover_orphan_running_tasks_none_found")
-        return
+        return 0
 
     logger.warning("recover_orphan_running_tasks_starting", count=len(orphans))
 
+    marked = 0
     for doc in orphans:
         task_id = doc["_id"]
         # 从 timeline 末尾推断卡住的节点（最后一条 node_start 无对应 node_complete）
@@ -206,6 +225,8 @@ async def recover_orphan_running_tasks() -> None:
             node_id=stuck_node_id,
             node_type=stuck_node_type,
         )
+        marked += 1
+    return marked
 
 
 async def _mark_orphan_running_failed(

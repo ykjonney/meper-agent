@@ -80,7 +80,7 @@ export function ConfirmHost() {
       width={420}
     >
       {options?.description && (
-        <p className="text-xs text-[#a1a1aa] leading-relaxed">{options.description}</p>
+        <p className="text-xs text-ink-dim leading-relaxed">{options.description}</p>
       )}
     </Modal>
   )

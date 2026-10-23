@@ -14,14 +14,12 @@ from agent_flow_harness.graph.nodes.llm_nodes import (
 )
 
 
-def _config(llm=None, *, context_window=None, context_strategy=None) -> dict:
+def _config(llm=None, *, context_window=None) -> dict:
     configurable: dict = {}
     if llm is not None:
         configurable["llm"] = llm
     if context_window is not None:
         configurable["context_window"] = context_window
-    if context_strategy is not None:
-        configurable["context_strategy"] = context_strategy
     return {"configurable": configurable}
 
 
@@ -525,5 +523,292 @@ async def test_compress_node_keeps_paired_tool_calls_under_threshold(base_state)
     ]
     patch = await compress_node(
         base_state, _config(llm, context_window=1_000_000),
+    )
+    assert patch == {}
+
+
+# ---------------------------------------------------------------------------
+# 长任务盲区修复：单任务指令 + 几十次工具往返（split_for_compression 路径）
+# ---------------------------------------------------------------------------
+
+import uuid  # noqa: E402
+
+from agent_flow_harness.context_engineering.compact_circuit import (  # noqa: E402
+    compact_circuit,
+)
+
+
+@pytest.fixture
+def unique_session() -> str:
+    """唯一 session_id + 用后清熔断状态(模块级单例防测试间污染)。"""
+    sid = f"test_{uuid.uuid4().hex[:8]}"
+    yield sid
+    compact_circuit.reset(sid)
+
+
+def _long_task_messages(n_batches: int, *, ai_chars: int = 900) -> list:
+    """sys + 任务指令 + n 个批次(AI(tool_calls) + 小Tool + 长AI文本)。
+
+    工具结果很小(截断无收益)、AI 文本长——只有 LLM 摘要能压缩 outer,
+    复刻「工具已截断、推理文本膨胀」的长任务中后期形态。
+    """
+    msgs = [SystemMessage(content="sys", id="sys")]
+    msgs.append(HumanMessage(content="长任务指令:处理并汇总全部数据", id="task"))
+    for i in range(n_batches):
+        msgs.append(
+            AIMessage(content="", tool_calls=[{"name": "bash", "args": {"cmd": f"ls {i}"}, "id": f"c{i}"}])
+        )
+        msgs.append(ToolMessage(content=f"ok{i}", tool_call_id=f"c{i}"))
+        msgs.append(AIMessage(content=f"step {i} " + "y" * ai_chars, id=f"a{i}"))
+    return msgs
+
+
+class _SummaryLLM:
+    """摘要 LLM:记录调用,返回固定摘要文本。"""
+
+    def __init__(self, reply: str = "1. 意图:汇总数据 2. 已完成 30 步") -> None:
+        self.reply = reply
+        self.calls = 0
+
+    async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.calls += 1
+        return AIMessage(content=self.reply)
+
+
+@pytest.mark.asyncio
+async def test_long_task_sync_summary_replaces_outer(unique_session) -> None:
+    """长任务超阈值 → 同步摘要当轮回填:outer 替换为一条摘要 + 任务指令锚定保留。"""
+    llm = _SummaryLLM()
+    msgs = _long_task_messages(30)
+    state = {"messages": msgs, "agent_id": "a", "request_id": "r", "session_id": unique_session}
+    patch = await compress_node(state, _config(llm, context_window=8_000))
+    assert patch != {}
+    result = _patch_msgs(patch)
+
+    # 同步摘要当轮生效:摘要 LLM 被调用,outer 替换为一条 HumanMessage(id=llm_summary)。
+    assert llm.calls == 1
+    summaries = [m for m in result if getattr(m, "id", "") == "llm_summary"]
+    assert len(summaries) == 1 and isinstance(summaries[0], HumanMessage)
+    assert "汇总数据" in summaries[0].content
+
+    # 任务指令锚定保留(旧实现会在硬限时第一个丢掉它)。
+    assert any(
+        isinstance(m, HumanMessage) and m.content.startswith("长任务指令") for m in result
+    )
+    # 早期批次的 AI 文本被摘要覆盖(step 0/1 不在),近期批次保留(末尾存在)。
+    assert not any("step 0 " in str(m.content) for m in result)
+    assert any("step 29 " in str(m.content) for m in result)
+    # 熔断器计入一次成功(compact_count 可观测)。
+    assert compact_circuit.success_count(unique_session) == 1
+
+
+@pytest.mark.asyncio
+async def test_summary_three_outcomes_progress_semantics(unique_session) -> None:
+    """摘要三态落点:有进展成功回落;无进展计数(不熔断直到连续3次)。"""
+    # 有进展:30 批长任务,摘要替换大 outer → token 大降。
+    llm = _SummaryLLM()
+    msgs = _long_task_messages(30)
+    state = {"messages": msgs, "agent_id": "a", "request_id": "r", "session_id": unique_session}
+    patch = await compress_node(state, _config(llm, context_window=8_000))
+    assert llm.calls == 1
+    result = _patch_msgs(patch)
+    # 降回阈值(8k×0.7=5.6k)以下:带病运行的告警场景之外,正常回落。
+    from agent_flow_harness.engine.context import estimate_context_tokens
+    assert estimate_context_tokens(result, prefer_usage=False) <= 5_600
+
+
+@pytest.mark.asyncio
+async def test_summary_failure_retries_then_circuit_opens(unique_session) -> None:
+    """摘要连续失败 3 次 → 熔断;熔断后不再调用摘要 LLM(降级运行)。"""
+
+    class _FailingLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def ainvoke(self, messages, config=None):  # noqa: ANN001
+            self.calls += 1
+            raise RuntimeError("provider down")
+
+    llm = _FailingLLM()
+    msgs = _long_task_messages(30)
+    state = {"messages": msgs, "agent_id": "a", "request_id": "r", "session_id": unique_session}
+    cfg = _config(llm, context_window=8_000)
+
+    for _ in range(3):
+        patch = await compress_node(state, cfg)
+        assert patch != {}  # 失败当轮仍返回截断/丢弃结果,不抛错
+    assert llm.calls == 3
+
+    # 第 4 次:熔断冷却期内 → 跳过摘要,LLM 零调用。
+    patch = await compress_node(state, cfg)
+    assert llm.calls == 3
+    assert patch != {}
+    # 冷却期后(注入假时钟快进)恢复试探 —— 半开由 compact_circuit 单测覆盖。
+
+
+# ---------------------------------------------------------------------------
+# 分级截断:outer 狠截(~500) / recent 宽松(1500) / 未消费不动
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tiered_tool_output_truncation() -> None:
+    """outer 内 600 字符工具被压缩(~500 上限);recent 内 600 字符保留(1500 上限)。"""
+    # 7 轮 chat(产生 outer):第 1 轮(outer)与第 6 轮(recent)各放一个 600 字符已消费工具。
+    def _turn_with_tool(i: int, tcid: str) -> list:
+        return [
+            AIMessage(content="", tool_calls=[{"name": "t", "args": {}, "id": tcid}]),
+            ToolMessage(content="d" * 600, tool_call_id=tcid),
+        ]
+
+    msgs = [SystemMessage(content="sys", id="sys")]
+    msgs.extend(_turn_with_tool(0, "old_tc"))  # 第 1 轮 → outer
+    for i in range(7):
+        msgs.append(HumanMessage(content=f"q{i}", id=f"h{i}"))
+        msgs.append(AIMessage(content=f"a{i}", id=f"ai{i}"))
+        if i == 5:
+            msgs.extend(_turn_with_tool(i, "recent_tc"))  # recent 内
+    # 让总量超阈值:recent 的 q 加长(7 条 × ~300 tok ≈ 2100+ > 阈值)。
+    msgs = [
+        m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content + "x" * 1200, id=m.id)
+        for m in msgs
+    ]
+
+    config = {
+        "configurable": {
+            "llm": None,
+            "context_window": 3_000,  # 阈值 2100
+            "tool_output_reference_formatter": lambda t, orig: f"[REF:{t}]",
+        }
+    }
+    patch = await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
+    result = _patch_msgs(patch)
+
+    old_tool = [m for m in result if getattr(m, "tool_call_id", "") == "old_tc"]
+    recent_tool = [m for m in result if getattr(m, "tool_call_id", "") == "recent_tc"]
+    assert old_tool, "outer 工具应被压缩保留(不是删除)"
+    assert "[REF:old_tc]" in old_tool[0].content
+    assert "d" * 600 not in old_tool[0].content  # outer 级狠截(500 上限 → 600 字符被压)
+    # recent 级 1500 上限 → 600 字符原样保留。
+    assert recent_tool and "d" * 600 in recent_tool[0].content
+
+
+# ---------------------------------------------------------------------------
+# ⑤ 紧急丢弃安全网:锚定保留 + HumanMessage 占位 + 保底最后 2 条
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emergency_discard_keeps_anchor_and_notes_humans(unique_session) -> None:
+    """超硬限丢弃(llm=None,④ 不可用):任务指令锚定保留;被丢 Human 合成占位。"""
+    msgs = [SystemMessage(content="sys", id="sys")]
+    msgs.append(HumanMessage(content="任" * 400, id="task"))  # ~300 tok 任务指令
+    msgs.append(HumanMessage(content="反馈", id="fb"))  # 非锚定 Human(schema 反馈轮)
+    for i in range(6):
+        msgs.append(
+            AIMessage(content="", tool_calls=[{"name": "bash", "args": {}, "id": f"c{i}"}])
+        )
+        msgs.append(ToolMessage(content=f"ok{i}", tool_call_id=f"c{i}"))
+        msgs.append(AIMessage(content="z" * 7000, id=f"a{i}"))  # ~1750 tok AI 文本
+
+    state = {"messages": msgs, "agent_id": "a", "request_id": "r", "session_id": unique_session}
+    # llm=None → ④ 跳过;窗口 5000 → 阈值 3500,硬限 4500,丢弃目标 4250。
+    patch = await compress_node(state, _config(None, context_window=5_000))
+    result = _patch_msgs(patch)
+
+    # 锚定任务指令保留(原实现会从 recent 头部第一个丢掉它)。
+    anchor = [m for m in result if getattr(m, "id", "") == "task"]
+    assert anchor and "任" * 400 in anchor[0].content
+    # 被丢的 HumanMessage 有占位提示,不是纯丢失。
+    assert any(getattr(m, "id", "") == "llm_discarded_note" for m in result)
+    # 保底:尾部最后 2 条未被丢弃。
+    assert getattr(result[-1], "id", "") == "a5"
+    # 配对完整(丢弃不制造孤儿)。
+    call_ids = {
+        tc["id"]
+        for m in result
+        if isinstance(m, AIMessage)
+        for tc in (getattr(m, "tool_calls", None) or [])
+    }
+    result_ids = {m.tool_call_id for m in result if isinstance(m, ToolMessage)}
+    assert call_ids == result_ids
+
+
+# ---------------------------------------------------------------------------
+# 固定占用前置检查(_check_oversized_prompt)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_oversized_prompt_raises_clear_error() -> None:
+    """system + 任务指令固定占用超窗 → ValueError 明确归因(取代 provider 400)。"""
+    msgs = [
+        SystemMessage(content="s" * 30_000),  # ~7500 tok
+        HumanMessage(content="q", id="h0"),
+        AIMessage(content="hi"),
+    ]
+    config = _config(None, context_window=8_000)  # 预算 8000-4000=4000 < 7500
+    with pytest.raises(ValueError, match="固定占用"):
+        await compress_node({"messages": msgs, "agent_id": "a", "request_id": "r"}, config)
+
+
+@pytest.mark.asyncio
+async def test_tiny_window_skips_prompt_check() -> None:
+    """窗口 ≤ 预留(极端小窗)时跳过固定占用检查(由 oversized_tool 兜底)。"""
+    msgs = [
+        SystemMessage(content="sys", id="sys"),
+        AIMessage(content="", tool_calls=[{"name": "t", "args": {}, "id": "tc"}]),
+        ToolMessage(content="x" * 2600, tool_call_id="tc"),  # ~650 tok > 阈值 140
+        AIMessage(content="done"),
+    ]
+    # window=200 ≤ 4000 → 不走固定占用报错;已消费工具正常压缩。
+    patch = await compress_node(
+        {"messages": msgs, "agent_id": "a", "request_id": "r"},
+        _config(None, context_window=200),
+    )
+    assert patch != {}
+
+
+# ---------------------------------------------------------------------------
+# system 收敛：跨 invoke（chat 多轮 / loop continue）累积的重复 system 去重
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_duplicate_system_messages_deduped_keeps_latest() -> None:
+    """thread 内多条 SystemMessage → 只保留最后一条（最新 invoke 传入）。"""
+    msgs = [
+        SystemMessage(content="sys v1", id="sys-1"),
+        HumanMessage(content="q1", id="h1"),
+        AIMessage(content="a1", id="a1"),
+        SystemMessage(content="sys v2", id="sys-2"),
+        HumanMessage(content="q2", id="h2"),
+        SystemMessage(content="sys v3", id="sys-3"),
+    ]
+    patch = await compress_node(
+        {"messages": msgs, "agent_id": "a", "request_id": "r"},
+        _config(context_window=1_000_000),
+    )
+    assert patch != {}
+    result = _patch_msgs(patch)
+    systems = [m for m in result if isinstance(m, SystemMessage)]
+    assert len(systems) == 1
+    assert systems[0].content == "sys v3"
+    # 非系统消息原样保留。
+    contents = [m.content for m in result if isinstance(m, HumanMessage)]
+    assert contents == ["q1", "q2"]
+
+
+@pytest.mark.asyncio
+async def test_single_system_message_untouched() -> None:
+    """单条 system → 零操作（未达阈值时返回空 patch）。"""
+    msgs = [
+        SystemMessage(content="sys", id="sys"),
+        HumanMessage(content="q1", id="h1"),
+        AIMessage(content="a1", id="a1"),
+    ]
+    patch = await compress_node(
+        {"messages": msgs, "agent_id": "a", "request_id": "r"},
+        _config(context_window=1_000_000),
     )
     assert patch == {}

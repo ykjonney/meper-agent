@@ -334,7 +334,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
         {statCards.map((s) => (
           <div
             key={s.label}
-            className="bg-[#18181b] rounded-xl border border-[#27272a] p-3 flex items-center gap-3"
+            className="bg-panel rounded-xl border border-line p-3 flex items-center gap-3"
           >
             <div
               className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -343,8 +343,8 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
               <s.icon className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-xl font-semibold text-[#fafafa] leading-tight font-mono">{s.value}</div>
-              <div className="text-[11px] text-[#a1a1aa]">{s.label}</div>
+              <div className="text-xl font-semibold text-ink leading-tight font-mono">{s.value}</div>
+              <div className="text-[11px] text-ink-dim">{s.label}</div>
             </div>
           </div>
         ))}
@@ -353,13 +353,13 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       {/* ─── 工具栏：搜索 + 新建 ─── */}
       <div className="flex items-center justify-between gap-3 shrink-0">
         <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#71717a]" />
+          <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-dim" />
           <input
             type="text"
             placeholder="搜索任务 ID 或工作流..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="w-full pl-9 pr-3 h-8 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-[#fafafa] focus:outline-none focus:border-[#1E5EFF] transition font-medium"
+            className="w-full pl-9 pr-3 h-8 text-xs bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-[#1E5EFF] transition font-medium"
           />
         </div>
         <Button
@@ -374,7 +374,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       {/* ─── 6 列看板（横向滚动，列内垂直滚动） ─── */}
       <div className="flex gap-4 overflow-x-auto pb-2 flex-1 min-h-0 scrollbar-custom">
         {boardLoading ? (
-          <div className="flex items-center justify-center w-full py-20 text-[#71717a] text-xs">
+          <div className="flex items-center justify-center w-full py-20 text-ink-dim text-xs">
             <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载任务…
           </div>
         ) : (
@@ -384,11 +384,11 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
             return (
               <div
                 key={status}
-                className="min-w-[280px] w-[280px] flex-shrink-0 flex flex-col bg-[#18181b] rounded-xl border border-[#27272a]"
+                className="min-w-[280px] w-[280px] flex-shrink-0 flex flex-col bg-panel rounded-xl border border-line"
               >
                 {/* 列头 */}
                 <div
-                  className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-t-xl border-b border-[#27272a] shrink-0"
+                  className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-t-xl border-b border-line shrink-0"
                   style={{ background: style.bg }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -401,7 +401,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                     </span>
                   </div>
                   <span
-                    className="px-1.5 h-5 min-w-[20px] flex items-center justify-center rounded-full text-[10px] font-mono font-bold text-white"
+                    className="px-1.5 h-5 min-w-[20px] flex items-center justify-center rounded-full text-[11px] font-mono font-bold text-white"
                     style={{ backgroundColor: style.accent }}
                   >
                     {tasks.length}
@@ -411,7 +411,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                 {/* 卡片区 */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[120px] scrollbar-custom">
                   {tasks.length === 0 ? (
-                    <div className="flex items-center justify-center py-8 text-[10px] text-[#71717a]">
+                    <div className="flex items-center justify-center py-8 text-[11px] text-ink-dim">
                       暂无
                     </div>
                   ) : (
@@ -469,7 +469,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       >
         <div className="flex flex-col gap-4 py-2">
           <div className="space-y-1.5">
-            <label className="text-xs text-[#a1a1aa] font-semibold">
+            <label className="text-xs text-ink-dim font-semibold">
               工作流（已发布） <span className="text-rose-400">*</span>
             </label>
             <Select
@@ -482,18 +482,18 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
               }))}
             />
             {workflows.length === 0 && (
-              <p className="text-[10px] text-amber-400">暂无已发布工作流，请先在工作流页面发布一个。</p>
+              <p className="text-[11px] text-amber-400">暂无已发布工作流，请先在工作流页面发布一个。</p>
             )}
           </div>
 
           {/* 输入区：加载参数定义中 / 结构化参数表单 / 可选 prompt 透传 */}
           {wfDetailLoading ? (
-            <div className="flex items-center gap-2 text-xs text-[#71717a] py-2">
+            <div className="flex items-center gap-2 text-xs text-ink-dim py-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载工作流输入参数…
             </div>
           ) : hasInputVariables ? (
             <div className="space-y-2">
-              <p className="text-[11px] text-[#71717a]">
+              <p className="text-[11px] text-ink-dim">
                 该工作流的开始节点定义了输入变量，请填入本次运行所需的参数。未填的可选变量将使用默认值。
               </p>
               <WorkflowInputForm
@@ -506,13 +506,13 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
             </div>
           ) : (
             <div className="space-y-1.5">
-              <label className="text-xs text-[#a1a1aa] font-semibold">输入 (prompt，可选)</label>
+              <label className="text-xs text-ink-dim font-semibold">输入 (prompt，可选)</label>
               <textarea
                 value={newTask.input}
                 onChange={(e) => setNewTask({ ...newTask, input: e.target.value })}
                 placeholder="任务的初始输入…"
                 rows={3}
-                className="w-full p-3 bg-[#121214] border border-[#27272a] rounded-lg text-[#fafafa] text-xs focus:outline-none focus:border-[#1E5EFF] transition resize-y"
+                className="w-full p-3 bg-page border border-line rounded-lg text-ink text-xs focus:outline-none focus:border-[#1E5EFF] transition resize-y"
               />
             </div>
           )}

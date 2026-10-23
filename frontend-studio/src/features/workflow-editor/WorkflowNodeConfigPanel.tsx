@@ -20,6 +20,7 @@ import AgentNodeConfig from './node-config-panels/AgentNodeConfig'
 import ToolNodeConfig from './node-config-panels/ToolNodeConfig'
 import GatewayNodeConfig from './node-config-panels/GatewayNodeConfig'
 import ParallelNodeConfig from './node-config-panels/ParallelNodeConfig'
+import LoopNodeConfig from './node-config-panels/LoopNodeConfig'
 import HumanNodeConfig from './node-config-panels/HumanNodeConfig'
 
 /* ─── Props ─── */
@@ -28,11 +29,15 @@ interface NodePanelProps {
   node: WorkflowNode
   allNodes: WorkflowNode[]
   onNodeChange: (updated: WorkflowNode) => void
+  /** 结构性变更（加/删节点）——loop 步骤管理用 */
+  onNodesChange?: (nodes: WorkflowNode[]) => void
+  /** 选中节点（面板切换）——loop 步骤点击进入配置用 */
+  onSelectNode?: (n: WorkflowNode) => void
 }
 
 /* ─── Node Config Panel ─── */
 
-function NodeConfigPanel({ node, allNodes, onNodeChange }: NodePanelProps) {
+function NodeConfigPanel({ node, allNodes, onNodeChange, onNodesChange, onSelectNode }: NodePanelProps) {
   const handleConfigChange = (newConfig: Record<string, unknown>) => {
     onNodeChange({ ...node, config: newConfig })
   }
@@ -57,6 +62,17 @@ function NodeConfigPanel({ node, allNodes, onNodeChange }: NodePanelProps) {
       return <GatewayNodeConfig {...commonProps} />
     case 'parallel':
       return <ParallelNodeConfig config={node.config} onChange={handleConfigChange} />
+    case 'loop':
+      return (
+        <LoopNodeConfig
+          config={node.config}
+          onChange={handleConfigChange}
+          allNodes={allNodes}
+          currentNodeId={node.node_id}
+          onNodesChange={onNodesChange}
+          onSelectNode={onSelectNode}
+        />
+      )
     case 'human':
       return <HumanNodeConfig {...commonProps} />
     default:
@@ -84,6 +100,10 @@ interface WorkflowNodeConfigPanelProps {
   allNodes: WorkflowNode[]
   onNodeChange: (updated: WorkflowNode) => void
   onNodeDelete?: (nodeId: string) => void
+  /** 结构性变更（加/删节点）——loop 步骤管理用 */
+  onNodesChange?: (nodes: WorkflowNode[]) => void
+  /** 选中节点（面板切换）——loop 步骤点击进入配置用 */
+  onSelectNode?: (n: WorkflowNode) => void
 }
 
 export default function WorkflowNodeConfigPanel({
@@ -91,20 +111,37 @@ export default function WorkflowNodeConfigPanel({
   allNodes,
   onNodeChange,
   onNodeDelete,
+  onNodesChange,
+  onSelectNode,
 }: WorkflowNodeConfigPanelProps) {
   if (selectedNode) {
     const nt = NODE_TYPE_CONFIGS[selectedNode.type]
+    // 循环成员的面板顶部加返回入口（成员在主画布隐藏，用户无处点回循环）
+    const ownerLoop = allNodes.find(
+      (ln) =>
+        ln.type === 'loop' &&
+        ((ln.config as Record<string, unknown>).body as string[] | undefined)?.includes(selectedNode.node_id),
+    )
     return (
-      <div className="border border-[#27272a] rounded-xl bg-[#18181b] p-4">
+      <div className="border border-line rounded-xl bg-panel p-4">
+        {ownerLoop && onSelectNode && (
+          <button
+            type="button"
+            onClick={() => onSelectNode(ownerLoop)}
+            className="mb-2 flex items-center gap-1 text-[11px] text-[#d8b4fe] hover:text-white cursor-pointer"
+          >
+            ← 返回循环配置
+          </button>
+        )}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: nt?.color }} />
-            <span className="text-sm font-medium text-[#fafafa]">
+            <span className="text-sm font-medium text-ink">
               {nt?.label ?? selectedNode.type} 配置
             </span>
             {nt?.description && <HelpHint text={nt.description} />}
           </div>
-          <Tag className="!m-0 !text-[10px]">{selectedNode.node_id}</Tag>
+          <Tag className="!m-0 !text-[11px]">{selectedNode.node_id}</Tag>
         </div>
 
         {/* 节点名称（label）：节点级字段，所有类型通用，随保存透传后端 */}
@@ -123,9 +160,11 @@ export default function WorkflowNodeConfigPanel({
           node={selectedNode}
           allNodes={allNodes}
           onNodeChange={onNodeChange}
-        />
+        onNodesChange={onNodesChange}
+        onSelectNode={onSelectNode}
+      />
         {onNodeDelete && selectedNode.node_id && (
-          <div className="mt-4 pt-3 border-t border-[#27272a]">
+          <div className="mt-4 pt-3 border-t border-line">
             <Popconfirm
               title="确定删除这个节点？"
               description="关联的连接也会被删除。"
@@ -150,7 +189,7 @@ export default function WorkflowNodeConfigPanel({
 
   // 未选中
   return (
-    <div className="border border-[#27272a] rounded-xl bg-[#18181b] p-6 text-center text-xs text-[#71717a]">
+    <div className="border border-line rounded-xl bg-panel p-6 text-center text-xs text-ink-dim">
       <ListTree size={24} className="mx-auto mb-2" />
       <p>选择一个节点进行配置</p>
     </div>

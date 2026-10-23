@@ -85,9 +85,13 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         call_chain = [*(external_call_chain or []), agent_id]
 
+        # chat 侧委派池（M2）：agent.subagent_ids 声明，published-only。
+        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
+
         # Build messages (system prompt + user input with file attachments)
         system_text = await _build_system_prompt_checked(
             exec_doc, user_id, execution_context=exec_ctx,
+            subagents=subagent_decls or None,
         )
         user_content = await _build_user_content(body, user_id, session_id)
         initial_messages = _assemble_messages(system_text, user_content)
@@ -117,6 +121,7 @@ class AgentExecutionService:
                 user_token=user_token,
                 recorder_sink=recorder_sink,
                 execution_context=exec_ctx,
+                subagents=subagent_bundles or None,
             )
         except Exception as exc:
             run_error = exc
@@ -207,8 +212,11 @@ class AgentExecutionService:
 
         # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）。
         exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
+        # chat 侧委派池（M2）：同 invoke 路径。
+        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
         system_text = await _build_system_prompt_checked(
             exec_doc, user_id, execution_context=exec_ctx,
+            subagents=subagent_decls or None,
         )
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -257,6 +265,7 @@ class AgentExecutionService:
                     user_token=user_token,
                     recorder_sink=recorder_sink,
                     execution_context=exec_ctx,
+                    subagents=subagent_bundles or None,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -377,6 +386,10 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         session_id = body.session_id
 
+        # chat 侧委派池（M2）：恢复轮 resolve 重新装配工具集——不传则
+        # delegate 工具在恢复轮消失（工具声明与运行时集不一致）。
+        subagent_bundles, _subagent_decls = await _load_chat_subagents(exec_doc)
+
         # Note: user's answer is NOT stored as a separate user message.
         # It flows through interrupt() → ToolMessage (tool_result for
         # ask_clarification) in the agent's timeline, rendered as user input
@@ -418,6 +431,7 @@ class AgentExecutionService:
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
                     recorder_sink=recorder_sink,
+                    subagents=subagent_bundles or None,
                     # 计划审批恢复必须保持 plan 上下文（不信客户端标志）：
                     # propose_plan 只在 plan 工具集里，chat 上下文恢复会导致
                     # 挂起的 tool_call 找不到工具而报错（批准无反应的根因）。
@@ -770,8 +784,26 @@ async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) 
     return session_id
 
 
+async def _load_chat_subagents(exec_doc: dict) -> tuple[list[dict], list[dict]]:
+    """按 agent.subagent_ids 拉取 chat 侧委派池（M2，published-only）。
+
+    与 workflow 侧节点 config.subagents 共用 load_subagent_bundles（同源
+    治理）；plan 模式不委派（execution_context 语义由 resolve 侧保证，
+    这里只负责数据）。返回 (bundles, decls)。
+    """
+    sub_ids = exec_doc.get("subagent_ids") or []
+    if not sub_ids:
+        return [], []
+    from app.engine.harness_integration.context import load_subagent_bundles
+
+    return await load_subagent_bundles(
+        sub_ids, agent_id=str(exec_doc.get("_id", "")),
+        exclude_agent_id=str(exec_doc.get("_id", "")),
+    )
+
 async def _build_system_prompt_checked(
     exec_doc: dict, user_id: str = "", *, execution_context: str = "chat",
+    subagents: list[dict] | None = None,
 ) -> str:
     """Build system prompt, raising ValidationError on slot issues.
 
@@ -806,6 +838,7 @@ async def _build_system_prompt_checked(
             exec_doc,
             exclude_skill_names=shadow_names,
             execution_context=execution_context,
+            subagents=subagents,
         )
     except ValueError as exc:
         raise ValidationError(code="AGENT_PROMPT_SLOT_MISSING", message=str(exc)) from exc

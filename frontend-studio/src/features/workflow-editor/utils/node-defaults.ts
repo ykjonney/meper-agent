@@ -40,6 +40,13 @@ const DEFAULT_CONFIGS: Record<string, Record<string, unknown>> = {
     join_strategy: 'all',
     scope: 'shared',
   },
+  loop: {
+    body: [] as string[],
+    body_entry: '',
+    max_iterations: 5,
+    converge_expr: '',
+    next_nodes: [] as NextNodeRef[],
+  },
   human: {
     title: '',
     description: '',

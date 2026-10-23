@@ -237,7 +237,7 @@ export function ModelsPage() {
             <Server className="w-5 h-5 text-indigo-400" />
             模型配置
           </h2>
-          <p className="text-xs text-[#71717a] mt-1">
+          <p className="text-xs text-ink-dim mt-1">
             配置 LLM 接入（接口 / Key / 模型 / 协议），供 Agent 与工作流调用。
           </p>
         </div>
@@ -260,8 +260,8 @@ export function ModelsPage() {
           { label: 'OpenAI 兼容', value: stats.openai, color: 'text-sky-400' },
           { label: 'Anthropic 兼容', value: stats.anthropic, color: 'text-orange-400' },
         ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-[#27272a] bg-[#18181b]">
-            <p className="text-[10px] text-[#71717a] uppercase tracking-widest font-bold">{s.label}</p>
+          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
+            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
             <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
           </div>
         ))}
@@ -270,12 +270,12 @@ export function ModelsPage() {
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索名称 / model_id / provider"
-            className="w-full pl-9 pr-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-sm text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 transition"
+            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
           />
         </div>
         <Select
@@ -299,20 +299,20 @@ export function ModelsPage() {
       )}
 
       {/* ── Table ── */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-x-auto">
+      <div className="rounded-xl border border-line bg-panel overflow-x-auto">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-[#71717a]">
+          <div className="flex items-center justify-center py-16 text-ink-dim">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#52525b]">
+          <div className="flex flex-col items-center justify-center py-16 text-ink-dim">
             <Server className="w-8 h-8 mb-2 opacity-40" />
             <p className="text-sm">暂无模型配置{search ? '匹配搜索' : ''}，点击右上角新建</p>
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#27272a] text-[#71717a] text-[11px] uppercase tracking-wider">
+              <tr className="border-b border-line text-ink-dim text-[11px] uppercase tracking-wider">
                 <th className="text-left font-semibold px-4 py-3">模型</th>
                 <th className="text-left font-semibold px-4 py-3">认证</th>
                 <th className="text-left font-semibold px-4 py-3">上下文</th>
@@ -323,13 +323,13 @@ export function ModelsPage() {
             </thead>
             <tbody>
               {filtered.map((m) => (
-                <tr key={m.id} className="border-b border-[#27272a] last:border-0 hover:bg-[#1c1c1f] transition">
+                <tr key={m.id} className="border-b border-line last:border-0 hover:bg-panel-hover transition">
                   <td className="px-4 py-3 max-w-[320px]">
                     <p className="font-semibold text-white truncate" title={m.name}>{m.name}</p>
-                    <p className="text-[11px] text-[#71717a] font-mono truncate" title={m.model_id}>{m.model_id}</p>
+                    <p className="text-[11px] text-ink-dim font-mono truncate" title={m.model_id}>{m.model_id}</p>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-[#a1a1aa]">{AUTH_LABELS[m.auth_type]}</td>
-                  <td className="px-4 py-3 text-[11px] text-[#a1a1aa] font-mono">
+                  <td className="px-4 py-3 text-[11px] text-ink-dim">{AUTH_LABELS[m.auth_type]}</td>
+                  <td className="px-4 py-3 text-[11px] text-ink-dim font-mono">
                     {m.default_params?.context_window ? `${Math.round(m.default_params.context_window / 1000)}K` : '—'}
                   </td>
                   <td className="px-4 py-3">
@@ -343,12 +343,12 @@ export function ModelsPage() {
                     {m.last_test_success === true ? (
                       <div className="flex flex-col gap-0.5">
                         <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 w-fit">连通</span>
-                        <span className="text-[10px] text-[#52525b]">{formatRelativeTime(m.last_test_at)}</span>
+                        <span className="text-[11px] text-ink-dim">{formatRelativeTime(m.last_test_at)}</span>
                       </div>
                     ) : m.last_test_success === false ? (
                       <div className="flex flex-col gap-0.5">
                         <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-400 w-fit">不通</span>
-                        <span className="text-[10px] text-[#52525b]">{formatRelativeTime(m.last_test_at)}</span>
+                        <span className="text-[11px] text-ink-dim">{formatRelativeTime(m.last_test_at)}</span>
                       </div>
                     ) : (
                       <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-500/10 text-zinc-400">未测试</span>
@@ -360,7 +360,7 @@ export function ModelsPage() {
                         <button
                           onClick={() => handleOpenTest(m)}
                           title="测试连通性"
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-amber-400 hover:bg-[#27272a] transition cursor-pointer"
+                          className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer"
                         >
                           <Zap className="w-4 h-4" />
                         </button>
@@ -369,7 +369,7 @@ export function ModelsPage() {
                         <button
                           onClick={() => handleOpenEdit(m)}
                           title="编辑"
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-indigo-400 hover:bg-[#27272a] transition cursor-pointer"
+                          className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -378,7 +378,7 @@ export function ModelsPage() {
                         <button
                           onClick={() => handleDelete(m)}
                           title="删除"
-                          className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-rose-400 hover:bg-[#27272a] transition cursor-pointer"
+                          className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -395,14 +395,14 @@ export function ModelsPage() {
       {/* ── Create / Edit Modal ── */}
       {(creating || editing) && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a] sticky top-0 bg-[#121214] z-10">
+          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
               <h3 className="text-sm font-bold text-white">
                 {editing ? `编辑模型 · ${editing.name}` : '新建模型'}
               </h3>
               <button
                 onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer"
+                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -447,7 +447,7 @@ export function ModelsPage() {
                   className={inputCls}
                 />
                 {editing && (
-                  <p className="text-[10px] text-[#71717a] mt-1">
+                  <p className="text-[11px] text-ink-dim mt-1">
                     当前密钥已加密存储（脱敏回显：{editing.api_key || '—'}）
                   </p>
                 )}
@@ -478,7 +478,7 @@ export function ModelsPage() {
                     placeholder='Authorization: Bearer {key}'
                     className={inputCls}
                   />
-                  <p className="text-[10px] text-[#71717a] mt-1">
+                  <p className="text-[11px] text-ink-dim mt-1">
                     纯文本 → 单个 header；JSON → 多个 header
                   </p>
                 </Field>
@@ -494,8 +494,8 @@ export function ModelsPage() {
               </Field>
 
               {/* Default params */}
-              <div className="pt-2 border-t border-[#27272a]">
-                <p className="text-[11px] font-bold text-[#a1a1aa] uppercase tracking-wider mb-3">默认参数</p>
+              <div className="pt-2 border-t border-line">
+                <p className="text-[11px] font-bold text-ink-dim uppercase tracking-wider mb-3">默认参数</p>
                 <div className="space-y-4">
                   <div>
                     <div className="flex justify-between mb-1">
@@ -560,11 +560,11 @@ export function ModelsPage() {
               </div>
 
               {/* Footer */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#27272a]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-line">
                 <button
                   type="button"
                   onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                  className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg cursor-pointer font-semibold"
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold"
                 >
                   取消
                 </button>
@@ -587,15 +587,15 @@ export function ModelsPage() {
       {/* ── Test Modal ── */}
       {testingId && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a]">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-400" />
                 连通性测试 · {models.find((m) => m.id === testingId)?.name}
               </h3>
               <button
                 onClick={() => setTestingId(null)}
-                className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer"
+                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -603,7 +603,7 @@ export function ModelsPage() {
 
             <div className="p-5 space-y-3 text-xs">
               {testM.isPending && (
-                <div className="flex items-center justify-center py-8 text-[#71717a]">
+                <div className="flex items-center justify-center py-8 text-ink-dim">
                   <Loader2 className="w-5 h-5 animate-spin mr-2" /> 正在向模型发送测试请求…
                 </div>
               )}
@@ -613,14 +613,14 @@ export function ModelsPage() {
                   <div className="flex items-center gap-2 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span className="font-semibold text-emerald-300">连接成功</span>
-                    <span className="ml-auto text-[11px] text-[#a1a1aa] font-mono">
+                    <span className="ml-auto text-[11px] text-ink-dim font-mono">
                       延迟 {testResult.latency_ms}ms
                     </span>
                   </div>
                   {testResult.reply && (
                     <div>
-                      <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">模型回复</p>
-                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-[#a1a1aa] whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
+                      <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-1">模型回复</p>
+                      <pre className="p-3 rounded-lg bg-panel border border-line text-ink-dim whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
                         {testResult.reply}
                       </pre>
                     </div>
@@ -634,15 +634,15 @@ export function ModelsPage() {
                     <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
                     <span className="font-semibold text-rose-300">连接失败</span>
                     {testResult.error_code && (
-                      <span className="ml-auto px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-mono text-[10px]">
+                      <span className="ml-auto px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-mono text-[11px]">
                         {testResult.error_code}
                       </span>
                     )}
                   </div>
                   {testResult.error && (
                     <div>
-                      <p className="text-[10px] text-[#71717a] uppercase tracking-wider font-bold mb-1">错误详情</p>
-                      <pre className="p-3 rounded-lg bg-[#18181b] border border-[#27272a] text-rose-300/80 whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
+                      <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-1">错误详情</p>
+                      <pre className="p-3 rounded-lg bg-panel border border-line text-rose-300/80 whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
                         {testResult.error}
                       </pre>
                     </div>
@@ -665,11 +665,11 @@ export function ModelsPage() {
                 </div>
               )}
 
-              <div className="flex justify-end pt-2 border-t border-[#27272a]">
+              <div className="flex justify-end pt-2 border-t border-line">
                 <button
                   onClick={() => testingId && testM.mutate(testingId)}
                   disabled={testM.isPending}
-                  className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2"
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2"
                 >
                   <Zap className="w-3.5 h-3.5" />
                   重新测试
@@ -684,7 +684,7 @@ export function ModelsPage() {
 }
 
 const inputCls =
-  'w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
+  'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (

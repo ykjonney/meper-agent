@@ -65,12 +65,12 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
   }
 
   const cardCls = theme === 'dark'
-    ? 'bg-[#18181b] border-[#27272a]'
+    ? 'bg-panel border-line'
     : 'bg-white border-slate-200'
-  const labelCls = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-500'
-  const valueCls = theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'
-  const subCls = theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-600'
-  const headingCls = theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-900'
+  const labelCls = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
+  const valueCls = theme === 'dark' ? 'text-ink' : 'text-slate-800'
+  const subCls = theme === 'dark' ? 'text-ink-dim' : 'text-slate-600'
+  const headingCls = theme === 'dark' ? 'text-ink' : 'text-slate-900'
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -107,8 +107,8 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
               {authUser.permissions.map((p) => (
                 <span
                   key={p}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                    theme === 'dark' ? 'bg-[#121214] text-[#a1a1aa] border border-[#27272a]' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono ${
+                    theme === 'dark' ? 'bg-page text-ink-dim border border-line' : 'bg-slate-100 text-slate-600 border border-slate-200'
                   }`}
                 >
                   {p}
@@ -129,7 +129,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
         {done ? (
           <div className="flex items-start gap-2 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-[#d4d4d8]">
+            <div className="text-xs text-ink-soft">
               密码已修改成功，即将跳转到登录页重新登录…
             </div>
           </div>
@@ -182,7 +182,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
                   setConfirmPassword('')
                   setFormError(null)
                 }}
-                className="inline-flex items-center justify-center h-8 px-3 text-xs font-medium rounded-md border border-[#27272a] bg-[#18181b] text-[#fafafa] hover:border-[#1E5EFF] hover:text-[#1E5EFF] transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center h-8 px-3 text-xs font-medium rounded-md border border-line bg-panel text-ink hover:border-[#1E5EFF] hover:text-link transition-colors cursor-pointer"
               >
                 重置
               </button>

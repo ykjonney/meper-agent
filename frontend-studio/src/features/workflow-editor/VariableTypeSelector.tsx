@@ -118,13 +118,13 @@ const TYPE_OPTIONS = (Object.entries(VARIABLE_TYPE_CONFIGS) as [VariableTypeName
     label: (
       <div className="flex items-center gap-2">
         <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold text-white"
+          className="inline-flex items-center justify-center w-5 h-5 rounded text-[11px] font-bold text-white"
           style={{ backgroundColor: cfg.color }}
         >
           {cfg.icon}
         </span>
         <span>{cfg.label}</span>
-        <span className="text-[10px] text-[#71717a]">({cfg.description})</span>
+        <span className="text-[11px] text-ink-dim">({cfg.description})</span>
       </div>
     ),
   }),
@@ -195,7 +195,7 @@ export default function VariableTypeSelector({
               status={nameError ? 'error' : undefined}
             />
             {nameError && (
-              <p className="text-[10px] text-red-400 mt-0.5">{nameError}</p>
+              <p className="text-[11px] text-red-400 mt-0.5">{nameError}</p>
             )}
           </div>
           <div>
@@ -221,12 +221,12 @@ export default function VariableTypeSelector({
 
       {/* 动态约束表单 */}
       {constraintFields.length > 0 && (
-        <div className="border border-[#27272a]/60 rounded-lg p-2.5 bg-[#121214]/60">
-          <p className="text-[10px] text-slate-400 font-medium mb-2">约束</p>
+        <div className="border border-line/60 rounded-lg p-2.5 bg-page/60">
+          <p className="text-[11px] text-slate-400 font-medium mb-2">约束</p>
           <div className="space-y-2">
             {constraintFields.map((field) => (
               <div key={field.name}>
-                <label className="block text-[10px] text-[#71717a] mb-0.5">
+                <label className="block text-[11px] text-ink-dim mb-0.5">
                   {field.label}
                 </label>
                 {renderConstraintField(
@@ -243,12 +243,12 @@ export default function VariableTypeSelector({
       {/* 当前类型摘要 */}
       <div className="flex items-center gap-1.5">
         <Tag
-          className="!m-0 !text-[10px] !px-1.5 !py-0"
+          className="!m-0 !text-[11px] !px-1.5 !py-0"
           color={typeConfig?.color ?? '#64748B'}
         >
           {getTypeIcon(currentType)} {typeConfig?.label ?? currentType}
         </Tag>
-        <span className="text-[10px] text-[#71717a]">{typeConfig?.description}</span>
+        <span className="text-[11px] text-ink-dim">{typeConfig?.description}</span>
       </div>
     </div>
   )

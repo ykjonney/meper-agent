@@ -16,7 +16,7 @@ def resolve_variable(use: str, expected_type: type) -> Any:
     """把 ``"模块路径:符号名"`` 解析为实际对象，并校验类型。
 
     Args:
-        use: 形如 ``"agent_flow_harness.interaction:tool_search"`` 的路径。
+        use: 形如 ``"agent_flow_harness.interaction:ask_clarification"`` 的路径。
             必须含且仅含一个冒号分隔模块与符号。
         expected_type: 期望的对象类型，不符则 raise TypeError。
 

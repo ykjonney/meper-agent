@@ -106,7 +106,7 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
 
   return (
     <div className="flex items-center gap-3">
-      <div className="w-16 h-16 rounded-xl bg-[#121214] border border-[#27272a] overflow-hidden flex items-center justify-center shrink-0">
+      <div className="w-16 h-16 rounded-xl bg-page border border-line overflow-hidden flex items-center justify-center shrink-0">
         <AvatarRender value={value} className="w-full h-full" />
       </div>
       <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
           type="button"
           disabled={!canUpload || uploading}
           onClick={() => inputRef.current?.click()}
-          className="px-2.5 py-1.5 rounded-md border border-[#27272a] bg-[#121214] text-xs text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          className="px-2.5 py-1.5 rounded-md border border-line bg-page text-xs text-ink-dim hover:text-white hover:border-line-strong transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           title={canUpload ? '上传图片' : '请先保存后再上传头像'}
         >
           {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
@@ -124,7 +124,7 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
           <button
             type="button"
             onClick={() => onChange('')}
-            className="px-2.5 py-1.5 rounded-md border border-[#27272a] bg-[#121214] text-xs text-[#a1a1aa] hover:text-rose-400 hover:border-rose-500/30 transition cursor-pointer flex items-center gap-1.5"
+            className="px-2.5 py-1.5 rounded-md border border-line bg-page text-xs text-ink-dim hover:text-rose-400 hover:border-rose-500/30 transition cursor-pointer flex items-center gap-1.5"
           >
             <Trash2 className="w-3 h-3" />
             移除
@@ -146,10 +146,10 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
       {/* 裁剪 modal */}
       {imageSrc && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4" role="dialog">
-          <div className="w-full max-w-sm bg-[#18181b] border border-[#27272a] rounded-xl p-4 space-y-3">
+          <div className="w-full max-w-sm bg-panel border border-line rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-white">裁剪头像</span>
-              <button onClick={() => setImageSrc(null)} className="text-[#71717a] hover:text-white cursor-pointer">
+              <button onClick={() => setImageSrc(null)} className="text-ink-dim hover:text-white cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -166,7 +166,7 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
             </div>
             <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full" />
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setImageSrc(null)} className="px-3 py-1.5 text-xs text-[#a1a1aa] hover:text-white cursor-pointer">
+              <button onClick={() => setImageSrc(null)} className="px-3 py-1.5 text-xs text-ink-dim hover:text-white cursor-pointer">
                 取消
               </button>
               <button

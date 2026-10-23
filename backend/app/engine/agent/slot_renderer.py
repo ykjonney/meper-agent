@@ -93,6 +93,7 @@ async def render_system_prompt_full(
     execution_context: str = "chat",
     response_schema: dict | None = None,
     output_schema: list[dict] | None = None,
+    subagents: list[dict] | None = None,
 ) -> str:
     """Render the full system prompt from Agent's prompt_slots.
 
@@ -217,6 +218,7 @@ async def render_system_prompt_full(
         exclude_names=exclude_skill_names,
         execution_context=execution_context,
         response_schema=response_schema,
+        subagents=subagents,
     )
     if tool_decl:
         parts.append(tool_decl)

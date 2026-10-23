@@ -37,15 +37,15 @@ export function KbDetailPage({
     <div className="space-y-4">
       {/* Breadcrumb / header */}
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+        <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs text-[#71717a]">
+          <div className="flex items-center gap-2 text-xs text-ink-dim">
             <span>知识库</span><span>/</span><span className="text-white font-semibold">{kbName}</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-fuchsia-500/15 text-fuchsia-300">Wiki</span>
+            <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-fuchsia-500/15 text-fuchsia-300">Wiki</span>
           </div>
-          <p className="text-[11px] text-[#52525b] mt-0.5">
+          <p className="text-[11px] text-ink-dim mt-0.5">
             上传源资料到 sources/，点「构建 Wiki」由 AI 编译成带引用的知识页面；Agent 可用 kb_guide / kb_write 维护
           </p>
         </div>
@@ -151,18 +151,18 @@ function WikiWorkspace({ kbId }: { kbId: string }) {
     <>
       <div className="flex gap-4 h-[calc(100vh-210px)] min-h-[400px]">
         {/* Left: wiki pages + sources */}
-        <div className="w-72 shrink-0 rounded-xl border border-[#27272a] bg-[#18181b] overflow-y-auto p-3 space-y-4">
+        <div className="w-72 shrink-0 rounded-xl border border-line bg-panel overflow-y-auto p-3 space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2 px-1">
-              <span className="text-[11px] text-[#71717a] font-semibold">Wiki 页面</span>
+              <span className="text-[11px] text-ink-dim font-semibold">Wiki 页面</span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setLintOpen(true)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
                 >
                   <FlaskConical className="w-3 h-3" /> 检查
                 </button>
-                <label className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer font-semibold transition">
+                <label className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer font-semibold transition">
                   {uploadM.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
                   上传源
                   <input
@@ -176,11 +176,11 @@ function WikiWorkspace({ kbId }: { kbId: string }) {
               </div>
             </div>
             {isLoading ? (
-              <div className="flex items-center justify-center py-6 text-[#71717a]">
+              <div className="flex items-center justify-center py-6 text-ink-dim">
                 <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载…
               </div>
             ) : (wikiFiles?.wiki ?? []).length === 0 ? (
-              <p className="text-[11px] text-[#52525b] px-1 py-3 text-center">尚无页面——上传源后点「构建 Wiki」</p>
+              <p className="text-[11px] text-ink-dim px-1 py-3 text-center">尚无页面——上传源后点「构建 Wiki」</p>
             ) : (
               <div className="space-y-0.5">
                 {(wikiFiles?.wiki ?? []).map((node) => (
@@ -190,13 +190,13 @@ function WikiWorkspace({ kbId }: { kbId: string }) {
             )}
           </div>
 
-          <div className="border-t border-[#27272a] pt-3">
+          <div className="border-t border-line pt-3">
             <div className="flex items-center justify-between mb-2 px-1">
-              <span className="text-[11px] text-[#71717a] font-semibold">源文件（只读）</span>
-              <span className="text-[10px] text-[#52525b]">{sources.length}</span>
+              <span className="text-[11px] text-ink-dim font-semibold">源文件（只读）</span>
+              <span className="text-[11px] text-ink-dim">{sources.length}</span>
             </div>
             {sources.length === 0 ? (
-              <p className="text-[11px] text-[#52525b] px-1 py-2 text-center">还没有源资料</p>
+              <p className="text-[11px] text-ink-dim px-1 py-2 text-center">还没有源资料</p>
             ) : (
               <div className="space-y-0.5">
                 {sources.map((s) => (
@@ -212,7 +212,7 @@ function WikiWorkspace({ kbId }: { kbId: string }) {
           <BuildBar kbId={kbId} building={building} onBuild={() => buildM.mutate()} />
           <div className="flex-1 min-h-0">
             {selected === null ? (
-              <div className="flex items-center justify-center h-full text-[#52525b] text-sm border border-[#27272a] rounded-xl bg-[#18181b]">
+              <div className="flex items-center justify-center h-full text-ink-dim text-sm border border-line rounded-xl bg-panel">
                 选择左侧 Wiki 页面或源文件查看
               </div>
             ) : selected.startsWith('sources/') ? (
@@ -287,7 +287,7 @@ function BuildBar({ kbId, building, onBuild }: { kbId: string; building: boolean
             value={builderModelId}
             onChange={(e) => saveModelM.mutate(e.target.value)}
             disabled={saveModelM.isPending}
-            className="px-2 py-1.5 rounded-lg border border-[#27272a] bg-[#18181b] text-[11px] text-[#d4d4d8] max-w-52 cursor-pointer"
+            className="px-2 py-1.5 rounded-lg border border-line bg-panel text-[11px] text-ink-soft max-w-52 cursor-pointer"
           >
             <option value="">构建模型：未选择</option>
             {models.map((m) => (
@@ -309,11 +309,11 @@ function BuildBar({ kbId, building, onBuild }: { kbId: string; building: boolean
         </div>
         {status && (
           <span
-            className={`flex items-center gap-1 text-[10px] font-semibold ${
+            className={`flex items-center gap-1 text-[11px] font-semibold ${
               status === 'running' ? 'text-sky-400'
               : status === 'completed' ? 'text-emerald-400'
               : status === 'failed' ? 'text-rose-400'
-              : 'text-[#71717a]'
+              : 'text-ink-dim'
             }`}
           >
             {status === 'completed' && <CheckCircle2 className="w-3 h-3" />}
@@ -328,7 +328,7 @@ function BuildBar({ kbId, building, onBuild }: { kbId: string; building: boolean
           <CircleAlert className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-[11px] text-rose-300 font-semibold">构建失败</p>
-            <p className="text-[11px] text-[#d4d4d8] mt-0.5 break-words whitespace-pre-wrap">
+            <p className="text-[11px] text-ink-soft mt-0.5 break-words whitespace-pre-wrap">
               {buildError || '后端未返回原因——请查看 Worker 日志中的 wiki_build_failed 事件（常见：模型 API Key/地址无效、模型不支持工具调用）。'}
             </p>
           </div>
@@ -348,7 +348,7 @@ function WikiSourceRow({
       onClick={() => onSelect(source.path)}
       title={source.status === 'failed' ? source.error : source.path}
       className={`w-full flex items-center gap-1.5 py-1 px-1 text-xs rounded transition cursor-pointer ${
-        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-[#a1a1aa] hover:text-white hover:bg-[#27272a]'
+        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-ink-dim hover:text-white hover:bg-line'
       }`}
     >
       <StatusDot status={source.status} />
@@ -361,7 +361,7 @@ function StatusDot({ status }: { status: string }) {
   if (status === 'processing') return <Loader2 className="w-3 h-3 animate-spin text-sky-400 shrink-0" />;
   if (status === 'pending') return <CircleAlert className="w-3 h-3 text-amber-400 shrink-0" />;
   if (status === 'failed') return <CircleAlert className="w-3 h-3 text-rose-400 shrink-0" />;
-  return <FileText className="w-3 h-3 text-[#52525b] shrink-0" />;
+  return <FileText className="w-3 h-3 text-ink-dim shrink-0" />;
 }
 
 /** 源文件查看器：md 直读，二进制读 .extracted 提取文本（只读）。 */
@@ -381,7 +381,7 @@ function WikiSourceViewer({
 
   if (!ready) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 text-sm border border-[#27272a] rounded-xl bg-[#18181b]">
+      <div className="h-full flex flex-col items-center justify-center gap-2 text-sm border border-line rounded-xl bg-panel">
         {src?.status === 'failed' ? (
           <>
             <CircleAlert className="w-6 h-6 text-rose-400" />
@@ -390,7 +390,7 @@ function WikiSourceViewer({
         ) : (
           <>
             <Loader2 className="w-6 h-6 animate-spin text-sky-400" />
-            <p className="text-[#71717a] text-xs">文本提取中…（{src?.status}）</p>
+            <p className="text-ink-dim text-xs">文本提取中…（{src?.status}）</p>
           </>
         )}
       </div>
@@ -398,15 +398,15 @@ function WikiSourceViewer({
   }
 
   return (
-    <div className="h-full flex flex-col rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
-      <div className="px-4 py-2 border-b border-[#27272a] shrink-0 flex items-center gap-2">
-        <span className="text-[11px] font-mono text-[#a1a1aa] truncate">{path}</span>
-        {!isMd && <span className="text-[10px] text-[#52525b]">提取文本（只读）</span>}
+    <div className="h-full flex flex-col rounded-xl border border-line bg-panel overflow-hidden">
+      <div className="px-4 py-2 border-b border-line shrink-0 flex items-center gap-2">
+        <span className="text-[11px] font-mono text-ink-dim truncate">{path}</span>
+        {!isMd && <span className="text-[11px] text-ink-dim">提取文本（只读）</span>}
       </div>
       {isLoading ? (
-        <div className="flex-1 flex items-center justify-center text-[#71717a]"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
+        <div className="flex-1 flex items-center justify-center text-ink-dim"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4 text-xs font-mono text-[#d4d4d8] whitespace-pre-wrap leading-relaxed">
+        <div className="flex-1 overflow-y-auto p-4 text-xs font-mono text-ink-soft whitespace-pre-wrap leading-relaxed">
           {file?.content ?? '（空）'}
         </div>
       )}
@@ -426,7 +426,7 @@ function WikiPageViewer({ kbId, filePath }: { kbId: string; filePath: string }) 
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center text-[#71717a] border border-[#27272a] rounded-xl bg-[#18181b]">
+      <div className="h-full flex items-center justify-center text-ink-dim border border-line rounded-xl bg-panel">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />加载…
       </div>
     );
@@ -436,18 +436,18 @@ function WikiPageViewer({ kbId, filePath }: { kbId: string; filePath: string }) 
   }
 
   return (
-    <div className="h-full flex rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+    <div className="h-full flex rounded-xl border border-line bg-panel overflow-hidden">
       {/* In-page TOC */}
       {toc.length > 0 && (
-        <div className="w-44 shrink-0 border-r border-[#27272a] overflow-y-auto p-3">
-          <p className="text-[10px] text-[#71717a] font-semibold mb-2">本页目录</p>
+        <div className="w-44 shrink-0 border-r border-line overflow-y-auto p-3">
+          <p className="text-[11px] text-ink-dim font-semibold mb-2">本页目录</p>
           <div className="space-y-0.5">
             {toc.map((h, i) => (
               <button
                 key={`${h.text}-${i}`}
                 onClick={() => scrollToHeading(h.text)}
                 style={{ paddingLeft: `${(h.level - 2) * 10 + 4}px` }}
-                className="w-full text-left text-[11px] text-[#a1a1aa] hover:text-white truncate py-0.5 cursor-pointer"
+                className="w-full text-left text-[11px] text-ink-dim hover:text-white truncate py-0.5 cursor-pointer"
               >
                 {h.text}
               </button>
@@ -457,11 +457,11 @@ function WikiPageViewer({ kbId, filePath }: { kbId: string; filePath: string }) 
       )}
       {/* Rendered page */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="px-4 py-2 border-b border-[#27272a] shrink-0 flex items-center justify-between">
-          <span className="text-[11px] font-mono text-[#a1a1aa] truncate">{filePath}</span>
+        <div className="px-4 py-2 border-b border-line shrink-0 flex items-center justify-between">
+          <span className="text-[11px] font-mono text-ink-dim truncate">{filePath}</span>
           <button
             onClick={() => setEditing(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
           >
             <Pencil className="w-3 h-3" /> 编辑
           </button>
@@ -540,26 +540,26 @@ function WikiLintModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
       <div
-        className="w-full max-w-2xl max-h-[80vh] rounded-xl border border-[#27272a] bg-[#18181b] flex flex-col"
+        className="w-full max-w-2xl max-h-[80vh] rounded-xl border border-line bg-panel flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 py-3 border-b border-[#27272a] flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b border-line flex items-center justify-between shrink-0">
           <div>
             <p className="text-sm font-semibold text-white">Wiki 健康检查</p>
             {data && (
-              <p className="text-[11px] text-[#71717a] mt-0.5">
+              <p className="text-[11px] text-ink-dim mt-0.5">
                 页面 {data.stats.page_count} · 源 {data.stats.source_count}（已引用 {data.stats.cited_source_count}）·
                 错误 {data.stats.error_count} / 警告 {data.stats.warn_count}
               </p>
             )}
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-[#27272a] cursor-pointer">
+          <button onClick={onClose} className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
           {isLoading ? (
-            <div className="flex items-center justify-center py-8 text-[#71717a]"><Loader2 className="w-4 h-4 animate-spin mr-2" />检查中…</div>
+            <div className="flex items-center justify-center py-8 text-ink-dim"><Loader2 className="w-4 h-4 animate-spin mr-2" />检查中…</div>
           ) : (data?.issues ?? []).length === 0 ? (
             <div className="flex flex-col items-center py-8 gap-2 text-emerald-400">
               <CheckCircle2 className="w-6 h-6" />
@@ -573,14 +573,14 @@ function WikiLintModal({
                   if (i.path.startsWith('wiki/')) onJump(i.path);
                   onClose();
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#27272a] transition cursor-pointer"
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-line transition cursor-pointer"
               >
                 <p className="text-[11px]">
                   <span className={`font-semibold ${sevStyle(i.severity)}`}>[{sevLabel(i.severity)}]</span>{' '}
-                  <span className="text-[#a1a1aa]">{i.rule}</span>{' '}
-                  <span className="font-mono text-[#71717a]">{i.path}</span>
+                  <span className="text-ink-dim">{i.rule}</span>{' '}
+                  <span className="font-mono text-ink-dim">{i.path}</span>
                 </p>
-                <p className="text-[11px] text-[#d4d4d8] mt-0.5">{i.detail}</p>
+                <p className="text-[11px] text-ink-soft mt-0.5">{i.detail}</p>
               </button>
             ))
           )}
@@ -606,7 +606,7 @@ const KbTreeRow: FC<{
         <button
           onClick={() => setOpen((o) => !o)}
           style={pad}
-          className="w-full flex items-center gap-1.5 py-1 text-xs text-[#a1a1aa] hover:text-white hover:bg-[#27272a] rounded transition cursor-pointer"
+          className="w-full flex items-center gap-1.5 py-1 text-xs text-ink-dim hover:text-white hover:bg-line rounded transition cursor-pointer"
         >
           <Folder className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <span className="truncate font-medium">{node.title}</span>
@@ -624,10 +624,10 @@ const KbTreeRow: FC<{
       onClick={() => onSelect(node.key)}
       style={pad}
       className={`w-full flex items-center gap-1.5 py-1 text-xs rounded transition cursor-pointer ${
-        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-[#a1a1aa] hover:text-white hover:bg-[#27272a]'
+        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-ink-dim hover:text-white hover:bg-line'
       }`}
     >
-      <FileText className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+      <FileText className="w-3.5 h-3.5 text-ink-dim shrink-0" />
       <span className="truncate font-mono">{node.title}</span>
     </button>
   );
@@ -684,16 +684,16 @@ function KbFileEditor({
   };
 
   return (
-    <div className="h-full flex flex-col rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+    <div className="h-full flex flex-col rounded-xl border border-line bg-panel overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#27272a] shrink-0">
-        <span className="text-[11px] font-mono text-[#a1a1aa] truncate">{filePath}</span>
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line shrink-0">
+        <span className="text-[11px] font-mono text-ink-dim truncate">{filePath}</span>
         <div className="flex items-center gap-2">
-          {isDirty && <span className="text-[10px] text-amber-400 font-semibold">未保存</span>}
+          {isDirty && <span className="text-[11px] text-amber-400 font-semibold">未保存</span>}
           {onDone && (
             <button
               onClick={onDone}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
             >
               <BookOpen className="w-3 h-3" /> 阅读
             </button>
@@ -701,7 +701,7 @@ function KbFileEditor({
           <button
             onClick={() => file && setLocal(file.content)}
             disabled={!isDirty}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-[#a1a1aa] hover:text-white hover:bg-[#27272a] disabled:opacity-40 transition cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-white hover:bg-line disabled:opacity-40 transition cursor-pointer"
           >
             <Undo2 className="w-3 h-3" /> 撤销
           </button>
@@ -726,16 +726,16 @@ function KbFileEditor({
 
       {/* Editor area */}
       {isLoading ? (
-        <div className="flex-1 flex items-center justify-center text-[#71717a]"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
+        <div className="flex-1 flex items-center justify-center text-ink-dim"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
       ) : (
         <textarea
           value={local}
           onChange={(e) => setLocal(e.target.value)}
-          className="flex-1 w-full p-4 bg-transparent text-[#fafafa] font-mono text-xs leading-relaxed resize-none focus:outline-none"
+          className="flex-1 w-full p-4 bg-transparent text-ink font-mono text-xs leading-relaxed resize-none focus:outline-none"
           spellCheck={false}
         />
       )}
-      <div className="px-4 py-1.5 border-t border-[#27272a] text-[10px] text-[#52525b] shrink-0">{local.length} 字符</div>
+      <div className="px-4 py-1.5 border-t border-line text-[11px] text-ink-dim shrink-0">{local.length} 字符</div>
     </div>
   );
 }

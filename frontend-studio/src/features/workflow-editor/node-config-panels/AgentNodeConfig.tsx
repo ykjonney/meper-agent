@@ -12,8 +12,8 @@
  *   直接取值（不依赖 JSON 字符串深解析）。
  *
  * - Agent ID 通过 Select 选择
- * - 查询（input_query）：必填，作为 user message，支持变量池
- * - 上下文（input_prompt）：可选，注入 Agent 的 context 卡槽，支持变量池
+ * - 任务（input_query）：必填，作为 user message，支持变量池
+ * - 背景与目标（input_prompt）：可选，注入 Agent 的 context 卡槽，支持变量池
  * - 超时（timeout_ms）；temperature/max_retry 沿用节点默认配置（引擎侧
  *   消费），信息不足分支（insufficient_branch）已从面板下线（后端能力保留）
  *
@@ -156,6 +156,16 @@ interface Props {
 }
 
 export default function AgentNodeConfig({ config, onChange, currentNodeId, allNodes }: Props) {
+  // 所属循环（节点是某 loop 的体成员时，显示「跨轮记忆」策略项）
+  const ownerLoop = allNodes.find(
+    (n) =>
+      n.type === 'loop' &&
+      ((((n.config ?? {}) as Record<string, unknown>).body as string[] | undefined) ?? []).includes(
+        currentNodeId,
+      ),
+  )
+  const ownerLoopId = ownerLoop?.node_id
+
   const { data: agentsData, isLoading } = useQuery({
     queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
     queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
@@ -179,12 +189,12 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     })
   }
 
-  // 查询内容变更（作为 user message）
+  // 任务变更（作为 user message）
   const handleInputQueryChange = (val: string) => {
     onChange({ ...config, input_query: val })
   }
 
-  // 上下文变更（注入 Agent 的 context 卡槽）
+  // 背景与目标变更（注入 Agent 的 context 卡槽）
   const handleContextChange = (val: string) => {
     onChange({ ...config, input_prompt: val })
   }
@@ -226,7 +236,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
   ) => {
     const onPatch = (patch: Partial<ResponseField>) => updateAt(path, patch)
     return (
-      <div key={path.join('.')} className="space-y-1.5 border-t border-[#27272a] pt-2">
+      <div key={path.join('.')} className="space-y-1.5 border-t border-line pt-2">
         <div className="grid grid-cols-[1fr_92px_32px_32px_44px] gap-1.5 items-center">
           <Input
             placeholder="字段名（如 status）"
@@ -274,9 +284,9 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
 
         {/* 对象（或对象列表）：行下递归渲染缩进的子字段区，任意层可继续嵌套（建议 ≤3 层） */}
         {field.type === 'object' && (
-          <div className="ml-3 border-l-2 border-[#3f3f46] pl-2.5 space-y-1.5">
+          <div className="ml-3 border-l-2 border-line-strong pl-2.5 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-[#71717a]">
+              <span className="text-[11px] text-ink-dim">
                 {field.name || '（未命名）'}的子字段
                 {field.is_list ? '（对象列表的元素结构）' : '（嵌套对象）'}
               </span>
@@ -307,13 +317,13 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
       ? `{{${currentNodeId}.response.${refPath}}}`
       : `{{${currentNodeId}.response}}`
     return (
-      <div className="rounded bg-[#09090b] border border-[#27272a] p-2 min-w-0">
-        <div className="text-[10px] text-[#a1a1aa] mb-1">response 数据结构预览</div>
-        <pre className="text-[11px] leading-relaxed font-mono text-[#d4d4d8] whitespace-pre-wrap break-all">
+      <div className="rounded bg-well border border-line p-2 min-w-0">
+        <div className="text-[11px] text-ink-dim mb-1">response 数据结构预览</div>
+        <pre className="text-[11px] leading-relaxed font-mono text-ink-soft whitespace-pre-wrap break-all">
           {JSON.stringify(sample, null, 2)}
         </pre>
-        <div className="text-[10px] text-[#a1a1aa] mt-1.5 pt-1.5 border-t border-[#27272a]">
-          下游引用示例：<code className="font-mono text-[#60A5FA] break-all">{refExample}</code>
+        <div className="text-[11px] text-ink-dim mt-1.5 pt-1.5 border-t border-line">
+          下游引用示例：<code className="font-mono text-link break-all">{refExample}</code>
         </div>
       </div>
     )
@@ -338,12 +348,12 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
       />
 
       {schemaType !== 'text' && (
-        <div className="rounded bg-[#09090b] border border-[#27272a] px-2.5 py-2 space-y-2">
+        <div className="rounded bg-well border border-line px-2.5 py-2 space-y-2">
           {fields.map((field, idx) => renderFieldRow(field, [idx]))}
           <button
             type="button"
             onClick={() => setFields([...fields, { name: '', type: 'string' }])}
-            className="text-[10px] text-[#60A5FA] hover:underline cursor-pointer"
+            className="text-[11px] text-link hover:underline cursor-pointer"
           >
             + 加字段
           </button>
@@ -391,30 +401,35 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         )}
       </div>
 
-      {/* 查询（必填）→ user message */}
+      {/* 任务（必填）→ user message */}
       <div>
         <VariableSelector
-          label="查询"
+          label="任务"
+          labelExtra={
+            ownerLoopId ? (
+              <HelpHint text="这一步在循环里每轮要做什么。跨轮语义：引用循环内后执行的步骤（如执行者引用评审）＝取其上一轮输出——首轮为空，可写「首轮…，之后…」。引用先执行的步骤则取本轮最新值。" />
+            ) : undefined
+          }
           value={config.input_query as string ?? ''}
           onChange={handleInputQueryChange}
           currentNodeId={currentNodeId}
           allNodes={allNodes}
-          placeholder="作为用户消息发送给 Agent，支持 {{变量}} ..."
+          placeholder="这一步要 Agent 做什么（作为任务消息发送），支持 {{变量}} ..."
           rows={2}
           required
         />
       </div>
 
-      {/* 上下文（可选）→ 注入 context 卡槽 */}
+      {/* 背景与目标（可选）→ 注入 context 卡槽：恒定的目标/标准/背景（永不压缩） */}
       <div>
         <VariableSelector
-          label="上下文"
-          labelExtra={<HelpHint text="此内容会作为工作流上下文注入 Agent 的「上下文」提示卡槽，覆盖其默认值。角色、任务、约束等仍由 Agent 自身配置决定。" />}
+          label="背景与目标（可选）"
+          labelExtra={<HelpHint text="放恒定的东西：整体目标、达标标准、约束、大块背景——注入 system 提示（永不压缩、每轮在场），写一次即可；循环/多轮场景尤其适合把总目标放这里。任务里只写本轮做什么。" />}
           value={config.input_prompt as string ?? ''}
           onChange={handleContextChange}
           currentNodeId={currentNodeId}
           allNodes={allNodes}
-          placeholder="注入到 Agent 的 context 卡槽，支持 {{变量}} ..."
+          placeholder="整体目标 / 达标标准 / 背景材料（恒定注入，写一次），支持 {{变量}} ..."
           rows={3}
         />
       </div>
@@ -435,6 +450,33 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         />
       </div>
 
+      {/* 循环上下文策略（仅循环体成员显示）：跨轮记忆保留还是每轮失忆。
+          node_executor 按 loop_thread_policy 构建 thread——continue 同线程
+          续接（记得读过什么/试过什么），fresh 每轮新线程（评审独立不被
+          上轮发言锚定）；工作台模式下注入随之全量/增量。 */}
+      {ownerLoopId && (
+        <div>
+          <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+            跨轮记忆
+            <HelpHint text="这个步骤跨轮怎么记住上下文。跨轮续接：保留之前轮次的对话（读过的资料、失败的尝试都在）——适合执行者；每轮独立：每轮全新视角不被上一轮发言锚定——适合评审者。循环外的节点无此概念。" />
+          </label>
+          <Select
+            className="w-full"
+            value={(config.loop_thread_policy as string) ?? 'continue'}
+            onChange={(val) =>
+              onChange({
+                ...config,
+                loop_thread_policy: val === 'fresh' ? 'fresh' : 'continue',
+              })
+            }
+            options={[
+              { value: 'continue', label: '跨轮续接（执行者）' },
+              { value: 'fresh', label: '每轮独立（评审者）' },
+            ]}
+          />
+        </div>
+      )}
+
       {/* 输出变量：全部引擎输出变量一览（用户知道下游可用什么）。
           仅 response 可编辑（弹窗内查看/编辑结构），其余为固定只读。 */}
       <div className="border border-slate-700/60 rounded-md p-2.5 space-y-1.5">
@@ -453,11 +495,11 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         <button
           type="button"
           onClick={() => setZoomOpen(true)}
-          className="w-full flex items-center gap-1.5 text-left rounded border border-[#27272a] bg-[#09090b] px-2 py-1.5 hover:border-[#1E5EFF]/50 transition-colors cursor-pointer"
+          className="w-full flex items-center gap-1.5 text-left rounded border border-line bg-well px-2 py-1.5 hover:border-[#1E5EFF]/50 transition-colors cursor-pointer"
         >
-          <span className="text-[10px] font-medium text-[#60A5FA]">response</span>
-          <span className="text-[9px] text-[#71717a] truncate">{responseSummary}</span>
-          <span className="ml-auto shrink-0 text-[9px] text-[#60A5FA]">查看 / 编辑</span>
+          <span className="text-[11px] font-medium text-link">response</span>
+          <span className="text-[11px] text-ink-dim truncate">{responseSummary}</span>
+          <span className="ml-auto shrink-0 text-[11px] text-link">查看 / 编辑</span>
         </button>
 
         {/* 引擎固定输出（只读） */}
@@ -468,10 +510,10 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         ].map((v) => (
           <div
             key={v.name}
-            className="flex items-center gap-1.5 rounded border border-[#27272a] px-2 py-1.5"
+            className="flex items-center gap-1.5 rounded border border-line px-2 py-1.5"
           >
-            <span className="text-[10px] font-medium text-[#a1a1aa]">{v.name}</span>
-            <span className="text-[9px] text-[#71717a]">
+            <span className="text-[11px] font-medium text-ink-dim">{v.name}</span>
+            <span className="text-[11px] text-ink-dim">
               {v.desc} · 固定
             </span>
           </div>

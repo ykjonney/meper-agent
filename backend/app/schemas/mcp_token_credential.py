@@ -61,17 +61,6 @@ class McpTokenUpdate(BaseModel):
     )
 
 
-class McpBindingMasked(BaseModel):
-    """脱敏后的绑定（API 响应）。"""
-
-    credential_type: McpCredentialType
-    auth_type: McpAuthType
-    token: str | None = Field(default=None, description="脱敏后的 token")
-    username: str | None = Field(default=None, description="用户名（账密型，通常不脱敏）")
-    password: str | None = Field(default=None, description="脱敏后的密码")
-    header_name: str | None = Field(default=None)
-
-
 class McpTokenResponse(BaseModel):
     """通用 token 记录响应（凭证脱敏，token 部分脱敏）。"""
 

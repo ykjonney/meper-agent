@@ -52,8 +52,8 @@ const GROUPS: { kind: SelectableKind; label: string; hint: string }[] = [
 
 export function TransferManagementPage({ theme = 'dark' }: { theme?: 'dark' | 'light' }) {
   const [tab, setTab] = useState<'export' | 'import'>('export')
-  const box = theme === 'dark' ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'
-  const muted = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  const box = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'
+  const muted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
 
   return (
     <div className="space-y-5">
@@ -79,7 +79,7 @@ export function TransferManagementPage({ theme = 'dark' }: { theme?: 'dark' | 'l
                 tab === t.key
                   ? 'bg-indigo-600 text-white'
                   : theme === 'dark'
-                    ? 'text-[#a1a1aa] hover:text-white hover:bg-[#27272a]'
+                    ? 'text-ink-dim hover:text-white hover:bg-line'
                     : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
             >
@@ -106,7 +106,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
   const [busy, setBusy] = useState(false)
   const [groupFilter, setGroupFilter] = useState<SelectableKind | 'all'>('all')
 
-  const muted = theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+  const muted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
 
   // 各类型资源清单（一次一页 100/200 条，管理页足够；更多时分页可后续加）
   const agentsQ = useQuery({
@@ -218,8 +218,8 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
     void queryClient.invalidateQueries({ queryKey: modelKeys.all })
   }
 
-  const rowBorder = theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'
-  const hoverBg = theme === 'dark' ? 'hover:bg-[#121214]' : 'hover:bg-slate-50'
+  const rowBorder = theme === 'dark' ? 'border-line' : 'border-slate-200'
+  const hoverBg = 'hover:bg-page'
 
   return (
     <div className="space-y-4">
@@ -231,7 +231,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
             groupFilter === 'all'
               ? 'border-indigo-600 bg-indigo-950/30 text-indigo-300'
               : theme === 'dark'
-                ? 'border-[#27272a] text-[#a1a1aa] hover:text-white'
+                ? 'border-line text-ink-dim hover:text-white'
                 : 'border-slate-200 text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -247,7 +247,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
                 groupFilter === g.kind
                   ? 'border-indigo-600 bg-indigo-950/30 text-indigo-300'
                   : theme === 'dark'
-                    ? 'border-[#27272a] text-[#a1a1aa] hover:text-white'
+                    ? 'border-line text-ink-dim hover:text-white'
                     : 'border-slate-200 text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -259,7 +259,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
 
       {/* 分组列表 */}
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#71717a]">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-dim">
           <Loader2 className="w-4 h-4 animate-spin" /> 加载资源清单…
         </div>
       ) : (
@@ -270,7 +270,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
             const allSelected = pickable.length > 0 && pickable.every((r) => selected.has(`${g.kind}:${r.id}`))
             return (
               <div key={g.kind} className={`rounded-lg border ${rowBorder} overflow-hidden`}>
-                <div className={`flex items-center justify-between px-3 py-2 border-b ${rowBorder} ${theme === 'dark' ? 'bg-[#121214]' : 'bg-slate-50'}`}>
+                <div className={`flex items-center justify-between px-3 py-2 border-b ${rowBorder} bg-page`}>
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -280,10 +280,10 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
                       className="accent-indigo-600"
                     />
                     <span className="text-xs font-bold text-white">{g.label}</span>
-                    <span className={`text-[10px] ${muted}`}>{rows.length} 项 · {g.hint}</span>
+                    <span className={`text-[11px] ${muted}`}>{rows.length} 项 · {g.hint}</span>
                   </label>
                   {selectedByKind.get(g.kind) && (
-                    <span className="text-[10px] text-indigo-400 font-mono">已选 {selectedByKind.get(g.kind)}</span>
+                    <span className="text-[11px] text-indigo-400 font-mono">已选 {selectedByKind.get(g.kind)}</span>
                   )}
                 </div>
                 {rows.length === 0 ? (
@@ -307,12 +307,12 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
                             />
                             <span className="text-xs text-white font-medium truncate">{r.name}</span>
                             {r.disabledReason && (
-                              <span className="text-[10px] text-amber-400 flex items-center gap-0.5">
+                              <span className="text-[11px] text-amber-400 flex items-center gap-0.5">
                                 <BookOpen className="w-3 h-3" />{r.disabledReason}
                               </span>
                             )}
-                            {r.desc && <span className={`text-[10px] truncate flex-1 text-right ${muted}`}>{r.desc}</span>}
-                            <span className={`text-[10px] font-mono shrink-0 ${muted}`}>{r.id.slice(0, 14)}…</span>
+                            {r.desc && <span className={`text-[11px] truncate flex-1 text-right ${muted}`}>{r.desc}</span>}
+                            <span className={`text-[11px] font-mono shrink-0 ${muted}`}>{r.id.slice(0, 14)}…</span>
                           </label>
                         </li>
                       )
@@ -334,18 +334,18 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
             onChange={(e) => setIncludeDeps(e.target.checked)}
             className="mt-0.5 accent-indigo-600"
           />
-          <span className="text-xs text-[#a1a1aa] leading-relaxed">
+          <span className="text-xs text-ink-dim leading-relaxed">
             包含依赖资源
-            <span className={`block text-[10px] ${muted}`}>
+            <span className={`block text-[11px] ${muted}`}>
               自动携带绑定：技能 / MCP 连接 / 文档树知识库 / 模型 / 子工作流等（向量知识库除外）
             </span>
           </span>
         </label>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[#a1a1aa] font-mono">
+          <span className="text-xs text-ink-dim font-mono">
             已选 {selectedCount} 项
             {selectedCount > 0 && (
-              <span className="text-[#71717a]">
+              <span className="text-ink-dim">
                 （{[...selectedByKind.entries()].map(([k, n]) => `${GROUPS.find((g) => g.kind === k)?.label}×${n}`).join(' ')}）
               </span>
             )}

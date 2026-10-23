@@ -10,7 +10,7 @@ import { apiClient } from '../lib/api-client'
 export interface NotificationItem {
   id: string
   user_id: string
-  kind: 'task_failed' | 'task_waiting_human' | 'task_completed'
+  kind: 'task_failed' | 'task_waiting_human' | 'task_completed' | 'task_slow'
   title: string
   body: string
   related_task_id: string | null

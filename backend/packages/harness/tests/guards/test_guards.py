@@ -1,21 +1,14 @@
-"""AC1-AC12 cover: Guard protocol, the 4 built-in guards, nodes, registry, builder."""
+"""Guard protocol, TokenBudgetGuard, nodes, registry, builder cover."""
 
 from __future__ import annotations
-
-import time
-from types import SimpleNamespace
 
 import pytest
 
 from agent_flow_harness.guards import (
-    ContentGuard,
     GUARD_REGISTRY,
     Guard,
-    TimeBudgetGuard,
     TokenBudgetGuard,
-    ToolRateLimitGuard,
     make_guard_in_node,
-    make_guard_out_node,
     resolve_guards,
 )
 from agent_flow_harness.guards.base import Allow, Block, Warn
@@ -35,13 +28,7 @@ def test_guard_result_factories() -> None:
 
 
 def test_built_in_guards_satisfy_protocol() -> None:
-    for g in (
-        TokenBudgetGuard(max_total_tokens=10),
-        TimeBudgetGuard(max_wall_seconds=10),
-        ToolRateLimitGuard(),
-        ContentGuard(),
-    ):
-        assert isinstance(g, Guard)
+    assert isinstance(TokenBudgetGuard(max_total_tokens=10), Guard)
 
 
 # ---------------------------------------------------------------------------
@@ -68,129 +55,6 @@ async def test_token_budget_block_over_limit() -> None:
     g = TokenBudgetGuard(max_total_tokens=1000)
     result = await g.check_in({"total_tokens": 1000})
     assert result.decision == "block"
-
-
-@pytest.mark.asyncio
-async def test_token_budget_check_out_blocks_overflow() -> None:
-    g = TokenBudgetGuard(max_total_tokens=1000)
-    result = await g.check_out({"total_tokens": 990}, {"step_tokens": 50})
-    assert result.decision == "block"
-
-
-# ---------------------------------------------------------------------------
-# TimeBudgetGuard
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_time_budget_allow() -> None:
-    g = TimeBudgetGuard(max_wall_seconds=60)
-    started = time.time() - 1
-    assert (await g.check_in({"started_at": started})).decision == "allow"
-
-
-@pytest.mark.asyncio
-async def test_time_budget_warn_near_limit() -> None:
-    g = TimeBudgetGuard(max_wall_seconds=60)
-    started = time.time() - 55  # ~92%
-    result = await g.check_in({"started_at": started})
-    assert result.decision == "warn"
-
-
-@pytest.mark.asyncio
-async def test_time_budget_block_over_limit() -> None:
-    g = TimeBudgetGuard(max_wall_seconds=1)
-    started = time.time() - 5
-    result = await g.check_in({"started_at": started})
-    assert result.decision == "block"
-
-
-@pytest.mark.asyncio
-async def test_time_budget_defaults_started_at_to_now() -> None:
-    """Missing started_at is treated as 'just started' → allow."""
-    g = TimeBudgetGuard(max_wall_seconds=60)
-    assert (await g.check_in({})).decision == "allow"
-
-
-# ---------------------------------------------------------------------------
-# ToolRateLimitGuard
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_tool_rate_limit_allow_under_limit() -> None:
-    g = ToolRateLimitGuard(max_calls_per_tool=30)
-    assert (await g.check_in({"tool_call_count": {"bash": 5}})).decision == "allow"
-
-
-@pytest.mark.asyncio
-async def test_tool_rate_limit_block_over_calls() -> None:
-    g = ToolRateLimitGuard(max_calls_per_tool=3)
-    result = await g.check_in({"tool_call_count": {"bash": 3}})
-    assert result.decision == "block"
-    assert "bash" in result.reason
-
-
-@pytest.mark.asyncio
-async def test_tool_rate_limit_block_repeated_args() -> None:
-    g = ToolRateLimitGuard(max_repeat_args=3)
-    same = {"name": "read", "args": {"path": "x"}}
-    result = await g.check_out({}, {"tool_calls_this_step": [same, same, same]})
-    assert result.decision == "block"
-    assert "same args" in result.reason
-
-
-@pytest.mark.asyncio
-async def test_tool_rate_limit_allows_distinct_args() -> None:
-    g = ToolRateLimitGuard(max_repeat_args=3)
-    calls = [
-        {"name": "read", "args": {"path": "a"}},
-        {"name": "read", "args": {"path": "b"}},
-    ]
-    assert (await g.check_out({}, {"tool_calls_this_step": calls})).decision == "allow"
-
-
-# ---------------------------------------------------------------------------
-# ContentGuard
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_content_allow_clean_message() -> None:
-    g = ContentGuard(deny_patterns=["rm -rf"])
-    msg = SimpleNamespace(content="hello world")
-    assert (await g.check_in({"messages": [msg]})).decision == "allow"
-
-
-@pytest.mark.asyncio
-async def test_content_block_deny_pattern_in_message() -> None:
-    g = ContentGuard(deny_patterns=["rm -rf"])
-    msg = SimpleNamespace(content="run rm -rf /")
-    result = await g.check_in({"messages": [msg]})
-    assert result.decision == "block"
-
-
-@pytest.mark.asyncio
-async def test_content_block_deny_pattern_in_tool_args() -> None:
-    g = ContentGuard(deny_patterns=["forbidden"])
-    result = await g.check_out(
-        {}, {"tool_calls_this_step": [{"name": "bash", "args": {"cmd": "forbidden"}}]}
-    )
-    assert result.decision == "block"
-
-
-@pytest.mark.asyncio
-async def test_content_handles_list_content_blocks() -> None:
-    g = ContentGuard(deny_patterns=["secret"])
-    msg = SimpleNamespace(content=[{"type": "text", "text": "a secret value"}])
-    result = await g.check_in({"messages": [msg]})
-    assert result.decision == "block"
-
-
-@pytest.mark.asyncio
-async def test_content_empty_messages_allow() -> None:
-    g = ContentGuard(deny_patterns=["x"])
-    assert (await g.check_in({"messages": []})).decision == "allow"
 
 
 # ---------------------------------------------------------------------------
@@ -227,43 +91,18 @@ async def test_guard_in_node_allow_no_patch() -> None:
     assert out == {}
 
 
-@pytest.mark.asyncio
-async def test_guard_out_node_block_sets_error() -> None:
-    guard = ToolRateLimitGuard(max_repeat_args=2)
-    node = make_guard_out_node(guard)
-    same = {"name": "read", "args": {"path": "x"}}
-    out = await node({"tool_calls_this_step": [same, same]}, {"configurable": {}})
-    assert "error" in out
-
-
 # ---------------------------------------------------------------------------
 # registry
 # ---------------------------------------------------------------------------
 
 
-def test_registry_has_four_builtins() -> None:
-    assert set(GUARD_REGISTRY) == {
-        "token_budget",
-        "time_budget",
-        "tool_rate_limit",
-        "content",
-    }
+def test_registry_has_one_builtin() -> None:
+    assert set(GUARD_REGISTRY) == {"token_budget"}
 
 
 def test_resolve_guards_from_specs() -> None:
-    guards = resolve_guards(
-        [
-            {"name": "token_budget", "config": {"max_total_tokens": 5}},
-            {"name": "content", "config": {"deny_patterns": ["x"]}},
-        ]
-    )
-    assert [g.name for g in guards] == ["token_budget", "content"]
-
-
-def test_resolve_guards_defaults_when_no_config() -> None:
-    # tool_rate_limit has defaults for both kwargs.
-    guards = resolve_guards([{"name": "tool_rate_limit"}])
-    assert guards[0].name == "tool_rate_limit"
+    guards = resolve_guards([{"name": "token_budget", "config": {"max_total_tokens": 5}}])
+    assert [g.name for g in guards] == ["token_budget"]
 
 
 def test_resolve_guards_empty_returns_empty() -> None:
@@ -294,14 +133,13 @@ def test_builder_explicit_guards_adds_nodes() -> None:
 
     graph = build_agent_graph(
         {"_id": "a"},
-        guards=[TimeBudgetGuard(max_wall_seconds=30), ContentGuard()],
+        guards=[TokenBudgetGuard(max_total_tokens=100)],
         tools=[], middleware=[],
     )
     user_nodes = set(graph.nodes) - {"__start__", "__end__"}
     assert user_nodes == {
         "compress", "llm", "tools",
-        "guard_in_time_budget",
-        "guard_in_content",
+        "guard_in_token_budget",
     }
 
 

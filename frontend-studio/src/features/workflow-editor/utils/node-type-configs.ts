@@ -12,6 +12,7 @@ import {
   GitBranch,
   Split,
   UserCheck,
+  Repeat,
 } from 'lucide-react'
 
 export interface NodeTypeConfig {
@@ -73,6 +74,13 @@ export const NODE_TYPE_CONFIGS: Record<string, NodeTypeConfig> = {
     bg: '#FFF7ED',
     icon: React.createElement(UserCheck, ICON_PROPS),
     description: '等待人工审批后继续',
+  },
+  loop: {
+    label: '循环',
+    color: '#A855F7',
+    bg: '#FAF5FF',
+    icon: React.createElement(Repeat, ICON_PROPS),
+    description: '循环执行一组节点直到收敛或达上限',
   },
 }
 

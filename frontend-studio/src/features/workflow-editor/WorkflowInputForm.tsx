@@ -127,12 +127,12 @@ export default function WorkflowInputForm({
           <div key={v.name} className="space-y-1.5">
             {/* 标签 */}
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-[#fafafa]">{v.label || v.name}</span>
+              <span className="text-xs font-medium text-ink">{v.label || v.name}</span>
               {v.required && <span className="text-red-400 text-xs">*</span>}
-              <span className="text-[10px] text-[#52525b]">({getTypeLabel(v.type)})</span>
+              <span className="text-[11px] text-ink-dim">({getTypeLabel(v.type)})</span>
             </div>
             {v.description && (
-              <p className="text-[10px] text-[#71717a] -mt-0.5">{v.description}</p>
+              <p className="text-[11px] text-ink-dim -mt-0.5">{v.description}</p>
             )}
 
             {/* 字段 */}
@@ -175,9 +175,9 @@ export default function WorkflowInputForm({
             )}
 
             {v.type === 'select' && multiple && (
-              <div className="space-y-1.5 rounded-md border border-[#27272a] bg-[#121214] p-2.5">
+              <div className="space-y-1.5 rounded-md border border-line bg-page p-2.5">
                 {options.length === 0 && (
-                  <p className="text-[10px] text-[#71717a]">未配置选项</p>
+                  <p className="text-[11px] text-ink-dim">未配置选项</p>
                 )}
                 {options.map((o) => {
                   const arr = (val as string[]) ?? []
@@ -185,7 +185,7 @@ export default function WorkflowInputForm({
                   return (
                     <label
                       key={o}
-                      className="flex items-center gap-2 text-xs text-[#fafafa] cursor-pointer"
+                      className="flex items-center gap-2 text-xs text-ink cursor-pointer"
                     >
                       <input
                         type="checkbox"
@@ -221,7 +221,7 @@ export default function WorkflowInputForm({
                     type="button"
                     onClick={() => fileInputRefs.current[v.name]?.click()}
                     disabled={disabled || uploading[v.name]}
-                    className="flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-[#27272a] text-xs text-[#fafafa] hover:bg-[#3f3f46] disabled:opacity-50 transition cursor-pointer"
+                    className="flex items-center gap-1.5 px-2.5 h-8 rounded-md bg-line text-xs text-ink hover:bg-line-strong disabled:opacity-50 transition cursor-pointer"
                   >
                     {uploading[v.name] ? (
                       <Loader2 size={13} className="animate-spin" />
@@ -231,23 +231,23 @@ export default function WorkflowInputForm({
                     {uploading[v.name] ? '上传中...' : '选择文件'}
                   </button>
                   {allowed.length > 0 && (
-                    <span className="text-[10px] text-[#71717a]">{allowed.join(', ')}</span>
+                    <span className="text-[11px] text-ink-dim">{allowed.join(', ')}</span>
                   )}
                 </div>
                 {/* 本次会话上传的文件（有完整信息，可移除） */}
                 {(files[v.name] ?? []).map((f, idx) => (
                   <div
                     key={f.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-[#121214] border border-[#27272a] text-xs"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-page border border-line text-xs"
                   >
                     <FileIcon size={13} className="text-[#F97316] shrink-0" />
-                    <span className="text-[#fafafa] truncate flex-1">{f.name}</span>
-                    <span className="text-[#71717a] text-[10px] shrink-0">
+                    <span className="text-ink truncate flex-1">{f.name}</span>
+                    <span className="text-ink-dim text-[11px] shrink-0">
                       {formatSize(f.size)}
                     </span>
                     <X
                       size={13}
-                      className="text-[#71717a] cursor-pointer hover:text-red-400 shrink-0"
+                      className="text-ink-dim cursor-pointer hover:text-red-400 shrink-0"
                       onClick={() => removeFile(v, idx)}
                     />
                   </div>
@@ -257,12 +257,12 @@ export default function WorkflowInputForm({
                   typeof val === 'string' &&
                   val &&
                   !(files[v.name] ?? []).some((f) => f.id === val) && (
-                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-[#121214] border border-[#27272a] text-xs">
+                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-page border border-line text-xs">
                       <FileIcon size={13} className="text-[#F97316] shrink-0" />
-                      <span className="text-[#71717a] truncate flex-1">已设置文件：{val}</span>
+                      <span className="text-ink-dim truncate flex-1">已设置文件：{val}</span>
                       <X
                         size={13}
-                        className="text-[#71717a] cursor-pointer hover:text-red-400 shrink-0"
+                        className="text-ink-dim cursor-pointer hover:text-red-400 shrink-0"
                         onClick={() => update(v.name, '')}
                       />
                     </div>
@@ -270,7 +270,7 @@ export default function WorkflowInputForm({
               </div>
             )}
 
-            {isMissing && <p className="text-[10px] text-red-400">此项为必填</p>}
+            {isMissing && <p className="text-[11px] text-red-400">此项为必填</p>}
           </div>
         )
       })}

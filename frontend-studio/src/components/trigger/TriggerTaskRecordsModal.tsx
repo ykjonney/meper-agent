@@ -14,6 +14,7 @@ import {
   type WorkflowRegistryEntry,
 } from '../../services/tasks-api'
 import { getTriggerId, type TriggerConfig } from '../../services/triggers-api'
+import { formatTimeFull } from '../../lib/formatTime'
 
 interface Props {
   trigger: TriggerConfig | null
@@ -29,14 +30,6 @@ const STATUS_TAG: Record<TaskStatusValue, { color: string; label: string }> = {
   completed: { color: 'success', label: '已完成' },
   failed: { color: 'red', label: '已失败' },
   cancelled: { color: 'default', label: '已取消' },
-}
-
-function formatDateTime(iso?: string): string {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function inputSummary(input: Record<string, unknown>): string {
@@ -81,14 +74,14 @@ export default function TriggerTaskRecordsModal({
       <div className="space-y-3">
         {/* trigger 摘要 */}
         {trigger && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#a1a1aa] p-2.5 rounded-md bg-[#121214] border border-[#27272a]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-dim p-2.5 rounded-md bg-page border border-line">
             <span>类型：{trigger.type === 'cron' ? '重复' : '一次性'}</span>
             {trigger.type === 'cron' ? (
               <span className="font-mono">{trigger.cron_expression || '-'}</span>
             ) : (
-              <span>执行时间：{formatDateTime(trigger.execute_at)}</span>
+              <span>执行时间：{formatTimeFull(trigger.execute_at)}</span>
             )}
-            <span>上次触发：{formatDateTime(trigger.last_triggered_at)}</span>
+            <span>上次触发：{formatTimeFull(trigger.last_triggered_at)}</span>
           </div>
         )}
 
@@ -98,7 +91,7 @@ export default function TriggerTaskRecordsModal({
             <Spin />
           </div>
         ) : tasks.length === 0 ? (
-          <div className="text-center py-10 text-xs text-[#71717a]">
+          <div className="text-center py-10 text-xs text-ink-dim">
             暂无触发记录。启用该定时任务后，到点触发会产生任务记录。
           </div>
         ) : (
@@ -108,17 +101,17 @@ export default function TriggerTaskRecordsModal({
               return (
                 <div
                   key={task.id}
-                  className="flex items-center gap-3 p-2.5 rounded-md border border-[#27272a] bg-[#121214] hover:border-[#1E5EFF] cursor-pointer transition-colors"
+                  className="flex items-center gap-3 p-2.5 rounded-md border border-line bg-page hover:border-[#1E5EFF] cursor-pointer transition-colors"
                   onClick={() => onViewTask(task.id)}
                 >
                   <Tag color={st.color}>{st.label}</Tag>
                   <span className="text-[11px] text-slate-400 w-44 shrink-0">
-                    {formatDateTime(task.created_at)}
+                    {formatTimeFull(task.created_at)}
                   </span>
                   <span className="text-[11px] text-slate-300 flex-1 truncate font-mono">
                     {inputSummary(task.input)}
                   </span>
-                  <span className="text-[11px] text-[#1E5EFF] shrink-0">查看明细 →</span>
+                  <span className="text-[11px] text-link shrink-0">查看明细 →</span>
                 </div>
               )
             })}

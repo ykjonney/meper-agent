@@ -39,7 +39,7 @@ function TriState({
       className={`w-3.5 h-3.5 rounded-[4px] border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
         on
           ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
-          : 'bg-[#121214] border-[#27272a] hover:border-[#52525b]'
+          : 'bg-page border-line hover:border-line-strong'
       }`}
     >
       {indeterminate ? <Minus className="w-2.5 h-2.5" /> : checked ? <Check className="w-2.5 h-2.5" /> : null}
@@ -67,12 +67,12 @@ function ModuleNode({
   const toggleParent = () => onToggleMany(keys, !allChecked)
 
   return (
-    <div className="rounded-md border border-[#27272a] bg-[#121214] overflow-hidden">
-      <div className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#18181b] transition-colors">
+    <div className="rounded-md border border-line bg-page overflow-hidden">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-panel transition-colors">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="text-[#71717a] hover:text-[#fafafa] cursor-pointer transition-colors"
+          className="text-ink-dim hover:text-ink cursor-pointer transition-colors"
         >
           <ChevronRight className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
         </button>
@@ -80,11 +80,11 @@ function ModuleNode({
         <button
           type="button"
           onClick={toggleParent}
-          className="flex-1 text-left text-[11px] font-semibold text-slate-300 cursor-pointer hover:text-[#fafafa] transition-colors"
+          className="flex-1 text-left text-[11px] font-semibold text-slate-300 cursor-pointer hover:text-ink transition-colors"
         >
           {label}
         </button>
-        <span className="text-[10px] text-[#71717a] font-mono">{checkedCount}/{keys.length}</span>
+        <span className="text-[11px] text-ink-dim font-mono">{checkedCount}/{keys.length}</span>
       </div>
       {open && (
         <div className="px-2 pb-2 pl-8 grid grid-cols-2 gap-x-2 gap-y-1">
@@ -93,7 +93,7 @@ function ModuleNode({
             return (
               <label
                 key={k}
-                className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer hover:text-slate-300 transition-colors"
+                className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer hover:text-slate-300 transition-colors"
               >
                 <input
                   type="checkbox"
@@ -127,8 +127,8 @@ export function PermissionTree({ selected, onChange }: PermissionTreeProps) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] text-[#71717a]">按菜单资源分组</span>
-        <span className="text-[10px] text-[#71717a] font-mono">已选 {selected.size}/{total}</span>
+        <span className="text-[11px] text-ink-dim">按菜单资源分组</span>
+        <span className="text-[11px] text-ink-dim font-mono">已选 {selected.size}/{total}</span>
       </div>
       <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5 scrollbar-custom">
         {groups.map(([label, keys]) => (

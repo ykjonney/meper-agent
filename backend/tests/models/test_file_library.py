@@ -13,10 +13,11 @@ class TestFileConsumerKind:
         assert FileConsumerKind.WORKFLOW_RUN == "workflow_run"
         assert FileConsumerKind.CRON_JOB == "cron_job"
         assert FileConsumerKind.KNOWLEDGE_BASE == "knowledge_base"
+        assert FileConsumerKind.DOC_COMPACTION == "doc_compaction"
 
-    def test_enum_has_exactly_five_values(self) -> None:
-        """枚举恰好有 5 个值。"""
-        assert len(FileConsumerKind) == 5
+    def test_enum_has_exactly_six_values(self) -> None:
+        """枚举恰好有 6 个值。"""
+        assert len(FileConsumerKind) == 6
 
     def test_enum_values_are_strings(self) -> None:
         """枚举值都是字符串。"""

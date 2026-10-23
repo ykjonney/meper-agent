@@ -3,6 +3,7 @@
  */
 import type { Node, Edge } from '@xyflow/react'
 import type { WorkflowNode, WorkflowEdge, NextNodeRef } from '../../../services/workflows-api'
+import { deriveLoopChain } from './loop-derive'
 
 /** xyflow 自定义节点的 data 类型 */
 export interface WorkflowNodeData extends Record<string, unknown> {
@@ -16,17 +17,44 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   typeBg: string
   /** 节点标签 */
   label: string
+  /** 是否为某 loop 的 body 成员（画布 🔁 标记） */
+  isInLoop?: boolean
+  /** loop 体成员节点（链序——卡片上逐行展示步骤；成员不在画布渲染集，需 allNodes 解析） */
+  loopSteps?: WorkflowNode[]
   /** 是否被选中 */
   isSelected?: boolean
 }
 
 /**
  * 将 WorkflowNode 数组转为 xyflow Node 数组。
+ *
+ * @param allNodes 全量节点集（含被画布隐藏的循环体成员）——loop 节点的
+ *   loopSteps 解析用；缺省回退 workflowNodes 自身。
  */
 export function toXyflowNodes(
   workflowNodes: WorkflowNode[],
   selectedNodeId?: string | null,
+  allNodes?: WorkflowNode[],
 ): Node<WorkflowNodeData>[] {
+  const lookup = allNodes ?? workflowNodes
+  const lookupById = new Map(lookup.map((n) => [n.node_id, n]))
+  // loop body 成员集合（画布 🔁 标记用：一眼看出谁在循环里）+
+  // loop 节点的链序步骤（卡片逐行展示用）
+  const loopMembers = new Set<string>()
+  const loopStepsByLoop = new Map<string, WorkflowNode[]>()
+  for (const wn of workflowNodes) {
+    if (wn.type === 'loop') {
+      const body = (wn.config?.body as string[]) ?? []
+      for (const m of body) loopMembers.add(m)
+      const chain = deriveLoopChain(lookup, wn.node_id)
+      const ordered =
+        chain.length >= body.length ? chain : [...chain, ...body.filter((id) => !chain.includes(id))]
+      loopStepsByLoop.set(
+        wn.node_id,
+        ordered.map((id) => lookupById.get(id)).filter((x): x is WorkflowNode => !!x),
+      )
+    }
+  }
   return workflowNodes.map((wn) => {
     const typeLabel = getTypeLabel(wn.type)
     const typeColor = getTypeColor(wn.type)
@@ -42,6 +70,8 @@ export function toXyflowNodes(
         typeBg,
         label: wn.label || typeLabel,
         isSelected: wn.node_id === selectedNodeId,
+        isInLoop: loopMembers.has(wn.node_id),
+        loopSteps: wn.type === 'loop' ? loopStepsByLoop.get(wn.node_id) : undefined,
       },
     }
   })
@@ -93,12 +123,13 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string }> = 
   gateway: { label: '网关', color: '#8B5CF6', bg: '#EDE9FE' },
   parallel: { label: '并行', color: '#06B6D4', bg: '#CFFAFE' },
   human: { label: '人工审批', color: '#F97316', bg: '#FFF7ED' },
+  loop: { label: '循环', color: '#A855F7', bg: '#FAF5FF' },
 }
 
 function getTypeLabel(type: string): string {
   return TYPE_META[type]?.label ?? type
 }
-function getTypeColor(type: string): string {
+export function getTypeColor(type: string): string {
   return TYPE_META[type]?.color ?? '#64748B'
 }
 function getTypeBg(type: string): string {
@@ -117,6 +148,7 @@ function getTypeBg(type: string): string {
  */
 export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
   const edges: Edge[] = []
+  const nodeIds = new Set(nodes.map((n) => n.node_id))
 
   for (const node of nodes) {
     const config = (node.config ?? {}) as Record<string, unknown>
@@ -167,7 +199,8 @@ export function deriveXyflowEdgesFromNodes(nodes: WorkflowNode[]): Edge[] {
     }
   }
 
-  return edges
+  // 过滤端点不在当前节点集的边（防悬空边）
+  return edges.filter((e) => nodeIds.has(String(e.source)) && nodeIds.has(String(e.target)))
 }
 
 /** 创建一条推导出的 xyflow Edge */

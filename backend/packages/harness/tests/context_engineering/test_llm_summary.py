@@ -1,16 +1,13 @@
-"""LLM 摘要模块测试:历史渲染 + 按ID回填 + 缓存。"""
+"""LLM 摘要模块测试:历史渲染 + 同步核心 run_summary + 摘要消息装配。"""
 from __future__ import annotations
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from agent_flow_harness.context_engineering.llm_summary import (
-    apply_cached_summary,
+    build_summary_message,
     render_history_for_summary,
-)
-from agent_flow_harness.context_engineering.summary_cache import (
-    SummaryCache,
-    SummaryResult,
+    run_summary,
 )
 
 
@@ -62,137 +59,79 @@ def test_render_tool_calls_as_summary() -> None:
 
 
 def test_render_ai_text_original() -> None:
-    """AI 文本回复原文保留。"""
+    """AI 文本回复原文保留(短文本不截断)。"""
     msgs = [AIMessage(content="根据查询,共有13条工艺路线", id="a1")]
     result = render_history_for_summary(msgs)
     assert "根据查询,共有13条工艺路线" in result
 
 
-# ---------------------------------------------------------------------------
-# apply_cached_summary
-# ---------------------------------------------------------------------------
+def test_render_ai_text_truncated_when_huge() -> None:
+    """超长 AI 文本截断(防几十条长推理累计撑爆摘要请求自身)。"""
+    long_text = "分析" * 5000  # 1 万字
+    msgs = [AIMessage(content=long_text, id="a1")]
+    result = render_history_for_summary(msgs)
+    assert len(result) < len(long_text)
+    assert result.endswith("...")
 
 
-def test_apply_summary_replaces_covered_by_id() -> None:
-    """按ID精确替换被覆盖的消息,插入摘要（HumanMessage 形态，B.3-3）。"""
-    messages = [
-        SystemMessage(content="sys", id="sys"),
-        HumanMessage(content="q1", id="h1"),   # covered
-        AIMessage(content="a1", id="a1"),       # covered
-        HumanMessage(content="q2", id="h2"),   # 新增,保留
-    ]
-    result = SummaryResult(summary_text="摘要内容", covered_ids=["h1", "a1"])
-    rebuilt, inserted = apply_cached_summary(messages, result)
-    assert inserted
-    assert len(rebuilt) == 3  # sys + summary + h2
-    assert isinstance(rebuilt[0], SystemMessage) and rebuilt[0].content == "sys"
-    # 摘要是 HumanMessage + 框架声明（防归因混淆），id 保持 llm_summary
-    assert isinstance(rebuilt[1], HumanMessage) and rebuilt[1].id == "llm_summary"
-    assert "摘要内容" in rebuilt[1].content
-    assert "非用户发言" in rebuilt[1].content
-    assert rebuilt[2].content == "q2"
-
-
-def test_apply_summary_preserves_new_messages() -> None:
-    """压缩期间新增的消息(不在covered_ids)完整保留。"""
-    messages = [
-        SystemMessage(content="sys", id="sys"),
-        HumanMessage(content="old", id="old"),      # covered
-        AIMessage(content="new1", id="new1"),       # 新增
-        HumanMessage(content="new2", id="new2"),     # 新增
-    ]
-    result = SummaryResult(summary_text="摘要", covered_ids=["old"])
-    rebuilt, _ = apply_cached_summary(messages, result)
-    ids = [getattr(m, "id", "") for m in rebuilt]
-    assert "new1" in ids and "new2" in ids
-    assert "old" not in ids
-
-
-def test_apply_summary_no_match_returns_original() -> None:
-    """covered_ids 不匹配任何消息 → 原样返回,inserted=False。"""
-    messages = [SystemMessage(content="sys", id="sys")]
-    result = SummaryResult(summary_text="摘要", covered_ids=["nonexistent"])
-    rebuilt, inserted = apply_cached_summary(messages, result)
-    assert not inserted
-    assert len(rebuilt) == 1
-
-
-def test_apply_summary_skips_no_id_messages() -> None:
-    """无 id 的消息不被误匹配(covered_ids 里无 None/空串)。"""
-    messages = [
-        SystemMessage(content="sys", id="sys"),
-        HumanMessage(content="no_id_msg"),  # 无 id
-        HumanMessage(content="has_id", id="h1"),  # covered
-    ]
-    result = SummaryResult(summary_text="摘要", covered_ids=["h1"])
-    rebuilt, inserted = apply_cached_summary(messages, result)
-    assert inserted
-    # 无 id 的消息保留(没被误匹配)。
-    assert any(m.content == "no_id_msg" for m in rebuilt)
+def test_render_ai_text_no_truncation_when_disabled() -> None:
+    """max_ai_text_chars=None → AI 文本不截断(向后兼容开关)。"""
+    long_text = "分析" * 5000
+    msgs = [AIMessage(content=long_text, id="a1")]
+    result = render_history_for_summary(msgs, max_ai_text_chars=None)
+    assert long_text in result
 
 
 # ---------------------------------------------------------------------------
-# SummaryCache
+# run_summary(同步核心)
 # ---------------------------------------------------------------------------
-
-
-def test_cache_set_get_clear() -> None:
-    cache = SummaryCache()
-    cache.set("s1", SummaryResult("摘要", ["m1"]))
-    result = cache.get("s1")
-    assert result is not None
-    assert result.summary_text == "摘要"
-    assert result.covered_ids == ["m1"]
-    cache.clear("s1")
-    assert cache.get("s1") is None
-
-
-def test_cache_running_prevents_duplicate() -> None:
-    cache = SummaryCache()
-    assert not cache.is_running("s1")
-    cache.mark_running("s1")
-    assert cache.is_running("s1")  # 正在跑
-    cache.clear_running("s1")
-    assert not cache.is_running("s1")
 
 
 @pytest.mark.asyncio
-async def test_compress_history_with_llm_mock() -> None:
-    """后台压缩任务(mock LLM):完成→存缓存→清running。"""
-    from agent_flow_harness.context_engineering.llm_summary import (
-        compress_history_with_llm,
-    )
+async def test_run_summary_returns_text_on_success() -> None:
+    """摘要 LLM 成功 → 返回摘要文本。"""
 
     class _MockLLM:
         async def ainvoke(self, messages, config=None):
             return AIMessage(content="这是LLM生成的语义摘要")
 
-    cache = SummaryCache()
-    cache.mark_running("test_session")
     outer = [HumanMessage(content="问题1", id="m1"), AIMessage(content="回答1", id="m2")]
-    await compress_history_with_llm(_MockLLM(), outer, "test_session", cache)
-    # 完成后缓存有结果。
-    result = cache.get("test_session")
-    assert result is not None
-    assert "语义摘要" in result.summary_text
-    assert result.covered_ids == ["m1", "m2"]
-    # running 标记清除。
-    assert not cache.is_running("test_session")
+    text = await run_summary(_MockLLM(), outer)
+    assert text == "这是LLM生成的语义摘要"
 
 
 @pytest.mark.asyncio
-async def test_compress_history_with_llm_isolates_callbacks() -> None:
+async def test_run_summary_none_on_failure() -> None:
+    """摘要 LLM 抛异常 → 返回 None(调用方按失败处理,当轮继续)。"""
+
+    class _FailingLLM:
+        async def ainvoke(self, messages, config=None):
+            raise RuntimeError("provider down")
+
+    text = await run_summary(_FailingLLM(), [HumanMessage(content="q", id="m1")])
+    assert text is None
+
+
+@pytest.mark.asyncio
+async def test_run_summary_none_on_empty() -> None:
+    """摘要 LLM 返回空内容 → None。"""
+
+    class _EmptyLLM:
+        async def ainvoke(self, messages, config=None):
+            return AIMessage(content="   ")
+
+    text = await run_summary(_EmptyLLM(), [HumanMessage(content="q", id="m1")])
+    assert text is None
+
+
+@pytest.mark.asyncio
+async def test_run_summary_isolates_callbacks() -> None:
     """摘要 ainvoke 必须显式传 callbacks=[] + llm_summary tag。
 
-    后台任务经 create_task 拷贝 contextvar，会隐式继承主图 astream_events
-    的回调，摘要 LLM 的 on_chat_model_* 事件冒泡进聊天 SSE 流（前端表现为
-    游离 text/thinking 事件插进对话中间）。空 callbacks 覆盖继承、tag 供
-    适配器二次过滤。
+    空 callbacks 覆盖 contextvar 隐式继承的主图 astream_events 回调,
+    摘要 LLM 的 on_chat_model_* 事件就不会冒泡进聊天 SSE 流;tag 供
+    适配器 stream_events_to_app_events 二次过滤。
     """
-    from agent_flow_harness.context_engineering.llm_summary import (
-        compress_history_with_llm,
-    )
-
     captured: dict = {}
 
     class _MockLLM:
@@ -200,13 +139,25 @@ async def test_compress_history_with_llm_isolates_callbacks() -> None:
             captured["config"] = config
             return AIMessage(content="摘要")
 
-    cache = SummaryCache()
-    outer = [HumanMessage(content="问题1", id="m1")]
-    await compress_history_with_llm(_MockLLM(), outer, "s", cache)
+    await run_summary(_MockLLM(), [HumanMessage(content="问题1", id="m1")])
 
     config = captured.get("config") or {}
     assert config.get("callbacks") == []  # 阻断 contextvar 回调继承
     assert "llm_summary" in (config.get("tags") or [])  # 适配器过滤标记
+
+
+# ---------------------------------------------------------------------------
+# build_summary_message
+# ---------------------------------------------------------------------------
+
+
+def test_build_summary_message_shape() -> None:
+    """摘要消息:HumanMessage + id=llm_summary + 框架声明(防归因混淆)。"""
+    msg = build_summary_message("1. 意图:整理报销单")
+    assert isinstance(msg, HumanMessage)
+    assert msg.id == "llm_summary"
+    assert "非用户发言" in msg.content
+    assert "整理报销单" in msg.content
 
 
 # ---------------------------------------------------------------------------

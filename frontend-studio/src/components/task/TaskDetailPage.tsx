@@ -36,6 +36,7 @@ import { RewindModal } from './RewindModal'
 import { APPROVAL_ACCENT } from './TaskBoardCard'
 import { DataView, DataViewEnhanceProvider } from './DataView'
 import { Markdown } from '../Markdown'
+import { formatTimeShort } from '../../lib/formatTime'
 
 export interface TaskDetailPageProps {
   taskId: string
@@ -224,25 +225,25 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
   return (
     <DataViewEnhanceProvider agentNameMap={agentNameMap}>
-      <div className="flex flex-col flex-1 min-h-0 bg-[#121214]">
+      <div className="flex flex-col flex-1 min-h-0 bg-page">
         {/* ── Header（sticky）── */}
-        <div className="flex items-center gap-3 border-b border-[#27272a] px-5 py-3 shrink-0">
+        <div className="flex items-center gap-3 border-b border-line px-5 py-3 shrink-0">
           <button
             onClick={onBack}
-            className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#18181b] transition cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg text-ink-dim hover:text-ink hover:bg-panel transition cursor-pointer shrink-0"
             title="返回"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider font-mono">任务详情</div>
-            <h3 className="text-sm font-bold text-[#fafafa] truncate mt-0.5">
+            <div className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider font-mono">任务详情</div>
+            <h3 className="text-sm font-bold text-ink truncate mt-0.5">
               {taskDetail ? (workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id) : '加载中…'}
             </h3>
           </div>
           {taskDetail && status && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border shrink-0"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border shrink-0"
               style={{
                 color: TASK_STATUS_STYLES[status].color,
                 background: TASK_STATUS_STYLES[status].bg,
@@ -282,7 +283,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
           )}
           <button
             onClick={() => setSidebarCollapsed((v) => !v)}
-            className={`p-1.5 rounded-lg transition cursor-pointer shrink-0 ${sidebarCollapsed ? 'text-[#71717a] hover:text-[#fafafa]' : 'text-[#a78bfa] hover:bg-[#18181b]'}`}
+            className={`p-1.5 rounded-lg transition cursor-pointer shrink-0 ${sidebarCollapsed ? 'text-ink-dim hover:text-ink' : 'text-accent hover:bg-panel'}`}
             title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
           >
             <PanelRight className="w-4 h-4" />
@@ -296,7 +297,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
             {isLoading ? (
               <div className="flex items-center justify-center py-20"><Spin size="large" /></div>
             ) : !taskDetail ? (
-              <div className="flex items-center justify-center py-20 text-sm text-[#71717a]">任务不存在或已删除</div>
+              <div className="flex items-center justify-center py-20 text-sm text-ink-dim">任务不存在或已删除</div>
             ) : (
               <div className="max-w-4xl mx-auto p-6 space-y-6">
                 {/* 错误提示（failed 时置顶醒目） */}
@@ -305,11 +306,11 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
                     <div className="min-w-0">
                       <div className="text-xs font-medium text-rose-400">执行错误</div>
-                      <div className="text-[11px] text-[#d4d4d8] mt-0.5 break-all">
+                      <div className="text-[11px] text-ink-soft mt-0.5 break-all">
                         [{taskDetail.error.error_code}] {taskDetail.error.error_message}
                       </div>
                       {(taskDetail.error.node_id || taskDetail.error.node_type) && (
-                        <div className="text-[10px] text-[#71717a] mt-1 font-mono">
+                        <div className="text-[11px] text-ink-dim mt-1 font-mono">
                           {taskDetail.error.node_type ?? '—'} · {taskDetail.error.node_id ?? '—'}
                         </div>
                       )}
@@ -327,21 +328,21 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     <div className="space-y-2.5">
                       {taskDetail.checkpoint.human_context?.title && (
                         /* 标题整行居中展示：InfoRow 的 justify-between 会把标题值顶到行尾，视觉割裂 */
-                        <div className="text-center text-sm font-medium text-[#fafafa] py-1 break-words">
+                        <div className="text-center text-sm font-medium text-ink py-1 break-words">
                           {String(taskDetail.checkpoint.human_context.title)}
                         </div>
                       )}
                       {taskDetail.checkpoint.human_context?.description && (
                         <div>
-                          <div className="text-xs text-[#a1a1aa] mb-1">审批内容</div>
+                          <div className="text-xs text-ink-dim mb-1">审批内容</div>
                           {/* 审批正文封顶可滚动：description 经变量注入可能携带上游大段输出（如整份报告 JSON），不设限会把下方流程图/输入/输出推到极远 */}
-                          <div className="text-xs text-[#d4d4d8] bg-[#09090b] rounded-lg p-3 border border-[#27272a] max-h-[50vh] overflow-y-auto scrollbar-custom">
+                          <div className="text-xs text-ink-soft bg-well rounded-lg p-3 border border-line max-h-[50vh] overflow-y-auto scrollbar-custom">
                             <Markdown content={fenceJsonContent(String(taskDetail.checkpoint.human_context.description))} />
                           </div>
                         </div>
                       )}
                       {taskDetail.checkpoint.timeout_deadline && (
-                        <InfoRow label="超时截止" value={`${formatDateTime(taskDetail.checkpoint.timeout_deadline)} (${taskDetail.checkpoint.timeout_action})`} />
+                        <InfoRow label="超时截止" value={`${formatTimeShort(taskDetail.checkpoint.timeout_deadline)} (${taskDetail.checkpoint.timeout_action})`} />
                       )}
                     </div>
                   </section>
@@ -349,7 +350,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
                 {/* 流程图（可折叠 card） */}
                 <section className={`rounded-lg border overflow-hidden ${
-                  theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'
+                  theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'
                 }`}>
                   <button
                     type="button"
@@ -359,16 +360,16 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     }`}
                   >
                     <span className={`flex items-center gap-2 text-sm font-medium ${
-                      theme === 'dark' ? 'text-[#fafafa]' : 'text-slate-800'
+                      theme === 'dark' ? 'text-ink' : 'text-slate-800'
                     }`}>
-                      <Workflow className={`w-4 h-4 ${theme === 'dark' ? 'text-[#a1a1aa]' : 'text-slate-500'}`} /> 流程图
+                      <Workflow className={`w-4 h-4 ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'}`} /> 流程图
                     </span>
                     <ChevronDown className={`w-4 h-4 transition-transform ${graphOpen ? '' : '-rotate-90'} ${
-                      theme === 'dark' ? 'text-[#71717a]' : 'text-slate-400'
+                      theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
                     }`} />
                   </button>
                   {graphOpen && (
-                    <div className={`p-3 border-t ${theme === 'dark' ? 'border-[#27272a]' : 'border-slate-200'}`}>
+                    <div className={`p-3 border-t ${theme === 'dark' ? 'border-line' : 'border-slate-200'}`}>
                       <TaskFlowGraph task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
                     </div>
                   )}
@@ -377,7 +378,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                 {/* 执行时间线 */}
                 <section>
                   <SectionTitle>
-                    时间线 <span className="font-normal text-[#71717a]">({taskDetail.timeline?.length ?? 0})</span>
+                    时间线 <span className="font-normal text-ink-dim">({taskDetail.timeline?.length ?? 0})</span>
                   </SectionTitle>
                   <TaskFlowTimeline task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
                 </section>
@@ -387,7 +388,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
           {/* 右侧栏：可折叠属性 */}
           {!sidebarCollapsed && taskDetail && (
-            <aside className="w-[360px] border-l border-[#27272a] overflow-y-auto scrollbar-custom shrink-0">
+            <aside className="w-[360px] border-l border-line overflow-y-auto scrollbar-custom shrink-0">
               <div className="p-4 space-y-4">
                 {/* 基本信息 */}
                 <CollapsibleSection title="基本信息" open={basicOpen} onToggle={() => setBasicOpen((v) => !v)}>
@@ -396,8 +397,8 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
                     <InfoRow label="创建者" value={creatorLabel(taskDetail.created_by, taskDetail.created_by_type)} />
                     <InfoRow label="版本" value={`v${taskDetail.version}`} />
-                    <InfoRow label="创建时间" value={formatDateTime(taskDetail.created_at)} />
-                    <InfoRow label="更新时间" value={formatDateTime(taskDetail.updated_at)} />
+                    <InfoRow label="创建时间" value={formatTimeShort(taskDetail.created_at)} />
+                    <InfoRow label="更新时间" value={formatTimeShort(taskDetail.updated_at)} />
                     {taskDetail.total_tokens ? (
                       <InfoRow label="Token 消耗" value={`${taskDetail.total_tokens.toLocaleString()} tokens`} />
                     ) : null}
@@ -407,7 +408,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                 {/* 输入参数 */}
                 <CollapsibleSection title="输入参数" open={inputOpen} onToggle={() => setInputOpen((v) => !v)}>
                   {Object.keys(taskDetail.input ?? {}).length === 0 ? (
-                    <div className="text-xs text-[#71717a] italic">无</div>
+                    <div className="text-xs text-ink-dim italic">无</div>
                   ) : (
                     <DataView value={taskDetail.input} context="task_input" showRaw={false} />
                   )}
@@ -446,7 +447,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
         okButtonProps={{ disabled: interveneLoading }}
       >
         <div className="flex flex-col gap-3 py-2">
-          <p className="text-xs text-[#d4d4d8]">
+          <p className="text-xs text-ink-soft">
             {approvalAction === 'approve'
               ? `确定通过任务「${taskDetail?.id.slice(-8) ?? ''}」并继续执行吗？`
               : `确定驳回任务「${taskDetail?.id.slice(-8) ?? ''}」吗？任务将被标记为失败。`}
@@ -455,21 +456,21 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
             const ctx = taskDetail?.checkpoint?.human_context
             if (!ctx) return null
             return (
-              <div className="border border-[#27272a] rounded-lg p-3 bg-[#18181b]">
-                {ctx.title && <div className="text-sm font-medium text-[#fafafa] mb-1.5">{ctx.title}</div>}
-                {ctx.description && <div className="text-xs text-[#a1a1aa] whitespace-pre-wrap break-words leading-relaxed">{ctx.description}</div>}
-                {!ctx.title && !ctx.description && <div className="text-xs text-[#71717a] italic">该审批节点未配置说明</div>}
+              <div className="border border-line rounded-lg p-3 bg-panel">
+                {ctx.title && <div className="text-sm font-medium text-ink mb-1.5">{ctx.title}</div>}
+                {ctx.description && <div className="text-xs text-ink-dim whitespace-pre-wrap break-words leading-relaxed">{ctx.description}</div>}
+                {!ctx.title && !ctx.description && <div className="text-xs text-ink-dim italic">该审批节点未配置说明</div>}
               </div>
             )
           })()}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs text-[#a1a1aa]">comment（可选）</label>
-              <div className="flex items-center gap-0.5 bg-[#27272a] rounded-md p-0.5">
+              <label className="block text-xs text-ink-dim">comment（可选）</label>
+              <div className="flex items-center gap-0.5 bg-line rounded-md p-0.5">
                 <button type="button" onClick={() => setApprovalCommentMode('text')}
-                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${approvalCommentMode === 'text' ? 'bg-[#52525b] text-[#fafafa]' : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'}`}>文本</button>
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors border-0 cursor-pointer ${approvalCommentMode === 'text' ? 'bg-line-strong text-ink' : 'bg-transparent text-ink-dim hover:text-ink'}`}>文本</button>
                 <button type="button" onClick={() => setApprovalCommentMode('json')}
-                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${approvalCommentMode === 'json' ? 'bg-[#52525b] text-[#fafafa]' : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'}`}>JSON</button>
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors border-0 cursor-pointer ${approvalCommentMode === 'json' ? 'bg-line-strong text-ink' : 'bg-transparent text-ink-dim hover:text-ink'}`}>JSON</button>
               </div>
             </div>
             <textarea
@@ -477,7 +478,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
               onChange={(e) => setApprovalComment(e.target.value)}
               placeholder={approvalCommentMode === 'json' ? '{"score": 8, "note": "ok"}' : approvalAction === 'reject' ? '建议填写驳回原因（可选）' : '审批意见（可选）'}
               rows={3}
-              className={`w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none ${approvalCommentMode === 'json' ? 'font-mono' : ''}`}
+              className={`w-full px-3 py-2 text-xs border border-line bg-page text-ink rounded-md focus:outline-none focus:border-[#1E5EFF] resize-none ${approvalCommentMode === 'json' ? 'font-mono' : ''}`}
             />
           </div>
         </div>
@@ -490,7 +491,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h4 className="text-[11px] font-medium text-[#71717a] uppercase tracking-wider mb-3 flex items-center gap-1">
+    <h4 className="text-[11px] font-medium text-ink-dim uppercase tracking-wider mb-3 flex items-center gap-1">
       {children}
     </h4>
   )
@@ -499,8 +500,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-xs text-[#a1a1aa] shrink-0">{label}</span>
-      <span className={`text-xs text-[#d4d4d8] text-right max-w-[230px] truncate ${mono ? 'font-mono' : ''}`}>
+      <span className="text-xs text-ink-dim shrink-0">{label}</span>
+      <span className={`text-xs text-ink-soft text-right max-w-[230px] truncate ${mono ? 'font-mono' : ''}`}>
         {value}
       </span>
     </div>
@@ -540,7 +541,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1 text-[11px] font-medium text-[#a1a1aa] uppercase tracking-wider mb-2 hover:text-[#fafafa] transition-colors cursor-pointer"
+        className="flex w-full items-center gap-1 text-[11px] font-medium text-ink-dim uppercase tracking-wider mb-2 hover:text-ink transition-colors cursor-pointer"
       >
         <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
         {title}
@@ -548,19 +549,6 @@ function CollapsibleSection({
       {open && <div className="pl-1">{children}</div>}
     </div>
   )
-}
-
-/* ─── 工具函数 ─── */
-
-function formatDateTime(iso: string): string {
-  if (!iso) return '-'
-  try {
-    return new Date(iso).toLocaleString('zh-CN', {
-      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
 }
 
 export default TaskDetailPage

@@ -535,7 +535,7 @@ class TestExecuteWithRetry:
 
         from app.channels.base import InboundMessage
         from app.channels.connections.dispatch import _execute_with_retry
-        from app.channels.errors import LLMRateLimitError
+        from app.channels.errors import TransientChannelError
 
         inbound = InboundMessage(
             channel_id="ch", platform_chat_id="c", platform_user_id="u",
@@ -547,7 +547,7 @@ class TestExecuteWithRetry:
 
         with patch(
             "app.services.channel_service.ChannelService.execute",
-            new=AsyncMock(side_effect=LLMRateLimitError("always")),
+            new=AsyncMock(side_effect=TransientChannelError("always")),
         ), patch("asyncio.sleep", new=AsyncMock()), patch(
             "app.services.channel_service.ChannelService._event_logs_coll",
             return_value=mock_coll,

@@ -32,6 +32,10 @@ _EXPRESSION_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 _RESPONSE_FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _RESPONSE_FIELD_TYPES = {"string", "number", "boolean", "enum", "object"}
 
+# loop max_iterations 的防呆上限（默认值 5 见前端 node-defaults；曾为硬顶
+# 20，长任务场景放宽至 100，防 999999 类误配置）。
+LOOP_MAX_ITERATIONS_LIMIT = 100
+
 
 def _check_agent_response_schema(
     node_id: str, schema: Any,
@@ -175,6 +179,15 @@ class WorkflowValidator:
         self._out_edges: dict[str, list[dict[str, Any]]] = {}
         self._in_edges: dict[str, list[dict[str, Any]]] = {}
         self._build_edge_index()
+        # loop body 成员归属（node_id → 所属 loop 节点；禁嵌套故唯一）——
+        # 全局环检测跳过体成员出边（体的合法性由 _check_loop_nodes 专项
+        # 保证：体内环报 LOOP_BODY_CYCLE、体外溢出报 LOOP_BODY_NOT_CLOSED）。
+        self._body_membership: dict[str, str] = {}
+        for node in self.nodes:
+            if node.get("type") == "loop":
+                for member in node.get("config", {}).get("body", []) or []:
+                    if isinstance(member, str) and member:
+                        self._body_membership[member] = node.get("node_id", "")
 
     def _build_edge_index(self) -> None:
         """Build adjacency lists from edges and next_nodes config."""
@@ -232,6 +245,17 @@ class WorkflowValidator:
                         self._out_edges.setdefault(node_id, []).append(edge)
                         self._in_edges.setdefault(tgt, []).append(edge)
 
+            # Loop: body_entry 进入边（loop → 体入口）。出口走 next_nodes
+            # （上方通用逻辑已建）。这条虚拟边让体成员的 _find_upstream_nodes
+            # 天然包含 loop 及其之前的上游——FORWARD_REFERENCE 对"体引用
+            # 循环前变量"自动合法，无需特判。
+            if node.get("type") == "loop":
+                tgt = str(config.get("body_entry") or "").strip()
+                if tgt:
+                    edge = {"source": node_id, "target": tgt}
+                    self._out_edges.setdefault(node_id, []).append(edge)
+                    self._in_edges.setdefault(tgt, []).append(edge)
+
     def validate(self) -> ValidationResult:
         """Run all validation checks and return the result.
 
@@ -244,6 +268,9 @@ class WorkflowValidator:
 
         # 2. Variable reference validation
         issues.extend(self._check_variable_references())
+
+        # 2.5 Loop node validation（体封闭性/入口/上限/嵌套/体内环/收敛引用）
+        issues.extend(self._check_loop_nodes())
 
         # 3. Node configuration validation
         issues.extend(self._check_node_configs())
@@ -363,6 +390,10 @@ class WorkflowValidator:
                 tgt = edge.get("target", "")
                 if not tgt or tgt not in color:
                     continue
+                # loop 体成员的出边不参与全局环检测——由 _check_loop_nodes
+                # 专项覆盖（LOOP_BODY_CYCLE / LOOP_BODY_NOT_CLOSED）。
+                if node_id in self._body_membership:
+                    continue
                 if color[tgt] == gray:
                     # Found a cycle — reconstruct the path
                     cycle = [tgt, node_id]
@@ -409,6 +440,174 @@ class WorkflowValidator:
 
         return reachable
 
+    # ── 1.5 Loop Node Validation（ADR docs/loop-node-adr.md §4）──
+
+    def _check_loop_nodes(self) -> list[ValidationIssue]:
+        """loop 节点专项校验：体完整性、封闭性、体内环、嵌套、收敛引用。
+
+        与全局检查的分工：全局环检测跳过体成员出边（见 _detect_cycle），
+        体的结构合法性在此专项保证——LOOP_BODY_CYCLE（体内环，循环由 loop
+        驱动而非回边表达）/ LOOP_BODY_NOT_CLOSED（体节点不得旁路到体外，
+        出口由 loop 的 next_nodes 接管）。
+        """
+        issues: list[ValidationIssue] = []
+        node_ids = {n.get("node_id", "") for n in self.nodes}
+        type_by_id = {n.get("node_id", ""): n.get("type", "") for n in self.nodes}
+
+        for node in self.nodes:
+            if node.get("type") != "loop":
+                continue
+            node_id = node.get("node_id", "")
+            config = node.get("config", {})
+            body = [m for m in (config.get("body") or []) if isinstance(m, str) and m]
+            body_set = set(body)
+            body_entry = str(config.get("body_entry") or "").strip()
+            max_iter = config.get("max_iterations")
+
+            # body 非空且成员存在
+            if not body:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR, code="LOOP_BODY_EMPTY",
+                    message="loop 节点的 body 不能为空（至少需要一个循环体成员）",
+                    node_id=node_id,
+                ))
+                continue
+            missing = [m for m in body if m not in node_ids]
+            if missing:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR, code="LOOP_BODY_EMPTY",
+                    message=f"loop body 成员不存在: {', '.join(missing)}（可能已被删除）",
+                    node_id=node_id, context={"missing": missing},
+                ))
+
+            # 入口 ∈ body
+            if body_entry not in body_set:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR, code="LOOP_ENTRY_NOT_IN_BODY",
+                    message=f"body_entry '{body_entry}' 必须是 body 成员之一",
+                    node_id=node_id, context={"body_entry": body_entry},
+                ))
+
+            # 轮数上限 1..100（20 曾是硬顶，现放宽为防呆上限；批量映射等
+            # 长任务场景可配更高，但必配 converge 或 token_budget 兜底失控
+            # 风险，见 ADR §7.1）。前端默认 5（node-defaults）。
+            try:
+                iter_ok = isinstance(max_iter, int) and 1 <= max_iter <= LOOP_MAX_ITERATIONS_LIMIT
+            except Exception:
+                iter_ok = False
+            if not iter_ok:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR, code="LOOP_MAX_ITERATIONS_RANGE",
+                    message=f"max_iterations 必须是 1..{LOOP_MAX_ITERATIONS_LIMIT} 的整数，当前: {max_iter!r}",
+                    node_id=node_id,
+                ))
+
+            # 成员类型：禁嵌套 loop / 禁结构性节点
+            for member in body:
+                mtype = type_by_id.get(member, "")
+                if mtype == "loop":
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.ERROR, code="LOOP_NESTED_NOT_SUPPORTED",
+                        message=f"loop body 成员 '{member}' 是 loop 节点——嵌套循环暂不支持",
+                        node_id=node_id, context={"member": member},
+                    ))
+                if mtype in ("start", "end"):
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.ERROR, code="LOOP_STRUCTURAL_NODE_IN_BODY",
+                        message=f"loop body 成员 '{member}' 是 {mtype} 节点（结构性节点不可入循环体）",
+                        node_id=node_id, context={"member": member},
+                    ))
+
+            # 成员 label 唯一性：工作台产物槽以 label 为 key（absorb 的
+            # artifacts[label]）——同名成员（复制节点未改名）会共享槽互相
+            # 打断版本链：sha 交替变化 → 版本号疯涨、永不触发空转检测。
+            label_counts: dict[str, list[str]] = {}
+            for member in body:
+                mlabel = str((self.node_map.get(member) or {}).get("label") or member)
+                label_counts.setdefault(mlabel, []).append(member)
+            for mlabel, members in label_counts.items():
+                if len(members) > 1:
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.ERROR, code="LOOP_BODY_LABEL_CONFLICT",
+                        message=(
+                            f"循环体成员 {members} 同名「{mlabel}」——工作台产物槽按"
+                            "步骤名区分，同名会互相覆盖版本（请给每个步骤起不同名字）"
+                        ),
+                        node_id=node_id, context={"label": mlabel, "members": members},
+                    ))
+
+            # 封闭性：体成员的所有出边 target 必须仍在 body 内——唯一例外是
+            # 回边（体尾 → 所属 loop，连线驱动交互的循环闭合表达）。
+            for member in body:
+                for edge in self._out_edges.get(member, []):
+                    tgt = edge.get("target", "")
+                    if tgt and tgt not in body_set and tgt != node_id:
+                        issues.append(ValidationIssue(
+                            severity=ValidationSeverity.ERROR, code="LOOP_BODY_NOT_CLOSED",
+                            message=(
+                                f"循环体成员 '{member}' 的下游 '{tgt}' 在循环之外——"
+                                "循环里的节点不能连到循环外（要结束循环请由循环节点向下连线）"
+                            ),
+                            node_id=member, context={"target": tgt, "loop": node_id},
+                        ))
+
+            # 体内环：body 子图 DFS（体应是 DAG，循环由 loop 驱动）
+            body_cycle = self._detect_body_cycle(body_set)
+            if body_cycle:
+                issues.append(ValidationIssue(
+                    severity=ValidationSeverity.ERROR, code="LOOP_BODY_CYCLE",
+                    message=f"loop body 内部存在环: {' → '.join(body_cycle)}（体应是 DAG，循环由 loop 驱动）",
+                    node_id=node_id, context={"cycle": body_cycle},
+                ))
+
+            # 收敛表达式引用：source 必须存在且 ∈ body ∪ loop 上游 ∪ {input, system}
+            converge_expr = config.get("converge_expr") or ""
+            if converge_expr:
+                valid_sources = {"input", "system"} | body_set | self._find_upstream_nodes(node_id)
+                for ref in self._extract_variable_refs(converge_expr):
+                    # 表达式内首标识符（strip：Jinja2 表达式 "{{ critic.x == 'y' }}"
+                    # 提取出的 ref 带前导空格，比较运算符后的操作数也会被
+                    # finditer 捕获为独立 {{...}} 片段的场景已由 pattern 排除）
+                    source = (ref.split(".")[0] if "." in ref else ref).strip()
+                    if source not in valid_sources:
+                        issues.append(ValidationIssue(
+                            severity=ValidationSeverity.ERROR, code="LOOP_CONVERGE_REF_INVALID",
+                            message=(
+                                f"收敛表达式引用 '{{{{{ref}}}}}' 的来源 '{source}' 无效"
+                                "（须是循环体成员或 loop 之前的上游）"
+                            ),
+                            node_id=node_id, context={"reference": ref},
+                        ))
+
+        return issues
+
+    def _detect_body_cycle(self, body_set: set[str]) -> list[str] | None:
+        """body 子图环检测（三色 DFS），返回环路径或 None。"""
+        white, gray, black = 0, 1, 2  # noqa: N806 — standard DFS color constants
+        color: dict[str, int] = dict.fromkeys(body_set, white)
+
+        def dfs(m: str) -> list[str] | None:
+            color[m] = gray
+            for edge in self._out_edges.get(m, []):
+                tgt = edge.get("target", "")
+                if tgt not in color:
+                    continue
+                if color[tgt] == gray:
+                    return [m, tgt]
+                if color[tgt] == white:
+                    sub = dfs(tgt)
+                    if sub:
+                        return [m, *sub]
+            color[m] = black
+            return None
+
+        for m in list(color):
+            if color.get(m) == white:
+                path = dfs(m)
+                if path:
+                    return path
+        return None
+
     # ── 2. Variable Reference Validation ──
 
     def _check_variable_references(self) -> list[ValidationIssue]:
@@ -426,6 +625,11 @@ class WorkflowValidator:
         for node in self.nodes:
             node_id = node.get("node_id", "")
             config = node.get("config", {})
+            # loop 的 converge_expr 是比较表达式（{{ a.x == 'y' }}），不是
+            # 单一变量引用——通用扫描会误解析，由 LOOP_CONVERGE_REF_INVALID
+            # 专项校验（含 body 成员/上游白名单）。
+            if node.get("type") == "loop":
+                config = {k: v for k, v in config.items() if k != "converge_expr"}
             refs = self._extract_variable_refs(config)
 
             # Build set of upstream nodes (for topological validation)
@@ -447,7 +651,16 @@ class WorkflowValidator:
                     continue
 
                 # Check if source is upstream (not self, not downstream)
-                if source not in {"input", "system", node_id} and source not in upstream:
+                # loop 体成员互相引用放行（跨轮引用模型：前引后=上一轮值、
+                # 先引前=本轮最新值——变量池时序天然保证语义，引擎级测试
+                # TestCrossRoundReference 覆盖）。循环外/跨循环的前向引用
+                # 仍拦截（真正拿不到值）。
+                same_loop_body = (
+                    node_id in self._body_membership
+                    and self._body_membership.get(source) == self._body_membership.get(node_id)
+                )
+                if (source not in {"input", "system", node_id}
+                        and source not in upstream and not same_loop_body):
                         issues.append(ValidationIssue(
                             severity=ValidationSeverity.ERROR,
                             code="FORWARD_REFERENCE",
@@ -455,6 +668,23 @@ class WorkflowValidator:
                             node_id=node_id,
                             context={"reference": ref, "upstream": list(upstream)},
                         ))
+
+                # loop 体成员引用所属 loop 的输出键（iterations/converged/rounds）
+                # ——loop 是体的上游（虚拟进入边）故上方放行，但循环产物在轮内
+                # 未定稿，属前向引用。当前轮号请用 system.loop_round。
+                owner_loop = self._body_membership.get(node_id)
+                if owner_loop and source == owner_loop:
+                    issues.append(ValidationIssue(
+                        severity=ValidationSeverity.ERROR,
+                        code="LOOP_FORWARD_REF",
+                        message=(
+                            f"循环体成员 '{node_id}' 引用了所属 loop 的输出键 "
+                            f"'{{{{{ref}}}}}'（循环结束才定稿，属前向引用）；"
+                            "当前轮号请使用 {{{{system.loop_round}}}}"
+                        ),
+                        node_id=node_id,
+                        context={"reference": ref, "loop": owner_loop},
+                    ))
 
         return issues
 

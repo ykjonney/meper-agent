@@ -60,18 +60,18 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
         </Button>
       </div>
       {conditions.map((cond, idx) => (
-        <div key={idx} className="border border-[#27272a] rounded-lg p-3 space-y-2">
+        <div key={idx} className="border border-line rounded-lg p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[#71717a] font-mono">条件 #{idx + 1}</span>
+            <span className="text-[11px] text-ink-dim font-mono">条件 #{idx + 1}</span>
             <button
               onClick={() => removeCondition(idx)}
-              className="text-[#EF4444] text-[10px] hover:underline bg-transparent border-0 cursor-pointer"
+              className="text-[#EF4444] text-[11px] hover:underline bg-transparent border-0 cursor-pointer"
             >
               删除
             </button>
           </div>
           <div>
-            <label className="block text-[10px] text-slate-400 mb-0.5">表达式</label>
+            <label className="block text-[11px] text-slate-400 mb-0.5">表达式</label>
             <VariableSelector
               value={(cond.expression as string) ?? ''}
               onChange={(val) => updateCondition(idx, 'expression', val)}
@@ -84,7 +84,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="block text-[10px] text-slate-400 mb-0.5">判断符</label>
+              <label className="block text-[11px] text-slate-400 mb-0.5">判断符</label>
               <Select
                 size="small"
                 className="w-full"
@@ -94,7 +94,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
               />
             </div>
             <div>
-              <label className="block text-[10px] text-slate-400 mb-0.5">期望值</label>
+              <label className="block text-[11px] text-slate-400 mb-0.5">期望值</label>
               <Input
                 size="small"
                 value={String(cond.expected ?? 'true')}
@@ -103,7 +103,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
               />
             </div>
             <div>
-              <label className="block text-[10px] text-slate-400 mb-0.5">目标节点</label>
+              <label className="block text-[11px] text-slate-400 mb-0.5">目标节点</label>
               <Select
                 size="small"
                 className="w-full"
@@ -118,7 +118,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
         </div>
       ))}
       {conditions.length === 0 && (
-        <div className="text-xs text-[#71717a] text-center py-4">暂无条件，点击「添加条件」创建</div>
+        <div className="text-xs text-ink-dim text-center py-4">暂无条件，点击「添加条件」创建</div>
       )}
       <div>
         <label className="block text-xs text-slate-400 mb-1">默认分支 (无匹配时)</label>

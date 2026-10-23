@@ -183,10 +183,10 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
     }
   };
 
-  const muted = dark ? 'text-[#71717a]' : 'text-slate-500';
+  const muted = dark ? 'text-ink-dim' : 'text-slate-500';
   const ctlCls = `px-2 py-1.5 rounded text-xs border outline-none ${
     dark
-      ? 'bg-[#121214] border-[#27272a] text-white placeholder:text-[#52525b] focus:border-blue-600'
+      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
       : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
   }`;
   const selectCls = `${ctlCls} cursor-pointer`;
@@ -198,10 +198,10 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={busy ? undefined : onClose}>
       <div className={`w-full max-w-xl h-[75vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-        dark ? 'border-[#27272a] bg-[#18181b] text-[#fafafa]' : 'border-slate-200 bg-white text-slate-900'
+        dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
       }`} onClick={(e) => e.stopPropagation()}>
         {/* 头部：标题 + 模型/类型 + 草稿状态 */}
-        <div className={`shrink-0 px-5 pt-4 pb-3 border-b space-y-2.5 ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+        <div className={`shrink-0 px-5 pt-4 pb-3 border-b space-y-2.5 ${dark ? 'border-line' : 'border-slate-200'}`}>
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-base font-bold flex items-center gap-1.5">
@@ -214,7 +214,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                   : '描述需求，助手自动生成 → 测试 → 修正 → 保存，无需手动保存'}
               </p>
             </div>
-            <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-[#a1a1aa]' : 'text-slate-400'}`}>✕</button>
+            <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
           </div>
           <div className="flex items-center gap-2">
             {mode === 'create' && (
@@ -268,7 +268,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                   {SrcIcon && <SrcIcon size={12} className="text-blue-400 shrink-0" />}
                   <span className="font-semibold truncate">{toolInfo.name}</span>
                   {toolInfo.source && (
-                    <span className={`px-1.5 py-0.5 rounded shrink-0 ${dark ? 'bg-[#27272a]' : 'bg-slate-100'}`}>
+                    <span className={`px-1.5 py-0.5 rounded shrink-0 ${dark ? 'bg-line' : 'bg-slate-100'}`}>
                       {SOURCE_META[toolInfo.source]?.label ?? toolInfo.source}
                     </span>
                   )}
@@ -296,7 +296,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                 </div>
               ) : m.kind === 'assistant' ? (
                 <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs break-words ${
-                  dark ? 'bg-[#27272a] text-[#e4e4e7]' : 'bg-slate-100 text-slate-700'
+                  dark ? 'bg-line text-ink-soft' : 'bg-slate-100 text-slate-700'
                 }`}>
                   <Markdown content={m.content} />
                 </div>
@@ -304,7 +304,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                 <div className={`max-w-[85%] w-full rounded-lg border px-2.5 py-2 space-y-1 text-[11px] ${
                   m.status === 'error'
                     ? dark ? 'border-red-500/30 bg-red-500/5' : 'border-red-200 bg-red-50/40'
-                    : dark ? 'border-[#27272a] bg-[#121214]/60' : 'border-slate-200 bg-slate-50/70'
+                    : dark ? 'border-line bg-page/60' : 'border-slate-200 bg-slate-50/70'
                 }`}>
                   <div className="flex items-center gap-1.5">
                     {m.status === 'run' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
@@ -325,7 +325,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
           {streamText && (
             <div className="flex justify-start">
               <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs break-words ${
-                dark ? 'bg-[#27272a] text-[#e4e4e7]' : 'bg-slate-100 text-slate-700'
+                dark ? 'bg-line text-ink-soft' : 'bg-slate-100 text-slate-700'
               }`}>
                 <Markdown content={streamText} />
               </div>
@@ -334,7 +334,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
           {/* AI 执行中动效：跳动圆点（等待模型/工具执行间隙——沙箱测试可达数十秒） */}
           {busy && !streamText && (
             <div className="flex justify-start">
-              <div className={`px-3.5 py-3 rounded-xl flex items-end gap-1.5 ${dark ? 'bg-[#27272a]' : 'bg-slate-100'}`}>
+              <div className={`px-3.5 py-3 rounded-xl flex items-end gap-1.5 ${dark ? 'bg-line' : 'bg-slate-100'}`}>
                 {[0, 150, 300].map((delay) => (
                   <span
                     key={delay}
@@ -386,7 +386,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                       <button onClick={() => void answer('跳过测试，直接保存')}
                         className={`px-3 py-1.5 rounded text-xs border cursor-pointer transition ${
                           dark
-                            ? 'border-[#3f3f46] text-[#d4d4d8] hover:border-blue-500/60 hover:text-blue-400'
+                            ? 'border-line-strong text-ink-soft hover:border-blue-500/60 hover:text-blue-400'
                             : 'border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600'
                         }`}>
                         跳过测试，直接保存
@@ -399,7 +399,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                   {(interrupt.options ?? []).map((opt) => (
                     <button key={opt} onClick={() => void answer(opt)}
                       className={`px-2.5 py-1 rounded border cursor-pointer transition ${
-                        dark ? 'border-[#3f3f46] text-[#d4d4d8] hover:border-blue-500/60' : 'border-slate-300 text-slate-600 hover:border-blue-400'
+                        dark ? 'border-line-strong text-ink-soft hover:border-blue-500/60' : 'border-slate-300 text-slate-600 hover:border-blue-400'
                       }`}>
                       {opt}
                     </button>
@@ -407,7 +407,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
                   {latestDraft && (
                     <button onClick={() => void answer('跳过测试，直接保存')}
                       className={`px-2.5 py-1 rounded border cursor-pointer transition ${
-                        dark ? 'border-[#3f3f46] text-[#d4d4d8] hover:border-blue-500/60' : 'border-slate-300 text-slate-600 hover:border-blue-400'
+                        dark ? 'border-line-strong text-ink-soft hover:border-blue-500/60' : 'border-slate-300 text-slate-600 hover:border-blue-400'
                       }`}>
                       跳过测试，直接保存
                     </button>
@@ -421,7 +421,7 @@ export function AiGenerateDialog({ dark, onClose, mode = 'create', toolId = '', 
         </div>
 
         {/* 输入区 */}
-        <div className={`shrink-0 px-5 py-3 border-t flex items-end gap-2 ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+        <div className={`shrink-0 px-5 py-3 border-t flex items-end gap-2 ${dark ? 'border-line' : 'border-slate-200'}`}>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

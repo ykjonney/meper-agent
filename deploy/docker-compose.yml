@@ -189,10 +189,17 @@ services:
 
   # Sandbox image — built but not run as a service.
   # Build with: docker compose build sandbox
+  # lean default variant; for the Node.js/scipy superset build separately:
+  #   make build-sandbox-full
+  # Constrained networks can switch mirrors via env (e.g. APT_MIRROR=mirrors.aliyun.com).
   sandbox:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.sandbox
+      target: lite
+      args:
+        APT_MIRROR: ${APT_MIRROR:-deb.debian.org}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     image: ${SANDBOX_IMAGE:-agent-sandbox:latest}
     profiles:
       - tools

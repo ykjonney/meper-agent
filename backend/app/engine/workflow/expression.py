@@ -154,6 +154,11 @@ class ExpressionEngine:
         if result is None:
             return False
         if isinstance(result, str):
+            # 渲染异常时 resolve 原样返回模板——未解析成功的表达式若走
+            # bool("{{ ... }}") 会误判 True（如未定义变量参与 ``>=`` 比较
+            # 时 Jinja2 抛 UndefinedError），收敛判定必须 fail-safe 为 False。
+            if result == template and _EXPRESSION_PATTERN.search(template):
+                return False
             # Jinja2 renders ``{{ False }}`` as the string "False"
             if result.lower() == "false":
                 return False

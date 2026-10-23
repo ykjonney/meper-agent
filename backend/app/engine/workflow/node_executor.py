@@ -455,12 +455,91 @@ def _validate_field_value(
     return ""
 
 
+def _repair_json_bare_control_chars(text: str) -> str:
+    """修复 JSON 字符串值内的裸控制字符（换行/回车/Tab）。
+
+    LLM 常见行为：契约要求"多条意见每条一行"时，模型在 JSON string 值里
+    输出真实换行——JSON 标准禁止，json.loads 直接失败（实测复现：风险
+    审核的 issues 字段）。状态机扫描：处于字符串内且非转义位置遇到裸
+    \n/\r/\t 时替换为 \\n 等转义序列；合法 JSON（已转义）不受影响。
+    """
+    out: list[str] = []
+    in_str = False
+    escaped = False
+    replacements = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+    for ch in text:
+        if escaped:
+            out.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            out.append(ch)
+            continue
+        if in_str and ch in replacements:
+            out.append(replacements[ch])
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def _repair_unescaped_inner_quotes(candidate: str) -> str:
+    """修复 JSON 字符串值内部未转义的英文双引号。
+
+    LLM 高频错误（实测复现：评审意见里引用策划原文）：契约 string 值
+    含内嵌英文双引号——"仅锁定"某某"，建议…"——内嵌引号提前闭合字符串
+    导致整段 JSON 非法，且重试同样失败（模型看不到自己的引号问题）。
+
+    状态机 + lookahead 启发式：处于字符串内遇到 `"` 时，向后看下一个
+    非空白字符——是 `: , } ]` 之一则视为结构性闭合（保持原样），否则
+    视为内容性引号转义为 `\"`。对中文意见引用原文的场景几乎总是正确
+    （内容引号后跟中文文本，不跟结构字符）。
+    """
+    out: list[str] = []
+    in_str = False
+    i, n = 0, len(candidate)
+    while i < n:
+        ch = candidate[i]
+        if not in_str:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            out.append(ch)
+            if i + 1 < n:
+                out.append(candidate[i + 1])
+            i += 2
+            continue
+        if ch == '"':
+            j = i + 1
+            while j < n and candidate[j] in " \t\r\n":
+                j += 1
+            nxt = candidate[j] if j < n else ""
+            if nxt in (":", ",", "}", "]"):
+                in_str = False  # 结构性闭合
+                out.append(ch)
+            else:
+                out.append('\\"')  # 内容引号 → 转义
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None, str]:
     """从模型输出文本中提取 JSON（对象或数组），返回 (value, error)。
 
     依次尝试：裸 JSON → ```json 围栏块 → 首个 ``{``/``[`` 到最后一个
-    ``}``/``]`` 的子串（容忍 JSON 前后的解释性文字）。标量不符合
-    Output Contract。
+    ``}``/``]`` 的子串（容忍 JSON 前后的解释性文字）。每个候选先按原文
+    解析，失败再修复字符串内裸控制字符重试（LLM 在多行字符串值里的
+    常见违规）。标量不符合 Output Contract。
     """
     raw = (text or "").strip()
     if not raw:
@@ -476,12 +555,21 @@ def _extract_json_payload(text: str) -> tuple[dict[str, Any] | list[Any] | None,
             candidates.append(raw[start : end + 1])
 
     for candidate in candidates:
-        try:
-            value = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, (dict, list)):
-            return value, ""
+        # 修复候选：原文 / 裸控制字符修 / 内嵌引号修 / 组合（引号修复在
+        # 干净文本上扫描，避免裸换行干扰 lookahead）
+        attempts = [
+            candidate,
+            _repair_json_bare_control_chars(candidate),
+            _repair_unescaped_inner_quotes(candidate),
+            _repair_json_bare_control_chars(_repair_unescaped_inner_quotes(candidate)),
+        ]
+        for attempt in attempts:
+            try:
+                value = json.loads(attempt)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, (dict, list)):
+                return value, ""
     return None, "无法从输出中解析出 JSON"
 
 
@@ -627,6 +715,24 @@ class AgentNodeExecutor(BaseNodeExecutor):
             if temperature is not None:
                 agent_doc["temperature_override"] = temperature
 
+            # ── 子 agent 委派池：agent 定义级（subagent_ids），节点不单独配置 ──
+            # 能力跟随 agent 定义（与工具/KB/MCP 同模式），chat/工作流行为一致；
+            # 治理入口在 Agent 编辑页（published-only、自引用排除）。
+            # 公共拉取（load_subagent_bundles）：draft/archived/不存在/重复
+            # 静默跳过（节点照常执行）。bundles 传 invoke（装配 SubAgentContext
+            # + 注入 delegate 工具），decls 传工具声明（同源防漂移）。
+            sub_ids = agent_doc.get("subagent_ids") or []
+            if isinstance(sub_ids, list) and sub_ids:
+                from app.engine.harness_integration.context import load_subagent_bundles
+
+                subagent_bundles, subagent_decls = await load_subagent_bundles(
+                    sub_ids, node_id=self.node_id,
+                    exclude_agent_id=str(agent_id),
+                )
+            else:
+                subagent_bundles = []
+                subagent_decls = []
+
             # harness 的 invoke 内部会自己 build graph,这里不需要构造。
 
             # Build system prompt via slot renderer (context override + variable pool)
@@ -642,6 +748,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 variable_pool=variables,
                 execution_context="workflow",
                 response_schema=response_schema,
+                subagents=subagent_decls or None,
             )
         except Exception as exc:
             # 展开 ExceptionGroup 以显示真正原因
@@ -667,7 +774,14 @@ class AgentNodeExecutor(BaseNodeExecutor):
         # 避免残留消息导致 "multiple non-consecutive system messages"。
         import time as _time
 
-        _thread_id = f"{task_id}_{self.node_id}"
+        # loop_thread_policy（仅体内生效）：continue=跨轮同 thread 续接
+        # （记得每稿与批评，辩论 writer 默认）；fresh=每轮新 thread（critic
+        # 不被自己上轮发言锚定）。轮号由引擎注入 system.loop_round。
+        _loop_round = int(sys_vars.get("loop_round") or 0)
+        if self.node_config.get("loop_thread_policy") == "fresh" and _loop_round:
+            _thread_id = f"{task_id}_{self.node_id}_r{_loop_round}"
+        else:
+            _thread_id = f"{task_id}_{self.node_id}"
 
         # ── 恢复路径：若 checkpoint 中有 agent_thread_id，说明此 agent 节点
         # 之前被取消（interrupt 挂起），用 Command(resume) 续接 REACT 循环，
@@ -772,6 +886,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 user_token=user_token,
                                 require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
+                                subagents=subagent_bundles or None,
                             ),
                             timeout=timeout_ms / 1000,
                         )
@@ -799,10 +914,37 @@ class AgentNodeExecutor(BaseNodeExecutor):
                                 user_token=user_token,
                                 require_user_credentials=require_user_credentials,
                                 execution_context="workflow",
+                                subagents=subagent_bundles or None,
                             ),
                             timeout=timeout_ms / 1000,
                         )
                         pending_messages = None  # 反馈轮只生效一次
+
+                    # ── 委派 trace 落 Task timeline（M2.1 委派可观测）──
+                    # 子 agent 即用即弃（无 checkpointer），trace 是其过程的
+                    # 唯一审计通道；在任何 return/raise 前消费，保证取消/
+                    # 中断路径已完成的委派也留痕。pop 掉不进节点输出契约。
+                    delegation_traces = None
+                    if isinstance(result, dict):
+                        delegation_traces = result.pop("subagent_traces", None)
+                    if delegation_traces:
+                        from app.services.task_service import TaskService
+
+                        for tr in delegation_traces:
+                            await TaskService.append_timeline_event(
+                                task_id=task_id,
+                                event_type="subagent_delegation",
+                                data={
+                                    "node_id": self.node_id,
+                                    "subagent": tr.get("subagent", ""),
+                                    "task": tr.get("task", ""),
+                                    "status": tr.get("status", ""),
+                                    "duration_ms": tr.get("duration_ms", 0),
+                                    "error": tr.get("error", ""),
+                                    "usage": tr.get("usage") or {},
+                                    "rounds": tr.get("rounds") or [],
+                                },
+                            )
 
                     # ── 检测 LangGraph interrupt ──
                     # interrupt() 后 ainvoke 返回的 state 带 __interrupt__ 键。
@@ -1806,6 +1948,38 @@ class ParallelNodeExecutor(BaseNodeExecutor):
         )
 
 
+# ── Loop ──
+
+
+class LoopNodeExecutor(BaseNodeExecutor):
+    """Loop 节点执行器——仅校验并回显配置，循环由引擎驱动（同 parallel 模式）。
+
+    Config（ADR docs/loop-node-adr.md §3）::
+
+        {
+            "body": ["writer", "critic"],   # 体成员
+            "body_entry": "writer",          # 体入口
+            "max_iterations": 5,             # 硬上限 1..20
+            "converge_expr": "..." | null,   # 收敛表达式（null=跑满轮数）
+        }
+
+    轮次循环/轮次键/rounds 快照/progress checkpoint 全部在
+    WorkflowEngine._execute_node 的 loop 分支实现。
+    """
+
+    async def execute(self, variables: dict[str, Any]) -> NodeResult:
+        body = [m for m in (self.node_config.get("body") or []) if isinstance(m, str) and m]
+        return NodeResult(
+            success=True,
+            output={
+                "body": body,
+                "body_entry": str(self.node_config.get("body_entry") or ""),
+                "max_iterations": self.node_config.get("max_iterations", 1),
+                "converge_expr": self.node_config.get("converge_expr"),
+            },
+        )
+
+
 # ── Subflow ──
 
 
@@ -1943,6 +2117,7 @@ _NODE_EXECUTOR_MAP: dict[str, type[BaseNodeExecutor]] = {
     "agent": AgentNodeExecutor,
     "tool": ToolNodeExecutor,
     "gateway": GatewayNodeExecutor,
+    "loop": LoopNodeExecutor,
     "human": None,  # lazy-loaded in get_node_executor to avoid circular import
     "parallel": ParallelNodeExecutor,
     "subflow": SubflowNodeExecutor,

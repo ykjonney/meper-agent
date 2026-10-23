@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -25,6 +27,11 @@ from app.engine.workflow.node_executor import NodeResult, get_node_executor
 from app.engine.workflow.variable_pool import VariablePool
 from app.models.task import Checkpoint, TaskStatus, utc_now
 from app.services.task_service import TaskService
+
+# 循环空转检测：成员输出连续 N 轮 sha 不变即提前结束（原工作台 is_stalled
+# 语义的值级简化——无工作台对象，直接比对变量池成员值）。
+STALL_STREAK = 2
+
 
 
 class WorkflowEngine:
@@ -45,6 +52,9 @@ class WorkflowEngine:
 
     def __init__(self) -> None:
         self._task_id: str = ""
+        # 任务归属用户（外置文件权限根：rounds 大值外置用；execute_task
+        # 入口从 task_doc.created_by 填充）。
+        self._task_user_id: str = ""
         self._pool: VariablePool | None = None
         self._nodes: list[dict[str, Any]] = []
         self._node_map: dict[str, dict[str, Any]] = {}
@@ -54,6 +64,11 @@ class WorkflowEngine:
         self._completed_nodes: set[str] = set()
         # 节点边界取消时记录当前将要执行（但尚未执行）的节点，供 except 保存 checkpoint
         self._pending_node_id: str = ""
+        # 当前正在执行的 loop 节点（体内取消/暂停的 checkpoint 需带 loop 位置）
+        self._active_loop_node: str = ""
+        # resume 时从 checkpoint 恢复的 loop 位置/类型（loop 分支据此续轮）
+        self._checkpoint_loop_state: dict[str, Any] = {}
+        self._checkpoint_kind: str = ""
 
     # ── Public API ──
 
@@ -221,6 +236,8 @@ class WorkflowEngine:
             Final variable pool snapshot (or partial snapshot on failure).
         """
         self._task_id = task_doc["_id"]
+        # 任务归属用户（外置文件权限根：rounds 大值外置 / 水位线压缩用）。
+        self._task_user_id = str(task_doc.get("created_by") or "")
         self._nodes = workflow_doc.get("nodes", [])
         self._node_map = {n["node_id"]: n for n in self._nodes}
         self._edges = workflow_doc.get("edges", [])
@@ -316,7 +333,16 @@ class WorkflowEngine:
                 triggered_by="system",
                 triggered_by_type="system",
                 timeline_event_type="completed",
-                timeline_data={"output": _strip_file_content(final_output)},
+                timeline_data={"output_digest": _output_digest(final_output)},
+            )
+
+            # 清除 loop 轮间 progress checkpoint（防止完成后的重投递误入
+            # resume；正常执行本无 checkpoint，loop 引入轮间持久后必须清）
+            from app.db.mongodb import get_database
+
+            await get_database()["tasks"].update_one(
+                {"_id": self._task_id, "checkpoint": {"$ne": None}},
+                {"$set": {"checkpoint": None, "updated_at": utc_now()}},
             )
 
             return final_output
@@ -324,6 +350,47 @@ class WorkflowEngine:
         except WorkflowPausedError:
             # Graceful pause — not an error, return current state.
             logger.info("workflow_paused", task_id=self._task_id)
+            return self._pool.get_all() if self._pool else {}
+
+        except WorkflowTokenBudgetExceededError as exc:
+            # 预算耗尽 → 诚实失败（人工可 intervene retry/resume；retry 清零
+            # 重跑前应调大 token_budget）。timeline 记专属事件供前端标注。
+            logger.warning(
+                "workflow_token_budget_exceeded",
+                task_id=self._task_id,
+                total_tokens=exc.total_tokens,
+                token_budget=exc.token_budget,
+                node_id=exc.node_id,
+            )
+            with contextlib.suppress(Exception):
+                await TaskService.append_timeline_event(
+                    task_id=self._task_id,
+                    event_type="token_budget_exceeded",
+                    data={
+                        "total_tokens": exc.total_tokens,
+                        "token_budget": exc.token_budget,
+                        "node_id": exc.node_id,
+                    },
+                )
+            try:
+                await TaskService.transition_task(
+                    task_id=self._task_id,
+                    to_status=TaskStatus.FAILED,
+                    triggered_by="system",
+                    triggered_by_type="system",
+                    timeline_event_type="failed",
+                    timeline_data={"error": str(exc)},
+                    error_info={
+                        "node_id": exc.node_id,
+                        "node_type": None,
+                        "error_message": str(exc),
+                        "error_code": "TASK_TOKEN_BUDGET_EXCEEDED",
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "budget_fail_transition_failed", task_id=self._task_id,
+                )
             return self._pool.get_all() if self._pool else {}
 
         except WorkflowCancelledError:
@@ -459,6 +526,10 @@ class WorkflowEngine:
         self._completed_nodes = set(checkpoint_data.get("completed_nodes", []))
         agent_thread_id = checkpoint_data.get("agent_thread_id", "")
         human_context = checkpoint_data.get("human_context", {})
+        # loop 恢复上下文：kind 区分 progress（轮末进度，恢复起点轮的半成品
+        # 键要清）与 pause（体内暂停，已完成键保留靠轮次键跳过续跑）
+        self._checkpoint_loop_state = checkpoint_data.get("loop_state") or {}
+        self._checkpoint_kind = checkpoint_data.get("kind") or "pause"
         # 判断 checkpoint 类型：
         # - agent_thread_id 非空 → agent 中途取消（需 Command(resume) 续接）
         # - human_context 非空 → Human 节点暂停（节点已完成，恢复下游）
@@ -510,7 +581,32 @@ class WorkflowEngine:
         )
 
         try:
-            if agent_thread_id:
+            loop_node_id = str(self._checkpoint_loop_state.get("loop_node_id") or "")
+            if loop_node_id and loop_node_id in self._node_map:
+                # ── Resume inside a loop body（统一入口，ADR §5）──
+                # 无论 progress（轮末崩溃）/体内 human 审批/体内 agent 取消，
+                # 都重入 loop 节点：轮次由 _checkpoint_loop_state 驱动，体内
+                # 已完成节点靠轮次键跳过，从断点沿 next 链自然续跑。
+                resume_round = max(1, int(self._checkpoint_loop_state.get("round") or 1))
+                if is_human_pause:
+                    # human 已审批：标记完成（轮次键），loop 重入时跳过
+                    self._completed_nodes.add(f"{paused_node_id}#r{resume_round}")
+                if agent_thread_id:
+                    # agent 中断：注入 resume thread flag（executor 用
+                    # Command(resume) 续接完整上下文）
+                    self._pool.set(
+                        "system",
+                        {
+                            **(self._pool.get("system") or {}),
+                            "resume_agent_thread_id": agent_thread_id,
+                        },
+                    )
+                await self._execute_node(loop_node_id)
+                await db["tasks"].update_one(
+                    {"_id": task_id},
+                    {"$set": {"checkpoint": None, "updated_at": utc_now()}},
+                )
+            elif agent_thread_id:
                 # ── Resume after agent cancellation ──
                 # Inject the agent_thread_id into system variables so
                 # AgentNodeExecutor detects it and calls resume_agent()
@@ -550,7 +646,7 @@ class WorkflowEngine:
                     triggered_by="system",
                     triggered_by_type="system",
                     timeline_event_type="completed",
-                    timeline_data={"output": _strip_file_content(final_output), "resumed_from_checkpoint": True},
+                    timeline_data={"output_digest": _output_digest(final_output), "resumed_from_checkpoint": True},
                 )
                 # Clear checkpoint
                 await db["tasks"].update_one(
@@ -571,7 +667,7 @@ class WorkflowEngine:
                 triggered_by="system",
                 triggered_by_type="system",
                 timeline_event_type="completed",
-                timeline_data={"output": _strip_file_content(final_output), "resumed_from_checkpoint": True},
+                timeline_data={"output_digest": _output_digest(final_output), "resumed_from_checkpoint": True},
             )
             # Clear checkpoint
             await db["tasks"].update_one(
@@ -679,13 +775,30 @@ class WorkflowEngine:
         if node_id:
             self._pending_node_id = node_id
 
+        # 同一次查询顺带取 token 预算字段——每个节点边界做工作流级预算
+        # 检查（跨节点累计的护栏；节点内 REACT 循环由 agent 会话级
+        # max_tokens guard 兜底，两者互补）。
         doc = await get_database()["tasks"].find_one(
-            {"_id": self._task_id}, {"status": 1},
+            {"_id": self._task_id},
+            {"status": 1, "total_tokens": 1, "token_budget": 1},
         )
         if doc and doc.get("status") == TaskStatus.CANCELLED.value:
             raise WorkflowCancelledError()
+        budget = int(doc.get("token_budget") or 0) if doc else 0
+        if budget > 0:
+            spent = int(doc.get("total_tokens") or 0) if doc else 0
+            if spent >= budget:
+                raise WorkflowTokenBudgetExceededError(
+                    task_id=self._task_id,
+                    total_tokens=spent,
+                    token_budget=budget,
+                    node_id=node_id,
+                )
 
-    async def _save_cancel_checkpoint(self, node_id: str, agent_thread_id: str = "") -> None:
+    async def _save_cancel_checkpoint(
+        self, node_id: str, agent_thread_id: str = "",
+        loop_state: dict[str, Any] | None = None,
+    ) -> None:
         """Persist a checkpoint so the workflow can resume after cancellation.
 
         Records the node that was executing when cancellation was detected,
@@ -701,6 +814,8 @@ class WorkflowEngine:
             completed_nodes=list(self._completed_nodes),
             variable_snapshot=self._pool.snapshot() if self._pool else {},
             agent_thread_id=agent_thread_id,
+            kind="pause",
+            loop_state=loop_state or {},
         )
         safe_snapshot = json.loads(
             json.dumps(
@@ -725,6 +840,86 @@ class WorkflowEngine:
             agent_thread_id=agent_thread_id,
         )
 
+    async def _propagate_branch_exceptions(
+        self,
+        done: set[asyncio.Task],
+        pending: set[asyncio.Task] | None = None,
+    ) -> None:
+        """Propagate exceptions raised inside parallel branch coroutines.
+
+        ``asyncio.wait`` / ``gather(return_exceptions=True)`` 都不会主动抛出
+        分支协程的异常——分支失败（WorkflowNodeError）、并行分支内 human 暂停
+        （WorkflowPausedError）、取消（WorkflowCancelledError）若不在此显式传播
+        会被静默吞掉，导致 Task 状态与实际执行不一致：如暂停被吞后 Task 已转
+        WAITING_HUMAN 却继续执行 join 下游、最终又被覆盖为 COMPLETED；分支失败
+        被吞则工作流以"成功"收场（静默丢结果）。
+
+        传播优先级：Cancelled > Paused > 分支失败。暂停优先于失败是因为 human
+        分支已把 Task 转为 WAITING_HUMAN 并写入 checkpoint，若先抛失败，外层
+        会把状态覆盖成 FAILED，与已持久化的暂停现场冲突。
+
+        Args:
+            done: 已完成的分支任务集合，检查其中的异常。
+            pending: 抛出异常前需要 cancel 的未完成分支，防止孤儿协程在异常
+                传播后继续执行并写库。默认无。
+        """
+        errors: list[BaseException] = []
+        for t in done:
+            if t.cancelled():
+                continue
+            exc = t.exception()
+            if exc is not None:
+                errors.append(exc)
+        if not errors:
+            return
+        for t in pending or ():
+            t.cancel()
+        for priority_type in (WorkflowCancelledError, WorkflowPausedError):
+            for err in errors:
+                if isinstance(err, priority_type):
+                    raise err
+        raise errors[0]
+
+    async def _save_progress_checkpoint(
+        self, loop_node_id: str, next_round: int,
+    ) -> None:
+        """loop 每轮完成即写的进度 checkpoint（kind=progress）。
+
+        长程稳定性硬规范（ADR loop-node-adr.md）：轮是恢复的最小持久单位，
+        进程崩溃/Celery 重投递后 run_and_persist 见 checkpoint 走
+        resume_from_checkpoint → 重入 loop 节点从 next_round 续跑。
+        正常完成后由 execute_task 完成路径清除，不影响暂停语义。
+        """
+        from app.db.mongodb import get_database
+
+        checkpoint = Checkpoint(
+            kind="progress",
+            paused_at_node=loop_node_id,
+            completed_nodes=list(self._completed_nodes),
+            variable_snapshot=self._pool.snapshot() if self._pool else {},
+            loop_state={"loop_node_id": loop_node_id, "round": next_round},
+        )
+        safe_snapshot = json.loads(
+            json.dumps(
+                self._pool.snapshot() if self._pool else {},
+                default=str, ensure_ascii=False,
+            )
+        )
+        await get_database()["tasks"].update_one(
+            {"_id": self._task_id},
+            {
+                "$set": {
+                    "checkpoint": checkpoint.model_dump(mode="json"),
+                    "variables": safe_snapshot,
+                    "updated_at": utc_now(),
+                }
+            },
+        )
+        logger.debug(
+            "loop_progress_checkpoint_saved",
+            task_id=self._task_id, loop=loop_node_id, next_round=next_round,
+        )
+
     # ── Internal: DAG execution ──
 
     def _find_start_nodes(self) -> list[str]:
@@ -735,10 +930,6 @@ class WorkflowEngine:
         are correctly identified.
         """
         return [n["node_id"] for n in self._nodes if n.get("type") == "start"]
-
-    def _find_end_nodes(self) -> list[str]:
-        """Find end nodes — nodes with type == 'end'."""
-        return [n["node_id"] for n in self._nodes if n.get("type") == "end"]
 
     def _migrate_edges_to_next_nodes(self) -> None:
         """Back-fill ``config.next_nodes`` from legacy ``edges``.
@@ -770,15 +961,22 @@ class WorkflowEngine:
             if next_nodes:
                 config["next_nodes"] = next_nodes
 
-    async def _execute_node(self, node_id: str) -> NodeResult | None:
+    async def _execute_node(self, node_id: str, loop_round: int = 0) -> NodeResult | None:
         """Execute a single node and its downstream dependencies.
+
+        Args:
+            node_id: The node to execute.
+            loop_round: 非 0 = 当前在 loop 体的第 N 轮内执行。completed 键
+                用轮次限定形式 ``node_id#rN``（同轮防重入/跨轮可重跑），
+                timeline 事件携带轮次；变量池仍写裸键（=最新轮）。
 
         Returns the node result, or ``None`` if already executed / skipped.
         """
-        # Cooperative cancellation: check DB flag at every node boundary.
+        # Cooperative cancellation + token budget: check DB at every node boundary.
         await self._check_cancelled(node_id)
 
-        if node_id in self._completed_nodes:
+        completed_key = f"{node_id}#r{loop_round}" if loop_round else node_id
+        if completed_key in self._completed_nodes:
             return None
 
         node = self._node_map.get(node_id)
@@ -793,7 +991,11 @@ class WorkflowEngine:
         await TaskService.append_timeline_event(
             task_id=self._task_id,
             event_type="node_start",
-            data={"node_id": node_id, "node_type": node_type},
+            data={
+                "node_id": node_id, "node_type": node_type,
+                "node_label": str(node.get("label") or ""),
+                **({"round": loop_round} if loop_round else {}),
+            },
         )
 
         # Get executor — system variables (task_id, user_id, etc.) are
@@ -816,7 +1018,10 @@ class WorkflowEngine:
         # can use Command(resume) to continue the agent with full continuity.
         if result.error_code == "AGENT_INTERRUPTED":
             agent_thread_id = getattr(executor, "agent_thread_id", "")
-            await self._save_cancel_checkpoint(node_id, agent_thread_id)
+            await self._save_cancel_checkpoint(
+                node_id, agent_thread_id,
+                loop_state={"loop_node_id": self._active_loop_node, "round": loop_round or 1},
+            )
             self._cancel_checkpoint_saved = True  # prevent double-save in except
             raise WorkflowCancelledError(node_id=node_id, node_type=node_type)
 
@@ -825,14 +1030,20 @@ class WorkflowEngine:
             if self._pool is not None:
                 self._pool.set(node_id, result.output)
 
-            self._completed_nodes.add(node_id)
+            self._completed_nodes.add(completed_key)
 
             # Record node complete (include agent token usage for timeline display)
             node_usage = result.output.get("usage") or {}
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_complete",
-                data={"node_id": node_id, "node_type": node_type, "output_summary": _summarise_output(result.output), "usage": node_usage},
+                data={
+                    "node_id": node_id, "node_type": node_type,
+                    "node_label": str(node.get("label") or ""),
+                    "output_summary": _summarise_output(result.output),
+                    "usage": node_usage,
+                    **({"round": loop_round} if loop_round else {}),
+                },
             )
             # Accumulate task-level token total onto the Task document immediately
             # ($inc per agent node, so pause/resume doesn't lose pre-pause usage).
@@ -866,7 +1077,12 @@ class WorkflowEngine:
                     paused_at_node=node_id,
                     completed_nodes=list(self._completed_nodes),
                     variable_snapshot=self._pool.snapshot() if self._pool else {},
-                    human_context={
+                    kind="pause",
+                    loop_state=(
+                        {"loop_node_id": self._active_loop_node, "round": loop_round or 1}
+                        if self._active_loop_node else {}
+                    ),
+                            human_context={
                         "node_id": node_id,
                         "title": result.output.get("title", ""),
                         "description": result.output.get("description", ""),
@@ -923,7 +1139,7 @@ class WorkflowEngine:
             # gateway 按条件选路；agent 节点配置了 insufficient_branch 时
             # abort_workflow 触发同样走 selected_branch（澄清分支而非硬失败）。
             if result.selected_branch:
-                await self._execute_node(result.selected_branch)
+                await self._execute_node(result.selected_branch, loop_round=loop_round)
                 return result
 
             # Handle parallel: execute all branch start nodes
@@ -933,20 +1149,27 @@ class WorkflowEngine:
                 join_count = result.output.get("join_count")
                 branch_ids = result.output.get("branches", [])
 
-                coros = [self._execute_node(sn) for sn in start_nodes.values() if sn]
+                coros = [
+                    self._execute_node(sn, loop_round=loop_round)
+                    for sn in start_nodes.values() if sn
+                ]
 
                 # race 是 any 的别名（取最快结果 = 任一完成即可）
                 effective_strategy = "any" if join_strategy == "race" else join_strategy
 
+                # 分支异常（失败/暂停/取消）由 _propagate_branch_exceptions 统一
+                # 传播——asyncio.wait 与 gather(return_exceptions=True) 都不会
+                # 主动抛出分支协程的异常，不显式传播会被静默吞掉。
                 if effective_strategy == "any":
                     # any: wait for first completion, cancel the rest
                     tasks = [asyncio.ensure_future(c) for c in coros]
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     for t in pending:
                         t.cancel()
-                    list(done)  # consume results
+                    await self._propagate_branch_exceptions(done, pending)
                 elif effective_strategy == "n-of-m" and join_count and join_count > 0:
-                    # n-of-m: wait until join_count branches complete
+                    # n-of-m: wait until join_count branches complete.
+                    # 异常完成的分支即时传播（不计入 join_count）。
                     tasks = [asyncio.ensure_future(c) for c in coros]
                     done_tasks: set[asyncio.Task] = set()
                     pending_tasks = set(tasks)
@@ -955,18 +1178,188 @@ class WorkflowEngine:
                             pending_tasks, return_when=asyncio.FIRST_COMPLETED,
                         )
                         done_tasks.update(newly_done)
+                        await self._propagate_branch_exceptions(newly_done, pending_tasks)
                     for t in pending_tasks:
                         t.cancel()
-                    list(done_tasks)
                 else:
                     # all (default): wait for all branches
-                    await asyncio.gather(*coros, return_exceptions=True)
+                    tasks = [asyncio.ensure_future(c) for c in coros]
+                    await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+                    await self._propagate_branch_exceptions(set(tasks))
 
                 logger.debug(
                     "parallel_complete",
                     node_id=node_id,
                     branches=len(branch_ids),
                     join_strategy=join_strategy,
+                )
+                return result
+
+            # ── Loop：受控循环（ADR docs/loop-node-adr.md §5）──
+            # 闭包子图由 body_entry 递归执行（_execute_node 透传 loop_round，
+            # completed 键 node#rN 同轮防重入/跨轮可重跑）；变量池写裸键
+            # （=最新轮），每轮末快照进 loop.rounds[N]（不可变历史）。
+            # 恢复：loop_state.round = 需要开始/继续的轮（progress 存下一轮
+            # 起点；体内暂停存当前轮——该轮已完成节点靠轮次键跳过）。
+            # 长程稳定性硬规范：每轮完成即写 progress checkpoint，崩溃/重
+            # 投递从最后完成轮续跑，绝不从头重跑。
+            if node_type == "loop":
+                body = [m for m in (node_config.get("body") or []) if isinstance(m, str) and m]
+                body_set = set(body)
+                body_entry = str(node_config.get("body_entry") or "").strip()
+                try:
+                    max_iterations = int(node_config.get("max_iterations") or 1)
+                except (TypeError, ValueError):
+                    max_iterations = 1
+                converge_expr = str(node_config.get("converge_expr") or "").strip()
+
+                # 空转检测基线（轻量 sha，无工作台对象）：成员输出值连续
+                # STALL_STREAK 轮 sha 不变 → 提前结束。从变量池直接取值比对。
+                member_shas: dict[str, str] = {}
+                stall_streaks: dict[str, int] = {}
+
+                # 恢复起点：checkpoint.loop_state 匹配本 loop 时取其 round，
+                # 并清掉 start_round 及之后的半成品轮次键（该轮重跑）
+                start_round = 1
+                saved_loop = self._pool.get(node_id)
+                loop_output: dict[str, Any] = (
+                    dict(saved_loop) if isinstance(saved_loop, dict) else {}
+                )
+                loop_output.setdefault("rounds", {})
+                restored = self._checkpoint_loop_state or {}
+                if restored.get("loop_node_id") == node_id:
+                    start_round = max(1, int(restored.get("round") or 1))
+                    if self._checkpoint_kind == "progress":
+                        # progress（轮末崩溃恢复）：清 start_round 及之后的
+                        # 半成品轮次键（该轮重跑）。pause 不清——体内已完成的
+                        # 节点（如已审批的 human）靠轮次键跳过续跑。
+                        stale = {
+                            k for k in self._completed_nodes
+                            if "#r" in k and int(k.rsplit("#r", 1)[-1] or 0) >= start_round
+                        }
+                        self._completed_nodes -= stale
+
+                self._active_loop_node = node_id
+                try:
+                    rnd = start_round
+                    while rnd <= max_iterations:
+                        await TaskService.append_timeline_event(
+                            task_id=self._task_id,
+                            event_type="loop_round_start",
+                            data={"node_id": node_id, "round": rnd, "max_iterations": max_iterations},
+                        )
+                        # 当前轮号注入 system（体内 agent 的 fresh
+                        # thread_policy 据此构建 _rN thread）
+                        sys_vars = self._pool.get("system") or {}
+                        self._pool.set(
+                            "system",
+                            {**sys_vars, "loop_round": rnd, "loop_node": node_id},
+                        )
+
+                        await self._execute_node(body_entry, loop_round=rnd)
+
+                        # 空转检测（轮末，值级 sha）：任一成员输出连续
+                        # STALL_STREAK 轮不变 → 改无可改/敷衍重交，诚实提前
+                        # 结束。stalled 标记在 pool.set 之前进 loop_output。
+                        ws_stalled = False
+                        for m in body:
+                            value = self._pool.get(m) if self._pool else None
+                            if value is None:
+                                continue
+                            try:
+                                sha = hashlib.sha256(
+                                    json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
+                                    .encode("utf-8")
+                                ).hexdigest()[:8]
+                            except Exception:
+                                continue
+                            streak = stall_streaks.get(m, 0) + 1 if member_shas.get(m) == sha else 0
+                            member_shas[m] = sha
+                            stall_streaks[m] = streak
+                            if streak >= STALL_STREAK:
+                                ws_stalled = True
+                        if ws_stalled:
+                            loop_output["stalled"] = True
+
+                        # 轮末：rounds 快照（不可变历史）+ loop 键更新（裸键）。
+                        # rounds 大值外置：超阈值的字符串成员转 file_library
+                        # 引用（前端零消费 rounds；表达式引用超大值将拿到
+                        # 引用 dict——控制 Task 文档/rounds × 轮数的膨胀）。
+                        loop_output["iterations"] = rnd
+                        loop_output["rounds"][str(rnd)] = {
+                            m: await _externalize_large_value(
+                                self._pool.get(m),
+                                user_id=self._task_user_id,
+                                origin_id=str(self._task_id),
+                            )
+                            for m in body_set if self._pool.get(m) is not None
+                        }
+                        # 收敛判定（求值失败视为未收敛，跑满上限诚实结束）
+                        converged = False
+                        if converge_expr:
+                            # 未定义防护：引用的 source.field 不在池中（如
+                            # text 模式 agent 无自定义字段）时 Jinja2 的
+                            # Undefined 参与 != 会返回 True 造成假收敛——
+                            # 一律视为未收敛 + 告警，跑满上限诚实结束。
+                            _ref = re.search(
+                                r"\{\{\s*(?:'[^']*'\s+in\s+)?([\w]+)\.([\w.]+)",
+                                converge_expr,
+                            )
+                            if _ref and (
+                                self._pool is None
+                                or self._pool.get(f"{_ref.group(1)}.{_ref.group(2)}") is None
+                            ):
+                                logger.warning(
+                                    "loop_converge_ref_undefined",
+                                    task_id=self._task_id, node_id=node_id,
+                                    round=rnd, ref=f"{_ref.group(1)}.{_ref.group(2)}",
+                                )
+                            else:
+                                try:
+                                    converged = ExpressionEngine(
+                                        self._pool.get_all() if self._pool else {},
+                                    ).resolve_bool(converge_expr)
+                                except Exception as exc:
+                                    logger.warning(
+                                        "loop_converge_eval_failed",
+                                        task_id=self._task_id, node_id=node_id,
+                                        round=rnd, error=str(exc),
+                                    )
+                        loop_output["converged"] = converged
+                        if self._pool is not None:
+                            self._pool.set(node_id, dict(loop_output))
+
+                        await TaskService.append_timeline_event(
+                            task_id=self._task_id,
+                            event_type="loop_round_complete",
+                            data={
+                                "node_id": node_id, "round": rnd,
+                                "max_iterations": max_iterations,
+                                "converged": converged,
+                            },
+                        )
+                        # 每轮完成即写 progress checkpoint（round=下一轮起点）
+                        await self._save_progress_checkpoint(node_id, rnd + 1)
+                        if converged:
+                            break
+                        # 空转停机：连续 STALL_STREAK 轮输出不变（改无可改/
+                        # 敷衍重交）诚实提前结束。
+                        if ws_stalled:
+                            await TaskService.append_timeline_event(
+                                task_id=self._task_id,
+                                event_type="loop_stalled",
+                                data={"node_id": node_id, "round": rnd},
+                            )
+                            break
+                        rnd += 1
+                finally:
+                    self._active_loop_node = ""
+
+                logger.debug(
+                    "loop_complete",
+                    node_id=node_id,
+                    iterations=loop_output.get("iterations", 0),
+                    converged=loop_output.get("converged", False),
                 )
                 return result
 
@@ -981,7 +1374,11 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
-                    await self._execute_node(target_id)
+                    # 回边（体成员 → 所属 loop）是循环闭合的表达，执行层跳过
+                    # ——轮末由体链耗尽决定；不跳过会轮内重入 loop 分支。
+                    if loop_round and target_id == self._active_loop_node:
+                        continue
+                    await self._execute_node(target_id, loop_round=loop_round)
             else:
                 # Legacy fallback: read from workflow-level edges
                 outgoing = self._out_edges.get(node_id, [])
@@ -992,18 +1389,26 @@ class WorkflowEngine:
                         cond_result = engine.resolve_bool(condition)
                         if not cond_result:
                             continue
-                    await self._execute_node(target_id)
+                    # 回边（体成员 → 所属 loop）是循环闭合的表达，执行层跳过
+                    # ——轮末由体链耗尽决定；不跳过会轮内重入 loop 分支。
+                    if loop_round and target_id == self._active_loop_node:
+                        continue
+                    await self._execute_node(target_id, loop_round=loop_round)
 
         else:
             # Node failed — propagate error
-            self._completed_nodes.add(node_id)
+            self._completed_nodes.add(completed_key)
             await TaskService.append_timeline_event(
                 task_id=self._task_id,
                 event_type="node_failed",
                 data={
                     "node_id": node_id,
                     "node_type": node_type,
+                    "node_label": str(node.get("label") or ""),
                     "error": result.error_message,
+                    # round 让前端把循环体内失败的成员正确归属到轮分组
+                    #（TaskFlowTimeline 按 loop_round 窗口+round 聚合成员）
+                    **({"round": loop_round} if loop_round else {}),
                 },
             )
             raise WorkflowNodeError(
@@ -1047,6 +1452,48 @@ def _summarise_output(output: dict[str, Any], max_len: int = 200) -> str:
     return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
+def _output_digest(output: dict[str, Any]) -> dict[str, str]:
+    """completed/waiting timeline 事件的输出摘要（node_id → 200 字符预览）。
+
+    全量 output 已存 Task.output 顶层字段——事件内嵌全量是纯冗余（前端
+    零消费已确认），且是 timeline 单条膨胀的最大来源（整个变量池进一条
+    事件，loop rounds 全包含）。
+    """
+    digest: dict[str, str] = {}
+    for key, value in (output or {}).items():
+        if isinstance(value, dict):
+            digest[str(key)] = _summarise_output(value)
+        else:
+            try:
+                text = json.dumps(value, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(value)
+            digest[str(key)] = text[:200] + ("..." if len(text) > 200 else "")
+    return digest
+
+
+async def _externalize_large_value(
+    value: Any, *, user_id: str, origin_id: str, threshold: int = 50_000,
+) -> Any:
+    """值级外置：超阈值字符串转 file_library 引用 dict（不改变内存池原值）。
+
+    仅用于持久化快照（loop rounds），阈值天然触发——未超的值零开销原样
+    返回。外置失败时返回原值（宁膨胀不丢数据）。
+    """
+    if not isinstance(value, str) or len(value) <= threshold:
+        return value
+    from app.services.doc_compaction_service import externalize_content
+
+    ref = await externalize_content(value, owner_user_id=user_id, origin_id=origin_id)
+    if ref is None:
+        return value
+    return {
+        "extern": ref,
+        "preview": value[:500],
+        "note": "超长输出已外置存储，引用 file_id 可取全文",
+    }
+
+
 def _strip_file_content(obj: Any) -> Any:
     """Recursively remove ``content`` from FileVariableValue-like dicts.
 
@@ -1081,6 +1528,26 @@ class WorkflowPausedError(Exception):
         self.node_type = node_type
         self.pause_message = message
         super().__init__(message)
+
+
+class WorkflowTokenBudgetExceededError(Exception):
+    """工作流级 token 预算耗尽（节点边界检查，诚实终止）。
+
+    与 agent 会话级 TokenBudgetGuard 互补：会话级管单节点 REACT 循环，
+    本预算管跨节点累计（多 agent/委派场景的成本护栏——多 agent ≈ 聊天
+    15x token，预算是必需品而非优化项）。
+    """
+
+    def __init__(
+        self, task_id: str, total_tokens: int, token_budget: int, node_id: str = "",
+    ) -> None:
+        self.task_id = task_id
+        self.total_tokens = total_tokens
+        self.token_budget = token_budget
+        self.node_id = node_id
+        super().__init__(
+            f"Token budget exceeded: {total_tokens}/{token_budget}"
+        )
 
 
 class WorkflowCancelledError(Exception):

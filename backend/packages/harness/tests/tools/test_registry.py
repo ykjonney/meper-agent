@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
 
 from agent_flow_harness.tools.registry import TOOL_REGISTRY, ToolRegistry
 
@@ -24,28 +23,6 @@ def _builtin_tool(name: str, ret: str = "ok") -> StructuredTool:
     return StructuredTool.from_function(_fn, name=name, description=f"{name} tool")
 
 
-class _EchoConfig(BaseModel):
-    suffix: str = ""
-
-
-class _EchoCommunityTool:
-    """Minimal CommunityTool implementation for tests."""
-
-    name = "echo"
-    description = "echo community tool"
-    config_schema = _EchoConfig
-    enabled_by_default = False
-
-    def __init__(self) -> None:
-        self.build_calls: list[_EchoConfig] = []
-
-    def build(self, config: _EchoConfig) -> StructuredTool:  # noqa: ANN101
-        self.build_calls.append(config)
-
-        def _fn(query: str = "") -> str:  # noqa: ANN202
-            return f"echo:{query}{config.suffix}"
-
-        return StructuredTool.from_function(_fn, name="echo", description="echo")
 
 
 # ---------------------------------------------------------------------------
@@ -71,20 +48,13 @@ def test_register_builtin_tool(registry: ToolRegistry) -> None:
 
 
 def test_register_builtin_without_name_raises(registry: ToolRegistry) -> None:
-    """A non-BaseTool object without config_schema/build must expose .name."""
+    """An object without a string .name cannot be registered."""
 
     class _Anon:
         pass
 
     with pytest.raises(TypeError):
         registry.register(_Anon())  # type: ignore[arg-type]
-
-
-def test_register_community_tool(registry: ToolRegistry) -> None:
-    ct = _EchoCommunityTool()
-    registry.register(ct)
-    assert registry.get("echo") is ct
-    assert ct in registry.list_community_tools()
 
 
 def test_unregister_removes_tool(registry: ToolRegistry) -> None:
@@ -134,61 +104,7 @@ def test_resolve_tool_not_found_skipped(registry: ToolRegistry) -> None:
     assert registry.resolve(doc) == []
 
 
-def test_resolve_builds_community_tool(registry: ToolRegistry) -> None:
-    ct = _EchoCommunityTool()
-    registry.register(ct)
-    doc = {"tools": [{"name": "echo", "enabled": True, "config": {"suffix": "!"}}]}
 
-    resolved = registry.resolve(doc)
-
-    assert len(resolved) == 1
-    assert resolved[0].name == "echo"
-    assert len(ct.build_calls) == 1
-    assert ct.build_calls[0].suffix == "!"
-    # The built tool reflects the validated config.
-    assert resolved[0].invoke({"query": "hi"}) == "echo:hi!"
-
-
-def test_resolve_invalid_community_config_skipped(registry: ToolRegistry) -> None:
-    """A config failing config_schema validation is skipped, not raised."""
-
-    class _StrictConfig(BaseModel):
-        api_key: str  # required, no default
-
-    class _StrictCommunity:
-        name = "strict"
-        description = "d"
-        config_schema = _StrictConfig
-        enabled_by_default = False
-
-        def build(self, config):  # noqa: ANN001, ANN202
-            return _builtin_tool("strict")
-
-    registry.register(_StrictCommunity())
-    doc = {"tools": [{"name": "strict", "enabled": True, "config": {}}]}
-
-    assert registry.resolve(doc) == []
-
-
-def test_resolve_build_failure_skipped(registry: ToolRegistry) -> None:
-    """A build() that raises is logged and skipped."""
-
-    class _BoomConfig(BaseModel):
-        pass
-
-    class _BoomCommunity:
-        name = "boom"
-        description = "d"
-        config_schema = _BoomConfig
-        enabled_by_default = False
-
-        def build(self, config):  # noqa: ANN001, ANN202
-            raise RuntimeError("kaboom")
-
-    registry.register(_BoomCommunity())
-    doc = {"tools": [{"name": "boom", "enabled": True, "config": {}}]}
-
-    assert registry.resolve(doc) == []
 
 
 def test_resolve_skips_reserved_v02_prefixes(registry: ToolRegistry) -> None:
@@ -216,14 +132,9 @@ def test_resolve_skips_invalid_entries(registry: ToolRegistry) -> None:
 
 
 # ---------------------------------------------------------------------------
-# list_community_tools() / list_builtin_tools()
+# list_builtin_tools()
 # ---------------------------------------------------------------------------
 
-
-def test_list_community_tools(registry: ToolRegistry) -> None:
-    ct = _EchoCommunityTool()
-    registry.register(ct)
-    assert registry.list_community_tools() == [ct]
 
 
 def test_list_builtin_tools(registry: ToolRegistry) -> None:

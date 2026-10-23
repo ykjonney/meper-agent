@@ -48,7 +48,7 @@ export default function EndNodeConfig({ config, onChange, currentNodeId, allNode
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+        <p className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
           输出映射
           <HelpHint
             text={
@@ -63,13 +63,13 @@ export default function EndNodeConfig({ config, onChange, currentNodeId, allNode
       </div>
 
       {entries.length === 0 && (
-        <p className="text-[10px] text-[#71717a]">
+        <p className="text-[11px] text-ink-dim">
           未配置输出映射，默认返回 {"{ status: \"completed\" }"}
         </p>
       )}
 
       {entries.map(([key, value]) => (
-        <div key={key} className="space-y-1 p-2 bg-[#121214]/60 rounded-lg">
+        <div key={key} className="space-y-1 p-2 bg-page/60 rounded-lg">
           <div className="flex items-center gap-1.5">
             <Input
               size="small"

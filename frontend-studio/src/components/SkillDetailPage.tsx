@@ -77,15 +77,15 @@ export function SkillDetailPage({
     <div className="space-y-4">
       {/* Breadcrumb / header */}
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-1.5 rounded-lg text-[#a1a1aa] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+        <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs text-[#71717a]">
+          <div className="flex items-center gap-2 text-xs text-ink-dim">
             <span>技能商店</span><span>/</span><span className="text-white font-semibold truncate">{toolName}</span>
           </div>
           {tool && (
-            <p className="text-[11px] text-[#52525b] mt-0.5">
+            <p className="text-[11px] text-ink-dim mt-0.5">
               v{tool.version} · {leafCount} 文件 · {tool.source}
             </p>
           )}
@@ -101,8 +101,8 @@ export function SkillDetailPage({
       </div>
 
       {/* 头像 */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-[#18181b] rounded-xl border border-[#27272a]">
-        <span className="text-xs font-semibold text-[#a1a1aa] shrink-0">头像</span>
+      <div className="flex items-center gap-3 px-4 py-3 bg-panel rounded-xl border border-line">
+        <span className="text-xs font-semibold text-ink-dim shrink-0">头像</span>
         <AvatarField
           value={displayAvatar}
           entityId={toolId}
@@ -120,12 +120,12 @@ export function SkillDetailPage({
           }}
         />
         {!displayAvatar && (
-          <span className="text-[10px] text-[#52525b]">未设置时显示默认 logo</span>
+          <span className="text-[11px] text-ink-dim">未设置时显示默认 logo</span>
         )}
       </div>
 
       {treeLoading ? (
-        <div className="flex items-center justify-center py-12 text-[#71717a]">
+        <div className="flex items-center justify-center py-12 text-ink-dim">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />加载…
         </div>
       ) : isDirectory ? (
@@ -155,9 +155,9 @@ function DirectoryEditor({ toolId }: { toolId: string }) {
   return (
     <div className="flex gap-4 h-[calc(100vh-180px)] min-h-[400px]">
       {/* File tree */}
-      <div className="w-72 shrink-0 rounded-xl border border-[#27272a] bg-[#18181b] overflow-y-auto p-3">
+      <div className="w-72 shrink-0 rounded-xl border border-line bg-panel overflow-y-auto p-3">
         {isLoading ? (
-          <div className="flex items-center justify-center py-8 text-[#71717a]">
+          <div className="flex items-center justify-center py-8 text-ink-dim">
             <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载文件…
           </div>
         ) : (
@@ -183,7 +183,7 @@ function DirectoryEditor({ toolId }: { toolId: string }) {
           // file's content sticks and is wrongly flagged as an edit.
           <FileEditor key={selectedPath} toolId={toolId} filePath={selectedPath} />
         ) : (
-          <div className="flex items-center justify-center h-full text-[#52525b] text-sm border border-[#27272a] rounded-xl bg-[#18181b]">
+          <div className="flex items-center justify-center h-full text-ink-dim text-sm border border-line rounded-xl bg-panel">
             选择左侧文件查看内容
           </div>
         )}
@@ -208,7 +208,7 @@ const TreeRow: FC<{
         <button
           onClick={() => setOpen((o) => !o)}
           style={pad}
-          className="w-full flex items-center gap-1.5 py-1 text-xs text-[#a1a1aa] hover:text-white hover:bg-[#27272a] rounded transition cursor-pointer"
+          className="w-full flex items-center gap-1.5 py-1 text-xs text-ink-dim hover:text-white hover:bg-line rounded transition cursor-pointer"
         >
           <Folder className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <span className="truncate font-medium">{node.title}</span>
@@ -226,10 +226,10 @@ const TreeRow: FC<{
       onClick={() => onSelect(node.key)}
       style={pad}
       className={`w-full flex items-center gap-1.5 py-1 text-xs rounded transition cursor-pointer ${
-        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-[#a1a1aa] hover:text-white hover:bg-[#27272a]'
+        isSel ? 'bg-indigo-500/10 text-indigo-300' : 'text-ink-dim hover:text-white hover:bg-line'
       }`}
     >
-      <FileText className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+      <FileText className="w-3.5 h-3.5 text-ink-dim shrink-0" />
       <span className="truncate font-mono">{node.title}</span>
     </button>
   );
@@ -265,32 +265,32 @@ function FileEditor({ toolId, filePath }: { toolId: string; filePath: string }) 
   });
 
   return (
-    <div className="h-full flex flex-col rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+    <div className="h-full flex flex-col rounded-xl border border-line bg-panel overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#27272a] shrink-0">
-        <span className="text-[11px] font-mono text-[#a1a1aa] truncate">{filePath}</span>
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line shrink-0">
+        <span className="text-[11px] font-mono text-ink-dim truncate">{filePath}</span>
         <div className="flex items-center gap-2">
           {isMarkdown && (
-            <div className="flex items-center bg-[#121214] border border-[#27272a] rounded-lg p-0.5">
+            <div className="flex items-center bg-page border border-line rounded-lg p-0.5">
               <button
                 onClick={() => setMode('edit')}
-                className={`px-2 py-0.5 text-[10px] rounded-md transition cursor-pointer ${mode === 'edit' ? 'bg-indigo-600 text-white font-semibold' : 'text-[#a1a1aa] hover:text-white'}`}
+                className={`px-2 py-0.5 text-[11px] rounded-md transition cursor-pointer ${mode === 'edit' ? 'bg-indigo-600 text-white font-semibold' : 'text-ink-dim hover:text-white'}`}
               >
                 编辑
               </button>
               <button
                 onClick={() => setMode('preview')}
-                className={`px-2 py-0.5 text-[10px] rounded-md transition cursor-pointer ${mode === 'preview' ? 'bg-indigo-600 text-white font-semibold' : 'text-[#a1a1aa] hover:text-white'}`}
+                className={`px-2 py-0.5 text-[11px] rounded-md transition cursor-pointer ${mode === 'preview' ? 'bg-indigo-600 text-white font-semibold' : 'text-ink-dim hover:text-white'}`}
               >
                 预览
               </button>
             </div>
           )}
-          {isDirty && <span className="text-[10px] text-amber-400 font-semibold">未保存</span>}
+          {isDirty && <span className="text-[11px] text-amber-400 font-semibold">未保存</span>}
           <button
             onClick={() => file && setLocal(file.content)}
             disabled={!isDirty}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-[#a1a1aa] hover:text-white hover:bg-[#27272a] disabled:opacity-40 transition cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-white hover:bg-line disabled:opacity-40 transition cursor-pointer"
           >
             <Undo2 className="w-3 h-3" /> 撤销
           </button>
@@ -307,12 +307,12 @@ function FileEditor({ toolId, filePath }: { toolId: string; filePath: string }) 
 
       {/* Editor / preview area */}
       {isLoading ? (
-        <div className="flex-1 flex items-center justify-center text-[#71717a]"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
+        <div className="flex-1 flex items-center justify-center text-ink-dim"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
       ) : error ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-2 text-[#71717a]">
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-2 text-ink-dim">
           <FileX className="w-6 h-6 text-rose-400" />
           <p className="text-xs font-semibold">文件加载失败</p>
-          <p className="text-[10px] text-[#52525b] max-w-md">{getErrorMessage(error, '文件不存在或无法读取')}</p>
+          <p className="text-[11px] text-ink-dim max-w-md">{getErrorMessage(error, '文件不存在或无法读取')}</p>
         </div>
       ) : showPreview ? (
         <div className="flex-1 overflow-y-auto p-5">
@@ -322,11 +322,11 @@ function FileEditor({ toolId, filePath }: { toolId: string; filePath: string }) 
         <textarea
           value={local}
           onChange={(e) => setLocal(e.target.value)}
-          className="flex-1 w-full p-4 bg-transparent text-[#fafafa] font-mono text-xs leading-relaxed resize-none focus:outline-none"
+          className="flex-1 w-full p-4 bg-transparent text-ink font-mono text-xs leading-relaxed resize-none focus:outline-none"
           spellCheck={false}
         />
       )}
-      <div className="px-4 py-1.5 border-t border-[#27272a] text-[10px] text-[#52525b] shrink-0">
+      <div className="px-4 py-1.5 border-t border-line text-[11px] text-ink-dim shrink-0">
         {local.length} 字符
       </div>
     </div>
@@ -346,7 +346,7 @@ function SingleFileView({ toolId, filePath }: { toolId: string; filePath: string
       <div className="h-[calc(100vh-180px)] min-h-[400px] flex flex-col gap-3">
         <button
           onClick={() => setEditing(false)}
-          className="self-start flex items-center gap-1 text-[11px] text-[#a1a1aa] hover:text-white cursor-pointer"
+          className="self-start flex items-center gap-1 text-[11px] text-ink-dim hover:text-white cursor-pointer"
         >
           <ArrowLeft className="w-3 h-3" /> 返回预览
         </button>
@@ -360,8 +360,8 @@ function SingleFileView({ toolId, filePath }: { toolId: string; filePath: string
   const content = tool?.instructions || tool?.description || '';
 
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#27272a]">
+    <div className="rounded-xl border border-line bg-panel overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-line">
         <div className="flex items-center gap-2">
           <FilePen className="w-4 h-4 text-indigo-400" />
           <span className="text-sm font-bold text-white">工具说明</span>
@@ -374,13 +374,13 @@ function SingleFileView({ toolId, filePath }: { toolId: string; filePath: string
         </button>
       </div>
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-[#71717a]"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
+        <div className="flex items-center justify-center py-12 text-ink-dim"><Loader2 className="w-5 h-5 animate-spin mr-2" />加载…</div>
       ) : content ? (
         <div className="p-5 max-h-[60vh] overflow-y-auto">
           <Markdown content={content} />
         </div>
       ) : (
-        <p className="p-5 text-xs text-[#52525b]">（无说明）</p>
+        <p className="p-5 text-xs text-ink-dim">（无说明）</p>
       )}
     </div>
   );

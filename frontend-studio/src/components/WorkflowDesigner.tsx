@@ -31,6 +31,7 @@ import {
   type AgentInfo,
 } from '../features/workflow-editor/agent-info'
 import type { WorkflowNode } from '../services/types'
+import { materializeLoopBodies } from '../features/workflow-editor/utils/loop-derive'
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution'
 import { usePermission } from '../hooks/use-permission'
 import WorkflowNodePalette from '../features/workflow-editor/WorkflowNodePalette'
@@ -87,6 +88,16 @@ export function WorkflowDesigner({
   // instead of the stale workflowDetail.name so the workflow can be renamed.
   const [nameDraft, setNameDraft] = useState('')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  // 未保存刷新/关闭保护——循环步骤在主画布不可见，丢改动尤其难察觉
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasUnsavedChanges])
   // 左侧节点类型面板收缩态（收缩后仅图标列 + Tooltip）
   const [paletteCollapsed, setPaletteCollapsed] = useState(true)
   const [dirtySinceLoad, setDirtySinceLoad] = useState(false)
@@ -137,6 +148,10 @@ export function WorkflowDesigner({
     setDirtySinceLoad(true)
   }, [])
 
+  // 画布视图过滤（循环体成员隐藏）已移入 WorkflowCanvas 内部：渲染用过滤
+  // 子集、结构性变更用全量集，两套节点集不再可能漂移（曾因拖拽/落点基于
+  // 渲染子集重建而抹除隐藏成员，面板表现为"步骤列表丢失"）。
+
   const handleNodeChange = useCallback((updated: WorkflowNode) => {
     setNodes((prev) => prev.map((n) => (n.node_id === updated.node_id ? updated : n)))
     setSelectedNode(updated)
@@ -173,13 +188,21 @@ export function WorkflowDesigner({
           if (config.insufficient_branch === nodeId) {
             config.insufficient_branch = null
           }
+          // 循环体成员被删：从所属 loop 的 body/起点同步移除
+          if (n.type === 'loop' && Array.isArray(config.body)) {
+            config.body = (config.body as string[]).filter((m) => m !== nodeId)
+            if (config.body_entry === nodeId) {
+              config.body_entry = ((config.body as string[])[0] ?? '')
+            }
+          }
           return { ...n, config }
         })
     })
-    setSelectedNode(null)
+    // 删除循环节点 → 若面板正选中它则关闭
+    setSelectedNode((cur) => (cur?.node_id === nodeId ? null : cur))
     setHasUnsavedChanges(true)
     setDirtySinceLoad(true)
-  }, [])
+  }, [nodes])
 
   /* ─── 保存 ─── */
   const saveMutation = useMutation({
@@ -202,7 +225,9 @@ export function WorkflowDesigner({
       // (Workflow.name has min_length=1).
       name: nameDraft.trim() || workflowDetail.name,
       description: workflowDetail.description,
-      nodes,
+      // loop 节点的循环体从画布连线自动推导物化（用户零概念配置）：
+      // 体尾连回循环节点 = 回边，推导结果写入 config.body/body_entry
+      nodes: materializeLoopBodies(nodes),
     })
   }, [selectedWorkflowId, workflowDetail, nameDraft, nodes, saveMutation])
 
@@ -315,12 +340,12 @@ export function WorkflowDesigner({
     <div className="flex flex-col h-full gap-4">
       {/* 主体（顶栏已移除：选择器/新建下线，关闭按钮并入画布左上浮动栏）*/}
       {!selectedWorkflowId ? (
-        <div className="bg-[#18181b] rounded-2xl border border-[#27272a] p-16 text-center text-sm text-[#71717a]">
+        <div className="bg-panel rounded-2xl border border-line p-16 text-center text-sm text-ink-dim">
           {listLoading ? '加载工作流列表...' : '请新建或选择一个工作流开始编辑'}
         </div>
       ) : detailLoading && nodes.length === 0 ? (
-        <div className="bg-[#18181b] rounded-2xl border border-[#27272a] p-16 text-center text-sm text-[#71717a]">
-          <Loader2 size={20} className="animate-spin mx-auto mb-2 text-[#1E5EFF]" />
+        <div className="bg-panel rounded-2xl border border-line p-16 text-center text-sm text-ink-dim">
+          <Loader2 size={20} className="animate-spin mx-auto mb-2 text-link" />
           载入工作流详情...
         </div>
       ) : (
@@ -329,12 +354,12 @@ export function WorkflowDesigner({
           <AgentInfoContext.Provider value={resolvedAgentInfoMap}>
           <ToolNameContext.Provider value={toolNameMap}>
           <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
-            {/* 左：Palette（可收缩）*/}
-            <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-[#18181b] rounded-xl border border-[#27272a] overflow-hidden transition-[width] duration-200`}>
+            {/* 左：Palette（可收缩） */}
+            <div className={`shrink-0 ${paletteCollapsed ? 'w-14' : 'w-56'} flex flex-col bg-panel rounded-xl border border-line overflow-hidden transition-[width] duration-200`}>
               <button
                 onClick={() => setPaletteCollapsed((v) => !v)}
                 title={paletteCollapsed ? '展开节点类型' : '收起节点类型'}
-                className="shrink-0 flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer border-b border-[#27272a]"
+                className="shrink-0 flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium text-ink-dim hover:text-ink hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer border-b border-line"
               >
                 {paletteCollapsed ? (
                   <ChevronsRight className="w-3.5 h-3.5 mx-auto" />
@@ -351,21 +376,21 @@ export function WorkflowDesigner({
             </div>
 
             {/* 中：Canvas + 浮动操作栏（画布左上角，不占顶部行）*/}
-            <div className="flex-1 min-w-0 relative bg-[#09090b] rounded-xl border border-[#27272a] overflow-hidden">
-              <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-x-2 gap-y-1 max-w-[calc(100%-1.5rem)] px-2 py-1.5 rounded-lg bg-[#18181b]/80 backdrop-blur border border-[#27272a] shadow-lg">
+            <div className="flex-1 min-w-0 relative bg-well rounded-xl border border-line overflow-hidden">
+              <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-x-2 gap-y-1 max-w-[calc(100%-1.5rem)] px-2 py-1.5 rounded-lg bg-panel/80 backdrop-blur border border-line shadow-lg">
                 {/* 关闭编辑（返回列表）*/}
                 {onBack && (
                   <button
                     onClick={onBack}
                     title="关闭编辑"
-                    className="p-1 rounded-md text-[#71717a] hover:text-[#fafafa] hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer"
+                    className="p-1 rounded-md text-ink-dim hover:text-ink hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer"
                   >
                     <X size={14} />
                   </button>
                 )}
                 {/* 名称（保存后生效）*/}
-                <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-[#121214] border border-[#27272a] focus-within:border-[#1E5EFF]/60 transition-colors">
-                  <Pencil size={12} className="text-[#71717a] shrink-0" />
+                <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-page border border-line focus-within:border-[#1E5EFF]/60 transition-colors">
+                  <Pencil size={12} className="text-ink-dim shrink-0" />
                   <input
                     value={nameDraft}
                     onChange={(e) => {
@@ -375,7 +400,7 @@ export function WorkflowDesigner({
                     }}
                     placeholder="工作流名称"
                     title="修改工作流名称（保存后生效）"
-                    className="w-32 bg-transparent text-xs text-[#fafafa] placeholder-[#52525b] focus:outline-none font-medium"
+                    className="w-32 bg-transparent text-xs text-ink placeholder-ink-dim focus:outline-none font-medium"
                   />
                 </div>
                 {/* 当前状态 */}
@@ -385,7 +410,7 @@ export function WorkflowDesigner({
                   </Tag>
                 )}
                 {workflowDetail && (
-                  <span className="text-[10px] text-[#71717a] whitespace-nowrap">v{workflowDetail.version} · {nodes.length}节点</span>
+                  <span className="text-[11px] text-ink-dim whitespace-nowrap">v{workflowDetail.version} · {nodes.length}节点</span>
                 )}
                 {hasUnsavedChanges && <Tag color="#F59E0B">未保存</Tag>}
                 {canWrite && (
@@ -419,6 +444,16 @@ export function WorkflowDesigner({
                   allNodes={nodes}
                   onNodeChange={handleNodeChange}
                   onNodeDelete={handleNodeDelete}
+                  onNodesChange={(next) => {
+                    setNodes(next)
+                    setHasUnsavedChanges(true)
+                    setDirtySinceLoad(true)
+                    // 结构性变更后同步选中节点对象（config 已变，防面板持旧快照）
+                    setSelectedNode((cur) =>
+                      cur ? (next.find((n) => n.node_id === cur.node_id) ?? null) : cur,
+                    )
+                  }}
+                  onSelectNode={setSelectedNode}
                 />
               </div>
             )}

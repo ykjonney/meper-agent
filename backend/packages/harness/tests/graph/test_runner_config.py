@@ -1,10 +1,7 @@
-"""Cover: build_config resolves tools via the registry into a react_node config."""
+"""Cover: build_config resolves tools via the registry."""
 
 from __future__ import annotations
 
-import pytest
-
-from agent_flow_harness.engine.react import react_node
 from agent_flow_harness.graph import build_config
 from agent_flow_harness.tools.registry import ToolRegistry
 
@@ -25,29 +22,17 @@ def _stub_llm(responses):
     return _LLM(responses)
 
 
-@pytest.mark.asyncio
-async def test_build_config_resolves_tools_from_registry(
-    base_state, make_test_tool
-) -> None:
+def test_build_config_resolves_tools_from_registry(make_test_tool) -> None:
     """build_config reads agent_doc['tools'] through the registry."""
     registry = ToolRegistry()
     echo = make_test_tool("echo", return_value="echoed")
     registry.register(echo)
 
-    from langchain_core.messages import AIMessage as _AI
-
-    llm = _stub_llm([
-        _AI(content="", tool_calls=[{"name": "echo", "args": {}, "id": "c1"}]),
-        _AI(content="done"),
-    ])
+    llm = _stub_llm([])
     agent_doc = {"tools": [{"name": "echo", "enabled": True}]}
     config = build_config(agent_doc, llm, registry=registry)
 
-    result = await react_node(base_state, config)
-
-    assert result["step_count"] == 2
-    tool_msgs = [m for m in result["messages"] if m.type == "tool"]
-    assert tool_msgs[0].content == "echoed"
+    assert config["configurable"]["tools"] == [echo]
 
 
 def test_build_config_explicit_tools_bypass_registry() -> None:

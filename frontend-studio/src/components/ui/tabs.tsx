@@ -23,7 +23,7 @@ export function SegmentedTabs<T extends string>({ tabs, value, onChange, theme }
     <div
       role="tablist"
       className={`inline-flex items-center gap-1 rounded-lg border p-0.5 ${
-        theme === 'dark' ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'
+        theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'
       }`}
     >
       {tabs.map((t) => {
@@ -39,7 +39,7 @@ export function SegmentedTabs<T extends string>({ tabs, value, onChange, theme }
               active
                 ? 'bg-blue-600 text-white'
                 : theme === 'dark'
-                  ? 'text-[#a1a1aa] hover:text-[#fafafa]'
+                  ? 'text-ink-dim hover:text-ink'
                   : 'text-slate-500 hover:text-slate-700'
             }`}
           >

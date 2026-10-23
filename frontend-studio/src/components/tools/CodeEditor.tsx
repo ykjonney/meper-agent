@@ -61,7 +61,7 @@ export function CodeEditor({ value, onChange, placeholder }: {
         }}
         spellCheck={false}
         placeholder={placeholder}
-        className={`code-editor-input relative z-10 w-full p-3 bg-transparent text-transparent caret-white outline-none whitespace-pre-wrap break-words placeholder:text-[#484f58] ${
+        className={`code-editor-input relative z-10 w-full p-3 bg-transparent text-transparent caret-white outline-none whitespace-pre-wrap break-words placeholder:text-[#8b949e] ${
           expanded ? 'flex-1 min-h-0' : 'min-h-[150px] resize-y'
         } ${CODE_FONT}`} />
     </>

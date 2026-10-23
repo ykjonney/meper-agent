@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 from app.core.errors import AppError
-from app.core.user_auth_state import is_introspect_stale, reset_introspect_stale
 from app.services.user_auth_service import IntrospectionResult, UserAuthService
 
 USER_INFO_URL = "https://partner.example.com/oauth/introspect"
@@ -55,13 +54,6 @@ def _patch_httpx_with_handler(monkeypatch, handler):
             return resp
 
     monkeypatch.setattr(httpx, "AsyncClient", _StubClient)
-
-
-@pytest.fixture(autouse=True)
-def _reset_stale():
-    reset_introspect_stale()
-    yield
-    reset_introspect_stale()
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +171,6 @@ class TestIntrospectStaleFallback:
         result = await UserAuthService.introspect(USER_INFO_URL, USER_TOKEN)
 
         assert result.active is True
-        assert is_introspect_stale() is True
 
     async def test_timeout_without_stale_raises_504(self, monkeypatch):
         def handler(req):
@@ -224,4 +215,3 @@ class TestIntrospectStaleFallback:
         result = await UserAuthService.introspect(USER_INFO_URL, USER_TOKEN)
 
         assert result.active is True
-        assert is_introspect_stale() is True

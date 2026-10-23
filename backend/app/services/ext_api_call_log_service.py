@@ -56,18 +56,3 @@ def set_ext_call_context(ctx: ExtCallContext) -> None:
 def get_ext_call_context() -> ExtCallContext | None:
     """Read the stashed call context (or None if not an ext request)."""
     return _ext_call_ctx.get()
-
-
-def update_ext_call_context(**updates: Any) -> None:
-    """Patch fields on the stashed context (e.g. agent_id / session_id)."""
-    ctx = _ext_call_ctx.get()
-    if ctx is None:
-        return
-    for k, v in updates.items():
-        if v:
-            setattr(ctx, k, v)
-
-
-def clear_ext_call_context() -> None:
-    """Reset to None (defensive; mainly for tests)."""
-    _ext_call_ctx.set(None)

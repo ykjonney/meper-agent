@@ -24,6 +24,11 @@ class SubAgentSpec(BaseModel):
     tools: list[str] = Field(default_factory=list, description="允许的工具名称列表")
     llm_config: dict[str, Any] = Field(default_factory=dict, description="LLM 配置; {'model':'inherit'} 复用主 LLM")
     max_turns: int = Field(default=25, ge=1, description="REACT 最大迭代数")
+    timeout_ms: int = Field(
+        default=120_000, ge=1_000,
+        description="单次委派 wall-clock 超时(毫秒)。同步委派阻塞在父 REACT "
+        "一轮里,超时必须诚实失败而非卡死父节点——Anthropic 同步执行瓶颈同款治理",
+    )
 
     @field_validator("name")
     @classmethod

@@ -27,6 +27,7 @@ export const STATE_COLOR: Record<NodeExecState, string> = {
 export const NODE_TYPE_LABEL: Record<string, string> = {
   start: '输入节点', end: '输出节点', agent: 'Agent 节点',
   tool: '工具节点', gateway: '网关节点', parallel: '并行节点', human: '人工审批节点',
+  loop: '循环节点',
 }
 
 /**
@@ -97,6 +98,10 @@ export interface NodeStageInfo {
   label?: string
   /** 节点 token 消耗（agent 节点 node_complete 事件 data.usage.total_tokens） */
   tokenTotal?: number
+  /** 循环节点专属：体成员（跨轮聚合，不进顶层，在循环卡片内查看）。
+   *  continue 成员完整会话显示一次；fresh 成员内容已被工作台吸收
+   *  （verdict/issues 轨迹），由前端按 wf 的 loop_thread_policy 决定展示。 */
+  members?: NodeStageInfo[]
 }
 
 /**

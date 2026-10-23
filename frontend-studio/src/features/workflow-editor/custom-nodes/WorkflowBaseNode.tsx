@@ -26,22 +26,30 @@ import {
   GitBranch,
   Split,
   UserCheck,
+  Repeat,
+  type LucideIcon,
 } from 'lucide-react'
-import type { WorkflowNodeData } from '../utils/canvas-converters'
+import { getTypeColor, type WorkflowNodeData } from '../utils/canvas-converters'
+import type { WorkflowNode } from '../../../services/workflows-api'
 import { useAgentInfo, useToolNames } from '../agent-info'
 
 type Props = NodeProps & { data: WorkflowNodeData }
 
-/** 节点类型 → 图标组件映射（直接在渲染时创建，避免序列化问题；badge 内 11px） */
-const TYPE_ICONS: Record<string, ReactNode> = {
-  start: <PlayCircle size={11} strokeWidth={2} />,
-  end: <StopCircle size={11} strokeWidth={2} />,
-  agent: <Workflow size={11} strokeWidth={2} />,
-  tool: <Wrench size={11} strokeWidth={2} />,
-  gateway: <GitBranch size={11} strokeWidth={2} />,
-  parallel: <Split size={11} strokeWidth={2} />,
-  human: <UserCheck size={11} strokeWidth={2} />,
+/** 节点类型 → 图标组件映射（badge 11px / 循环步骤行 8px 复用同源） */
+const TYPE_ICON_COMPS: Record<string, LucideIcon> = {
+  start: PlayCircle,
+  end: StopCircle,
+  agent: Workflow,
+  tool: Wrench,
+  gateway: GitBranch,
+  parallel: Split,
+  human: UserCheck,
+  loop: Repeat,
 }
+
+const TYPE_ICONS: Record<string, ReactNode> = Object.fromEntries(
+  Object.entries(TYPE_ICON_COMPS).map(([k, C]) => [k, <C key={k} size={11} strokeWidth={2} />]),
+)
 
 /** 节点类型 → 类别名（上行固定展示） */
 const TYPE_NAMES: Record<string, string> = {
@@ -52,10 +60,12 @@ const TYPE_NAMES: Record<string, string> = {
   gateway: '网关',
   parallel: '并行',
   human: '人工审批',
+  loop: '循环',
 }
 
 /** 节点类型 → 固定宽度（按类型实际情况给定，不随内容变化；高度自适应。
- *  紧凑画布密度优先——badge+标题同排已省一行，宽度按文字列实际内容收紧。） */
+ *  紧凑画布密度优先——badge+标题同排已省一行，宽度按文字列实际内容收紧。
+ *  loop 略宽：卡片逐行展示体步骤。 */
 const TYPE_WIDTH: Record<string, number> = {
   start: 125,
   end: 105,
@@ -64,12 +74,15 @@ const TYPE_WIDTH: Record<string, number> = {
   gateway: 100,
   parallel: 100,
   human: 130,
+  loop: 160,
 }
 
-/** 信息区单行（text 必填时可带红色 * 标记） */
+/** 信息区单行（text 必填时可带红色 * 标记；循环步骤行带节点类型小图标） */
 interface InfoRow {
   text: string
   required?: boolean
+  /** 循环步骤行的节点类型（渲染 8px 类型色小图标） */
+  iconType?: string
 }
 
 /** start 节点输入变量最多展示行数，超出折叠为 +N（悬停看全文）。 */
@@ -80,11 +93,37 @@ const MAX_VAR_ROWS = 5
  * Agent/工具名称优先经 context 实时解析（列表），降级 config 选择时缓存；
  * 卡片不显示 ID 等不可读内容——名称不可得时用可读占位。
  */
+/** 循环体步骤的显示名——与 LoopNodeConfig.nodeLabel 同规则：
+ * 节点名称优先（两个步骤共用同一 agent 时靠节点名区分）；未改名
+ * （label=类型默认名）时回退实时解析的 Agent/工具名 > config 缓存名 */
+function stepDisplayName(
+  n: WorkflowNode,
+  agentInfoMap: Record<string, { name: string; model: string }>,
+  toolNameMap: Record<string, string>,
+): string {
+  const cfg = (n.config ?? {}) as Record<string, unknown>
+  const typeDefault = TYPE_NAMES[n.type] ?? n.type
+  const customLabel = (n.label || '') && n.label !== typeDefault ? n.label : ''
+  if (customLabel) return customLabel
+  if (n.type === 'agent') {
+    const id = cfg.agent_id as string | undefined
+    const live = id ? agentInfoMap[id] : undefined
+    return String(live?.name || cfg.agent_name || typeDefault)
+  }
+  if (n.type === 'tool') {
+    const id = cfg.tool_id as string | undefined
+    const live = id ? toolNameMap[id] : undefined
+    return String(live || cfg.tool_name || typeDefault)
+  }
+  return typeDefault
+}
+
 function getInfoRows(
   type: string,
   config: Record<string, unknown>,
   agentInfoMap: Record<string, { name: string; model: string }>,
   toolNameMap: Record<string, string>,
+  loopSteps?: WorkflowNode[],
 ): InfoRow[] {
   switch (type) {
     case 'start': {
@@ -145,6 +184,23 @@ function getInfoRows(
         ? [{ text: `${conditions.length} 个条件分支` }]
         : [{ text: '未配置条件' }]
     }
+    case 'loop': {
+      // 卡片逐行展示体步骤（成员在画布上隐藏，这里是用户看见循环内容
+      // 的唯一位置）——行序即执行序，行首带节点类型小图标；超出折叠 +N
+      if (loopSteps && loopSteps.length > 0) {
+        const rows: InfoRow[] = loopSteps.slice(0, MAX_VAR_ROWS).map((s) => ({
+          text: stepDisplayName(s, agentInfoMap, toolNameMap),
+          iconType: s.type,
+        }))
+        const rest = loopSteps.length - MAX_VAR_ROWS
+        if (rest > 0) rows.push({ text: `… +${rest} 步` })
+        return rows
+      }
+      const body = config.body as string[] | undefined
+      return body && body.length > 0
+        ? [{ text: `每轮 ${body.length} 步` }]
+        : [{ text: '选中后在右侧添加步骤' }]
+    }
     case 'parallel': {
       const branches = config.branches as unknown[] | undefined
       return branches && branches.length > 0
@@ -191,12 +247,13 @@ function WorkflowBaseNode({ data, selected }: Props) {
   // 节点名称（画布标识，可选）——trim 后为空则不渲染该行
   const nodeLabel = (workflowNode.label || '').trim()
   const rows = getInfoRows(
-    nodeType, workflowNode.config as Record<string, unknown>, agentInfoMap, toolNameMap,
+    nodeType, workflowNode.config as Record<string, unknown>, agentInfoMap, toolNameMap, data.loopSteps,
   )
   const incomplete = isIncomplete(nodeType, workflowNode.config as Record<string, unknown>)
 
-  // 左侧 accent 色随状态让位：选中 > 配置不完整 > 类型色。
-  const accentColor = selected ? '#1E5EFF' : incomplete ? '#f59e0b' : typeColor
+  // 左侧 accent 色随状态让位：选中 > 配置不完整 > 循环成员紫 > 类型色。
+  const inLoop = !!data.isInLoop
+  const accentColor = selected ? '#1E5EFF' : incomplete ? '#f59e0b' : inLoop ? '#A855F7' : typeColor
   // hover 全文：主标题 + 各摘要行（必带回退类型名，与卡片所见一致）
   const hoverText = [nodeLabel || typeName, ...rows.map((r) => `${r.text}${r.required ? ' *' : ''}`)]
     .join('\n')
@@ -204,8 +261,8 @@ function WorkflowBaseNode({ data, selected }: Props) {
   return (
     <div
       className={`
-        relative rounded-md bg-[#18181b] shadow-sm border border-l-2 transition-shadow cursor-pointer
-        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : 'border-[#27272a] hover:shadow-md'}
+        relative rounded-md bg-panel shadow-sm border border-l-2 transition-shadow cursor-pointer
+        ${selected ? 'border-[#1E5EFF] shadow-md' : incomplete ? 'border-amber-500/70 hover:shadow-md' : inLoop ? 'border-[#A855F7]/60 hover:shadow-md' : 'border-line hover:shadow-md'}
       `}
       style={{ width: size, borderLeftColor: accentColor }}
     >
@@ -215,6 +272,15 @@ function WorkflowBaseNode({ data, selected }: Props) {
           title="配置不完整：缺少必填项（如未选择 Agent），执行前校验会拦截"
           className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-amber-500"
         />
+      )}
+      {/* 循环体成员角标（🔁 左上，与 loop 节点同紫色） */}
+      {inLoop && !incomplete && (
+        <span
+          title="循环节点成员（每轮执行）"
+          className="absolute -top-2 -left-1.5 text-[11px] leading-none"
+        >
+          🔁
+        </span>
       )}
       {/* 主体：左侧图标 badge（类型色淡底 + 类型色图标，类型识别第一要素）
           + 右侧文字列。主标题 = 节点名称 || 类型名（二选一，永不并排），
@@ -228,21 +294,32 @@ function WorkflowBaseNode({ data, selected }: Props) {
           {icon}
         </div>
         <div className="min-w-0 flex-1" title={hoverText}>
-          <div className="text-[9px] font-medium text-[#fafafa] truncate leading-tight">
+          <div className="text-[11px] font-medium text-ink truncate leading-tight">
             {nodeLabel || typeName}
           </div>
           {rows.length > 0 && (
             <div className="mt-0.5 space-y-px">
-              {rows.map((row, i) => (
-                <div key={i} className="flex items-baseline leading-snug">
-                  <span className="flex-1 min-w-0 text-[7px] font-normal text-[#a1a1aa] truncate">
-                    {row.text}
-                  </span>
-                  {row.required && (
-                    <span className="shrink-0 text-[7px] leading-none text-red-400">*</span>
-                  )}
-                </div>
-              ))}
+              {rows.map((row, i) => {
+                const StepIcon = row.iconType ? TYPE_ICON_COMPS[row.iconType] : null
+                return (
+                  <div key={i} className="flex items-center gap-0.5 leading-snug">
+                    {StepIcon && (
+                      <StepIcon
+                        size={8}
+                        strokeWidth={2}
+                        color={getTypeColor(row.iconType!)}
+                        className="shrink-0"
+                      />
+                    )}
+                    <span className="flex-1 min-w-0 text-[11px] font-normal text-ink-dim truncate">
+                      {row.text}
+                    </span>
+                    {row.required && (
+                      <span className="shrink-0 text-[11px] leading-none text-red-400">*</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -253,7 +330,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-1.5 !h-1.5 !border-[1.5px] !border-[#09090b] !transition-colors"
+          className="!w-1.5 !h-1.5 !border-[1.5px] !border-well !transition-colors"
           style={{ backgroundColor: typeColor }}
         />
       )}
@@ -263,7 +340,7 @@ function WorkflowBaseNode({ data, selected }: Props) {
         <Handle
           type="target"
           position={Position.Left}
-          className="!w-1.5 !h-1.5 !border-[1.5px] !border-[#09090b] !transition-colors"
+          className="!w-1.5 !h-1.5 !border-[1.5px] !border-well !transition-colors"
           style={{ backgroundColor: typeColor }}
         />
       )}

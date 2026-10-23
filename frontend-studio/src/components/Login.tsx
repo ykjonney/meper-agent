@@ -9,8 +9,8 @@
  *
  * Theme-aware: reads the same `agentflow_theme` localStorage key the App shell
  * uses, so the login screen matches the user's chosen dark/light palette. The
- * surface classes below (bg-[#09090b], bg-[#121214], border-[#27272a],
- * text-[#fafafa] …) are the same literal tokens used across the app, which the
+ * surface classes below (bg-well, bg-page, border-line,
+ * text-ink …) are the same literal tokens used across the app, which the
  * `.theme-light` override block in index.css transforms automatically —
  * so a single source of truth drives both the shell and this page.
  */
@@ -102,7 +102,7 @@ export default function Login() {
   return (
     <div
       className={`relative h-screen w-screen flex items-center justify-center overflow-hidden theme-${theme} ${
-        isDark ? 'bg-[#09090b] text-[#fafafa]' : 'bg-slate-50 text-slate-800'
+        isDark ? 'bg-well text-ink' : 'bg-slate-50 text-slate-800'
       } transition-colors duration-200`}
     >
       {/* ambient: dotted grid (same utility the canvas maps use) */}
@@ -123,7 +123,7 @@ export default function Login() {
         aria-label="切换主题"
         className={`absolute top-5 right-5 z-10 w-9 h-9 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
           isDark
-            ? 'bg-[#18181b] border-[#27272a] text-[#a1a1aa] hover:text-white hover:bg-[#1c1c1f]'
+            ? 'bg-panel border-line text-ink-dim hover:text-white hover:bg-panel-hover'
             : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900'
         }`}
       >
@@ -140,7 +140,7 @@ export default function Login() {
             draggable={false}
           />
           <h1 className="text-xl font-semibold tracking-tight">MEPER Agent</h1>
-          <p className="text-[11px] text-[#71717a] uppercase tracking-widest font-bold mt-1">
+          <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold mt-1">
             MEPER Agent Studio
           </p>
         </div>
@@ -148,14 +148,14 @@ export default function Login() {
         {/* card */}
         <form
           onSubmit={handleSubmit}
-          className="bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl p-6 space-y-4"
+          className="bg-page border border-line rounded-2xl shadow-2xl p-6 space-y-4"
         >
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-[#71717a]">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-dim">
               用户名
             </label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525b]" />
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
               <input
                 type="text"
                 value={username}
@@ -163,24 +163,24 @@ export default function Login() {
                 autoFocus
                 autoComplete="username"
                 placeholder="admin"
-                className="w-full bg-[#09090b] border border-[#27272a] rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
+                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-[#71717a]">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-dim">
               密码
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525b]" />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full bg-[#09090b] border border-[#27272a] rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
+                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
               />
             </div>
           </div>
@@ -211,7 +211,7 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center text-[11px] text-[#71717a] mt-4">
+        <p className="text-center text-[11px] text-ink-dim mt-4">
           连续 5 次失败将锁定账号 15 分钟
         </p>
       </div>

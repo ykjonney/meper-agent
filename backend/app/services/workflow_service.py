@@ -506,6 +506,21 @@ class WorkflowService:
                         "details": {"node_id": node_id},
                     })
 
+        # ── 完整引擎校验（WorkflowValidator）──
+        # 上述手搓检查是历史最小集；引擎 validator 覆盖输出契约合法性、
+        # 循环结构（体/回边/收敛引用）、变量引用、环检测等。不在这里跑
+        # 意味着 API 直发（不经前端校验闸门）的工作流可以带病发布，
+        # 执行期才被拦下（实测复现：INVALID_RESPONSE_SCHEMA 发布通过）。
+        from app.engine.workflow.validator import WorkflowValidator
+
+        full = WorkflowValidator({"nodes": nodes, "edges": edges}).validate()
+        for issue in full.errors:
+            errors.append({
+                "code": issue.code,
+                "message": issue.message,
+                "details": {"node_id": issue.node_id},
+            })
+
         # Raise if any errors
         if errors:
             raise ValidationError(

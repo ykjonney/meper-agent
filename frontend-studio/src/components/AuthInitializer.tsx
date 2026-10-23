@@ -88,7 +88,7 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
     return (
       <div
         className={`theme-${theme} flex items-center justify-center h-screen ${
-          isDark ? 'bg-[#09090b]' : 'bg-slate-50'
+          isDark ? 'bg-well' : 'bg-slate-50'
         }`}
       >
         <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />

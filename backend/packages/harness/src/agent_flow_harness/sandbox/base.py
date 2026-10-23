@@ -1,7 +1,7 @@
 """Sandbox 环境抽象 — 执行环境的统一接口（v0.2-2 三层工具模型第二层）。
 
 工具代码（bash/read/write/glob/grep）只调 Sandbox 的抽象方法，从不直接做 I/O。
-具体实现（Local/Docker/E2B）通过 SandboxProvider 注入，换实现不改工具。
+具体实现（Local/Docker）经 ContextVar 注入，换实现不改工具。
 """
 from __future__ import annotations
 

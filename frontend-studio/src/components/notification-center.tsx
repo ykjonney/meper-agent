@@ -21,12 +21,14 @@ const KIND_COLORS: Record<string, string> = {
   task_failed: '#EF4444',
   task_waiting_human: '#F59E0B',
   task_completed: '#22C55E',
+  task_slow: '#3B82F6',
 }
 
 const KIND_LABELS: Record<string, string> = {
   task_failed: '失败',
   task_waiting_human: '待审批',
   task_completed: '已完成',
+  task_slow: '运行缓慢',
 }
 
 interface NotificationCenterProps {
@@ -55,8 +57,8 @@ function NotificationItemRow({
 
   return (
     <div
-      className={`px-3 py-2.5 cursor-pointer transition-colors border-b border-[#27272a]/60 last:border-b-0 ${
-        !item.read ? 'bg-[#1E5EFF]/10 hover:bg-[#1E5EFF]/20' : 'hover:bg-[#121214]/60'
+      className={`px-3 py-2.5 cursor-pointer transition-colors border-b border-line/60 last:border-b-0 ${
+        !item.read ? 'bg-[#1E5EFF]/10 hover:bg-[#1E5EFF]/20' : 'hover:bg-page/60'
       }`}
       onClick={handleClick}
     >
@@ -67,11 +69,11 @@ function NotificationItemRow({
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium leading-tight text-[#fafafa] truncate">
+            <span className="text-sm font-medium leading-tight text-ink truncate">
               {item.title}
             </span>
             <span
-              className="text-[10px] shrink-0 px-1 py-0 rounded leading-tight"
+              className="text-[11px] shrink-0 px-1 py-0 rounded leading-tight"
               style={{
                 backgroundColor: `${KIND_COLORS[item.kind] ?? '#94A3B8'}1A`,
                 color: KIND_COLORS[item.kind] ?? '#94A3B8',
@@ -81,7 +83,7 @@ function NotificationItemRow({
             </span>
           </div>
           <span className="text-xs block truncate mt-0.5 text-slate-400">{item.body}</span>
-          <span className="text-[11px] mt-1 block text-[#71717a]">
+          <span className="text-[11px] mt-1 block text-ink-dim">
             {new Date(item.created_at).toLocaleString()}
           </span>
         </div>
@@ -115,7 +117,7 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
   const content = (
     <div className="-m-2.5 max-h-80 overflow-y-auto w-72">
       {notifications.length === 0 ? (
-        <div className="py-8 text-center text-xs text-[#71717a]">暂无通知</div>
+        <div className="py-8 text-center text-xs text-ink-dim">暂无通知</div>
       ) : (
         notifications.map((item) => (
           <NotificationItemRow key={item.id} item={item} onNavigateTask={onNavigateTask} />

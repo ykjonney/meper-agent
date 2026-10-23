@@ -240,37 +240,6 @@ class WorkspaceManager:
             return None
 
     @staticmethod
-    def safe_resolve_workspace_path(
-        workspace: Workspace,
-        user_path: str,
-        *,
-        allow_skills_read: bool = False,
-    ) -> Path | None:
-        """Resolve a path within a workspace, with optional Skill read access.
-
-        Args:
-            workspace: The Session workspace.
-            user_path: The user-supplied relative path.
-            allow_skills_read: If True, also allow read access to SKILLS_DIR.
-
-        Returns:
-            Resolved :class:`Path` or ``None`` if access is denied.
-        """
-        # First try within the workspace
-        resolved = WorkspaceManager.safe_resolve_path(workspace.root, user_path)
-        if resolved is not None:
-            return resolved
-
-        # Optionally allow read access to Skill files
-        if allow_skills_read:
-            skills_root = Path(settings.SKILLS_CONTAINER_DIR).expanduser()
-            resolved = WorkspaceManager.safe_resolve_path(skills_root, user_path)
-            if resolved is not None:
-                return resolved
-
-        return None
-
-    @staticmethod
     def delete_workspace(user_id: str, session_id: str) -> bool:
         """Remove a workspace directory tree.
 
@@ -335,26 +304,6 @@ class WorkspaceManager:
         shutil.rmtree(user_root)
         logger.info("user_workspace_deleted", user_id=user_id)
         return True
-
-    @staticmethod
-    def get_workspace_size(workspace: Workspace) -> int:
-        """Calculate the total size of all files in a workspace (bytes)."""
-        total = 0
-        if workspace.root.exists():
-            for p in workspace.root.rglob("*"):
-                if p.is_file():
-                    total += p.stat().st_size
-        return total
-
-    @staticmethod
-    def check_quota(workspace: Workspace, additional_bytes: int = 0) -> bool:
-        """Check whether writing *additional_bytes* would exceed the quota.
-
-        Returns:
-            ``True`` if within quota, ``False`` if exceeded.
-        """
-        current = WorkspaceManager.get_workspace_size(workspace)
-        return (current + additional_bytes) <= settings.WORKSPACE_MAX_BYTES
 
     @staticmethod
     def list_output_files(workspace: Workspace) -> list[dict]:

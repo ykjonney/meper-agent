@@ -82,7 +82,7 @@ export function TaskOutputFiles({ taskId }: TaskOutputFilesProps) {
 
   if (loading) {
     return (
-      <div className="mt-1 text-[11px] text-[#71717a] flex items-center gap-1.5">
+      <div className="mt-1 text-[11px] text-ink-dim flex items-center gap-1.5">
         <Loader2 className="w-3 h-3 animate-spin" />
         加载产物文件…
       </div>
@@ -97,7 +97,7 @@ export function TaskOutputFiles({ taskId }: TaskOutputFilesProps) {
 
   return (
     <div className="mt-2">
-      <div className="text-[11px] text-[#a1a1aa] mb-1.5">产物文件 ({files.length})</div>
+      <div className="text-[11px] text-ink-dim mb-1.5">产物文件 ({files.length})</div>
       <ul className="space-y-1.5">
         {files.map((f) => {
           const previewable = detectPreviewKind(f.name, f.mime_type) !== 'binary'
@@ -153,20 +153,20 @@ function FileItem({ file, previewable, previewLoading, onPreview }: FileItemProp
 
   return (
     <li
-      className="bg-[#121214]/60 rounded-md p-2 border border-[#27272a] hover:border-[#3f3f46] transition-colors"
+      className="bg-page/60 rounded-md p-2 border border-line hover:border-line-strong transition-colors"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-2 text-xs">
-        <FileText className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
-        <span className="flex-1 truncate text-[#d4d4d8]" title={file.name}>
+        <FileText className="w-3.5 h-3.5 text-ink-dim shrink-0" />
+        <span className="flex-1 truncate text-ink-soft" title={file.name}>
           {file.name}
         </span>
-        <span className="text-[#52525b] text-[10px] font-mono shrink-0">{formatFileSize(file.size)}</span>
+        <span className="text-ink-dim text-[11px] font-mono shrink-0">{formatFileSize(file.size)}</span>
         {previewable && (
           <button
             onClick={onPreview}
             disabled={previewLoading}
-            className="inline-flex items-center gap-0.5 text-[10px] text-[#a1a1aa] hover:text-[#1E5EFF] transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-0.5 text-[11px] text-ink-dim hover:text-link transition-colors shrink-0 cursor-pointer disabled:opacity-50"
             title="预览"
           >
             {previewLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
@@ -175,7 +175,7 @@ function FileItem({ file, previewable, previewLoading, onPreview }: FileItemProp
         <button
           onClick={handleDownload}
           disabled={downloading}
-          className="inline-flex items-center gap-0.5 text-[10px] text-[#a1a1aa] hover:text-[#1E5EFF] transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+          className="inline-flex items-center gap-0.5 text-[11px] text-ink-dim hover:text-link transition-colors shrink-0 cursor-pointer disabled:opacity-50"
           title="下载"
         >
           {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}

@@ -344,3 +344,37 @@ class TestDeleteAgent:
         """AC5: Non-existent Agent returns False."""
         result = await AgentService.delete_agent("agent_NONEXIST")
         assert result is False
+
+
+class TestUpdateAgentPartialSemantics:
+    """部分更新语义：未传字段保留现值（全量替换曾把 builtin_config
+    洗空 → agent 丢全部文件工具，实测复现）。"""
+
+    async def test_partial_update_preserves_builtin_config(
+        self,
+        mock_agent_collection: None,  # noqa: ARG002
+    ) -> None:
+        created = await AgentService.create_agent(
+            name="Partial", builtin_config=["bash", "read", "write"],
+        )
+        # 只改 name + description：builtin_config 必须保留
+        updated = await AgentService.update_agent(
+            agent_id=created["_id"],
+            name="Partial",
+            description="只改描述",
+        )
+        assert updated["builtin_config"] == ["bash", "read", "write"]
+        assert updated["description"] == "只改描述"
+
+    async def test_explicit_empty_replaces(
+        self,
+        mock_agent_collection: None,  # noqa: ARG002
+    ) -> None:
+        """显式传空列表 = 清空（与"未传=保留"严格区分）。"""
+        created = await AgentService.create_agent(
+            name="Clear", builtin_config=["bash"],
+        )
+        updated = await AgentService.update_agent(
+            agent_id=created["_id"], name="Clear", builtin_config=[],
+        )
+        assert updated["builtin_config"] == []

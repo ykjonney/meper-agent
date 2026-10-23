@@ -13,6 +13,7 @@ subagent_context 同模式。
 """
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from langchain_core.tools import StructuredTool, ToolException
@@ -77,6 +78,11 @@ class _GrepArgs(BaseModel):
 
 
 # ── 工具实现 ────────────────────────────────────────────────────────────
+#
+# 全部工具经 asyncio.to_thread 卸载同步 Sandbox 调用：Sandbox 方法是阻塞的
+# （DockerSandbox 走 docker-py 同步 API，一条命令可长达 SANDBOX_TIMEOUT），
+# 在协程内直调会卡死整个事件循环（与治理 code 工具 _build_code_tool 的
+# asyncio.to_thread 模式一致）。
 
 
 async def _bash(command: str) -> str:
@@ -85,7 +91,7 @@ async def _bash(command: str) -> str:
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized. Call set_sandbox_context() first.")
     try:
-        result = sandbox.execute_command(command)
+        result = await asyncio.to_thread(sandbox.execute_command, command)
         output = result.stdout
         if result.stderr:
             output += f"\nSTDERR:\n{result.stderr}"
@@ -106,7 +112,7 @@ async def _read(path: str) -> str:
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
-        return sandbox.read_file(path)
+        return await asyncio.to_thread(sandbox.read_file, path)
     except Exception as exc:
         raise ToolException(f"Error reading file: {exc}") from exc
 
@@ -117,7 +123,7 @@ async def _write(path: str, content: str) -> str:
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
-        sandbox.write_file(path, content)
+        await asyncio.to_thread(sandbox.write_file, path, content)
         rel = path.removeprefix("output/")
         return f"Successfully wrote {len(content)} chars to output/{rel}"
     except Exception as exc:
@@ -130,7 +136,9 @@ async def _edit(path: str, old_string: str, new_string: str, replace_all: bool =
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
-        return sandbox.edit_file(path, old_string, new_string, replace_all=replace_all)
+        return await asyncio.to_thread(
+            sandbox.edit_file, path, old_string, new_string, replace_all=replace_all
+        )
     except Exception as exc:
         raise ToolException(f"Error editing file: {exc}") from exc
 
@@ -141,7 +149,7 @@ async def _glob(path: str, pattern: str) -> str:
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
-        matches = sandbox.glob(path, pattern)
+        matches = await asyncio.to_thread(sandbox.glob, path, pattern)
         if not matches:
             return "(no matches)"
         return "\n".join(matches)
@@ -155,7 +163,7 @@ async def _grep(path: str, pattern: str) -> str:
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
-        matches = sandbox.grep(path, pattern)
+        matches = await asyncio.to_thread(sandbox.grep, path, pattern)
         if not matches:
             return "(no matches)"
         return "\n".join(f"{m.path}:{m.line_number}: {m.line}" for m in matches)

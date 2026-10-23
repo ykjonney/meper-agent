@@ -25,13 +25,13 @@ type KbType = 'tree' | 'vector';
 function TypeBadge({ type }: { type: KbType }) {
   if (type === 'vector') {
     return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-300">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-300">
         <Search className="w-3 h-3" />向量
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-300">
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-300">
       <Sparkles className="w-3 h-3" />Wiki
     </span>
   );
@@ -117,13 +117,13 @@ export function KnowledgeBasePage({
   return (
     <div className="space-y-6">
       {/* header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#27272a] pb-4 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-line pb-4 gap-4">
         <div className="space-y-0.5">
-          <h2 className="text-sm font-bold text-[#fafafa] flex items-center gap-2">
+          <h2 className="text-sm font-bold text-ink flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-indigo-400" />
             知识库 ({kbs.length})
           </h2>
-          <p className="text-xs text-[#71717a]">
+          <p className="text-xs text-ink-dim">
             文档树 / Wiki（AI 编译维护）/ 向量库（RAG 检索）三种形态并存，均可绑定到 Agent。
           </p>
         </div>
@@ -143,9 +143,9 @@ export function KnowledgeBasePage({
       )}
 
       {isLoading ? (
-        <p className="text-xs text-[#71717a]">加载中…</p>
+        <p className="text-xs text-ink-dim">加载中…</p>
       ) : kbs.length === 0 ? (
-        <p className="text-xs text-[#71717a]">还没有知识库，点击右上角创建。</p>
+        <p className="text-xs text-ink-dim">还没有知识库，点击右上角创建。</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {kbs.map((kb) => {
@@ -154,12 +154,12 @@ export function KnowledgeBasePage({
             <div
               key={kb.id}
               onClick={() => onOpenKb({ id: kb.id, name: kb.name, type: kbType })}
-              className="bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden relative group hover:border-[#3f3f46] transition cursor-pointer"
+              className="bg-panel border border-line rounded-xl overflow-hidden relative group hover:border-line-strong transition cursor-pointer"
             >
               <div className="p-5 space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 bg-[#121214] rounded-xl flex items-center justify-center border border-[#27272a]">
+                    <div className="w-11 h-11 bg-page rounded-xl flex items-center justify-center border border-line">
                       {kbType === 'vector'
                         ? <Search className="w-5 h-5 text-emerald-400" />
                         : <BookOpen className="w-5 h-5 text-indigo-400" />}
@@ -169,21 +169,21 @@ export function KnowledgeBasePage({
                         <h4 className="text-sm font-bold text-white truncate min-w-0" title={kb.name}>{kb.name}</h4>
                         <TypeBadge type={kbType} />
                       </div>
-                      <span className="text-[10px] text-[#71717a] font-mono block truncate" title={kb.id}>{kb.id}</span>
+                      <span className="text-[11px] text-ink-dim font-mono block truncate" title={kb.id}>{kb.id}</span>
                     </div>
                   </div>
                   {canWrite && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(kb.id, kb.name); }}
-                      className="p-1 px-1.5 bg-[#121214] border border-[#27272a] rounded-lg text-rose-500 hover:text-rose-400 hover:bg-rose-950/20 opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                      className="p-1 px-1.5 bg-page border border-line rounded-lg text-rose-500 hover:text-rose-400 hover:bg-rose-950/20 opacity-0 group-hover:opacity-100 transition cursor-pointer"
                       title="删除"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-[#a1a1aa] leading-relaxed min-h-[32px] line-clamp-2">{kb.description || '（无描述）'}</p>
-                <div className="flex items-center gap-3 text-[10px] text-[#71717a] font-mono">
+                <p className="text-xs text-ink-dim leading-relaxed min-h-[32px] line-clamp-2">{kb.description || '（无描述）'}</p>
+                <div className="flex items-center gap-3 text-[11px] text-ink-dim font-mono">
                   <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{kb.file_count} 文件</span>
                   <span>{formatSize(kb.total_size)}</span>
                 </div>
@@ -197,13 +197,13 @@ export function KnowledgeBasePage({
       {/* create modal */}
       {isCreating && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 text-xs">
-          <div className="w-full max-w-md bg-[#18181b] border border-[#27272a] rounded-xl overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-[#27272a] flex items-center justify-between bg-[#121214]/60">
+          <div className="w-full max-w-md bg-panel border border-line rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-line flex items-center justify-between bg-page/60">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Plus className="w-4 h-4 text-indigo-400" />
                 创建知识库
               </h3>
-              <button onClick={() => setIsCreating(false)} className="text-[#71717a] hover:text-white cursor-pointer">✕</button>
+              <button onClick={() => setIsCreating(false)} className="text-ink-dim hover:text-white cursor-pointer">✕</button>
             </div>
             <form onSubmit={handleCreateSave} className="p-6 space-y-4">
               <div className="space-y-1">
@@ -212,7 +212,7 @@ export function KnowledgeBasePage({
                   type="text" required autoFocus value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="如：产品手册"
-                  className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
                 />
               </div>
               <div className="space-y-1">
@@ -221,7 +221,7 @@ export function KnowledgeBasePage({
                   type="text" value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="这个知识库涵盖哪些内容…"
-                  className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
                 />
               </div>
               <div className="space-y-1.5">
@@ -233,13 +233,13 @@ export function KnowledgeBasePage({
                     className={`text-left p-2.5 rounded-lg border transition cursor-pointer ${
                       newType === 'tree'
                         ? 'border-indigo-600 bg-indigo-950/30'
-                        : 'border-[#27272a] hover:border-[#3f3f46] bg-[#121214]'
+                        : 'border-line hover:border-line-strong bg-page'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 text-white font-semibold">
                       <BookOpen className="w-3.5 h-3.5 text-indigo-400" />Wiki（AI 维护）
                     </div>
-                    <p className="text-[10px] text-[#71717a] mt-0.5">上传源资料，AI 编译成带引用的 wiki 页面</p>
+                    <p className="text-[11px] text-ink-dim mt-0.5">上传源资料，AI 编译成带引用的 wiki 页面</p>
                   </button>
                   <button
                     type="button"
@@ -247,13 +247,13 @@ export function KnowledgeBasePage({
                     className={`text-left p-2.5 rounded-lg border transition cursor-pointer ${
                       newType === 'vector'
                         ? 'border-emerald-600 bg-emerald-950/30'
-                        : 'border-[#27272a] hover:border-[#3f3f46] bg-[#121214]'
+                        : 'border-line hover:border-line-strong bg-page'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 text-white font-semibold">
                       <Search className="w-3.5 h-3.5 text-emerald-400" />向量库
                     </div>
-                    <p className="text-[10px] text-[#71717a] mt-0.5">PDF/Word/MD，语义检索 + 重排</p>
+                    <p className="text-[11px] text-ink-dim mt-0.5">PDF/Word/MD，语义检索 + 重排</p>
                   </button>
                 </div>
                 {newType === 'tree' && (
@@ -262,7 +262,7 @@ export function KnowledgeBasePage({
                     <select
                       value={newBuilderModel}
                       onChange={(e) => setNewBuilderModel(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-white focus:outline-none focus:border-indigo-600 transition cursor-pointer"
+                      className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition cursor-pointer"
                     >
                       <option value="">稍后在详情页选择</option>
                       {activeModels.map((m) => (
@@ -272,13 +272,13 @@ export function KnowledgeBasePage({
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-[#52525b] italic">
+              <p className="text-[11px] text-ink-dim italic">
                 {newType === 'vector'
                   ? '创建后进入详情页，可上传文档并查看索引状态。需在 .env 配置 KB_EMBEDDING_* 后方可索引。'
                   : '创建后上传源资料（PDF/Word/MD/…），选择构建模型即可一键「构建 Wiki」；sources/ 只读，wiki 页由 AI 维护。'}
               </p>
-              <div className="p-4 border-t border-[#27272a] bg-[#121214] flex justify-end gap-3 -mx-6 -mb-6">
-                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
+              <div className="p-4 border-t border-line bg-page flex justify-end gap-3 -mx-6 -mb-6">
+                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
                   取消
                 </button>
                 <button type="submit" disabled={createM.isPending} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2">

@@ -147,10 +147,10 @@ export function ClarificationFormCard({
           <div className="flex items-center gap-2 px-3.5 py-2.5">
             <CheckCircle className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
             <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
-            <span className="text-[10px] text-zinc-500 opacity-70">已忽略</span>
+            <span className="text-[11px] text-zinc-500 opacity-70">已忽略</span>
           </div>
-          <div className="mx-2.5 mb-2.5 rounded-lg bg-[#121214] border border-[#27272a] px-3.5 py-3">
-            <div className="text-xs text-[#a1a1aa]">
+          <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
+            <div className="text-xs text-ink-dim">
               已忽略此问题——可直接在输入框重新描述需求或上传文件
             </div>
           </div>
@@ -162,14 +162,14 @@ export function ClarificationFormCard({
         <div className="flex items-center gap-2 px-3.5 py-2.5">
           <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
           <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
-          <span className="text-[10px] text-emerald-400 opacity-70">已回答</span>
+          <span className="text-[11px] text-emerald-400 opacity-70">已回答</span>
         </div>
-        <div className="mx-2.5 mb-2.5 rounded-lg bg-[#121214] border border-[#27272a] px-3.5 py-3">
+        <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
           <div className="flex items-start gap-2.5">
             <span className="text-sm mt-0.5 select-none text-indigo-400">📋</span>
             <div className="flex-1 min-w-0">
               {question && (
-                <div className="text-[13px] font-medium text-[#fafafa] whitespace-pre-wrap leading-relaxed mb-2">
+                <div className="text-[13px] font-medium text-ink whitespace-pre-wrap leading-relaxed mb-2">
                   {question}
                 </div>
               )}
@@ -177,7 +177,7 @@ export function ClarificationFormCard({
                 {fields.map((f) => (
                   <div key={f.name} className="flex items-baseline gap-2 text-xs">
                     <span className="text-indigo-400 shrink-0">{f.label}:</span>
-                    <span className="text-[#fafafa] font-medium break-all">
+                    <span className="text-ink font-medium break-all">
                       {renderValue(f, answeredValues[f.name])}
                     </span>
                   </div>
@@ -195,29 +195,29 @@ export function ClarificationFormCard({
       <div className="flex items-center gap-2 px-3.5 py-2.5">
         <Loader2 className="w-3.5 h-3.5 shrink-0 text-amber-400 animate-spin" />
         <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
-        <span className="text-[10px] text-amber-400 opacity-70">等待回答</span>
+        <span className="text-[11px] text-amber-400 opacity-70">等待回答</span>
       </div>
-      <div className="mx-2.5 mb-2.5 rounded-lg bg-[#121214] border border-[#27272a] px-3.5 py-3">
+      <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
         <div className="flex items-start gap-2.5">
           <span className="text-sm mt-0.5 select-none text-indigo-400">📋</span>
           <div className="flex-1 min-w-0">
-            {question && <div className="text-xs text-[#a1a1aa] mb-1.5">{question}</div>}
+            {question && <div className="text-xs text-ink-dim mb-1.5">{question}</div>}
             {context && (
-              <div className="text-[11px] text-[#a1a1aa] mb-2 whitespace-pre-wrap">{context}</div>
+              <div className="text-[11px] text-ink-dim mb-2 whitespace-pre-wrap">{context}</div>
             )}
 
-            <div className="text-[11px] text-[#a1a1aa] mb-2">
+            <div className="text-[11px] text-ink-dim mb-2">
               第 {step + 1} / {total} 题
             </div>
 
-            <div className="text-[13px] text-[#fafafa] font-medium mb-2">
+            <div className="text-[13px] text-ink font-medium mb-2">
               {current.label}
               {current.required && current.field_type !== 'boolean' && (
                 <span className="text-rose-400 ml-0.5">*</span>
               )}
             </div>
             {current.description && (
-              <p className="text-[11px] text-[#a1a1aa] mb-2">{current.description}</p>
+              <p className="text-[11px] text-ink-dim mb-2">{current.description}</p>
             )}
 
             {current.field_type === 'boolean' && (
@@ -227,8 +227,8 @@ export function ClarificationFormCard({
                   onClick={() => commitAnswer(true)}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition ${
                     currentVal === true
-                      ? 'bg-indigo-500/20 border-indigo-500/60 text-[#fafafa] font-medium'
-                      : 'bg-[#09090b] border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a]'
+                      ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
+                      : 'bg-well border-line-strong text-ink hover:bg-line'
                   }`}
                 >
                   是
@@ -238,8 +238,8 @@ export function ClarificationFormCard({
                   onClick={() => commitAnswer(false)}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition ${
                     currentVal === false
-                      ? 'bg-indigo-500/20 border-indigo-500/60 text-[#fafafa] font-medium'
-                      : 'bg-[#09090b] border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a]'
+                      ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
+                      : 'bg-well border-line-strong text-ink hover:bg-line'
                   }`}
                 >
                   否
@@ -259,7 +259,7 @@ export function ClarificationFormCard({
                       className={`text-left px-3 py-1.5 rounded-lg text-xs border transition-colors ${
                         selected
                           ? 'bg-indigo-500/20 border-indigo-500/60 text-indigo-200 font-medium'
-                          : 'bg-[#09090b] border-[#3f3f46] text-[#d4d4d8] hover:border-indigo-500/50 hover:bg-indigo-500/10 cursor-pointer'
+                          : 'bg-well border-line-strong text-ink-soft hover:border-indigo-500/50 hover:bg-indigo-500/10 cursor-pointer'
                       }`}
                     >
                       {opt}
@@ -285,7 +285,7 @@ export function ClarificationFormCard({
                     handleNext();
                   }
                 }}
-                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[#09090b] border border-[#3f3f46] text-[#e4e4e7] placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink-soft placeholder:text-ink-dim focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
               />
             )}
 
@@ -295,7 +295,7 @@ export function ClarificationFormCard({
                   type="button"
                   onClick={handlePrev}
                   disabled={step === 0}
-                  className="inline-flex items-center gap-1 text-xs text-[#d4d4d8] hover:text-[#e4e4e7] disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="inline-flex items-center gap-1 text-xs text-ink-soft hover:text-ink-soft disabled:opacity-30 disabled:cursor-not-allowed transition"
                 >
                   <ChevronLeft size={13} />
                   上一题
@@ -304,7 +304,7 @@ export function ClarificationFormCard({
                   <button
                     type="button"
                     onClick={onDismiss}
-                    className="text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+                    className="text-xs text-ink-dim hover:text-ink-dim transition cursor-pointer"
                   >
                     忽略此问题
                   </button>
@@ -316,7 +316,7 @@ export function ClarificationFormCard({
                   <button
                     type="button"
                     onClick={handleSkip}
-                    className="text-xs text-[#71717a] hover:text-[#a1a1aa] transition cursor-pointer"
+                    className="text-xs text-ink-dim hover:text-ink-dim transition cursor-pointer"
                   >
                     跳过此题
                   </button>

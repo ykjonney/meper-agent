@@ -10,8 +10,6 @@ def test_top_level_exports_present() -> None:
     expected = {
         "AgentState",
         "build_agent_graph",
-        "run_agent",
-        "run_agent_streaming",
         "get_checkpointer",
         "configure_checkpointer",
         "reset_checkpointer",
@@ -72,7 +70,6 @@ def test_sandbox_public_api_importable() -> None:
         GrepMatch,
         LocalSandbox,
         Sandbox,
-        SandboxProvider,
         SandboxResult,
         bash,
         glob,
@@ -83,7 +80,6 @@ def test_sandbox_public_api_importable() -> None:
     assert Sandbox is not None
     assert LocalSandbox is not None
     assert SandboxResult is not None
-    assert SandboxProvider is not None
     assert GrepMatch is not None
     assert bash.name == "bash"
     assert read.name == "read"
@@ -94,25 +90,9 @@ def test_sandbox_public_api_importable() -> None:
 
 def test_interaction_public_api_importable() -> None:
     """AC7 (v0.2-x): 第一层能力型工具 + resolver 可从顶层导入。"""
-    from agent_flow_harness import (
-        ask_clarification,
-        resolve_variable,
-        tool_search,
-    )
+    from agent_flow_harness import ask_clarification, resolve_variable
+
     assert ask_clarification.name == "ask_clarification"
-    assert tool_search.name == "tool_search"
     assert callable(resolve_variable)
 
 
-def test_context_engineering_importable() -> None:
-    """v0.2-5 context_engineering 策略可从顶层导入。"""
-    from agent_flow_harness import (
-        ContextStrategy,
-        HybridStrategy,
-        SlidingWindowStrategy,
-        SummarizationStrategy,
-    )
-    assert ContextStrategy is not None
-    assert HybridStrategy is not None
-    assert SlidingWindowStrategy is not None
-    assert SummarizationStrategy is not None

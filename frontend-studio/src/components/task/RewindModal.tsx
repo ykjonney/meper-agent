@@ -135,17 +135,17 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
       okButtonProps={{ disabled: !targetNode || rewind.isPending }}
     >
       {!checkpoint ? (
-        <div className="text-xs text-[#71717a] py-2">无可回退的执行上下文</div>
+        <div className="text-xs text-ink-dim py-2">无可回退的执行上下文</div>
       ) : (
         <div className="flex flex-col gap-3 py-2">
-          <p className="text-xs text-[#a1a1aa]">
+          <p className="text-xs text-ink-dim">
             选择一个已执行的节点，任务将从该节点重新执行其全部下游。
             {pausedLabel && <>当前审批节点（{pausedLabel}）不可选。</>}
           </p>
 
           {/* 目标节点选择 */}
           <div>
-            <label className="block text-xs text-[#a1a1aa] mb-1.5">
+            <label className="block text-xs text-ink-dim mb-1.5">
               退回到节点 <span className="text-rose-400">*</span>
             </label>
             <Select
@@ -157,15 +157,15 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
               disabled={wfLoading || completed.length === 0}
             />
             {completed.length === 0 && !wfLoading && (
-              <p className="text-[10px] text-[#71717a] mt-1.5">无可回退的节点</p>
+              <p className="text-[11px] text-ink-dim mt-1.5">无可回退的节点</p>
             )}
           </div>
 
           {/* 选中节点的当前输出预览（确认退回点） */}
           {targetNode && (
             <div>
-              <label className="block text-xs text-[#a1a1aa] mb-1.5">该节点当前输出</label>
-              <pre className="text-[11px] font-mono bg-[#09090b] border border-[#27272a] rounded-lg p-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[#a1a1aa]">
+              <label className="block text-xs text-ink-dim mb-1.5">该节点当前输出</label>
+              <pre className="text-[11px] font-mono bg-well border border-line rounded-lg p-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-ink-dim">
                 {targetOutput === undefined ? '（无输出）' : JSON.stringify(targetOutput, null, 2)}
               </pre>
             </div>
@@ -174,13 +174,13 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
           {/* 可选：修改变量（merge 语义） */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs text-[#a1a1aa]">修改变量（可选）</label>
-              <div className="flex items-center gap-0.5 bg-[#27272a] rounded-md p-0.5">
+              <label className="block text-xs text-ink-dim">修改变量（可选）</label>
+              <div className="flex items-center gap-0.5 bg-line rounded-md p-0.5">
                 <button
                   type="button"
                   onClick={() => setVarsMode('none')}
-                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
-                    varsMode === 'none' ? 'bg-[#52525b] text-[#fafafa]' : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors border-0 cursor-pointer ${
+                    varsMode === 'none' ? 'bg-line-strong text-ink' : 'bg-transparent text-ink-dim hover:text-ink'
                   }`}
                 >
                   不改
@@ -188,8 +188,8 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
                 <button
                   type="button"
                   onClick={() => setVarsMode('json')}
-                  className={`px-2 py-0.5 text-[10px] rounded transition-colors border-0 cursor-pointer ${
-                    varsMode === 'json' ? 'bg-[#52525b] text-[#fafafa]' : 'bg-transparent text-[#a1a1aa] hover:text-[#fafafa]'
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors border-0 cursor-pointer ${
+                    varsMode === 'json' ? 'bg-line-strong text-ink' : 'bg-transparent text-ink-dim hover:text-ink'
                   }`}
                 >
                   JSON 编辑
@@ -202,10 +202,10 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
                 onChange={(e) => setVarsText(e.target.value)}
                 placeholder='{"input": {"q": "修改后的值"}}'
                 rows={6}
-                className="w-full px-3 py-2 text-xs border border-[#27272a] bg-[#121214] text-[#fafafa] rounded-md focus:outline-none focus:border-[#1E5EFF] resize-y font-mono"
+                className="w-full px-3 py-2 text-xs border border-line bg-page text-ink rounded-md focus:outline-none focus:border-[#1E5EFF] resize-y font-mono"
               />
             ) : (
-              <div className="text-[10px] text-[#71717a]">不修改变量，仅退回并重跑下游节点。</div>
+              <div className="text-[11px] text-ink-dim">不修改变量，仅退回并重跑下游节点。</div>
             )}
           </div>
         </div>

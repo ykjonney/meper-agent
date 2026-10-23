@@ -70,7 +70,7 @@ export default function HelpHint({ text }: Props) {
     >
       <HelpCircle
         size={11}
-        className="text-[#71717a] cursor-help transition-colors hover:text-[#a1a1aa]"
+        className="text-ink-dim cursor-help transition-colors hover:text-ink-dim"
       />
       {open &&
         createPortal(
@@ -81,7 +81,7 @@ export default function HelpHint({ text }: Props) {
                 ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 210 }
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden' }
             }
-            className="w-56 max-h-[70vh] overflow-hidden rounded-md border border-[#3f3f46] bg-[#09090b] px-2.5 py-2 text-left text-[10px] leading-relaxed text-[#d4d4d8] shadow-lg pointer-events-none"
+            className="w-56 max-h-[70vh] overflow-hidden rounded-md border border-line-strong bg-well px-2.5 py-2 text-left text-[11px] leading-relaxed text-ink-soft shadow-lg pointer-events-none"
           >
             {text}
           </div>,

@@ -19,8 +19,8 @@
  * - 长文本折叠、超大对象折叠、祖先链循环引用检测；绝不以裸 JSON 作主展示。
  * - 「查看原始数据」折叠兜底（showRaw，默认开）仅供排障，4 个业务调用点都关闭。
  *
- * 主题：只写 dark 色 token（bg-[#09090b]/#18181b、text-[#fafafa]/#a1a1aa/#71717a、
- * border-[#27272a]），light 模式由 index.css 的 .theme-light 统一覆盖；彩色状态色
+ * 主题：只写 dark 色 token（bg-well/#18181b、text-ink/#a1a1aa/#71717a、
+ * border-line），light 模式由 index.css 的 .theme-light 统一覆盖；彩色状态色
  * （#10B981/#EF4444/#8B5CF6/#F59E0B/#3B82F6/#06B6D4）两主题通用。
  */
 import { useState, useContext, createContext, type ReactNode } from 'react'
@@ -34,6 +34,7 @@ import { NODE_TYPE_LABEL } from './task-flow-utils'
 import { downloadFile } from '../../services/file-api'
 import { formatFileSize } from '../../lib/file-preview'
 import { countZi, truncateByZi } from '../../lib/text-stats'
+import { formatTimeShort } from '../../lib/formatTime'
 
 export type DataViewContext =
   | 'node_output' | 'event_data' | 'task_input' | 'approval_upstream' | 'generic'
@@ -72,6 +73,9 @@ const FIELD_LABEL: Record<string, string> = {
   error: '错误', error_message: '错误信息', error_code: '错误码',
   branches: '分支', join_strategy: '汇聚策略', join_count: '汇聚数', scope: '作用域', start_nodes: '起始节点',
   status: '状态', timestamp: '时间',
+  // 循环节点输出（engine loop 分支；轮次明细走时间线按轮分组视图）
+  iterations: '执行轮数', converged: '是否收敛', stalled: '空转提前结束',
+  rounds: '各轮快照', verdict: '结论', text: '内容', id: '编号',
   created_at: '创建时间', updated_at: '更新时间', paused_at: '暂停时间', paused_at_node: '暂停节点',
   title: '标题', description: '描述',
   child_task_id: '子任务', workflow_id: '工作流', created_by: '创建者',
@@ -151,7 +155,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
 
   // 5. 数组
   if (Array.isArray(value)) {
-    if (ancestors.includes(value)) return <span className="text-[#71717a] italic text-[11px]">[循环引用]</span>
+    if (ancestors.includes(value)) return <span className="text-ink-dim italic text-[11px]">[循环引用]</span>
     if (value.length === 0) return <EmptyState text="空数组" />
     // 同质原始值 → 标签组
     if (isHomogeneousPrimitiveArray(value)) {
@@ -162,7 +166,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
     return (
       <div className="space-y-1.5">
         {value.map((item, idx) => (
-          <div key={idx} className="border-l-2 border-[#27272a] pl-2.5 py-0.5">
+          <div key={idx} className="border-l-2 border-line pl-2.5 py-0.5">
             <RenderNode
               value={item}
               context={context}
@@ -178,7 +182,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
 
   // 6. 对象
   if (isPlainObject(value)) {
-    if (ancestors.includes(value)) return <span className="text-[#71717a] italic text-[11px]">[循环引用]</span>
+    if (ancestors.includes(value)) return <span className="text-ink-dim italic text-[11px]">[循环引用]</span>
     const entries = Object.entries(value)
     if (entries.length === 0) return <EmptyState text="空对象" />
     return (
@@ -193,7 +197,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
   }
 
   // 7. 兜底（function / symbol / bigint 等罕见类型）
-  return <span className="text-[#d4d4d8] break-all text-[11px]">{String(value)}</span>
+  return <span className="text-ink-soft break-all text-[11px]">{String(value)}</span>
 }
 
 /* ─── 子组件 ─── */
@@ -242,7 +246,7 @@ function KeyValueGrid({
   const rest = ordered.length - visible.length
 
   return (
-    <div className={`space-y-1 ${depth > 0 ? 'pl-2 border-l-2 border-[#27272a] rounded-r' : ''}`}>
+    <div className={`space-y-1 ${depth > 0 ? 'pl-2 border-l-2 border-line rounded-r' : ''}`}>
       {visible.map(([k, v]) => {
         const label = FIELD_LABEL[k.toLowerCase()] ?? k
         const isPrimary = isTop && PRIMARY_KEYS.has(k.toLowerCase())
@@ -250,8 +254,8 @@ function KeyValueGrid({
         /* 主题字段：置顶块——淡标签 + 放大正文，底部分隔线与元信息拉开层次 */
         if (isPrimary) {
           return (
-            <div key={k} className="min-w-0 pb-1.5 mb-0.5 border-b border-[#27272a]/70">
-              <div className="text-[10px] text-[#71717a] font-medium mb-1">{label}</div>
+            <div key={k} className="min-w-0 pb-1.5 mb-0.5 border-b border-line/70">
+              <div className="text-[11px] text-ink-dim font-medium mb-1">{label}</div>
               <div className="min-w-0">
                 {typeof v === 'string' ? (
                   <MarkdownBlock content={v} variant="primary" />
@@ -274,7 +278,7 @@ function KeyValueGrid({
         if (isTop && (isInlineable(v) || isCompactKnownField(k, v))) {
           return (
             <div key={k} className="flex items-baseline gap-2 min-w-0">
-              <span className="text-[10px] text-[#71717a] font-medium shrink-0 truncate max-w-[8em]">{label}</span>
+              <span className="text-[11px] text-ink-dim font-medium shrink-0 truncate max-w-[8em]">{label}</span>
               <div className="min-w-0 flex-1">
                 <RenderNode
                   value={v}
@@ -292,7 +296,7 @@ function KeyValueGrid({
         /* 复杂值（对象/数组/长文本）：标签行 + 值块 */
         return (
           <div key={k} className="flex flex-col gap-0.5 min-w-0">
-            <span className="text-[10px] text-[#71717a] font-medium break-all">{label}</span>
+            <span className="text-[11px] text-ink-dim font-medium break-all">{label}</span>
             <div className="min-w-0">
               <RenderNode
                 value={v}
@@ -309,7 +313,7 @@ function KeyValueGrid({
       {rest > 0 && (
         <button
           onClick={() => setExpanded(true)}
-          className="text-[10px] text-[#1E5EFF] hover:underline cursor-pointer"
+          className="text-[11px] text-link hover:underline cursor-pointer"
         >
           显示全部 {ordered.length} 项（还有 {rest} 项被折叠）
         </button>
@@ -323,7 +327,7 @@ function BoolValue({ value }: { value: boolean }) {
 }
 
 function NumberValue({ value }: { value: number }) {
-  return <span className="font-mono text-[11px] text-[#d4d4d8]">{value}</span>
+  return <span className="font-mono text-[11px] text-ink-soft">{value}</span>
 }
 
 /** 字符串按形态分派：URL / 内嵌 JSON / 多行 / 长文本 / 短文本 */
@@ -336,7 +340,7 @@ function StringValue({ value, depth }: { value: string; depth: number }) {
         href={value}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1 text-[#1E5EFF] hover:underline min-w-0"
+        className="inline-flex items-center gap-1 text-link hover:underline min-w-0"
       >
         <span className="truncate max-w-[320px]">{value}</span>
         <ExternalLink size={11} className="shrink-0" />
@@ -356,7 +360,7 @@ function StringValue({ value, depth }: { value: string; depth: number }) {
     return <LongText text={value} />
   }
 
-  return <span className="text-[11px] text-[#d4d4d8] break-all">{value}</span>
+  return <span className="text-[11px] text-ink-soft break-all">{value}</span>
 }
 
 /** 长文本 / 多行文本 → 卡片 + 默认折叠前 N 字（「字数」口径，与思考过程/
@@ -374,12 +378,12 @@ function LongText({
   const [open, setOpen] = useState(false)
   const ziCount = countZi(text)
   const isLong = ziCount > LONG_TEXT_THRESHOLD
-  const bodyColor = tone === 'danger' ? 'text-rose-400' : variant === 'primary' ? 'text-[#fafafa]' : 'text-[#d4d4d8]'
+  const bodyColor = tone === 'danger' ? 'text-rose-400' : variant === 'primary' ? 'text-ink' : 'text-ink-soft'
   const bodySize = variant === 'primary' ? 'text-[12px]' : 'text-[11px]'
   return (
     <div
-      className={`rounded bg-[#09090b] border p-2 ${
-        tone === 'danger' ? 'border-rose-500/30' : 'border-[#27272a]'
+      className={`rounded bg-well border p-2 ${
+        tone === 'danger' ? 'border-rose-500/30' : 'border-line'
       }`}
     >
       <div className={`${bodyColor} ${bodySize} leading-relaxed whitespace-pre-wrap break-all`}>
@@ -388,7 +392,7 @@ function LongText({
       {isLong && (
         <button
           onClick={() => setOpen((v) => !v)}
-          className="mt-1 text-[10px] text-[#1E5EFF] hover:underline cursor-pointer"
+          className="mt-1 text-[11px] text-link hover:underline cursor-pointer"
         >
           {open ? '收起' : `展开（共 ${ziCount} 字）`}
         </button>
@@ -425,17 +429,17 @@ function FileCard({ item }: { item: Record<string, unknown> }) {
     }
   }
   return (
-    <div className="flex items-center gap-2 rounded bg-[#09090b] border border-[#27272a] px-2 py-1.5 min-w-0">
-      <FileText size={12} className="text-[#71717a] shrink-0" />
-      <span className="flex-1 truncate text-[11px] text-[#d4d4d8]" title={name}>{name}</span>
+    <div className="flex items-center gap-2 rounded bg-well border border-line px-2 py-1.5 min-w-0">
+      <FileText size={12} className="text-ink-dim shrink-0" />
+      <span className="flex-1 truncate text-[11px] text-ink-soft" title={name}>{name}</span>
       {size != null && (
-        <span className="text-[10px] font-mono text-[#52525b] shrink-0">{formatFileSize(size)}</span>
+        <span className="text-[11px] font-mono text-ink-dim shrink-0">{formatFileSize(size)}</span>
       )}
       {fileId && (
         <button
           onClick={handleDownload}
           disabled={downloading}
-          className="inline-flex items-center text-[10px] text-[#a1a1aa] hover:text-[#1E5EFF] transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+          className="inline-flex items-center text-[11px] text-ink-dim hover:text-link transition-colors cursor-pointer disabled:opacity-50 shrink-0"
           title="下载"
         >
           <Download size={12} />
@@ -453,12 +457,12 @@ function TagList({ items }: { items: (string | number | boolean)[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {visible.map((it, idx) => (
-        <Tag key={idx} color="default" className="!text-[10px]">{String(it)}</Tag>
+        <Tag key={idx} color="default" className="!text-[11px]">{String(it)}</Tag>
       ))}
       {rest > 0 && (
         <button
           onClick={() => setExpanded(true)}
-          className="text-[10px] text-[#1E5EFF] hover:underline cursor-pointer"
+          className="text-[11px] text-link hover:underline cursor-pointer"
         >
           +{rest}
         </button>
@@ -468,7 +472,7 @@ function TagList({ items }: { items: (string | number | boolean)[] }) {
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <span className="text-[#71717a] italic text-[11px]">{text}</span>
+  return <span className="text-ink-dim italic text-[11px]">{text}</span>
 }
 
 /** 超出 MAX_DEPTH 的折叠占位 */
@@ -478,15 +482,15 @@ function DeepFallback({ value }: { value: unknown }) {
     : isPlainObject(value)
       ? Object.keys(value).length
       : 0
-  return <span className="text-[#71717a] italic text-[11px]">深度嵌套（{count} 项），已折叠</span>
+  return <span className="text-ink-dim italic text-[11px]">深度嵌套（{count} 项），已折叠</span>
 }
 
 /** Markdown 文本块（output_summary / response 等 LLM 文本）：复用聊天渲染栈，超长可滚动 */
 function MarkdownBlock({ content, variant = 'default' }: { content: string; variant?: 'default' | 'primary' }) {
   return (
     <div
-      className={`rounded bg-[#09090b] border border-[#27272a] p-2 max-h-64 overflow-y-auto scrollbar-custom prose-chat ${
-        variant === 'primary' ? 'text-[12px] text-[#fafafa]' : ''
+      className={`rounded bg-well border border-line p-2 max-h-64 overflow-y-auto scrollbar-custom prose-chat ${
+        variant === 'primary' ? 'text-[12px] text-ink' : ''
       }`}
     >
       <Markdown content={content} />
@@ -519,12 +523,12 @@ function RawJsonFallback({ value }: { value: unknown }) {
   if (!str || str === '{}' || str === '[]' || str === 'null' || str === '""') return null
   return (
     <details className="mt-2 group">
-      <summary className="cursor-pointer hover:text-[#1E5EFF] list-none flex items-center gap-1 text-[#71717a] text-[10px]">
+      <summary className="cursor-pointer hover:text-link list-none flex items-center gap-1 text-ink-dim text-[11px]">
         <ChevronRight className="w-2.5 h-2.5 group-open:hidden" />
         <ChevronRight className="w-2.5 h-2.5 hidden group-open:inline rotate-90" />
         查看原始数据
       </summary>
-      <pre className="rounded p-2 mt-1 overflow-x-auto max-h-64 scrollbar-custom font-mono bg-[#09090b] text-[#a1a1aa] border border-[#27272a] text-[10px]">
+      <pre className="rounded p-2 mt-1 overflow-x-auto max-h-64 scrollbar-custom font-mono bg-well text-ink-dim border border-line text-[11px]">
         {str}
       </pre>
     </details>
@@ -563,9 +567,9 @@ function matchKnownField(
   // 时间戳类 key（所有 context）
   if (looksLikeTimestamp(k, value)) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-[#d4d4d8]" title={value}>
-        <Clock size={11} className="text-[#71717a]" />
-        {formatTimestamp(value)}
+      <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft" title={value}>
+        <Clock size={11} className="text-ink-dim" />
+        {formatTimeShort(value)}
       </span>
     )
   }
@@ -591,7 +595,7 @@ function matchKnownField(
     const fmt = (n: number) => n.toLocaleString('en-US')
     return (
       <span
-        className="font-mono text-[10px] text-[#71717a]"
+        className="font-mono text-[11px] text-ink-dim"
         title={`total ${fmt(total)} · input ${fmt(input)} · output ${fmt(output)}`}
       >
         {fmt(total)} tokens（入 {fmt(input)} / 出 {fmt(output)}）
@@ -600,7 +604,7 @@ function matchKnownField(
   }
 
   if (k === 'timeout_ms' && typeof value === 'number') {
-    return <span className="text-[11px] text-[#d4d4d8]" title={`${value} ms`}>{formatDuration(value)}</span>
+    return <span className="text-[11px] text-ink-soft" title={`${value} ms`}>{formatDuration(value)}</span>
   }
 
   // timeout_action → 中文徽标
@@ -630,7 +634,7 @@ function matchKnownField(
     }
     if (typeof value === 'object' && value !== null) {
       return (
-        <div className="rounded bg-[#09090b] border border-[#27272a] p-2">
+        <div className="rounded bg-well border border-line p-2">
           <RenderNode value={value} context="generic" depth={depth + 1} ancestors={[]} />
         </div>
       )
@@ -655,7 +659,7 @@ function matchKnownField(
   // approved_by → 带 图标行
   if (k === 'approved_by' && typeof value === 'string') {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-[#d4d4d8]">
+      <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
         <UserCheck size={11} className="text-[#10B981]" />
         {value}
       </span>
@@ -665,9 +669,9 @@ function matchKnownField(
   // selected_branch（gateway）→ 命中分支
   if (k === 'selected_branch' && typeof value === 'string') {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-[#d4d4d8]">
-        <GitBranch size={11} className="text-[#3B82F6]" />
-        <code className="font-mono text-[#1E5EFF] break-all">{value}</code>
+      <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
+        <GitBranch size={11} className="text-link" />
+        <code className="font-mono text-link break-all">{value}</code>
       </span>
     )
   }
@@ -675,7 +679,7 @@ function matchKnownField(
   // condition（gateway）→ 条件表达式
   if (k === 'condition' && typeof value === 'string') {
     return (
-      <code className="font-mono text-[10px] text-[#a1a1aa] bg-[#09090b] border border-[#27272a] rounded px-1.5 py-0.5 break-all">
+      <code className="font-mono text-[11px] text-ink-dim bg-well border border-line rounded px-1.5 py-0.5 break-all">
         {value}
       </code>
     )
@@ -714,7 +718,7 @@ function matchKnownField(
 
   // node_id → 等宽小字（通常为 UUID）
   if (k === 'node_id' && typeof value === 'string') {
-    return <code className="font-mono text-[10px] text-[#a1a1aa] break-all">{value}</code>
+    return <code className="font-mono text-[11px] text-ink-dim break-all">{value}</code>
   }
 
   return undefined
@@ -778,18 +782,6 @@ function formatDuration(ms: number): string {
   const hr = Math.floor(totalMin / 60)
   const min = totalMin % 60
   return min ? `${hr} 时 ${min} 分` : `${hr} 小时`
-}
-
-/** ISO → MM-DD HH:mm:ss；解析失败原样返回 */
-function formatTimestamp(iso: string): string {
-  try {
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return iso
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  } catch {
-    return iso
-  }
 }
 
 /** key 看起来是时间戳字段 且值能被 Date.parse 解析 */

@@ -22,6 +22,7 @@ import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
 import { usePermission } from '../hooks/use-permission';
 import { TaskTraceModal } from '../features/workflow-editor/TaskTraceModal';
 import ExecuteInputDialog from '../features/workflow-editor/ExecuteInputDialog';
+import { formatTimeFull } from '../lib/formatTime'
 
 const STATUS_META: Record<WorkflowStatusValue, { label: string; dot: string; text: string }> = {
   draft: { label: '草稿', dot: 'bg-slate-500', text: 'text-slate-400' },
@@ -35,15 +36,6 @@ const STATUS_FILTERS: { value: WorkflowStatusValue | 'all'; label: string }[] = 
   { value: 'published', label: '已发布' },
   { value: 'archived', label: '已归档' },
 ];
-
-function formatTime(ts: string): string {
-  if (!ts) return '—';
-  try {
-    return new Date(ts).toLocaleDateString('zh-CN');
-  } catch {
-    return ts;
-  }
-}
 
 export function WorkflowSpace({
   onOpen,
@@ -118,7 +110,7 @@ export function WorkflowSpace({
             <Layers className="w-5 h-5 text-indigo-400" />
             工作流
           </h2>
-          <p className="text-xs text-[#71717a] mt-1">以卡片浏览工作流，点击进入可视化编辑。</p>
+          <p className="text-xs text-ink-dim mt-1">以卡片浏览工作流，点击进入可视化编辑。</p>
         </div>
         {canWrite && (
           <button
@@ -140,8 +132,8 @@ export function WorkflowSpace({
           { label: '草稿', value: stats.draft, color: 'text-slate-400' },
           { label: '已归档', value: stats.archived, color: 'text-zinc-400' },
         ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-[#27272a] bg-[#18181b]">
-            <p className="text-[10px] text-[#71717a] uppercase tracking-widest font-bold">{s.label}</p>
+          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
+            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
             <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
           </div>
         ))}
@@ -150,21 +142,21 @@ export function WorkflowSpace({
       {/* Toolbar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索工作流名称 / 描述"
-            className="w-full pl-9 pr-3 py-2 bg-[#121214] border border-[#27272a] rounded-lg text-sm text-white placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500 transition"
+            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
           />
         </div>
-        <div className="flex items-center gap-1 p-1 bg-[#121214] border border-[#27272a] rounded-lg">
+        <div className="flex items-center gap-1 p-1 bg-page border border-line rounded-lg">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
               onClick={() => setStatusFilter(f.value)}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-                statusFilter === f.value ? 'bg-indigo-600 text-white' : 'text-[#a1a1aa] hover:text-white hover:bg-[#27272a]'
+                statusFilter === f.value ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:text-white hover:bg-line'
               }`}
             >
               {f.label}
@@ -179,11 +171,11 @@ export function WorkflowSpace({
 
       {/* Grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16 text-[#71717a]">
+        <div className="flex items-center justify-center py-16 text-ink-dim">
           <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-[#52525b]">
+        <div className="flex flex-col items-center justify-center py-16 text-ink-dim">
           <Layers className="w-8 h-8 mb-2 opacity-40" />
           <p className="text-sm">暂无工作流{search || statusFilter !== 'all' ? '匹配筛选' : ''}，点击右上角新建</p>
         </div>
@@ -206,21 +198,21 @@ export function WorkflowSpace({
       {/* Delete confirm modal */}
       {confirmDelete && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-sm bg-[#121214] border border-[#27272a] rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#27272a]">
+          <div className="w-full max-w-sm bg-page border border-line rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Trash2 className="w-4 h-4 text-rose-400" /> 确认删除
               </h3>
-              <button onClick={() => setConfirmDelete(null)} className="p-1 rounded-lg text-[#71717a] hover:text-white hover:bg-[#27272a] transition cursor-pointer">
+              <button onClick={() => setConfirmDelete(null)} className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-sm text-[#a1a1aa]">
+              <p className="text-sm text-ink-dim">
                 确认删除工作流「<span className="text-white font-semibold">{confirmDelete.name}</span>」？此操作不可撤销。
               </p>
               <div className="flex justify-end gap-3 pt-2">
-                <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 border border-[#27272a] hover:bg-[#18181b] text-[#a1a1aa] hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
+                <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
                   取消
                 </button>
                 <button
@@ -267,7 +259,7 @@ const WorkflowCard: FC<{
   const isPublished = wf.status === 'published';
   const canRun = isPublished && !running;
   return (
-    <div className="group relative bg-[#18181b] border border-[#27272a] rounded-xl p-5 hover:border-[#52525b] transition cursor-pointer" onClick={() => onOpen(wf.id)}>
+    <div className="group relative bg-panel border border-line rounded-xl p-5 hover:border-line-strong transition cursor-pointer" onClick={() => onOpen(wf.id)}>
       {/* Header: icon + name + status */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3 min-w-0">
@@ -276,17 +268,17 @@ const WorkflowCard: FC<{
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-bold text-white truncate">{wf.name}</h3>
-            <span className="text-[10px] text-[#71717a] font-mono">v{wf.version}</span>
+            <span className="text-[11px] text-ink-dim font-mono">v{wf.version}</span>
           </div>
         </div>
-        <span className={`flex items-center gap-1.5 text-[10px] font-bold ${meta.text} shrink-0`}>
+        <span className={`flex items-center gap-1.5 text-[11px] font-bold ${meta.text} shrink-0`}>
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
           {meta.label}
         </span>
       </div>
 
       {/* Description */}
-      <p className="text-xs text-[#a1a1aa] mt-3 line-clamp-2 leading-relaxed min-h-[32px]">
+      <p className="text-xs text-ink-dim mt-3 line-clamp-2 leading-relaxed min-h-[32px]">
         {wf.description || '（无描述）'}
       </p>
 
@@ -294,7 +286,7 @@ const WorkflowCard: FC<{
       {wf.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-3">
           {wf.tags.slice(0, 4).map((t) => (
-            <span key={t} className="px-1.5 py-0.5 rounded bg-[#121214] border border-[#27272a] text-[10px] text-[#a1a1aa]">
+            <span key={t} className="px-1.5 py-0.5 rounded bg-page border border-line text-[11px] text-ink-dim">
               {t}
             </span>
           ))}
@@ -302,12 +294,12 @@ const WorkflowCard: FC<{
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[#27272a]">
-        <span className="text-[10px] text-[#52525b] flex items-center gap-1">
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-line">
+        <span className="text-[11px] text-ink-dim flex items-center gap-1">
           <Layers className="w-3 h-3" /> {wf.node_count} 节点
         </span>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-[#52525b]">{formatTime(wf.updated_at)}</span>
+          <span className="text-[11px] text-ink-dim">{formatTimeFull(wf.updated_at)}</span>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -318,7 +310,7 @@ const WorkflowCard: FC<{
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition ${
               canRun
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
-                : 'bg-[#121214] border border-[#27272a] text-[#52525b] cursor-not-allowed'
+                : 'bg-page border border-line text-ink-dim cursor-not-allowed'
             }`}
           >
             <Play className="w-3 h-3" /> 运行
@@ -331,7 +323,7 @@ const WorkflowCard: FC<{
         <button
           onClick={() => onOpen(wf.id)}
           title="编辑"
-          className="p-1.5 rounded-lg bg-[#121214] border border-[#27272a] text-[#a1a1aa] hover:text-indigo-400 hover:border-indigo-500/50 transition cursor-pointer"
+          className="p-1.5 rounded-lg bg-page border border-line text-ink-dim hover:text-indigo-400 hover:border-indigo-500/50 transition cursor-pointer"
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
@@ -339,7 +331,7 @@ const WorkflowCard: FC<{
           <button
             onClick={() => onDelete(wf)}
             title="删除"
-            className="p-1.5 rounded-lg bg-[#121214] border border-[#27272a] text-[#a1a1aa] hover:text-rose-400 hover:border-rose-500/50 transition cursor-pointer"
+            className="p-1.5 rounded-lg bg-page border border-line text-ink-dim hover:text-rose-400 hover:border-rose-500/50 transition cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>

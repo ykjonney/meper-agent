@@ -498,3 +498,31 @@ async def delete_session_file(
 
     resolved.unlink()
     return WorkspaceManager.list_output_files(ws)
+
+
+@router.get(
+    "/{session_id}/tool-results/{tool_call_id}",
+    summary="Get full tool result content by tool_call_id",
+)
+async def get_tool_result_full_content(
+    session_id: str,
+    tool_call_id: str,
+    user: UserResponse = Depends(get_current_user),
+) -> dict:
+    """按需取工具结果全文（文档水位线压缩的前端配套）。
+
+    压缩后的 timeline_entries 只带 500 字 preview + content_extern 引用，
+    前端详情视图点开时经此端点加载全文（extern 加载或原文直返）。
+    """
+    _verify = await _verify_session_ownership(session_id, user.id)
+    _ = _verify
+
+    from app.services.session_service import MessageService
+
+    content = await MessageService.get_tool_result_content(session_id, tool_call_id)
+    if content is None:
+        raise NotFoundError(
+            code="TOOL_RESULT_NOT_FOUND",
+            message=f"工具结果 {tool_call_id} 不存在或已被丢弃",
+        )
+    return {"tool_call_id": tool_call_id, "content": content, "size": len(content)}

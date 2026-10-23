@@ -15,6 +15,7 @@ import {
   type ExecutionLogItem,
 } from '../services/execution-logs-api'
 import { usePermission } from '../hooks/use-permission'
+import { formatTimeFull } from '../lib/formatTime'
 
 type Theme = 'dark' | 'light'
 
@@ -32,15 +33,6 @@ const STATUS_META: Record<string, { text: string; cls: string }> = {
 
 /** 可选分页数（任务/执行记录两个 tab 共用）。 */
 export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
-
-function fmtTime(ts: string): string {
-  if (!ts) return ''
-  try {
-    return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-  } catch {
-    return ts
-  }
-}
 
 function fmtMs(ms?: number): string {
   if (ms == null) return '—'
@@ -67,12 +59,12 @@ export function PagerBar({
   onPageSize: (n: number) => void
 }) {
   return (
-    <div className="flex items-center justify-end gap-3 pt-1 text-xs text-[#71717a]">
+    <div className="flex items-center justify-end gap-3 pt-1 text-xs text-ink-dim">
       <span>{total != null ? `共 ${total} 条 · ` : ''}第 {page} / {totalPages} 页</span>
       <select
         value={pageSize}
         onChange={(e) => onPageSize(Number(e.target.value))}
-        className="bg-[#121214] border border-[#27272a] rounded-md px-1.5 py-1 text-xs text-[#d4d4d8] cursor-pointer"
+        className="bg-page border border-line rounded-md px-1.5 py-1 text-xs text-ink-soft cursor-pointer"
       >
         {PAGE_SIZE_OPTIONS.map((n) => (
           <option key={n} value={n}>{n} 条/页</option>
@@ -81,14 +73,14 @@ export function PagerBar({
       <button
         disabled={page <= 1}
         onClick={() => onPage(Math.max(1, page - 1))}
-        className="disabled:opacity-30 cursor-pointer hover:text-[#fafafa]"
+        className="disabled:opacity-30 cursor-pointer hover:text-ink"
       >
         <ChevronLeft size={14} />
       </button>
       <button
         disabled={page >= totalPages}
         onClick={() => onPage(page + 1)}
-        className="disabled:opacity-30 cursor-pointer hover:text-[#fafafa]"
+        className="disabled:opacity-30 cursor-pointer hover:text-ink"
       >
         <ChevronRight size={14} />
       </button>
@@ -121,7 +113,7 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
             <span className="opacity-75"> · {ev.tools.join(', ')}</span>
           )}
           {(ev.load_errors ?? []).map((le, i) => (
-            <div key={i} className="text-red-400 font-mono text-[10px] break-all mt-0.5">
+            <div key={i} className="text-red-400 font-mono text-[11px] break-all mt-0.5">
               加载失败 {le.tool}: {le.error}
             </div>
           ))}
@@ -143,7 +135,7 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
         <span>
           <span className="text-zinc-300">调用 {ev.n || ev.id}</span>
           {ev.args && (
-            <pre className="text-[10px] opacity-70 whitespace-pre-wrap break-all font-mono mt-0.5 max-h-24 overflow-y-auto">{ev.args}</pre>
+            <pre className="text-[11px] opacity-70 whitespace-pre-wrap break-all font-mono mt-0.5 max-h-24 overflow-y-auto">{ev.args}</pre>
           )}
         </span>
       )
@@ -169,7 +161,7 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
       return (
         <span className="text-red-400">
           错误 · {ev.source || '—'}
-          {ev.msg && <pre className="text-[10px] opacity-80 whitespace-pre-wrap break-all font-mono mt-0.5">{ev.msg}</pre>}
+          {ev.msg && <pre className="text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono mt-0.5">{ev.msg}</pre>}
         </span>
       )
     case 'events_truncated':
@@ -222,7 +214,7 @@ export function DetailModal({
         ['状态', `${STATUS_META[log.status]?.text ?? log.status} (${log.status_code})`],
         ['耗时', `${fmtMs(log.latency_ms)}（LLM ${fmtMs(log.llm_duration_ms)} / 工具 ${fmtMs(log.tool_duration_ms)} / 其他 ${fmtMs(log.other_duration_ms)}${log.ttft_ms ? ` / 首token ${fmtMs(log.ttft_ms)}` : ''}）`],
         ['Token', `${fmtTok(log.total_tokens)}（↑${fmtTok(log.input_tokens)} ↓${fmtTok(log.output_tokens)} · ${log.llm_calls} 次请求）`],
-        ['时间', fmtTime(log.timestamp)],
+        ['时间', formatTimeFull(log.timestamp)],
       ]
     : []
 
@@ -230,16 +222,16 @@ export function DetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
         className={`rounded-xl shadow-2xl w-[720px] max-w-[calc(100vw-2rem)] max-h-[82vh] flex flex-col border ${
-          dark ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'
+          dark ? 'bg-panel border-line' : 'bg-white border-slate-200'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
-          <div className={`flex items-center gap-2 text-sm font-medium ${dark ? 'text-[#fafafa]' : 'text-slate-800'}`}>
+        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-line' : 'border-slate-200'}`}>
+          <div className={`flex items-center gap-2 text-sm font-medium ${dark ? 'text-ink' : 'text-slate-800'}`}>
             <Activity size={14} className="text-indigo-400" />
             执行详情
             {log && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_META[log.status]?.cls ?? ''}`}>
+              <span className={`text-[11px] px-1.5 py-0.5 rounded border ${STATUS_META[log.status]?.cls ?? ''}`}>
                 {STATUS_META[log.status]?.text ?? log.status}
               </span>
             )}
@@ -248,14 +240,14 @@ export function DetailModal({
         </div>
 
         {isLoading || !log ? (
-          <div className={`px-5 py-10 text-center text-xs ${dark ? 'text-[#71717a]' : 'text-slate-400'}`}>加载中…</div>
+          <div className={`px-5 py-10 text-center text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>加载中…</div>
         ) : (
           <>
-            <div className={`px-5 py-3 border-b grid grid-cols-2 gap-x-6 gap-y-2 text-[11px] ${dark ? 'border-[#27272a]' : 'border-slate-200'}`}>
+            <div className={`px-5 py-3 border-b grid grid-cols-2 gap-x-6 gap-y-2 text-[11px] ${dark ? 'border-line' : 'border-slate-200'}`}>
               {metaRows.map(([k, v]) => (
                 <div key={k} className="min-w-0">
-                  <div className={dark ? 'text-[#71717a]' : 'text-slate-400'}>{k}</div>
-                  <div className={`font-mono break-all ${dark ? 'text-[#fafafa]' : 'text-slate-800'}`}>{v}</div>
+                  <div className={dark ? 'text-ink-dim' : 'text-slate-400'}>{k}</div>
+                  <div className={`font-mono break-all ${dark ? 'text-ink' : 'text-slate-800'}`}>{v}</div>
                 </div>
               ))}
             </div>
@@ -291,9 +283,9 @@ export function ExecFilterBar({
   onApply: () => void
 }) {
   const selectCls =
-    'bg-[#121214] border border-[#27272a] rounded-md px-2 py-1.5 text-xs text-[#d4d4d8] cursor-pointer outline-none'
+    'bg-page border border-line rounded-md px-2 py-1.5 text-xs text-ink-soft cursor-pointer outline-none'
   const inputCls =
-    'bg-[#121214] border border-[#27272a] rounded-md px-2 py-1.5 text-xs text-[#d4d4d8] placeholder-[#52525b] outline-none w-32 font-mono'
+    'bg-page border border-line rounded-md px-2 py-1.5 text-xs text-ink-soft placeholder-ink-dim outline-none w-32 font-mono'
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -360,19 +352,19 @@ export function RecentExecutionsTable({ filters }: { filters: ExecFilters }) {
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const th = 'py-2.5 px-3 uppercase tracking-wider text-[10px] text-[#71717a] font-bold'
+  const th = 'py-2.5 px-3 uppercase tracking-wider text-[11px] text-ink-dim font-bold'
 
   return (
     <div className="space-y-3">
       {isLoading ? (
-        <div className="flex items-center justify-center py-8 text-[#71717a] text-xs">加载执行记录…</div>
+        <div className="flex items-center justify-center py-8 text-ink-dim text-xs">加载执行记录…</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-8 text-[#71717a] text-xs">暂无执行记录</div>
+        <div className="text-center py-8 text-ink-dim text-xs">暂无执行记录</div>
       ) : (
         <div className={`overflow-x-auto transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
-          <table className="w-full text-xs text-left text-[#a1a1aa] leading-normal">
+          <table className="w-full text-xs text-left text-ink-dim leading-normal">
             <thead>
-              <tr className="border-b border-[#27272a]">
+              <tr className="border-b border-line">
                 <th className={th}>时间</th>
                 <th className={th}>来源</th>
                 <th className={th}>调用者</th>
@@ -383,15 +375,15 @@ export function RecentExecutionsTable({ filters }: { filters: ExecFilters }) {
                 <th className={`${th} text-right`}>操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#27272a]/40">
+            <tbody className="divide-y divide-line/40">
               {items.map((it) => (
-                <tr key={it._id} className="hover:bg-[#121214]/60 transition-colors">
-                  <td className="py-3 px-3 text-[#71717a] whitespace-nowrap">{fmtTime(it.timestamp)}</td>
+                <tr key={it._id} className="hover:bg-page/60 transition-colors">
+                  <td className="py-3 px-3 text-ink-dim whitespace-nowrap">{formatTimeFull(it.timestamp)}</td>
                   <td className="py-3 px-3 whitespace-nowrap">{SOURCE_LABELS[it.source] ?? it.source}</td>
                   <td className="py-3 px-3 max-w-28 truncate" title={it.user_id}>{it.caller_name || it.user_id}</td>
-                  <td className="py-3 px-3 font-mono text-[11px] text-[#fafafa] max-w-28 truncate" title={it.agent_id}>{it.agent_id || '—'}</td>
+                  <td className="py-3 px-3 font-mono text-[11px] text-ink max-w-28 truncate" title={it.agent_id}>{it.agent_id || '—'}</td>
                   <td className="py-3 px-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_META[it.status]?.cls ?? ''}`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS_META[it.status]?.cls ?? ''}`}>
                       <span className="w-1 h-1 rounded-full bg-current" />
                       {STATUS_META[it.status]?.text ?? it.status}
                     </span>

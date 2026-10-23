@@ -15,6 +15,9 @@ class NotificationKind(StrEnum):
     TASK_FAILED = "task_failed"
     TASK_WAITING_HUMAN = "task_waiting_human"
     TASK_COMPLETED = "task_completed"
+    # 长任务运行缓慢警告（beat running_task_scan：RUNNING 超阈值发提醒，
+    # 不改变任务状态——用户可自行决定等待或取消）。
+    TASK_SLOW = "task_slow"
 
 
 class Notification(BaseModel):

@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox deploy deploy-check generate-api build-backend-bin build-release clean-dist help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check generate-api build-backend-bin build-release clean-dist help
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  make lint           - Run linters for all packages"
 	@echo "  make build          - Build all Docker images (excluding sandbox)"
 	@echo "  make build-sandbox  - Build the agent-sandbox image (required for sandboxed bash execution)"
+	@echo "  make build-sandbox-full - Build the full sandbox variant (Node.js/scipy/git superset)"
 	@echo "  make build-backend-bin - Cython 编译产物（容器内；RELEASE=1 时为正式构建）"
 	@echo "  make build-release VERSION=x.y.z [RELEASE=1] - 组装单机安装包 .zip（RELEASE=1 正式/license 强制）"
 	@echo "    （每个 <版本-平台> 独立目录 dist/agent-flow-<ver>-<plat>/；rebuild 同 ver-plat 覆盖）"
@@ -39,9 +40,10 @@ dev-local:
 	(cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log) & \
 	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd backend && uv run celery -A app.workers.celery_app beat --loglevel=info) & \
- 	(cd frontend && npm run dev) & \
+	(cd frontend && npm run dev) & \
 	(cd frontend-studio && npm run dev) & \
 	(cd frontend-client && npm run dev) & \
+	{ echo '等待后端就绪...'; until curl -s -m 1 -o /dev/null http://127.0.0.1:8000/api/v1/health; do sleep 1; done; echo '后端已就绪'; } & \
 	wait
 
 # Run all tests
@@ -58,9 +60,10 @@ lint:
 build:
 	docker compose -f deploy/docker-compose.yml build
 
-# Build the agent-sandbox image.
+# Build the agent-sandbox image (lean "lite" variant).
 # Required for sandboxed execution of Agent bash commands (SANDBOX_ENABLED=true).
 # Without this image, bash commands silently fall back to insecure subprocess execution.
+# Need Node.js/scipy/git in the sandbox? Build the superset: make build-sandbox-full
 build-sandbox:
 	docker compose -f deploy/docker-compose.yml build sandbox
 
@@ -82,6 +85,14 @@ build-release-docker:  # 平台默认 linux/amd64；加 PLATFORM=linux/arm64 覆
 clean-dist:
 	rm -rf dist/agent-flow-* dist/agent-flow-wheels-* 2>/dev/null || true
 	@echo "✓ dist/ 已清空（保留 dist/ 本身以便 git 跟踪）"
+
+# Build the full sandbox variant (adds Node.js 22, git/jq, scipy/lxml, gcc).
+# Select at runtime via SANDBOX_IMAGE=agent-sandbox:full.
+# Mirror overrides via env: APT_MIRROR / PIP_INDEX_URL (defaults = upstream).
+build-sandbox-full:
+	docker build -f deploy/Dockerfile.sandbox --target full -t agent-sandbox:full \
+		--build-arg APT_MIRROR=$${APT_MIRROR:-deb.debian.org} \
+		--build-arg PIP_INDEX_URL=$${PIP_INDEX_URL:-https://pypi.org/simple} .
 
 # Deploy instructions (production)
 deploy:

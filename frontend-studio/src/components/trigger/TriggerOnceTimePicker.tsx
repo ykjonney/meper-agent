@@ -61,7 +61,7 @@ const PRESETS: { label: string; build: () => Date }[] = [
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 const inputCls =
-  'h-8 flex-1 min-w-0 px-2.5 rounded-md border border-[#27272a] bg-[#121214] text-[#fafafa] text-xs ' +
+  'h-8 flex-1 min-w-0 px-2.5 rounded-md border border-line bg-page text-ink text-xs ' +
   'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
 
 /** 点击输入框任意位置即唤起原生面板（showPicker 不支持时静默回退）。 */
@@ -123,7 +123,7 @@ export default function TriggerOnceTimePicker({ value, onChange, disabled = fals
             disabled={disabled}
             onClick={() => applyPreset(p.build)}
             className={`h-7 px-3 rounded-md text-xs font-medium transition-colors border cursor-pointer
-              bg-[#18181b] border-[#27272a] text-slate-300 hover:border-[#1E5EFF] hover:text-[#1E5EFF]
+              bg-panel border-line text-slate-300 hover:border-[#1E5EFF] hover:text-link
               ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {p.label}
@@ -156,7 +156,7 @@ export default function TriggerOnceTimePicker({ value, onChange, disabled = fals
 
       {/* 选中时间预览（对齐 Cron 展示行） */}
       {value && parts.date && parts.time && (
-        <div className="text-[10px] text-[#94A3B8] font-mono">
+        <div className="text-[11px] text-[#94A3B8] font-mono">
           {parts.date} {parts.time} {weekday}
         </div>
       )}

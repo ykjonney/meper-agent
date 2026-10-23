@@ -43,11 +43,6 @@ class ChannelRegistry:
         return cls._registry[provider]()
 
     @classmethod
-    def known_providers(cls) -> list[str]:
-        cls._load_providers()
-        return list(cls._registry.keys())
-
-    @classmethod
     def _load_providers(cls) -> None:
         """Trigger PEP 562 provider imports. No-op if the providers package
         isn't installed yet (e.g. before Task 4)."""

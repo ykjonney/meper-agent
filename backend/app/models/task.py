@@ -81,6 +81,12 @@ class Checkpoint(BaseModel):
     # 取消（暂停）时被中断的 Agent 节点的 LangGraph thread_id。
     # 恢复时用 Command(resume) 续接该 thread，保持 REACT 循环上下文连贯。
     agent_thread_id: str = ""
+    # checkpoint 类型：pause=暂停（human/取消，等待干预，默认兼容旧数据）；
+    # progress=loop 轮间进度（每轮完成即写，崩溃/重投递后从最后完成轮续跑，
+    # 绝不从头重跑——ADR loop-node-adr.md 长程稳定性硬规范）。
+    kind: str = "pause"
+    # progress 专属：当前 loop 的续跑位置 {loop_node_id, round=最后完整轮}。
+    loop_state: dict[str, Any] = Field(default_factory=dict)
 
 
 class Task(BaseModel):
@@ -113,6 +119,13 @@ class Task(BaseModel):
     celery_task_id: str = ""
     # 本次 task 所有 agent 节点累计 token 用量（engine 完成时写回）
     total_tokens: int = Field(default=0, ge=0)
+    # 工作流级 token 预算（跨节点累计，0=不限制）。节点边界检查，超限诚实
+    # 终止（M3 前置：loop 是 token 大户，无预算控制不敢上线迭代范式）。
+    # 与 agent 会话级 max_tokens 互补：那是单节点 REACT 循环内的护栏。
+    token_budget: int = Field(default=0, ge=0)
+    # 最近一次进入 RUNNING 的时间（ISO）。慢任务警告扫描的时间基准
+    # （beat running_task_scan：超过 TASK_SLOW_WARN_MINUTES 发站内信）。
+    started_at: str = ""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
