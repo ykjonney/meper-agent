@@ -457,6 +457,16 @@ class Settings(BaseSettings):
     LICENSE_ENFORCE_EXTRA: bool = False
     # license 文件路径（安装包内默认 /opt/agent-flow/etc/license.key）。
     LICENSE_PATH: str = "etc/jasper.identity"
+    # MAC 指纹信源：AGENT_FLOW_MAC 注入值与实测网卡不一致时是否仍采信
+    # 注入值。docker 部署必须保持 true（容器内实测是 veth 随机 MAC，
+    # 启动器注入的宿主 MAC 才是绑机值）；false 用于严格物理绑机——
+    # 异机克隆（改 HOST_MAC）将直接激活失败。
+    LICENSE_TRUST_ENV_MAC: bool = True
+    # 绑机指纹的 sysfs 网卡目录（"物理网卡优先"选卡的数据源）。手动部署
+    # 用默认值直读宿主；Docker 部署由 compose 把宿主 /sys/class/net 只读
+    # 挂载到 /host-sys/class/net 并设此变量——两形态同源同值，与启动
+    # 方式无关，无需再注入 AGENT_FLOW_MAC。
+    LICENSE_SYS_NET_PATH: str = "/sys/class/net"
     # （新 License 系统不再需要防回拨 state 文件）
     # 公钥覆盖（raw 32 字节 hex）。仅 APP_ENV != "production" 生效——
     # 供开发/测试注入测试公钥；生产公钥来自 build 注入或内嵌常量。

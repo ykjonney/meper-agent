@@ -99,6 +99,74 @@ celery_app.conf.update(
 )
 
 
+# 构建期由 scripts/build_compiled.py 注入 app.core.license 产物（strip 后）
+# 的 sha256 与强制真值；源码轨保持占位符。完整性链校验点之一（与
+# license_mw/engine 各自独立实现，判定输入不经 license 模块与 import
+# 系统——模块被整体替换或 build_flags 被拦截时这里必须独立发现）。
+_BUILT_LICENSE_SHA256 = "__LICENSE_SO_SHA256__"
+_BUILT_LICENSE_ENFORCED = "__LICENSE_ENFORCED__"
+
+
+def _license_module_sha_ok() -> bool:
+    """license 模块完整性自检（物理定位 + 哈希比对，fail closed）。
+
+    强制判定用构建期内联真值——不经 import，拦截 build_flags 无法关闭
+    本检查；文件定位以本模块 ``__file__`` 为锚点（find_spec 会被
+    sys.modules 中的假模块污染），并核对已加载模块的 ``__spec__.origin``
+    与物理文件一致。
+    """
+    if _BUILT_LICENSE_ENFORCED != "True":
+        return True
+    import hashlib
+    import sys
+    from pathlib import Path
+
+    if _BUILT_LICENSE_SHA256.startswith("__"):
+        return False
+    core_dir: Path | None = None
+    for anc in Path(__file__).resolve().parents:
+        if anc.name == "app" and (anc / "core").is_dir():
+            core_dir = anc / "core"
+            break
+    if core_dir is None:
+        return False
+    physical: Path | None = None
+    for cand in [
+        *sorted(core_dir.glob("license.*.so")),
+        *sorted(core_dir.glob("license.*.pyc")),
+        *sorted((core_dir / "__pycache__").glob("license.*.pyc")),
+    ]:
+        try:
+            if hashlib.sha256(cand.read_bytes()).hexdigest() == _BUILT_LICENSE_SHA256:
+                physical = cand.resolve()
+                break
+        except OSError:
+            continue
+    if physical is None:
+        return False
+    mod = sys.modules.get("app.core.license")
+    origin = getattr(getattr(mod, "__spec__", None), "origin", None)
+    if not origin:
+        return False
+    try:
+        return Path(origin).resolve() == physical
+    except OSError:
+        return False
+
+
+def _license_contract_ok() -> bool:
+    """矛盾检测：构建期强制而 license 模块谎报不强制 → 被篡改/欺骗。
+
+    报告路径 3（meta_path 拦截 build_flags 返回 False）下，license 模块
+    的 is_enforced() 被骗成 False——此处在强制构建上必须识别该矛盾。
+    """
+    if _BUILT_LICENSE_ENFORCED != "True":
+        return True
+    from app.core import license as lic
+
+    return lic.evaluate_license().enforced
+
+
 @worker_process_init.connect
 def _init_worker(**_kwargs: object) -> None:
     """每个 Celery worker 子进程启动时的初始化。
@@ -129,12 +197,21 @@ def _init_worker(**_kwargs: object) -> None:
     setup_logging()
 
     # 4. License gate — 无有效 license 不干活（fail closed）。
+    #    矛盾检测在前：构建期强制而模块谎报不强制 = 被篡改（如拦截
+    #    build_flags 翻转总开关），与"未激活"同样拒绝启动。
     from app.core import license as lic
 
     _lic = lic.evaluate_license(force=True)
+    if _BUILT_LICENSE_ENFORCED == "True" and not _lic.enforced:
+        logger.critical("license_gate_worker_exit reason=contract_violation")
+        raise SystemExit(78)
     if _lic.enforced and not _lic.ok:
         logger.critical("license_gate_worker_exit code={}", _lic.code)
         raise SystemExit(78)  # EX_CONFIG：配置类错误，一眼可辨
+    if not _license_module_sha_ok():
+        # 完整性链：license 模块文件被替换 → worker 拒绝启动。
+        logger.critical("license_integrity_worker_exit")
+        raise SystemExit(78)
 
     # 2. Checkpointer 配置 — shared with FastAPI lifespan via app.core.checkpointer
     from app.core.checkpointer import configure_mongo_checkpointer
@@ -170,9 +247,13 @@ def _check_license_and_inject_request_id(task_id=None, **_kwargs: object) -> Non
     """
     from app.core import license as lic
 
+    if not _license_contract_ok():
+        raise lic.LicenseError("LIC_E_INTEGRITY")
     _lic = lic.evaluate_license()
     if _lic.enforced and not _lic.ok:
         raise lic.LicenseError(_lic.code)
+    if not _license_module_sha_ok():
+        raise lic.LicenseError("LIC_E_INTEGRITY")
 
     from app.api.middleware.request_id import request_id_var
 

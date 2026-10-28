@@ -121,13 +121,17 @@ async def lifespan(app: FastAPI):
     await shutdown(app.state._scheduler, app.state._trigger_scheduler)
 
 
+# API 文档与 OpenAPI schema：生产构建一律关闭（信息面收紧——交付包
+# 不暴露接口清单）。本地 dev / make generate-api 不受影响。
+_prod_env = settings.APP_ENV == "production"
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="MEPER Agent - AI Agent orchestration platform",
     version="0.1.0",
-    docs_url="/api/v1/docs",
-    redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json",
+    docs_url=None if _prod_env else "/api/v1/docs",
+    redoc_url=None if _prod_env else "/api/v1/redoc",
+    openapi_url=None if _prod_env else "/api/v1/openapi.json",
     lifespan=lifespan,
 )
 

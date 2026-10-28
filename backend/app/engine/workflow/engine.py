@@ -32,6 +32,73 @@ from app.services.task_service import TaskService
 # 语义的值级简化——无工作台对象，直接比对变量池成员值）。
 STALL_STREAK = 2
 
+# 构建期由 scripts/build_compiled.py 注入 app.core.license 产物（strip 后）
+# 的 sha256 与强制真值；源码轨保持占位符。完整性链校验点之一（与
+# license_mw/celery_app 各自独立实现，判定输入不经 license 模块与 import
+# 系统——被整体替换或 build_flags 被拦截时这里必须独立发现）。
+_BUILT_LICENSE_SHA256 = "__LICENSE_SO_SHA256__"
+_BUILT_LICENSE_ENFORCED = "__LICENSE_ENFORCED__"
+
+
+def _license_module_intact() -> bool:
+    """license 模块完整性自检（物理定位 + 哈希比对，fail closed）。
+
+    强制判定用构建期内联真值——不经 import，拦截 build_flags 无法关闭
+    本检查；文件定位以本模块 ``__file__`` 为锚点（find_spec 会被
+    sys.modules 中的假模块污染），并核对已加载模块的 ``__spec__.origin``
+    与物理文件一致。
+    """
+    if _BUILT_LICENSE_ENFORCED != "True":
+        return True
+    import sys
+    from pathlib import Path
+
+    if _BUILT_LICENSE_SHA256 == "__LICENSE_SO_SHA256__":
+        return False
+    core_dir: Path | None = None
+    for anc in Path(__file__).resolve().parents:
+        if anc.name == "app" and (anc / "core").is_dir():
+            core_dir = anc / "core"
+            break
+    if core_dir is None:
+        return False
+    physical: Path | None = None
+    for cand in [
+        *sorted(core_dir.glob("license.*.so")),
+        *sorted(core_dir.glob("license.*.pyc")),
+        *sorted((core_dir / "__pycache__").glob("license.*.pyc")),
+    ]:
+        try:
+            if hashlib.sha256(cand.read_bytes()).hexdigest() == _BUILT_LICENSE_SHA256:
+                physical = cand.resolve()
+                break
+        except OSError:
+            continue
+    if physical is None:
+        return False
+    mod = sys.modules.get("app.core.license")
+    origin = getattr(getattr(mod, "__spec__", None), "origin", None)
+    if not origin:
+        return False
+    try:
+        return Path(origin).resolve() == physical
+    except OSError:
+        return False
+
+
+def _license_contract_ok() -> bool:
+    """矛盾检测：构建期强制而 license 模块谎报不强制 → 被篡改/欺骗。
+
+    报告路径 3（meta_path 拦截 build_flags 返回 False）下，license 模块
+    的 is_enforced() 被骗成 False——此处在强制构建上必须识别该矛盾。
+    """
+    if _BUILT_LICENSE_ENFORCED != "True":
+        return True
+    from app.core import license as lic
+
+    return lic.evaluate_license().enforced
+
+
 
 
 class WorkflowEngine:
@@ -88,13 +155,21 @@ class WorkflowEngine:
         Returns:
             Final variable pool snapshot.
         """
-        from app.core.license import ensure_licensed
+        from app.core.license import LicenseError, ensure_licensed
         from app.db.mongodb import get_database
 
         # License 分散校验点：任务真正开始执行前独立复核一次（缓存读，
         # 零 IO）。task_prerun 已拦一道，这里防的是绕过 Celery 直调引擎
         # 的路径（channel 长连接进程内执行等）。
+        # 矛盾检测在前：构建期强制而模块谎报不强制 = 被篡改（如拦截
+        # build_flags 翻转总开关）。
+        if not _license_contract_ok():
+            raise LicenseError("LIC_E_INTEGRITY")
         ensure_licensed()
+        # 完整性链：license 模块文件被替换时在此独立发现（不经 license
+        # 模块判定；错误码字面量内联）。
+        if not _license_module_intact():
+            raise LicenseError("LIC_E_INTEGRITY")
 
         db = get_database()
 

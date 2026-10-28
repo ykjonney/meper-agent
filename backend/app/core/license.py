@@ -152,27 +152,66 @@ def get_machine_fingerprint() -> str:
         return _mac_cache
 
 
-def _read_primary_mac() -> str:
-    """读取第一个非 lo 接口的 MAC 地址，格式化为 XX-XX-XX-XX-XX-XX（与 Java 端一致）。
+def _read_carrier(iface: Path) -> str:
+    """接口链路状态：'1'=up / '0'=down / ''=读取失败（管理态 down 等）。"""
+    try:
+        return (iface / "carrier").read_text().strip()
+    except (OSError, ValueError):
+        return ""
 
-    AGENT_FLOW_MAC 环境变量优先（Docker 部署：容器内是 veth 随机 MAC，
-    由启动器在宿主算好真实网卡 MAC 注入，保证绑机校验与手动部署一致）。
+
+def _iface_rank(iface: Path) -> tuple[int, str]:
+    """物理网卡排序键：carrier up 优先 > 读取失败 > down；同级按硬件槽位
+    路径（device 解析结果，PCI 总线序）——与接口命名无关，跨重启/改名/
+    udev 规则都稳定（eth0、ens192、enp0s3 同一槽位路径不变）。"""
+    rank = {"1": 0, "": 1, "0": 2}.get(_read_carrier(iface), 1)
+    try:
+        hw = str((iface / "device").resolve())
+    except OSError:
+        hw = str(iface)
+    return (rank, hw)
+
+
+def _select_linux_iface(sys_net: Path) -> Path | None:
+    """选绑机网卡：物理网卡优先——``device`` 符号链接 = 真实硬件背书
+    （PCI/USB/virtio），docker0/veth/bridge/tun/wg 等**虚拟接口均没有**；
+    同为物理时 carrier up 优先、硬件槽位排序。全部无硬件背书（如无硬件
+    直通的容器内）退回"第一个非 lo"（旧行为兜底）。"""
+    candidates: list[Path] = []
+    fallback: Path | None = None
+    try:
+        entries = sorted(sys_net.iterdir())
+    except OSError:
+        return None
+    for p in entries:
+        # 注意：/sys/class/net 下混有普通文件（如 bonding_masters 控制文件，
+        # 模块加载即存在、字母序靠前）——只认目录
+        if p.name == "lo" or not p.is_dir():
+            continue
+        if fallback is None:
+            fallback = p
+        if (p / "device").exists():
+            candidates.append(p)
+    if candidates:
+        return sorted(candidates, key=_iface_rank)[0]
+    return fallback
+
+
+def _measure_mac() -> str:
+    """实测绑机网卡 MAC（XX-XX-...格式；失败返回空串）。
+
+    网卡目录由 ``LICENSE_SYS_NET_PATH`` 决定：手动部署读宿主
+    ``/sys/class/net``；Docker 部署 compose 把宿主该目录只读挂载到
+    ``/host-sys/class/net`` 并设此变量——两形态选到同一块物理网卡。
     """
-    import os
     import subprocess
     import sys
 
-    env_mac = os.environ.get("AGENT_FLOW_MAC", "").strip().upper().replace(":", "-")
-    if env_mac:
-        return env_mac
     try:
         if sys.platform.startswith("linux"):
-            out = subprocess.run(
-                ["cat", "/sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address"],
-                capture_output=True, text=True, timeout=5, shell=True,
-            ).stdout.strip()
-            # 格式化 AA:BB:CC → AA-BB-CC（与 Java 端格式一致）
-            return out.upper().replace(":", "-")
+            iface = _select_linux_iface(Path(settings.LICENSE_SYS_NET_PATH))
+            if iface is not None:
+                return (iface / "address").read_text().strip().upper().replace(":", "-")
         elif sys.platform == "darwin":
             out = subprocess.run(
                 ["ifconfig", "en0"],
@@ -184,7 +223,32 @@ def _read_primary_mac() -> str:
                     return mac.upper().replace(":", "-")
     except Exception:
         pass
-    return "00-00-00-00-00-00"
+    return ""
+
+
+def _read_primary_mac() -> str:
+    """绑机指纹信源（XX-XX-XX-XX-XX-XX，与 Java 端一致）。
+
+    实测优先（安全报告修复 4 v2）：手动部署读宿主物理网卡，Docker 部署
+    经只读挂载读宿主同一块物理网卡——两形态同源同值，不依赖启动方式。
+    ``AGENT_FLOW_MAC`` 降级为手动覆盖项（compose 不再注入）：
+    - 与实测一致 → 静默采信；
+    - 不一致 → 记结构化告警 ``license_mac_env_mismatch``（伪造指纹的
+      审计信号，缓存保证每进程仅一次）后按 ``LICENSE_TRUST_ENV_MAC``
+      决定采信——默认 true 保持兼容；
+    - 实测全失败 → 维持回退 ``00-00-00-00-00-00``。
+    """
+    env_mac = os.environ.get("AGENT_FLOW_MAC", "").strip().upper().replace(":", "-")
+    hw_mac = _measure_mac()
+    if env_mac:
+        if hw_mac and env_mac != hw_mac:
+            logger.warning(
+                "license_mac_env_mismatch local={} env={}", hw_mac, env_mac
+            )
+        if hw_mac and not settings.LICENSE_TRUST_ENV_MAC:
+            return hw_mac
+        return env_mac
+    return hw_mac or "00-00-00-00-00-00"
 
 
 # ── 文件路径 ────────────────────────────────────────────────────────────

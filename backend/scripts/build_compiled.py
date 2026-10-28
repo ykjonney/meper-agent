@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import re
 import shutil
 from pathlib import Path
@@ -112,6 +113,66 @@ def copy_tree_filtered(src: Path, dst: Path) -> None:
         shutil.copy2(p, target)
 
 
+# ── License 完整性链：占位符注入（安全报告修复 1+2）─────────────────────
+# 构建期先单独编译 app/core/license.py → strip 定稿 → 算产物 sha256 →
+# 替换进下列校验点源码的占位符，再编译其余模块。各校验点独立实现校验
+# 逻辑（不共享 verify 函数、判定输入不经任何 import）→ 攻击者需同时
+# 替换 license.so + N 个调用方 .so 中的校验代码（Cython 产物，无源码可
+# 对齐）；拦截 build_flags 只能骗 license 模块自身，骗不了校验点内联的
+# 强制真值。
+LICENSE_SO_SHA256_PLACEHOLDER = "__LICENSE_SO_SHA256__"
+LICENSE_ENFORCED_PLACEHOLDER = "__LICENSE_ENFORCED__"
+
+# 校验点（相对 app/ 的路径）——新增校验点必须同步在此登记。
+LICENSE_INTEGRITY_SENTINELS = (
+    "api/middleware/license_mw.py",
+    "workers/celery_app.py",
+    "engine/workflow/engine.py",
+)
+
+
+def inject_license_integrity_hash(staging_app: Path, sha256: str, enforce: bool) -> int:
+    """staging 内把校验点源文件的占位符替换为真实值。
+
+    - sha256：license 产物哈希（校验点的比对基准）
+    - enforce：构建期强制真值（"True"/"False" 字符串字面量）——校验点的
+      强制判定不经 import，报告路径 3（拦截 build_flags 翻转总开关）失效
+
+    返回替换数；某文件缺任一占位符即中止构建（静默跳过 = 校验点失效）。
+    """
+    replacements = (
+        (LICENSE_SO_SHA256_PLACEHOLDER, sha256),
+        (LICENSE_ENFORCED_PLACEHOLDER, "True" if enforce else "False"),
+    )
+    replaced = 0
+    for rel in LICENSE_INTEGRITY_SENTINELS:
+        py = staging_app / rel
+        text = py.read_text(encoding="utf-8")
+        for ph, val in replacements:
+            if ph not in text:
+                raise SystemExit(f"[!] license 完整性占位符缺失: {rel}（{ph}，构建中止）")
+            text = text.replace(ph, val)
+        py.write_text(text, encoding="utf-8")
+        replaced += 1
+    print(f"[+] license 完整性注入: {replaced} 个校验点（enforce={enforce}）")
+    return replaced
+
+
+def hash_license_artifact(staging_app: Path, pyc_fallback: bool) -> str:
+    """计算 license 模块产物的 sha256（strip/定稿之后调用）。"""
+    if pyc_fallback:
+        pycs = list((staging_app / "core" / "__pycache__").glob("license.*.pyc"))
+        if not pycs:
+            raise SystemExit("[!] license pyc 产物缺失（构建中止）")
+        target = pycs[0]
+    else:
+        so = _find_so(staging_app / "core" / "license.py")
+        if so is None:
+            raise SystemExit("[!] license .so 产物缺失（构建中止）")
+        target = so
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
 def inject_build_flags(staging: Path, enforce: bool) -> None:
     """注入强制开关（公钥/密钥已在 license.py 内嵌，无需外部注入）。"""
     bf = staging / "app" / "core" / "build_flags.py"
@@ -165,7 +226,18 @@ def main() -> None:
     if args.keep_pyc_fallback:
         import compileall
 
+        # 完整性链：先定稿 license.pyc → 算哈希注入校验点 → 再编其余。
+        license_py = staging_app / "core" / "license.py"
+        compileall.compile_file(str(license_py), quiet=2)
+        license_py.unlink()
+        inject_license_integrity_hash(
+            staging_app,
+            hash_license_artifact(staging_app, pyc_fallback=True),
+            enforce=args.release,
+        )
         for py in keep_py:
+            if not py.exists():
+                continue  # license 已在上方单独编译并删除
             compileall.compile_file(str(py), quiet=2)
             py.unlink()
         print("[!] .pyc 回退模式：产物为字节码（保护弱于 .so）")
@@ -173,21 +245,19 @@ def main() -> None:
         from Cython.Build import cythonize
         from setuptools import Extension, setup
 
-        targets = [
-            Extension(mod, [str(py)])
-            for mod, py in _prepare_and_collect(staging_app, staging_harness)
-        ]
+        all_pairs = _prepare_and_collect(staging_app, staging_harness)
+        license_pairs = [(m, p) for m, p in all_pairs if m == "app.core.license"]
+        rest_pairs = [(m, p) for m, p in all_pairs if m != "app.core.license"]
+
         # build_ext --inplace 按扩展名的点分路径相对 CWD 落盘 → chdir 到
         # 产物根（staging 树与包布局同构：app/... 与 agent_flow_harness/...）。
         import os
 
-        prev_cwd = os.getcwd()
-        os.chdir(out)
-        try:
+        def _compile(pairs) -> None:
             setup(
                 name="agent-flow-compiled",
                 ext_modules=cythonize(
-                    targets,
+                    [Extension(mod, [str(py)]) for mod, py in pairs],
                     compiler_directives={
                         "language_level": "3",
                         "binding": True,
@@ -205,25 +275,26 @@ def main() -> None:
                 ),
                 script_args=["build_ext", "--inplace"],
             )
+
+        prev_cwd = os.getcwd()
+        os.chdir(out)
+        try:
+            # 完整性链两段式：先编 license → 删源/清中间/strip 定稿 → 哈希
+            # 注入校验点 → 再编其余。strip 会改写 .so 字节，哈希必须对
+            # strip 后的交付字节计算。
+            _compile(license_pairs)
+            _remove_compiled_sources_and_strip(staging_app, staging_harness)
+            inject_license_integrity_hash(
+                staging_app,
+                hash_license_artifact(staging_app, pyc_fallback=False),
+                enforce=args.release,
+            )
+            _compile(rest_pairs)
         finally:
             os.chdir(prev_cwd)
 
-        # 3) 删除已编译模块的 .py（cli/数据文件天然保留）
-        removed = 0
-        for staging in (staging_app, staging_harness):
-            for py in iter_py_files(staging):
-                if _find_so(py) is not None:
-                    py.unlink()
-                    removed += 1
-        # 4) 清理构建中间产物（.c / build/ 目录不进安装包）
-        for staging in (staging_app, staging_harness):
-            for c in staging.rglob("*.c"):
-                c.unlink()
-        shutil.rmtree(out / "build", ignore_errors=True)
-        # strip：去 C 层 local symbols（实测符号减半、体积-8%；Python 层字符串不受影响）
-        import subprocess as _sp
-        for so in [*staging_app.rglob("*.so"), *staging_harness.rglob("*.so")]:
-            _sp.run(["strip", "-x", str(so)], check=False, capture_output=True)
+        # 3) 第二段收尾：删 .py + 清中间产物 + strip（幂等，license 已处理）
+        removed = _remove_compiled_sources_and_strip(staging_app, staging_harness)
         print(f"[+] 编译完成：{removed} 个模块 → .so；cli/ 与数据文件保留源码")
 
     # 4) 产物自检：无残留业务 .py（除白名单 cli/_cycompat）
@@ -254,6 +325,30 @@ def _collect_targets(staging_app: Path, staging_harness: Path):
         for py in iter_py_files(staging):
             rel = py.relative_to(staging).with_suffix("")
             yield f"{prefix}.{'.'.join(rel.parts)}", py
+
+
+def _remove_compiled_sources_and_strip(staging_app: Path, staging_harness: Path) -> int:
+    """删除已有对应 .so 的 .py 源、清 .c/build 中间产物、strip 全部 .so。
+
+    幂等：两段式编译在 license 段后与全量段后各调一次（第一段只有
+    license 有产物，只处理它）。strip 去掉 C 层 local symbols（实测符号
+    减半、体积-8%；Python 层字符串不受影响）。
+    """
+    removed = 0
+    for staging in (staging_app, staging_harness):
+        for py in iter_py_files(staging):
+            if _find_so(py) is not None:
+                py.unlink()
+                removed += 1
+    for staging in (staging_app, staging_harness):
+        for c in staging.rglob("*.c"):
+            c.unlink()
+    shutil.rmtree(staging_app.parent / "build", ignore_errors=True)
+    import subprocess as _sp
+
+    for so in [*staging_app.rglob("*.so"), *staging_harness.rglob("*.so")]:
+        _sp.run(["strip", "-x", str(so)], check=False, capture_output=True)
+    return removed
 
 
 def _find_so(py: Path) -> Path | None:
