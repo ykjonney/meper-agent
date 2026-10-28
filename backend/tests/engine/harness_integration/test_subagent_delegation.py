@@ -178,6 +178,76 @@ class TestBuildSubagentEnvironment:
         assert [d["name"] for d in decls] == ["dup"]
         assert len(errors) == 1
 
+    @pytest.mark.asyncio
+    async def test_subagent_tools_exclude_hitl_interrupt_tools(self) -> None:
+        """子 agent 无人值守语义：HITL interrupt 工具必须剥离。子图无
+        checkpointer，interrupt 即异常——chat 上下文强制开启的
+        ask_clarification 若不剥离，子 agent 一调委派就报错。"""
+        from app.engine.harness_integration.context import _build_subagent_environment
+
+        def _tool(name: str) -> MagicMock:
+            t = MagicMock()
+            t.name = name
+            return t
+
+        sub_tools = [
+            _tool("kb_search"),
+            _tool("ask_clarification"),
+            _tool("request_app_authorization"),
+        ]
+        with patch(
+            "app.engine.agent.slot_renderer.render_system_prompt_full",
+            new=AsyncMock(return_value="P"),
+        ), patch(
+            "app.engine.harness_integration.context.resolve_all_tools",
+            new=AsyncMock(return_value=(sub_tools, [])),
+        ), patch(
+            "app.engine.llm_factory.get_llm_client",
+            new=AsyncMock(return_value=object()),
+        ):
+            ctx, _decls, _errors = await _build_subagent_environment(
+                [{"agent_doc": _sub_doc("researcher"), "timeout_ms": 60_000}],
+                {},
+                "chat",  # chat 上下文才会强制注入 ask_clarification
+            )
+
+        assert ctx is not None
+        names = [
+            t.name for t in ctx.resolve_tools(ctx.registry.get("researcher"))
+        ]
+        assert "ask_clarification" not in names
+        assert "request_app_authorization" not in names
+        assert "kb_search" in names
+
+    @pytest.mark.asyncio
+    async def test_subagent_tool_load_errors_surface(self) -> None:
+        """子 agent 自身工具加载错误（MCP 不可达等）必须进 load_errors——
+        静默丢弃会让宿主看不见工具残缺，排查时无从下手。"""
+        from app.engine.harness_integration.context import _build_subagent_environment
+
+        fake_tool = MagicMock()
+        fake_tool.name = "kb_search"
+        tool_err = {"tool": "mcp:conn1", "error": "connection refused"}
+        with patch(
+            "app.engine.agent.slot_renderer.render_system_prompt_full",
+            new=AsyncMock(return_value="P"),
+        ), patch(
+            "app.engine.harness_integration.context.resolve_all_tools",
+            new=AsyncMock(return_value=([fake_tool], [tool_err])),
+        ), patch(
+            "app.engine.llm_factory.get_llm_client",
+            new=AsyncMock(return_value=object()),
+        ):
+            ctx, _decls, errors = await _build_subagent_environment(
+                [{"agent_doc": _sub_doc("researcher"), "timeout_ms": 60_000}],
+                {},
+                "workflow",
+            )
+
+        # 子 agent 装配成功（ctx 非 None），但工具加载错误必须上报
+        assert ctx is not None
+        assert any(e.get("error") == "connection refused" for e in errors)
+
 
 # ── usage merge ──
 

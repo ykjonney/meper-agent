@@ -54,17 +54,84 @@ class _WriteArgs(BaseModel):
     content: str = Field(..., description="文件内容")
 
 
+class _EditItem(BaseModel):
+    old_string: str = Field(..., description="要替换的原文本（必须在原始文件内容中唯一）")
+    new_string: str = Field(..., description="替换后的新文本")
+
+
 class _EditArgs(BaseModel):
     path: str = Field(
         ...,
         description="要编辑的文件路径。裸相对路径基于工作区 tmp/（不存在时回退查 "
         "output/）；output/ 前缀可编辑 write 产出的文件；input/ 为只读不可编辑",
     )
-    old_string: str = Field(..., description="要替换的原文本（必须在文件中唯一，除非 replace_all=true）")
-    new_string: str = Field(..., description="替换后的新文本")
+    old_string: str | None = Field(
+        None, description="单编辑模式：要替换的原文本（必须在文件中唯一，除非 replace_all=true）"
+    )
+    new_string: str | None = Field(None, description="单编辑模式：替换后的新文本")
     replace_all: bool = Field(
         False, description="替换所有匹配项。默认 false（要求 old_string 唯一）"
     )
+    edits: str | list[_EditItem] | _EditItem | None = Field(
+        None,
+        description=(
+            "批量编辑模式：对同一文件的多处修改优先在**一次调用**中用 edits 数组提交，"
+            "而不是发多次 edit 调用。每项 {old_string, new_string} 都基于原始文件内容匹配"
+            "（非增量），各项命中区间不得重叠/嵌套；相邻改动应合并为一项。"
+            "传入 JSON 字符串也可（会自动解析）"
+        ),
+    )
+
+
+def _normalize_edit_pairs(
+    old_string: str | None,
+    new_string: str | None,
+    edits: str | _EditItem | list[_EditItem] | dict[str, str] | list[dict[str, str]] | None,
+) -> list[tuple[str, str]]:
+    """归一化为 (old, new) 列表：兼容 edits 传 JSON 字符串/单对象（GLM 系模型
+    常见 quirk，pi 同款容错），并合并单编辑模式参数。"""
+    import json as _json
+
+    if isinstance(edits, str):
+        try:
+            parsed = _json.loads(edits)
+        except _json.JSONDecodeError as exc:
+            raise ToolException(f"edits is not valid JSON: {exc}") from exc
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            raise ToolException(
+                "edits must be an array of {old_string, new_string} objects."
+            )
+        edits = parsed
+    elif isinstance(edits, _EditItem):
+        edits = [edits]
+
+    pairs: list[tuple[str, str]] = []
+    for i, item in enumerate(edits or []):
+        if isinstance(item, dict):
+            d = item
+        elif isinstance(item, _EditItem):
+            d = item.model_dump()
+        else:
+            raise ToolException(
+                f"edits[{i}] invalid: expected object with old_string/new_string."
+            )
+        old, new = d.get("old_string"), d.get("new_string")
+        if not isinstance(old, str) or not isinstance(new, str):
+            raise ToolException(
+                f"edits[{i}] invalid: old_string and new_string are required strings."
+            )
+        pairs.append((old, new))
+    if old_string is not None or new_string is not None:
+        if not isinstance(old_string, str) or not isinstance(new_string, str):
+            raise ToolException("old_string and new_string must be provided together as strings.")
+        pairs.append((old_string, new_string))
+    if not pairs:
+        raise ToolException(
+            "edit requires either old_string+new_string or a non-empty edits array."
+        )
+    return pairs
 
 
 class _GlobArgs(BaseModel):
@@ -130,15 +197,29 @@ async def _write(path: str, content: str) -> str:
         raise ToolException(f"Error writing file: {exc}") from exc
 
 
-async def _edit(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
-    """就地编辑文件（字符串替换）。委托 sandbox.edit_file。"""
+async def _edit(
+    path: str,
+    old_string: str | None = None,
+    new_string: str | None = None,
+    replace_all: bool = False,
+    edits: str | list[_EditItem] | list[dict[str, str]] | dict[str, str] | None = None,
+) -> str:
+    """就地编辑文件（字符串替换，支持 edits 批量）。委托 sandbox.edit_file/edit_file_many。"""
     sandbox = _get_sandbox_safe()
     if sandbox is None:
         raise ToolException("Error: sandbox not initialized.")
     try:
+        pairs = _normalize_edit_pairs(old_string, new_string, edits)
+        if len(pairs) == 1:
+            # 单编辑走 edit_file：保持既有 mock 断言与 sandbox 契约不变
+            return await asyncio.to_thread(
+                sandbox.edit_file, path, pairs[0][0], pairs[0][1], replace_all=replace_all
+            )
         return await asyncio.to_thread(
-            sandbox.edit_file, path, old_string, new_string, replace_all=replace_all
+            sandbox.edit_file_many, path, pairs, replace_all=replace_all
         )
+    except ToolException:
+        raise
     except Exception as exc:
         raise ToolException(f"Error editing file: {exc}") from exc
 
@@ -186,7 +267,14 @@ write = StructuredTool.from_function(
 )
 edit = StructuredTool.from_function(
     _edit, name="edit",
-    description="就地编辑已有文件：将文件中 old_string 精确替换为 new_string。old_string 必须与文件内容完全一致（含空格缩进）且在文件中唯一；多处匹配时提供更长上下文或设 replace_all=true。生成新文件请用 write。write 产出的 output/ 文件同样可编辑（用裸文件名或 output/ 前缀）。",
+    description=(
+        "就地编辑已有文件：将文件中 old_string 精确替换为 new_string。对同一文件的"
+        "多处修改，务必在**一次调用**中用 edits 数组批量提交（每项基于原始文件内容"
+        "匹配、不得重叠），不要发多次 edit 调用。old_string 必须与文件内容完全一致"
+        "（含空格缩进，CRLF/BOM 会自动归一化处理）且在文件中唯一；多处匹配时提供更长"
+        "上下文或设 replace_all=true。生成新文件请用 write。write 产出的 output/ "
+        "文件同样可编辑（用裸文件名或 output/ 前缀）。"
+    ),
     args_schema=_EditArgs, coroutine=_edit,
 )
 glob = StructuredTool.from_function(

@@ -57,6 +57,13 @@ _RUN_CODE_EXCLUDED_TOOLS: frozenset[str] = frozenset({
     "bash", "read", "write", "edit", "glob", "grep",
 })
 
+# 子 agent 剥离的 HITL interrupt 工具——子 agent 是无人值守语义：子图即用
+# 即弃无 checkpointer，interrupt 即异常（chat 上下文强制开启的 ask_clarification
+# 不剥离则一委派就报错），且没有人能回答澄清/授权。
+_SUBAGENT_EXCLUDED_TOOLS: frozenset[str] = frozenset({
+    "ask_clarification", "confirm_workflow", "request_app_authorization",
+})
+
 # 计划模式(plan_mode)剥离的变更工具——边界语义是"不产生变更"而非"不执行"。
 # bash 保留(Claude Code 同例:计划期允许命令、只禁编辑):跑测试收集失败
 # 清单/git status 等探索性执行是调研的合法部分,且已被 Docker 沙盒隔离兜底;
@@ -657,7 +664,7 @@ async def _build_subagent_environment(
             system_prompt = await render_system_prompt_full(
                 doc, execution_context=execution_context,
             )
-            sub_tools, _tool_errors = await resolve_all_tools(
+            sub_tools, tool_errors = await resolve_all_tools(
                 doc,
                 user_id=state.get("user_id", ""),
                 session_id=state.get("session_id", ""),
@@ -665,6 +672,14 @@ async def _build_subagent_environment(
                 request_id=state.get("request_id", ""),
                 execution_context=execution_context,
             )
+            # 无人值守语义：剥离 HITL interrupt 工具（子图无 checkpointer，
+            # interrupt 即异常）。
+            sub_tools = [
+                t for t in sub_tools
+                if getattr(t, "name", "") not in _SUBAGENT_EXCLUDED_TOOLS
+            ]
+            # 工具加载错误上报宿主 load_errors——静默丢弃会让工具残缺不可观测。
+            errors.extend(tool_errors)
             sub_llm = await get_llm_client(doc)
         except Exception as exc:  # 单个子 agent 失败降级，不炸节点
             errors.append({

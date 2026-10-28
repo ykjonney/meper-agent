@@ -144,6 +144,78 @@ def test_edit_file_large_file_not_truncated(tmp_path):
     assert len(content) == len(body)
 
 
+# ── 匹配加固：CRLF / BOM / 批量 ───────────────────────────────────────
+
+
+def test_edit_file_crlf_line_endings(tmp_path):
+    """CRLF 文件用 LF 风格 old_string 可命中，写回保持 CRLF。"""
+    (tmp_path / "win.md").write_bytes(b"# title\r\nbody text\r\n")
+    sb = _make_sandbox(tmp_path)
+    msg = sb.edit_file("win.md", "# title\nbody", "# TITLE\nbody")
+    assert "Successfully edited" in msg
+    data = (tmp_path / "win.md").read_bytes()
+    assert data == b"# TITLE\r\nbody text\r\n"
+
+
+def test_edit_file_bom_preserved(tmp_path):
+    """带 BOM 文件：无 BOM 的 old_string 可命中，BOM 保留。"""
+    (tmp_path / "bom.md").write_bytes(b"\xef\xbb\xbf# title\n")
+    sb = _make_sandbox(tmp_path)
+    sb.edit_file("bom.md", "# title", "# TITLE")
+    data = (tmp_path / "bom.md").read_bytes()
+    assert data == b"\xef\xbb\xbf# TITLE\n"
+
+
+def test_edit_file_many_batch(tmp_path):
+    """批量编辑：多条替换一次落盘，成功消息带 edits 计数。"""
+    (tmp_path / "doc.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    sb = _make_sandbox(tmp_path)
+    msg = sb.edit_file_many("doc.md", [("one", "1"), ("three", "3")])
+    assert msg == "Successfully edited 'doc.md' (2 replacements across 2 edits)."
+    assert (tmp_path / "doc.md").read_text(encoding="utf-8") == "1\ntwo\n3\n"
+
+
+def test_edit_file_many_overlap_rejected(tmp_path):
+    """批量编辑区间重叠 → ValueError，文件不被改动。"""
+    (tmp_path / "doc.md").write_text("hello world\n", encoding="utf-8")
+    sb = _make_sandbox(tmp_path)
+    with pytest.raises(ValueError, match="overlaps edits"):
+        sb.edit_file_many("doc.md", [("hello", "HI"), ("hello world", "X")])
+    assert (tmp_path / "doc.md").read_text(encoding="utf-8") == "hello world\n"
+
+
+def test_edit_file_many_not_found_index(tmp_path):
+    """批量中某条未命中 → 带 edits[i] 前缀的错误。"""
+    (tmp_path / "doc.md").write_text("a\nb\n", encoding="utf-8")
+    sb = _make_sandbox(tmp_path)
+    with pytest.raises(ValueError, match=r"^edits\[1\]: old_string not found"):
+        sb.edit_file_many("doc.md", [("a", "A"), ("missing", "M")])
+
+
+def test_concurrent_edit_same_file_serialized(tmp_path):
+    """同文件并发 edit_file_many 全部成功且互不覆盖（回归：个人博客会话
+    13 连发 edit 竞态）。"""
+    import concurrent.futures
+
+    # 两位数字编号防子串碰撞（"line-1" 会命中 "line-10" 的子串）
+    (tmp_path / "doc.md").write_text(
+        "".join(f"line-{i:02d}\n" for i in range(13)), encoding="utf-8"
+    )
+    sb = _make_sandbox(tmp_path)
+
+    def apply_one(i: int) -> str:
+        return sb.edit_file("doc.md", f"line-{i:02d}", f"EDITED-{i:02d}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=13) as pool:
+        results = list(pool.map(apply_one, range(13)))
+
+    assert all("Successfully edited" in r for r in results)
+    content = (tmp_path / "doc.md").read_text(encoding="utf-8")
+    for i in range(13):
+        assert f"EDITED-{i:02d}\n" in content
+    assert "line-" not in content
+
+
 def test_glob_matches(tmp_path):
     (tmp_path / "a.py").write_text("")
     (tmp_path / "b.py").write_text("")

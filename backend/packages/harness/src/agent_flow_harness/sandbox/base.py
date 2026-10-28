@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -60,7 +61,6 @@ class Sandbox(ABC):
         """写文件到 output 目录（用户可见/可下载）。"""
         ...
 
-    @abstractmethod
     def edit_file(
         self,
         path: str,
@@ -69,10 +69,28 @@ class Sandbox(ABC):
         *,
         replace_all: bool = False,
     ) -> str:
-        """就地编辑 work_dir 内文件（字符串替换）。
+        """就地编辑 work_dir 内文件（单条字符串替换）。
 
         old_string 在文件中必须唯一（replace_all=False 时），否则抛
         ValueError 说明匹配次数；未匹配抛 ValueError。返回成功消息。
+        具体语义（BOM/行尾归一化、快照匹配）见 edit_ops.apply_edits，
+        由 edit_file_many 统一实现。
+        """
+        return self.edit_file_many(path, [(old_string, new_string)], replace_all=replace_all)
+
+    @abstractmethod
+    def edit_file_many(
+        self,
+        path: str,
+        edits: Sequence[tuple[str, str]],
+        *,
+        replace_all: bool = False,
+    ) -> str:
+        """就地编辑 work_dir 内文件（批量字符串替换）。
+
+        每条 (old_string, new_string) 都基于同一份原始内容快照匹配
+        （非增量），多条编辑的命中区间不得重叠。单项编辑的错误文案与
+        历史 edit_file 逐字一致；多条带 edits[i] 前缀。返回成功消息。
         """
         ...
 

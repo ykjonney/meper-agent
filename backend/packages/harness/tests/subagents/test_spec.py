@@ -55,3 +55,11 @@ def test_spec_tools_can_be_empty_list():
     """子 agent 可以没有任何工具（纯推理）。"""
     spec = SubAgentSpec(**_valid_kwargs(tools=[]))
     assert spec.tools == []
+
+
+def test_spec_timeout_upper_bound_10min():
+    """timeout_ms 上限 600s：超时阻塞在父 REACT 一轮里，过长配置会卡死
+    父 agent（SSE 已断而 token 持续燃烧），必须封顶。"""
+    assert SubAgentSpec(**_valid_kwargs(timeout_ms=600_000)).timeout_ms == 600_000
+    with pytest.raises(ValidationError):
+        SubAgentSpec(**_valid_kwargs(timeout_ms=600_001))

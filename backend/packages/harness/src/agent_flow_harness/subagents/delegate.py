@@ -147,13 +147,19 @@ async def _delegate_to_subagent(subagent_name: str, task: str) -> str:
         graph = build_agent_graph(_DELEGATE_AGENT_DOC, tools=tools)
         usage_mw = UsageMiddleware()
         config = build_config(
-            _DELEGATE_AGENT_DOC, llm, tools=tools, recursion_limit=spec.max_turns,
+            _DELEGATE_AGENT_DOC, llm, tools=tools,
+            # LangGraph recursion_limit 计 super-steps（REACT 一轮 = llm+tool
+            # 两步），直接透传 max_turns 只允许约一半轮数——×2+1 对齐语义。
+            recursion_limit=spec.max_turns * 2 + 1,
             middlewares=[usage_mw],
         )
         # 打 subagent tag：嵌套子图的 LLM/工具事件会经 contextvar 回调冒泡进
         # 父图 astream_events，app 层适配器 stream_events_to_app_events 按此
         # tag 过滤（游离 text/thinking 与无法配对的 tool_result 不进父对话流）。
         config["tags"] = [*config.get("tags", []), "subagent"]
+        # 子图共用硬编码 agent_doc（name="subagent"），运行中事件流只能靠
+        # metadata 区分具体是哪个子 agent（trace 是事后审计，不解决实时观测）。
+        config.setdefault("metadata", {})["subagent"] = subagent_name
         result_state = await asyncio.wait_for(
             graph.ainvoke(state, config=config),  # type: ignore[call-overload]
             timeout=spec.timeout_ms / 1000,

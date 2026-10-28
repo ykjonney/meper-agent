@@ -14,8 +14,11 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from collections.abc import Sequence
 
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
+from agent_flow_harness.sandbox.edit_ops import apply_edits
+from agent_flow_harness.sandbox.file_lock import file_mutation_lock
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -109,51 +112,42 @@ class LocalSandbox(Sandbox):
         return self._truncate(content)
 
     def write_file(self, path: str, content: str) -> None:
-        """写文件到 output 目录（用户可见/可下载）。"""
+        """写文件到 output 目录（用户可见/可下载）。同文件并发经互斥锁串行。"""
         resolved = self._safe_resolve_output(path)
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+        with file_mutation_lock(resolved):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
 
-    def edit_file(
+    def edit_file_many(
         self,
         path: str,
-        old_string: str,
-        new_string: str,
+        edits: Sequence[tuple[str, str]],
         *,
         replace_all: bool = False,
     ) -> str:
-        """就地编辑工作区内文件：读全文（不截断）→ 唯一性校验 → 替换写回。"""
+        """就地编辑工作区内文件：互斥锁内 读全文（不截断）→ 快照匹配 → 替换写回。
+
+        ToolNode 对同一消息的多个 tool_call 并发执行，锁保证同文件的
+        读→改→写 临界区串行（否则丢更新/匹配错乱/尾部交错损坏）。
+        匹配语义（BOM/行尾归一化、重叠校验）统一在 edit_ops.apply_edits。
+        """
         resolved = self._with_output_fallback(
             self._safe_resolve(path, for_write=False), path
         )
         self._reject_input_write(resolved, path)
-        if not resolved.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-        content = resolved.read_text(encoding="utf-8", errors="replace")
-
-        count = content.count(old_string)
-        if count == 0:
-            raise ValueError(
-                f"old_string not found in '{path}'. "
-                "Read the file again and retry with an exact match (including whitespace)."
+        with file_mutation_lock(resolved):
+            if not resolved.exists():
+                raise FileNotFoundError(f"File not found: {path}")
+            # newline=""：关闭 universal newlines 翻译，保留原始 \r\n（否则
+            # 读入已被翻成 \n，行尾归一化检测失效、写回会把整个文件转成 LF）
+            with resolved.open("r", encoding="utf-8", errors="replace", newline="") as f:
+                content = f.read()
+            new_content, message = apply_edits(
+                content, edits, path=path, replace_all=replace_all
             )
-        if count > 1 and not replace_all:
-            raise ValueError(
-                f"old_string appears {count} times in '{path}'. "
-                "Provide a longer, more unique old_string, or set replace_all=true."
-            )
-
-        new_content = (
-            content.replace(old_string, new_string)
-            if replace_all
-            else content.replace(old_string, new_string, 1)
-        )
-        resolved.write_text(new_content, encoding="utf-8")
-        occurrences = count if replace_all else 1
-        return (
-            f"Successfully edited '{path}' "
-            f"({occurrences} replacement{'s' if occurrences > 1 else ''})."
-        )
+            with resolved.open("w", encoding="utf-8", newline="") as f:
+                f.write(new_content)
+        return message
 
     def glob(self, path: str, pattern: str) -> list[str]:
         base = self._safe_resolve(path, for_write=False)

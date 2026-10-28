@@ -464,3 +464,76 @@ def test_delegation_traces_cap():
         ctx.record_delegation({"subagent": f"a{i}", "task": "t", "status": "ok"})
     assert len(ctx.delegation_traces) == ctx._DELEGATION_TRACES_CAP
     assert ctx.delegation_traces[0]["subagent"] == f"a{20}"  # 最旧被丢
+
+
+# --- recursion_limit / metadata 语义修正 ---
+
+
+@pytest.mark.asyncio
+async def test_delegate_recursion_limit_maps_max_turns(monkeypatch):
+    """recursion_limit = max_turns*2+1：LangGraph 的 recursion_limit 计的是
+    super-steps，REACT 一轮 = llm_node + tool_node 两步。直接透传 max_turns
+    只允许约一半轮数，与 spec「REACT 最大迭代数」语义不符。"""
+    ctx = _setup_context_with_mock_subagent()
+    captured: dict = {}
+
+    def _capture_config(*a, **kw):
+        captured["recursion_limit"] = kw.get("recursion_limit")
+        return {"configurable": {}}
+
+    fake_graph = MagicMock()
+
+    async def _ok(state, config=None):
+        return {"messages": [AIMessage(content="ok")]}
+
+    fake_graph.ainvoke = _ok
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        lambda agent_doc, **kw: fake_graph,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config", _capture_config,
+    )
+    token = set_subagent_context(ctx)
+    try:
+        await delegate_to_subagent.ainvoke(
+            {"subagent_name": "coder", "task": "x"}
+        )
+        # spec 默认 max_turns=25 → recursion_limit 应为 51 而非 25
+        assert captured["recursion_limit"] == 25 * 2 + 1
+    finally:
+        reset_subagent_context(token)
+
+
+@pytest.mark.asyncio
+async def test_delegate_metadata_records_subagent_name(monkeypatch):
+    """metadata.subagent 记录子 agent 真名：所有子图共用硬编码
+    _DELEGATE_AGENT_DOC（name="subagent"），运行中事件流只能靠 metadata
+    区分是哪个子 agent 在跑。"""
+    ctx = _setup_context_with_mock_subagent()
+    captured: dict = {}
+
+    async def _fake_ainvoke(state, config=None):
+        captured["config"] = config
+        return {"messages": [AIMessage(content="ok")]}
+
+    fake_graph = MagicMock()
+    fake_graph.ainvoke = _fake_ainvoke
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_agent_graph",
+        lambda agent_doc, **kw: fake_graph,
+    )
+    monkeypatch.setattr(
+        "agent_flow_harness.subagents.delegate.build_config",
+        lambda *a, **kw: {"configurable": {}, "metadata": {"keep": 1}},
+    )
+    token = set_subagent_context(ctx)
+    try:
+        await delegate_to_subagent.ainvoke(
+            {"subagent_name": "coder", "task": "x"}
+        )
+        metadata = captured["config"]["metadata"]
+        assert metadata["subagent"] == "coder"
+        assert metadata["keep"] == 1  # 原有 metadata 不丢失
+    finally:
+        reset_subagent_context(token)

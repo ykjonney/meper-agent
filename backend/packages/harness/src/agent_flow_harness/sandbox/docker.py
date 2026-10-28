@@ -33,13 +33,15 @@ import re
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 import structlog
 
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
+from agent_flow_harness.sandbox.edit_ops import apply_edits
+from agent_flow_harness.sandbox.file_lock import file_mutation_lock
 
 logger = structlog.get_logger(__name__)
 
@@ -702,51 +704,41 @@ class DockerSandbox(Sandbox):
         return self._truncate(content)
 
     def write_file(self, path: str, content: str) -> None:
-        """写文件到 output 目录（用户可见/可下载）。"""
+        """写文件到 output 目录（用户可见/可下载）。同文件并发经互斥锁串行。"""
         resolved = self._safe_resolve_output(path)
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+        with file_mutation_lock(resolved):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
 
-    def edit_file(
+    def edit_file_many(
         self,
         path: str,
-        old_string: str,
-        new_string: str,
+        edits: Sequence[tuple[str, str]],
         *,
         replace_all: bool = False,
     ) -> str:
-        """就地编辑工作区内文件（宿主机挂载目录，容器内产物可直接编辑）。"""
+        """就地编辑工作区内文件（宿主机挂载目录，容器内产物可直接编辑）。
+
+        互斥锁内 读全文 → 快照匹配 → 替换写回，语义与 LocalSandbox 相同
+        （见 edit_ops.apply_edits）。
+        """
         resolved = self._with_output_fallback(
             self._safe_resolve(path, for_write=False), path
         )
         self._reject_input_write(resolved, path)
-        if not resolved.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-        content = resolved.read_text(encoding="utf-8", errors="replace")
-
-        count = content.count(old_string)
-        if count == 0:
-            raise ValueError(
-                f"old_string not found in '{path}'. "
-                "Read the file again and retry with an exact match (including whitespace)."
+        with file_mutation_lock(resolved):
+            if not resolved.exists():
+                raise FileNotFoundError(f"File not found: {path}")
+            # newline=""：关闭 universal newlines 翻译，保留原始 \r\n（与
+            # LocalSandbox.edit_file_many 一致）
+            with resolved.open("r", encoding="utf-8", errors="replace", newline="") as f:
+                content = f.read()
+            new_content, message = apply_edits(
+                content, edits, path=path, replace_all=replace_all
             )
-        if count > 1 and not replace_all:
-            raise ValueError(
-                f"old_string appears {count} times in '{path}'. "
-                "Provide a longer, more unique old_string, or set replace_all=true."
-            )
-
-        new_content = (
-            content.replace(old_string, new_string)
-            if replace_all
-            else content.replace(old_string, new_string, 1)
-        )
-        resolved.write_text(new_content, encoding="utf-8")
-        occurrences = count if replace_all else 1
-        return (
-            f"Successfully edited '{path}' "
-            f"({occurrences} replacement{'s' if occurrences > 1 else ''})."
-        )
+            with resolved.open("w", encoding="utf-8", newline="") as f:
+                f.write(new_content)
+        return message
 
     def glob(self, path: str, pattern: str) -> list[str]:
         base = self._safe_resolve(path, for_write=False)

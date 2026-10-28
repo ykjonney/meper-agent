@@ -139,6 +139,83 @@ async def test_edit_exception_isolated():
 
 
 @pytest.mark.asyncio
+async def test_edit_batch_delegates_to_edit_file_many():
+    """edits[] 批量 → 委托 sandbox.edit_file_many（快照匹配由 sandbox 层负责）。"""
+    sb = _mock_sandbox()
+    sb.edit_file_many.return_value = "Successfully edited 'app.py' (2 replacements across 2 edits)."
+    token = _set_ctx(sb)
+    try:
+        result = await edit.ainvoke({
+            "path": "app.py",
+            "edits": [
+                {"old_string": "a", "new_string": "A"},
+                {"old_string": "b", "new_string": "B"},
+            ],
+        })
+        assert "2 replacements across 2 edits" in result
+        sb.edit_file_many.assert_called_once_with(
+            "app.py", [("a", "A"), ("b", "B")], replace_all=False
+        )
+        sb.edit_file.assert_not_called()
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_edit_batch_json_string_tolerated():
+    """GLM 系 quirk：edits 传 JSON 字符串 → 自动解析（pi 同款容错）。"""
+    import json
+
+    sb = _mock_sandbox()
+    sb.edit_file_many.return_value = "ok"
+    token = _set_ctx(sb)
+    try:
+        await edit.ainvoke({
+            "path": "app.py",
+            "edits": json.dumps([
+                {"old_string": "a", "new_string": "A"},
+                {"old_string": "b", "new_string": "B"},
+            ]),
+        })
+        sb.edit_file_many.assert_called_once_with(
+            "app.py", [("a", "A"), ("b", "B")], replace_all=False
+        )
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_edit_merges_legacy_single_with_edits():
+    """old_string/new_string 与 edits[] 同时提供 → 合并（pi 同款语义）。"""
+    sb = _mock_sandbox()
+    sb.edit_file_many.return_value = "ok"
+    token = _set_ctx(sb)
+    try:
+        await edit.ainvoke({
+            "path": "app.py",
+            "old_string": "c", "new_string": "C",
+            "edits": [{"old_string": "a", "new_string": "A"}],
+        })
+        sb.edit_file_many.assert_called_once_with(
+            "app.py", [("a", "A"), ("c", "C")], replace_all=False
+        )
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_edit_requires_old_new_or_edits():
+    """两者都缺 → ToolException 引导模型修正入参。"""
+    sb = _mock_sandbox()
+    token = _set_ctx(sb)
+    try:
+        with pytest.raises(ToolException, match="old_string\\+new_string or a non-empty edits"):
+            await edit.ainvoke({"path": "app.py"})
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
 async def test_glob_delegates():
     sb = _mock_sandbox()
     token = _set_ctx(sb)
