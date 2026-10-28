@@ -11,11 +11,27 @@
 > **B ↔ C 切换零迁移**：`$AF_DATA_DIR` 是 B/C 共用的数据根目录（默认 `./data`），B 写进 `data/{mongodb,redis,qdrant}` 与 C 完全相同。
 > **A → B/C**：需 `mongodump` / `mongorestore` + Qdrant snapshot 导入（不在本指南范围）。
 
-## 前提条件
+## 硬件与系统要求
+
+| 项目 | 最低 | 推荐 | 说明 |
+|---|---|---|---|
+| CPU 指令集 | x86-64 基线 | **支持 AVX**（Intel/AMD 2011+） | AVX 是 MongoDB 5.0+ 硬性要求（无 AVX 启动即崩，需降级 `MONGO_IMAGE=mongo:4.4`） |
+| CPU 核心 | 4 核 | 8 核+ | app/worker/beat + mongo/redis/qdrant/caddy 七进程，工作流并发执行 |
+| 内存 | **8 GB** | **16 GB+** | 文档解析/OCR 内存尖峰、多 worker 并发、向量检索缓存；知识库越多要求越高 |
+| 磁盘 | **50 GB** | **200 GB+ SSD** | 镜像+依赖约 10G；会话数据、知识库向量、工作区文件持续增长 |
+| 操作系统 | Linux x86_64，内核 3.10+ | Ubuntu 22.04/24.04、Debian 12、RHEL 9 | |
+| glibc（仅手动部署） | ≥ 2.36 | — | `.so` 依赖 Debian 12 级 glibc；Docker 部署不受限 |
+| 网络 | 80/443 放行 | 出网畅通 | 离线部署用 docker load + setup --offline |
+
+CPU 世代速查：Intel 2011 年前（Nehalem/Westmere，如 E5540）与 AMD 2011 年前无 AVX，
+只能降级 MongoDB 4.4 或换机；2011+ 全部满足。
+
+---
+
+## 软件前提条件
 
 | 项 | 要求 | 模式 |
 |---|---|---|
-| 操作系统 | Linux x86_64（包文件名标明平台，请对应） | A/B/C |
 | Python | **3.12**（应用为 cp3.12 二进制，其他版本无法加载） | A/B |
 | Docker | （B 起 DB 容器 / C 起全部容器） | B/C |
 | MongoDB 7.0+ / Redis 7+ / Qdrant 1.10+ | A 自备；B/C 在 compose 内 | A |
@@ -53,8 +69,8 @@ unzip agent-flow-<版本>-linux-x86_64.zip && cd agent-flow
 ```bash
 ./agent-flow start                 # 浏览器 http://<服务器IP>:8000/ 出现激活向导
 ./agent-flow fingerprint           # 指纹发给供应商
-./agent-flow license install <供应商回发的 license.key>
-./agent-flow create-admin --username admin --password '强密码' --email a@b.c
+./agent-flow license install <供应商回发的 jasper.identity>
+./agent-flow create-admin --username admin --password '强密码' --email admin@example.com
 ```
 
 DB 连不通时 uvicorn 会直接报错退出（不会"贴心"重试）。
@@ -115,8 +131,10 @@ AF_DATA_DIR=
 ./agent-flow start --docker
 ```
 
-自动完成：构建应用镜像（首次约 2-3 分钟，之后有缓存）→ 连接串适配容器模式
-（`127.0.0.1` → 容器服务名 + 补内置数据库默认凭据）→ 启动全部容器。
+自动完成：连接串适配容器模式（`127.0.0.1` → 容器服务名 + 补内置数据库默认凭据）→ 启动全部容器。
+镜像策略：本地无 `agent-flow-app` 镜像时自动构建（需网络）；**已有镜像直接用**——
+离线服务器把厂商提供的镜像 tar 包 `docker load` 导入后即可启动；
+升级/改代码后强制重建用 `./agent-flow start --docker --build`。
 内置数据库默认密码 `changeme`（在 `etc/agent-flow.env` 改，需同步 `MONGODB_URI`）。
 
 如需使用外部数据库（非内置容器），先手动修改 `etc/agent-flow.env` 连接串再重新启动。
@@ -148,7 +166,7 @@ caddy 把前端和 API 收口在 :80（标准 HTTP 端口）。
 
 ### 3. 创建管理员
 ```bash
-./agent-flow create-admin --docker --username admin --password '强密码' --email a@b.c
+./agent-flow create-admin --docker --username admin --password '强密码' --email admin@example.com
 ```
 
 ### 常用命令

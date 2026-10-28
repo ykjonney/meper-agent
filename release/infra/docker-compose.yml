@@ -11,7 +11,7 @@
 #   AF_DATA_DIR               数据根目录（启动器固定为包内 data/，bind mount）
 services:
   mongodb:
-    image: mongo:7.0
+    image: ${MONGO_IMAGE:-mongo:7.0}
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}

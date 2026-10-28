@@ -137,7 +137,9 @@ QDRANT_URL=http://127.0.0.1:6333
 APP_ENV=production
 AF_BACKEND_PORT=8000
 JWT_SECRET_KEY=dev-only-not-for-production-replace-me
-MODEL_ENCRYPTION_KEY=VTVtOuThL1tcQxxrNPkhtlVvrkiDutEiGt+Hje1/Clk=
+# 必须与 env.template 同值——env.template 丢失走兜底时，同一 data/ 的
+# 已加密模型 API Key 才能继续解密。
+MODEL_ENCRYPTION_KEY=Tc2zTINsCn0r1B1vQMgGiXvYmmSow5GnoHb5ySc0FMQ=
 AF_DATA_DIR=$AF_DATA_DIR
 WORKSPACES_HOST_DIR=$AF_DATA_DIR/workspaces
 SKILLS_HOST_DIR=$AF_DATA_DIR/skills
@@ -234,24 +236,86 @@ $(printf '  ✗ %s\n' "${failed[@]}")
   fi
 }
 
+# compose 命令选择：v2 插件（docker compose）优先，回退 v1 独立命令
+# （docker-compose，python 1.27+，已 EOL 但离线客户机常见）。本包两个
+# compose 文件均为 spec 格式 + x- 锚点 + 简单 depends_on——v1.27+ 全兼容；
+# 唯一差异是 v1 无 up --wait，调用点自行分支（wait_port 兜底）。
+# 传 quiet 时缺失不 die（返回 1）——部署形态探测用；v1 提示只打一次。
+COMPOSE_CMD=(docker compose)
+COMPOSE_IS_V2=1
+_COMPOSE_WARNED=0
+select_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose); COMPOSE_IS_V2=1; return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose); COMPOSE_IS_V2=0
+    if [ "$_COMPOSE_WARNED" = 0 ] && [ "${1:-}" != quiet ]; then
+      _COMPOSE_WARNED=1
+      warn "使用 docker-compose v1（已 EOL，功能可用；有条件建议安装 compose v2 插件：
+  Ubuntu/Debian:  sudo apt-get update && sudo apt-get install -y docker-compose-v2
+  Docker 官方源:  sudo apt-get install -y docker-compose-plugin）"
+    fi
+    return 0
+  fi
+  [ "${1:-}" = quiet ] && return 1
+  die "未找到 compose（v1/v2 皆无），任选其一安装：
+  v2 插件（推荐）:  sudo apt-get install -y docker-compose-v2   # Ubuntu 24.04+
+             或:    sudo apt-get install -y docker-compose-plugin # Docker 官方源
+  离线环境:        用老系统的 docker-compose v1 亦可满足本包兼容性"
+}
+
+# Docker 部署探测（upgrade/status 自动识别；compose 缺失视为非容器部署）
+docker_containers_running() {
+  command -v docker >/dev/null 2>&1 && [ -f "$BASE/docker-compose.yml" ] \
+    && select_compose quiet \
+    && { if [ "$COMPOSE_IS_V2" = 1 ]; then
+           [ -n "$("${COMPOSE_CMD[@]}" -f "$BASE/docker-compose.yml" --project-name agent-flow \
+                     --env-file "$ENV_FILE" ps -q app 2>/dev/null)" ]
+         else
+           ( set -a; [ -f "$ENV_FILE" ] && . "$ENV_FILE"; set +a
+             [ -n "$("${COMPOSE_CMD[@]}" -f "$BASE/docker-compose.yml" --project-name agent-flow \
+                       ps -q app 2>/dev/null)" ] )
+         fi; }
+}
+
+
 infra_compose() {
   command -v docker >/dev/null || die "--with-infra 需要 Docker；或去掉该参数使用外接数据库"
+  select_compose
   [ -f "$BASE/infra/docker-compose.yml" ] || die "分发包缺少 infra/（内置数据库组件）"
-  docker compose -f "$BASE/infra/docker-compose.yml" --project-name agent-flow-infra "$@"
+  "${COMPOSE_CMD[@]}" -f "$BASE/infra/docker-compose.yml" --project-name agent-flow-infra "$@"
 }
 
 # ── Docker 模式（--docker）：compose 承载全部服务，宿主只做管理 ─────────
 dcompose() {
   command -v docker >/dev/null || die "--docker 需要 Docker"
+  select_compose
   [ -f "$BASE/docker-compose.yml" ] || die "包内缺少 docker-compose.yml / Dockerfile（Docker 部署组件）"
-  # --env-file：compose 插值（MONGO_ROOT_PASSWORD/AF_DATA_DIR 等 ${...}）从 env 文件读；
-  # env_file 段只注入容器环境，不参与插值——双保险，不依赖 load_env 的 shell 导出
-  docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
-    --env-file "$ENV_FILE" "$@"
+  # 插值变量注入见 _compose_interp_env：v2 --env-file / v1 shell 导出
+  # （env_file 段只注入容器环境，不参与插值）
+  if [ "$COMPOSE_IS_V2" = 1 ]; then
+    "${COMPOSE_CMD[@]}" -f "$BASE/docker-compose.yml" --project-name agent-flow \
+      --env-file "$ENV_FILE" "$@"
+  else
+    set -a; [ -f "$ENV_FILE" ] && . "$ENV_FILE"; set +a
+    "${COMPOSE_CMD[@]}" -f "$BASE/docker-compose.yml" --project-name agent-flow "$@"
+  fi
 }
 
 dstart() {
-  say "Docker 模式启动（首次自动构建镜像，需几分钟）…"
+  # 镜像已存在（docker load 导入或之前构建过）→ 直接用，不构建；
+  # 仅镜像缺失或显式 --build 时构建（离线服务器 docker load 导入镜像即可启动）
+  local build_flag=() img="agent-flow-app:${APP_VERSION:-latest}"
+  if [ "${1:-}" = "--build" ]; then
+    build_flag=(--build); shift
+    say "重建镜像 ${img}（--build）…"
+  elif ! docker image inspect "$img" >/dev/null 2>&1; then
+    build_flag=(--build)
+    say "镜像 ${img} 不存在，自动构建（需几分钟；离线环境可先 docker load 导入）…"
+  else
+    say "使用已有镜像 ${img}（强制重建: start --docker --build）"
+  fi
   # 容器模式下占位符不可用（容器内进程不会解析 __AF_DATA_DIR__）
   # → 替换占位符并把结果写回 env 文件（客户看到的是绝对路径，直接可改）
   # Docker 模式内置 mongo 容器 → 连接串同步默认凭据（见 sync_mongo_auth）
@@ -276,19 +340,10 @@ dstart() {
   [ "$_changed" = 1 ] && say "连接串已适配容器模式（已写回 etc/agent-flow.env）"
   load_env   # 重新加载改写后的值
   ensure_data_dirs
-  # 宿主真实网卡 MAC 注入容器（license 绑机）：容器内是 veth 随机 MAC，
-  # 不注入则 MAC 校验必然失败。取第一个非 lo 接口（与 license.py 宿主逻辑一致）
-  local _if
-  if [ "$(uname -s)" = Darwin ]; then
-    # 本机测试用（正式部署在 Linux）：en0 ether
-    HOST_MAC="$(ifconfig en0 2>/dev/null | awk '/ether/{print $2}' | tr a-f A-F | tr ':' '-')" || true
-  else
-    _if="$(ls /sys/class/net 2>/dev/null | grep -v '^lo' | head -1 || true)"
-    [ -n "$_if" ] && [ -r "/sys/class/net/$_if/address" ] \
-      && HOST_MAC="$(tr -d '[:space:]' < "/sys/class/net/$_if/address" | tr a-f A-F | tr ':' '-')"
-  fi
-  [ -n "${HOST_MAC:-}" ] && export HOST_MAC
-  dcompose up -d --build
+  # license 绑机指纹：compose 把宿主 /sys/class/net 只读挂载进容器，
+  # license.py 按"物理网卡优先"实测——与手动部署同源同值，无需注入。
+  # （AGENT_FLOW_MAC 已退役为手动覆盖项，设错会留 mismatch 审计日志）
+  dcompose up -d "${build_flag[@]}"
   say "访问 http://<服务器IP>/（80 端口，caddy 收口）"
 }
 
@@ -374,9 +429,16 @@ cmd_start() {
     : "${AF_DATA_DIR:=$BASE/data}"
     export AF_DATA_DIR
     say "启动内置数据库容器（数据目录: ${AF_DATA_DIR}）…"
-    # --wait 让 compose 等 mongo/redis healthcheck 通过再返回；
-    # qdrant 无 healthcheck，由应用首次连接时自愈重试。
-    infra_compose up -d --wait
+    # compose v2 的 --wait 等容器 running（infra 容器无 healthcheck 定义）；
+    # v1 无 --wait → up 后用 wait_port 等数据库端口（qdrant 无端口等待，
+    # 由应用首次连接时自愈重试）。
+    if [ "$COMPOSE_IS_V2" = 1 ]; then
+      infra_compose up -d --wait
+    else
+      infra_compose up -d
+      wait_port 127.0.0.1 27017 mongodb
+      wait_port 127.0.0.1 6379  redis
+    fi
   else
     db_check    # 外接数据库：不可达立即报错退出（含具体地址与配置项名）
     say "数据目录: $AF_DATA_DIR$([ "$AF_DATA_DIR" = "$BASE/data" ] && echo '（AF_DATA_DIR 未设置，用包内默认）')"
@@ -598,10 +660,16 @@ cmd_setup() {
     || die "依赖自检失败（网络受限环境可用: setup --offline <wheelhouse 目录>）"
 }
 
-cmd_fingerprint() { need_py; "$PY" -c 'from app.core.license import get_machine_fingerprint; print(get_machine_fingerprint())'; }
+cmd_fingerprint() {
+  need_py
+  # 手动路径依赖包内 .venv（license.py import loguru）——未 setup 直接跑会裸崩
+  ensure_runtime
+  "$PY" -c 'from app.core.license import get_machine_fingerprint; print(get_machine_fingerprint())'
+}
 
 cmd_create_admin() {
   need_py
+  ensure_runtime   # 依赖未装时自动 setup，而不是 ModuleNotFoundError 裸崩
   load_env
   exec "$PY" -c 'from app.cli.__main__ import main; main()' create-admin "$@"
 }
@@ -661,11 +729,7 @@ cmd_upgrade() {
   [ -n "$srcdir" ] && [ -d "$srcdir/app" ] || { rm -rf "$stage"; die "zip 内未找到 agent-flow*/ 目录（请确认是正式交付包）"; }
   # 部署形态检测：Docker 模式在跑 → 停容器而非宿主进程；升级后还需重建镜像
   local docker_mode=0
-  if command -v docker >/dev/null 2>&1 && [ -f "$BASE/docker-compose.yml" ] \
-     && [ -n "$(docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
-               --env-file "$ENV_FILE" ps -q app 2>/dev/null)" ]; then
-    docker_mode=1
-  fi
+  docker_containers_running && docker_mode=1
   say "停止服务…"
   if [ "$docker_mode" = 1 ]; then dstop >/dev/null 2>&1 || true; else cmd_stop >/dev/null 2>&1 || true; fi
   # 依赖清单变化检测：变了才需要重跑 setup（省几分钟，也防漏装新依赖）
@@ -695,7 +759,7 @@ cmd_upgrade() {
   say "升级完成。"
   if [ "$docker_mode" = 1 ]; then
     # Docker 模式：镜像里是旧代码，必须 --build 重建（start --docker 自带）
-    say "Docker 部署检测到——执行: ./agent-flow start --docker（自动重建镜像，etc/ 授权与 data/ 数据已保留）"
+    say "Docker 部署检测到——执行: ./agent-flow start --docker --build（重建镜像装入新代码，etc/ 授权与 data/ 数据已保留）"
   elif [ "$deps_changed" = 1 ]; then
     warn "依赖清单已变化——需要重跑一次 ./agent-flow setup 更新 .venv（约几分钟）"
   else
@@ -716,7 +780,7 @@ main() {
   case "$1" in
     start)
       shift
-      if [ "${1:-}" = "--docker" ]; then shift; dstart; else cmd_start "$@"; fi ;;
+      if [ "${1:-}" = "--docker" ]; then shift; dstart "$@"; else cmd_start "$@"; fi ;;
     stop)
       shift
       if [ "${1:-}" = "--docker" ]; then dstop; else cmd_stop; fi ;;
@@ -728,9 +792,7 @@ main() {
       if [ "${1:-}" = "--docker" ]; then dstatus; else
         # 自动识别 Docker 部署：容器在跑而宿主无进程时，status 查 pid 文件必然
         # 全是"未运行"——误导。检测到容器即转显示容器状态。
-        if command -v docker >/dev/null 2>&1 && [ -f "$BASE/docker-compose.yml" ] && [ -f "$ENV_FILE" ] \
-           && [ -n "$(docker compose -f "$BASE/docker-compose.yml" --project-name agent-flow \
-                     --env-file "$ENV_FILE" ps -q app 2>/dev/null)" ]; then
+        if docker_containers_running; then
           say "检测到 Docker 部署在运行（显示容器状态）"
           dstatus
         else

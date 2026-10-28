@@ -10,10 +10,15 @@
 x-app-image: &app-image agent-flow-app:${APP_VERSION:-latest}
 
 # 容器内数据路径（覆盖 env_file 中的相对路径）
-# 宿主真实网卡 MAC（license 绑机标识）：容器内是 veth 随机 MAC，
-# 由启动器 start --docker 在宿主算好注入；license.py 优先读 AGENT_FLOW_MAC
-x-host-fp: &host-fp
-  AGENT_FLOW_MAC: ${HOST_MAC:-}
+# license 绑机标识（物理网卡 + /sys 只读挂载）：容器内经挂载点读宿主
+# /sys/class/net，"物理网卡优先"选卡——与手动部署直读宿主拿到同一块
+# 网卡、同一个 MAC，与启动方式无关。不再注入 AGENT_FLOW_MAC（env 可
+# 伪造）；该变量仍保留为手动覆盖项（设错会留 mismatch 审计日志）。
+# 必须整挂 /sys：device 符号链接（物理网卡判据）相对路径指向
+# /sys/devices/，只挂 class/net 子树会解析失败、全部误判为虚拟。
+x-sys-net-env: &sys-net-env
+  LICENSE_SYS_NET_PATH: /host-sys/class/net
+x-sys-net-vol: &sys-net-vol "/sys:/host-sys:ro"
 # 容器内文件路径（Docker 部署特有；手动模式不需要这些变量）
 # 宿主机路径等其余配置均由 env 文件提供，不在此覆盖
 x-data-env: &data-env
@@ -58,13 +63,15 @@ services:
     env_file:
       - ./etc/agent-flow.env
     environment:
-      <<: [*data-env, *license-env, *host-fp]
+      <<: [*data-env, *license-env, *sys-net-env]
     volumes:
       - ./data:/opt/agent-flow/data
       # etc 整目录挂入（rw）：license 装入后落盘宿主 etc/jasper.identity，
       # 升级换容器/切手动部署，授权都在
       - ./etc:/opt/agent-flow/etc
       - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主网卡信息只读挂入（license 绑机指纹，见文件头 x-sys-net 说明）
+      - *sys-net-vol
     depends_on:
       - mongodb
       - redis
@@ -77,11 +84,13 @@ services:
     env_file:
       - ./etc/agent-flow.env
     environment:
-      <<: [*data-env, *license-env, *host-fp]
+      <<: [*data-env, *license-env, *sys-net-env]
     volumes:
       - ./data:/opt/agent-flow/data
       - ./etc:/opt/agent-flow/etc
       - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主网卡信息只读挂入（license 绑机指纹，见文件头 x-sys-net 说明）
+      - *sys-net-vol
     depends_on:
       - app
       - mongodb
@@ -95,18 +104,20 @@ services:
     env_file:
       - ./etc/agent-flow.env
     environment:
-      <<: [*data-env, *license-env, *host-fp]
+      <<: [*data-env, *license-env, *sys-net-env]
     volumes:
       - ./data:/opt/agent-flow/data
       - ./etc:/opt/agent-flow/etc
       - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主网卡信息只读挂入（license 绑机指纹，见文件头 x-sys-net 说明）
+      - *sys-net-vol
     depends_on:
       - mongodb
       - redis
     restart: unless-stopped
 
   mongodb:
-    image: mongo:7.0
+    image: ${MONGO_IMAGE:-mongo:7.0}
     container_name: agent-flow-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
