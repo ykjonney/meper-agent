@@ -35,6 +35,9 @@ make generate-api         # 从 OpenAPI 生成前端类型（改 API 后跑）
 make build-release VERSION=1.0.6                # dev 构建（license 不强制，内部用）
 make build-release VERSION=1.0.6 RELEASE=1      # 正式构建（license 强制，交付客户）
 make build-release-docker VERSION=1.0.6         # 非交互 Docker 构建（默认 linux/amd64）
+# 镜像构建/推送私有仓库（CI 同源脚本；dev 分支→开发三镜像，main→编译镜像，见 ci.yml）：
+make build-image-deploy VERSION=1.0.8-dev REGISTRY=harbor.corp/af PUSH=1  # backend/caddy/sandbox
+make build-image-app VERSION=1.0.8 REGISTRY=harbor.corp/af PUSH=1 LATEST=1 # 需先 build-release
 ```
 
 注意：`Makefile`/根 `README` 中部分 `frontend` 引用早于 `frontend-studio` 的引入，以三个包各自的 `package.json` 为准。
