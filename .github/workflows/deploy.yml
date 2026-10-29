@@ -1,5 +1,12 @@
-# Manual deployment workflow — 在 GitHub Actions 页面点 "Run workflow" 触发,
-# 自动 SSH 到阿里云 ECS 执行部署(pull 镜像 + 重启 + 健康检查)。
+# Manual deployment workflow — GitHub Actions 页面 "Run workflow" 手动触发。
+# 生产部署是人为决策：CI 只出镜像（dev 分支→开发镜像，main→编译镜像），不碰服务器。
+#
+# 镜像选择（image_tag 输入）：
+#   dev / dev.<时间戳>     → 开发镜像三件套（dev 分支构建产物）
+#   <VERSION>（如 1.0.8） / <VERSION>.<时间戳> / latest → 编译镜像（main 构建）
+#   指针 tag（dev/latest/版本号）永远指向该线最新；时间戳 tag 用于精确锁定/回滚。
+#
+# 回滚：重新触发本 workflow，image_tag 填历史时间戳 tag（Harbor 快照永不覆盖）。
 name: Deploy
 
 on:
@@ -14,75 +21,76 @@ on:
           - staging
           - production
       image_tag:
-        description: 'Image tag to deploy (SHA or "latest")'
+        description: 'Image tag: dev / dev.<ts> / <VERSION>[.<ts>] / latest'
         required: true
         default: 'latest'
 
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false   # 部署排队执行，不并发交错 down/up
+
 jobs:
   deploy:
-    name: Deploy to Aliyun ECS
+    name: Deploy via SSH
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Aliyun ECS via SSH
+      - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          REGISTRY: ${{ secrets.HARBOR_REGISTRY }}
+          HARBOR_USER: ${{ secrets.HARBOR_USER }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASS }}
+          TAG: ${{ github.event.inputs.image_tag }}
         with:
-          host: ${{ secrets.ALIYUN_ECS_HOST }}
-          username: ${{ secrets.ALIYUN_ECS_USERNAME }}
-          key: ${{ secrets.ALIYUN_ECS_SSH_KEY }}
-          port: ${{ secrets.ALIYUN_ECS_PORT }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
           script: |
-            set -e
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
 
-            # 进入项目目录
-            cd ${{ secrets.DEPLOY_PATH }}
+            # ── 前置检查 ─────────────────────────────────────────────
+            # 新服务器引导：无 deploy/.env 时明确报错（否则 compose pull 会去
+            # Docker Hub 拉不存在的 deploy-backend 等默认镜像）
+            if [ ! -f deploy/.env ]; then
+              echo "✗ 缺少 deploy/.env——复制 deploy/.env.example 并填写数据库/路径配置" >&2
+              exit 1
+            fi
 
-            # 拉取最新代码(确保 docker-compose.yml 等配置文件是最新的)
-            echo "📥 Pulling latest code..."
+            # ── 拉取部署配置（compose/Caddyfile 等；不影响镜像内容）────
+            echo "📥 Pulling deploy config..."
             git pull origin main
 
-            # 登录阿里云容器镜像服务
-            echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin ${{ secrets.ALIYUN_REGISTRY }}
+            # ── 登录私有仓库 ─────────────────────────────────────────
+            echo "$HARBOR_PASS" | docker login "${REGISTRY%%/*}" -u "$HARBOR_USER" --password-stdin
 
-            # 拉取最新镜像
-            echo "📥 Pulling latest images..."
+            # ── 指定 tag 拉镜像（image_tag 输入真正生效）──────────────
+            # -e 覆盖 .env 中的镜像变量：指针/时间戳 tag 由输入决定
+            export BACKEND_IMAGE="$REGISTRY/agent-flow-backend:$TAG"
+            export CADDY_IMAGE="$REGISTRY/agent-flow-caddy:$TAG"
+            export SANDBOX_IMAGE="$REGISTRY/agent-flow-sandbox:$TAG"
+            echo "📥 Pulling images @ $TAG ..."
             docker compose -f deploy/docker-compose.yml pull
 
-            # 停止旧服务(保留数据卷)
-            echo "🛑 Stopping old services..."
-            docker compose -f deploy/docker-compose.yml down || true
+            # ── 滚动更新：up -d --wait 等健康（不做 down，消除硬停机窗口）──
+            echo "🚀 Starting services (wait for healthy)..."
+            docker compose -f deploy/docker-compose.yml up -d --wait
 
-            # 启动新服务
-            echo "🚀 Starting new services..."
-            docker compose -f deploy/docker-compose.yml up -d
+            # ── 本机健康复核（后端 8000 / caddy 80）─────────────────
+            echo "⏳ Health checks..."
+            for i in $(seq 1 12); do
+              curl -sf http://127.0.0.1:8000/health && break
+              [ "$i" = 12 ] && { echo "✗ backend 健康检查失败" >&2; exit 1; }
+              sleep 5
+            done
+            curl -sf http://127.0.0.1/ > /dev/null || { echo "✗ caddy 健康检查失败" >&2; exit 1; }
 
-            # 等待服务启动
-            echo "⏳ Waiting for services to start..."
-            sleep 10
-
-            # 清理未使用的镜像
-            echo "🧹 Cleaning up old images..."
+            # ── 健康通过才清理悬空层（保留带 tag 的旧版本镜像，可随时回滚）──
+            echo "🧹 Pruning dangling layers..."
             docker image prune -f
 
-            # 显示服务状态
-            echo "✅ Deployment complete!"
+            echo "✅ Deployment complete @ $TAG"
             docker compose -f deploy/docker-compose.yml ps
-
-      - name: Health Check
-        run: |
-          echo "🔍 Performing health checks..."
-          sleep 20
-
-          # 检查后端健康
-          echo "Checking backend health..."
-          curl -f http://${{ secrets.ALIYUN_ECS_HOST }}:8000/health || exit 1
-
-          # 检查前端
-          echo "Checking frontend..."
-          curl -f http://${{ secrets.ALIYUN_ECS_HOST }} || exit 1
-
-          echo "✅ All health checks passed!"

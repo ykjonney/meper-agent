@@ -8,7 +8,10 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /app
 
 COPY frontend-studio/package.json frontend-studio/package-lock.json ./
-RUN npm ci
+# npmmirror：官方源经代理常 ECONNRESET（同 release/build_package.sh 的教训）；
+# --registry 覆盖 lock 中 resolved 指向 npmjs.org 的 URL（npm 对默认 registry 的
+# URL 会替换为当前 registry，两份 lock 因此统一走国内镜像）
+RUN npm ci --registry=https://registry.npmmirror.com
 
 COPY frontend-studio/ ./
 RUN npm run build
@@ -19,7 +22,7 @@ FROM node:22-alpine AS client-builder
 WORKDIR /app
 
 COPY frontend-client/package.json frontend-client/package-lock.json* ./
-RUN npm ci
+RUN npm ci --registry=https://registry.npmmirror.com
 
 COPY frontend-client/ ./
 RUN npm run build

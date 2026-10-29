@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check generate-api build-backend-bin build-release clean-dist help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check generate-api build-backend-bin build-release build-image-app build-image-deploy clean-dist help
 
 # Default target
 help:
@@ -14,6 +14,8 @@ help:
 	@echo "  make build-sandbox-full - Build the full sandbox variant (Node.js/scipy/git superset)"
 	@echo "  make build-backend-bin - Cython 编译产物（容器内；RELEASE=1 时为正式构建）"
 	@echo "  make build-release VERSION=x.y.z [RELEASE=1] - 组装单机安装包 .zip（RELEASE=1 正式/license 强制）"
+	@echo "  make build-image-app VERSION=x REGISTRY=... [PUSH=1] - 编译镜像构建/推送（需先 build-release）"
+	@echo "  make build-image-deploy VERSION=x-dev REGISTRY=... [PUSH=1] - 开发三镜像（backend/caddy/sandbox）"
 	@echo "    （每个 <版本-平台> 独立目录 dist/agent-flow-<ver>-<plat>/；rebuild 同 ver-plat 覆盖）"
 	@echo "  make clean-dist      - 清空 dist/ 下所有 build 产物（agent-flow-* 目录与 zip）"
 	@echo "  make deploy         - Deploy with Docker Compose (production)"
@@ -80,6 +82,18 @@ build-release-local:
 
 build-release-docker:  # 平台默认 linux/amd64；加 PLATFORM=linux/arm64 覆盖
 	backend/scripts/build_release.sh "$(VERSION)" $(RELEASE_FLAG) --docker --platform $(or $(PLATFORM),linux/amd64)
+
+# 镜像构建/推送私有仓库（Harbor 等）。tag: <版本>.<时间戳>（快照，回滚用）+ <版本>（指针，写 env 即最新）。
+#   app    = 编译镜像 agent-flow-app（需先 build-release 出产物目录）
+#   deploy = 开发三镜像 agent-flow-{backend,caddy,sandbox}（源码，dev/test 用，版本建议 1.0.x-dev）
+# 用法: make build-image-app VERSION=1.0.8 REGISTRY=harbor.corp/af [PUSH=1] [LATEST=1] [PLATFORM=linux/amd64]
+#       认证：已 docker login 免密，或传 DOCKER_USER/DOCKER_PASS 环境变量
+IMAGE_FLAGS = --registry $(REGISTRY) $(if $(PUSH),--push,) $(if $(LATEST),--latest,) $(if $(PLATFORM),--platform $(PLATFORM),)
+build-image-app:
+	release/build_image.sh app "$(VERSION)" $(IMAGE_FLAGS)
+
+build-image-deploy:
+	release/build_image.sh deploy "$(VERSION)" $(IMAGE_FLAGS)
 
 # 一键清空所有 build 产物（含所有 <版本-平台> 的目录与 zip、wheels-、老式 dist/agent-flow/ 孤儿）
 clean-dist:

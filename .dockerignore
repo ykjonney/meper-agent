@@ -15,3 +15,18 @@ deploy/data
 licensegen
 dist
 **/dist
+
+# 仓库根构建上下文（caddy/sandbox 镜像）瘦身：本机垃圾与与镜像无关的目录
+.DS_Store
+.zcode
+.serena
+.codegraph
+.playwright-mcp
+.pytest_cache
+.ruff_cache
+.mypy_cache
+release
+backend/tests
+backend/logs
+backend/openapi.json
+backend/celerybeat-schedule.db

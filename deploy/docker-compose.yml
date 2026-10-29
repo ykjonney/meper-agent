@@ -14,6 +14,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   backend:
@@ -132,10 +137,10 @@ services:
     # MongoDB 8.x refuses to start without an explicit upgrade procedure.
     image: mongo:7.0
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"   # 仅本机（mongosh 运维）；勿暴露公网
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?请在 deploy/.env 设置 MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: agent_flow
     volumes:
       - ${MONGODB_DATA_DIR:-${HOME}/.agent-flow/mongodb}:/data/db
@@ -145,7 +150,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"     # 仅本机；勿暴露公网
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
       - ${REDIS_DATA_DIR:-${HOME}/.agent-flow/redis}:/data
@@ -156,8 +161,8 @@ services:
     # Pin to >=1.10 — built-in BM25 sparse instantiation for hybrid search.
     image: qdrant/qdrant:v1.13.2
     ports:
-      - "6333:6333"   # REST
-      - "6334:6334"   # gRPC
+      - "127.0.0.1:6333:6333"   # REST（仅本机；勿暴露公网）
+      - "127.0.0.1:6334:6334"   # gRPC
     volumes:
       - ${QDRANT_DATA_DIR:-${HOME}/.agent-flow/qdrant}:/qdrant/storage
     restart: unless-stopped
@@ -193,6 +198,8 @@ services:
   #   make build-sandbox-full
   # Constrained networks can switch mirrors via env (e.g. APT_MIRROR=mirrors.aliyun.com).
   sandbox:
+    # 沙盒执行镜像：SANDBOX_IMAGE 指向私有仓库（如 harbor/agent-flow-sandbox:dev）
+    # 时 compose pull 直接拉取；本地名字（agent-sandbox:latest）则需 make build-sandbox
     build:
       context: ..
       dockerfile: deploy/Dockerfile.sandbox
@@ -200,6 +207,4 @@ services:
       args:
         APT_MIRROR: ${APT_MIRROR:-deb.debian.org}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    image: ${SANDBOX_IMAGE:-agent-sandbox:latest}
-    profiles:
-      - tools
+    image: ${SANDBOX_IMAGE:-agent-sandbox:latest}   # 私有仓库部署在 .env 指定远端 tag；本地默认需 make build-sandbox

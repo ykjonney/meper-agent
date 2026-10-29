@@ -7,7 +7,9 @@
 #
 # 镜像 tag：由 APP_VERSION 控制（默认 latest），三个 service 锚点复用同一 tag，
 # 升级时不必改本文件——只需构建时传新版本号。
-x-app-image: &app-image agent-flow-app:${APP_VERSION:-latest}
+# APP_IMAGE 整体覆盖（私有仓库形态如 harbor.corp/af/agent-flow-app:1.0.8）；
+# 未设时维持本地镜像名 agent-flow-app:<APP_VERSION 或 latest>
+x-app-image: &app-image ${APP_IMAGE:-agent-flow-app:${APP_VERSION:-latest}}
 
 # 容器内数据路径（覆盖 env_file 中的相对路径）
 # license 绑机标识（物理网卡 + /sys 只读挂载）：容器内经挂载点读宿主
@@ -55,7 +57,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      tags: ["agent-flow-app:${APP_VERSION:-latest}"]
+      tags: ["${APP_IMAGE:-agent-flow-app:${APP_VERSION:-latest}}"]
     image: *app-image
     container_name: agent-flow-app
     expose:

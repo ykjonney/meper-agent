@@ -306,15 +306,17 @@ dcompose() {
 dstart() {
   # 镜像已存在（docker load 导入或之前构建过）→ 直接用，不构建；
   # 仅镜像缺失或显式 --build 时构建（离线服务器 docker load 导入镜像即可启动）
-  local build_flag=() img="agent-flow-app:${APP_VERSION:-latest}"
-  if [ "${1:-}" = "--build" ]; then
+  local build_flag=()
+  if [ -n "${APP_IMAGE:-}" ]; then
+    say "APP_IMAGE 已设（${APP_IMAGE}）——compose 直接 pull 私有镜像，跳过本地构建"
+  elif [ "${1:-}" = "--build" ]; then
     build_flag=(--build); shift
-    say "重建镜像 ${img}（--build）…"
-  elif ! docker image inspect "$img" >/dev/null 2>&1; then
+    say "重建镜像 agent-flow-app:${APP_VERSION:-latest}（--build）…"
+  elif ! docker image inspect "agent-flow-app:${APP_VERSION:-latest}" >/dev/null 2>&1; then
     build_flag=(--build)
-    say "镜像 ${img} 不存在，自动构建（需几分钟；离线环境可先 docker load 导入）…"
+    say "镜像 agent-flow-app:${APP_VERSION:-latest} 不存在，自动构建（需几分钟；离线可先 docker load）…"
   else
-    say "使用已有镜像 ${img}（强制重建: start --docker --build）"
+    say "使用已有镜像 agent-flow-app:${APP_VERSION:-latest}（强制重建: start --docker --build）"
   fi
   # 容器模式下占位符不可用（容器内进程不会解析 __AF_DATA_DIR__）
   # → 替换占位符并把结果写回 env 文件（客户看到的是绝对路径，直接可改）
@@ -343,6 +345,9 @@ dstart() {
   # license 绑机指纹：compose 把宿主 /sys/class/net 只读挂载进容器，
   # license.py 按"物理网卡优先"实测——与手动部署同源同值，无需注入。
   # （AGENT_FLOW_MAC 已退役为手动覆盖项，设错会留 mismatch 审计日志）
+  if [ -n "${APP_IMAGE:-}" ]; then
+    dcompose pull app worker beat   # 私有镜像拉取（--quiet 无进度刷屏）
+  fi
   dcompose up -d "${build_flag[@]}"
   say "访问 http://<服务器IP>/（80 端口，caddy 收口）"
 }

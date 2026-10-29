@@ -19,7 +19,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # 编译与打包工具链
 # Debian 源换国内镜像：deb.debian.org（Fastly CDN）经代理常 502，曾致构建失败
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update \
+    && apt-get -o Acquire::Retries=5 update \
     && apt-get install -y --no-install-recommends gcc g++ make zip unzip patchelf \
        ca-certificates git \
     && rm -rf /var/lib/apt/lists/* \

@@ -29,10 +29,10 @@
 
 FROM python:3.12-slim AS base
 
-# Mirror overrides (defaults = upstream). PIP_INDEX_URL is a build-time ARG
+# Mirror overrides (defaults = aliyun 镜像；官方源经代理常 502/ECONNRESET). PIP_INDEX_URL is a build-time ARG
 # only — never leaked into the runtime image.
-ARG APT_MIRROR=deb.debian.org
-ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # ── System packages (minimal — wheels are self-contained, no -dev headers) ───
 # unzip: archive extraction in agent tasks; procps: `ps` (LLM uses it often).
@@ -107,7 +107,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && node --version && npm --version
 
-ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
     scipy \
     lxml \

@@ -6,7 +6,7 @@
 FROM python:3.12-slim AS builder
 
 # Install uv via pip (avoids ghcr.io network issues)
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ uv
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN mkdir -p packages/harness/src/agent_flow_harness && \
     touch packages/harness/src/agent_flow_harness/__init__.py && \
     echo '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n' > packages/harness/pyproject.toml && \
-    echo '[project]\nname = "agent-flow-harness"\nversion = "0"\n' >> packages/harness/pyproject.toml
+    echo '[project]\nname = "agent-flow-harness"\nversion = "0.1.0"  # 须与 packages/harness/pyproject.toml 一致（uv sync --frozen 校验 lock）\n' >> packages/harness/pyproject.toml
 
 # Install production dependencies into the project virtualenv (no dev, no project itself yet)
 # This layer is cached unless pyproject.toml / uv.lock changes.
@@ -41,7 +41,9 @@ RUN groupadd -r -g ${APP_GID} appuser \
     # The opencv runtime libs (libxcb/libgl/...) are required by the
     # rapidocr-onnxruntime fallback used for scanned-PDF OCR: opencv-python's
     # Linux wheel dlopens them at import time, and slim ships none of them.
-    && apt-get update && apt-get install -y --no-install-recommends \
+    && sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get -o Acquire::Retries=5 update && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         gosu libgl1 libglib2.0-0 libsm6 libxext6 libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
