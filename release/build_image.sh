@@ -40,6 +40,21 @@ done
 [ -n "$REGISTRY" ] || { echo "✗ 缺少 --registry <harbor地址/项目>（如 harbor.corp.local/agent-flow）" >&2; exit 1; }
 command -v docker >/dev/null || { echo "✗ 缺少 docker" >&2; exit 1; }
 
+# registry 规范化：docker 引用不允许协议头/大写/末尾斜杠——常见误填
+# https://harbor.meper.cn/xxx（协议头）或整段网页 URL，这里自动纠正/明确报错
+REGISTRY="${REGISTRY#http://}" ; REGISTRY="${REGISTRY#https://}" ; REGISTRY="${REGISTRY%/}"
+case "$REGISTRY" in
+  */harbor/projects/*|*/harbor/sign-in*)
+    echo "✗ --registry 传的是 Harbor 网页地址（${REGISTRY}）" >&2
+    echo "  应填 docker registry 地址: <主机>/<项目名>，如 harbor.meper.cn/meper" >&2
+    exit 1 ;;
+esac
+if ! echo "$REGISTRY" | grep -qE '^[a-z0-9][a-z0-9._/-]*$'; then
+  echo "✗ registry 含非法字符（仅允许小写字母/数字/./-//）: ${REGISTRY}" >&2
+  echo "  正确形态: harbor.meper.cn/项目名（不带 https:// 前缀、不带路径尾斜杠）" >&2
+  exit 1
+fi
+
 TS="$(date +%Y%m%d-%H%M)"
 say() { echo -e "\033[1;36m[image]\033[0m $*"; }
 
