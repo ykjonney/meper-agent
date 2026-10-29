@@ -13,7 +13,6 @@ backend/                  FastAPI + LangGraph + MongoDB(Motor) + Celery
   app/workers/            Celery 任务（工作流执行、human 节点超时扫描）
   packages/harness/       agent-flow-harness：可独立发布的 LangGraph 引擎库
                           （editable 安装，backend 改它即时生效；有自己的 tests/）
-frontend/                 管理端前端（原始）
 frontend-studio/          Studio 前端——当前活跃开发（工作流编辑器
                           src/features/workflow-editor/ 在此维护，React Flow 画布）
 frontend-client/          终端用户对话客户端（antd + @ant-design/x）
@@ -40,7 +39,7 @@ make build-image-deploy VERSION=1.0.8-dev REGISTRY=harbor.corp/af PUSH=1  # back
 make build-image-app VERSION=1.0.8 REGISTRY=harbor.corp/af PUSH=1 LATEST=1 # 需先 build-release
 ```
 
-注意：`Makefile`/根 `README` 中部分 `frontend` 引用早于 `frontend-studio` 的引入，以三个包各自的 `package.json` 为准。
+注意：旧 `frontend/`（原始管理端）已删除，前端为 `frontend-studio` + `frontend-client` 两个包。
 
 ## 架构边界与关键规则
 

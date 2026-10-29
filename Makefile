@@ -1,4 +1,4 @@
-.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check generate-api build-backend-bin build-release build-image-app build-image-deploy clean-dist help
+.PHONY: install dev dev-sandbox dev-local test lint build build-sandbox build-sandbox-full deploy deploy-check build-backend-bin build-release build-image-app build-image-deploy clean-dist help
 
 # Default target
 help:
@@ -42,7 +42,6 @@ dev-local:
 	(cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log) & \
 	(cd backend && uv run celery -A app.workers.celery_app worker --loglevel=info --concurrency=2) & \
 	(cd backend && uv run celery -A app.workers.celery_app beat --loglevel=info) & \
-	(cd frontend && npm run dev) & \
 	(cd frontend-studio && npm run dev) & \
 	(cd frontend-client && npm run dev) & \
 	{ echo '等待后端就绪...'; until curl -s -m 1 -o /dev/null http://127.0.0.1:8000/api/v1/health; do sleep 1; done; echo '后端已就绪'; } & \
@@ -50,11 +49,11 @@ dev-local:
 
 # Run all tests
 test:
-	cd backend && uv run pytest && cd ../frontend && npm run test
+	cd backend && uv run pytest
 
 # Run linters for all packages
 lint:
-	cd backend && uv run ruff check . && uv run mypy app && cd ../frontend && npm run lint
+	cd backend && uv run ruff check . && uv run mypy app
 
 # Build all primary Docker images (backend, caddy, etc.)
 # NOTE: This does NOT build the sandbox image because it has `profiles: [tools]`.
@@ -119,6 +118,3 @@ deploy-check:
 		&& echo "✅ agent-sandbox:latest image found" \
 		|| { echo "❌ agent-sandbox:latest NOT found. Run: make build-sandbox"; exit 1; }
 
-# Generate OpenAPI types from backend spec
-generate-api:
-	cd backend && uv run python scripts/generate_openapi.py && cd ../frontend && npx openapi-typescript ../backend/openapi.json -o src/types/api.ts

@@ -48,20 +48,6 @@ repos:
   # ── Frontend lint + type check ──────────────────────────────────────
   - repo: local
     hooks:
-      - id: eslint-frontend
-        name: eslint (frontend)
-        entry: bash -c 'cd frontend && npm run lint'
-        language: system
-        files: ^frontend/src/.*\.(ts|tsx)$
-        pass_filenames: false
-
-      - id: tsc-frontend
-        name: tsc (frontend)
-        entry: bash -c 'cd frontend && npm run type-check'
-        language: system
-        files: ^frontend/src/.*\.(ts|tsx)$
-        pass_filenames: false
-
       - id: tsc-frontend-studio
         name: tsc (frontend-studio)
         entry: bash -c 'cd frontend-studio && npm run lint'

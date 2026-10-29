@@ -163,7 +163,6 @@ agent-flow/
 │   │   ├── services/     # API 调用层（agent-api/workflow-api/…）
 │   │   ├── stores/       # Zustand 状态
 │   │   └── hooks/        # usePermission / useTaskRealtime / …
-├── frontend/             # 管理端前端（原始，部分功能已迁移至 studio）
 ├── frontend-client/      # 终端用户对话客户端（React + Ant Design）
 ├── deploy/               # Docker Compose + Caddy + sandbox 镜像
 ├── docs/                 # 项目文档
@@ -300,11 +299,6 @@ celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
 cd frontend-studio
 npm install
 npm run dev
-
-# 或原始管理端（部分功能已迁移至 studio）
-cd frontend
-npm install
-npm run dev
 ```
 
 ### 6. 访问应用
@@ -367,12 +361,7 @@ npm run dev
 | `SANDBOX_CONTAINER_WORKSPACE_DIR` | 沙盒容器内工作区挂载点（一般无需修改） | `/workspace` |
 | `SANDBOX_CONTAINER_SKILLS_DIR` | 沙盒容器内 Skill 目录挂载点（一般无需修改） | `/data/skills` |
 
-### 前端（`frontend/.env`）
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `VITE_API_BASE_URL` | 后端 API 地址 | `http://localhost:8000` |
-| `VITE_WS_BASE_URL` | 后端 WebSocket 地址 | `ws://localhost:8000` |
 
 ## Docker 部署
 
@@ -656,11 +645,6 @@ cd frontend-studio
 npm run lint       # = tsc --noEmit（类型检查）
 npm run build      # 生产构建
 
-# frontend（原始管理端）
-cd frontend
-npm run test       # 运行测试
-npm run lint       # 代码检查
-npm run build      # 生产构建
 ```
 
 ## API 文档
