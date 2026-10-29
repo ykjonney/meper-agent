@@ -102,10 +102,21 @@ say "本次构建 tag 清单（registry: ${REGISTRY}）："
 printf '  %s\n' "${PUSH_TAGS[@]}"
 
 if [ "$PUSH" = 1 ]; then
+  # 跨境推送大层易断：单 tag 限时 40min + 失败重试 3 次（已上传的层重推
+    # 会跳过，等效断点续传）；timeout 防挂死——CI 实测曾卡 55min 无进展
+  push_one() {
+    local r
+    for r in 1 2 3; do
+      timeout 2400 docker push "$1" && return 0
+      say "push 重试 ${r}/3（$1）"
+      sleep 5
+    done
+    return 1
+  }
   LOGGED=0
   for t in "${PUSH_TAGS[@]}"; do
     say "push ${t}"
-    if ! docker push "$t"; then
+    if ! push_one "$t"; then
       # 免密不可用：DOCKER_USER/DOCKER_PASS 兜底登录一次后重试
       if [ "$LOGGED" = 0 ] && [ -n "${DOCKER_USER:-}" ] && [ -n "${DOCKER_PASS:-}" ]; then
         say "免密推送不可用，用 DOCKER_USER 登录 ${REGISTRY%%/*} …"
