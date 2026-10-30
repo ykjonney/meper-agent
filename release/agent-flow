@@ -288,9 +288,21 @@ infra_compose() {
 }
 
 # ── Docker 模式（--docker）：compose 承载全部服务，宿主只做管理 ─────────
+_ensure_host_mac_in_env() {
+  # 手动 docker compose 兜底：env 里已有 MAC 则跳过；没有则静默探测写入
+  [ -n "$(_env_get AGENT_FLOW_MAC)" ] && return 0
+  local ifc
+  ifc="$(ip -o route show default 2>/dev/null | awk '{print $5}' | head -1)"
+  [ -z "$ifc" ] && ifc="$(ls /sys/class/net 2>/dev/null | grep -v '^lo' | head -1 || true)"
+  if [ -n "$ifc" ] && [ -r "/sys/class/net/$ifc/address" ]; then
+    _env_set AGENT_FLOW_MAC "$(tr -d '[:space:]' < "/sys/class/net/$ifc/address" | tr a-f A-F | tr ':' '-')"
+  fi
+}
+
 dcompose() {
   command -v docker >/dev/null || die "--docker 需要 Docker"
   select_compose
+  _ensure_host_mac_in_env
   [ -f "$BASE/docker-compose.yml" ] || die "包内缺少 docker-compose.yml / Dockerfile（Docker 部署组件）"
   # 插值变量注入见 _compose_interp_env：v2 --env-file / v1 shell 导出
   # （env_file 段只注入容器环境，不参与插值）

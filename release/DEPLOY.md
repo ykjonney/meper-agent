@@ -145,6 +145,9 @@ AF_DATA_DIR=
 > （`mongodb` / `redis` / `qdrant`），确保 `MONGO_ROOT_PASSWORD` 已设置；
 > 启动命令带 `--env-file`：`docker compose --env-file etc/agent-flow.env up -d`
 > （compose 的 `${...}` 变量插值只认 --env-file/shell，不读 env_file 段）。
+> **首次部署请先执行一次 `./agent-flow status --docker`**——它会静默把宿主
+> 网卡 MAC 写入 env（`AGENT_FLOW_MAC`，license 绑机指纹恒定所必需）；
+> 此后手动 compose 起停随意，指纹不漂移。
 
 数据落在 `$AF_DATA_DIR/{mongodb,redis,qdrant}`，默认 `./data`。
 caddy 把前端和 API 收口在 :80（标准 HTTP 端口）。
