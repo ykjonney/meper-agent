@@ -341,17 +341,21 @@ dstart() {
     local _val="${!_v}"
     case "$_val" in *__AF_DATA_DIR__*) _env_set "$_v" "${_val//__AF_DATA_DIR__/$AF_DATA_DIR}" ;; esac
   done
-  # 连接串适配：127.0.0.1 → 容器服务名（写回 env，持久化）
-  local _changed=0 _uri
-  for _kv in MONGODB_URI:mongodb REDIS_URL:redis CELERY_BROKER_URL:redis CELERY_RESULT_BACKEND:redis QDRANT_URL:qdrant; do
-    local _k="${_kv%%:*}" _svc="${_kv##*:}"
-    _uri="$(_env_get "$_k")"
-    case "$_uri" in *127.0.0.1*)
-      _env_set "$_k" "${_uri//127.0.0.1/$_svc}"
-      _changed=1
-    ;; esac
-  done
-  [ "$_changed" = 1 ] && say "连接串已适配容器模式（已写回 etc/agent-flow.env）"
+  # 连接串适配：仅【模板默认串】精确匹配才替换为容器服务名——用户自定义的
+  # 连接串（哪怕是 127.0.0.1:自定端口 指向外部库）绝不改动。
+  # （旧实现见 127.0.0.1 就无差别替换，曾把用户自配的外部 Redis 改坏）
+  local _changed=0
+  _rw() { # _rw <变量> <旧默认值> <新值>
+    [ "$(_env_get "$1")" = "$2" ] || return 0
+    _env_set "$1" "$3"; _changed=1
+  }
+  _rw MONGODB_URI         "mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
+  _rw MONGODB_URI         "mongodb://127.0.0.1:27017/agent_flow"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
+  _rw REDIS_URL           "redis://127.0.0.1:6379/0" "redis://redis:6379/0"
+  _rw CELERY_BROKER_URL   "redis://127.0.0.1:6379/1" "redis://redis:6379/1"
+  _rw CELERY_RESULT_BACKEND "redis://127.0.0.1:6379/2" "redis://redis:6379/2"
+  _rw QDRANT_URL          "http://127.0.0.1:6333" "http://qdrant:6333"
+  [ "$_changed" = 1 ] && say "默认连接串已适配容器模式（自定义连接串保持不变）"
   load_env   # 重新加载改写后的值
   ensure_data_dirs
   # license 绑机指纹：compose 把宿主 /sys/class/net 只读挂载进容器，
