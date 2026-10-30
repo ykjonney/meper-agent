@@ -20,7 +20,7 @@
 | 内存 | **8 GB** | **16 GB+** | 文档解析/OCR 内存尖峰、多 worker 并发、向量检索缓存；知识库越多要求越高 |
 | 磁盘 | **50 GB** | **200 GB+ SSD** | 镜像+依赖约 10G；会话数据、知识库向量、工作区文件持续增长 |
 | 操作系统 | Linux x86_64，内核 3.10+ | Ubuntu 22.04/24.04、Debian 12、RHEL 9 | |
-| glibc（仅手动部署） | ≥ 2.36 | — | `.so` 依赖 Debian 12 级 glibc；Docker 部署不受限 |
+| glibc（仅手动部署） | ≥ 2.36 | — | 应用二进制依赖 Debian 12 级 glibc；Docker 部署不受限 |
 | 网络 | 80/443 放行 | 出网畅通 | 离线部署用 docker load + setup --offline |
 
 CPU 世代速查：Intel 2011 年前（Nehalem/Westmere，如 E5540）与 AMD 2011 年前无 AVX，
@@ -32,7 +32,7 @@ CPU 世代速查：Intel 2011 年前（Nehalem/Westmere，如 E5540）与 AMD 20
 
 | 项 | 要求 | 模式 |
 |---|---|---|
-| Python | **3.12**（应用为 cp3.12 二进制，其他版本无法加载） | A/B |
+| Python | **3.12**（其他版本无法加载应用） | A/B |
 | Docker | （B 起 DB 容器 / C 起全部容器） | B/C |
 | MongoDB 7.0+ / Redis 7+ / Qdrant 1.10+ | A 自备；B/C 在 compose 内 | A |
 
@@ -148,9 +148,7 @@ AF_DATA_DIR=
 > （`mongodb` / `redis` / `qdrant`），确保 `MONGO_ROOT_PASSWORD` 已设置；
 > 启动命令带 `--env-file`：`docker compose --env-file etc/agent-flow.env up -d`
 > （compose 的 `${...}` 变量插值只认 --env-file/shell，不读 env_file 段）。
-> **首次部署请先执行一次 `./agent-flow status --docker`**——它会静默把宿主
-> 网卡 MAC 写入 env（`AGENT_FLOW_MAC`，license 绑机指纹恒定所必需）；
-> 此后手动 compose 起停随意，指纹不漂移。
+> 授权绑机标识已在 compose 内置处理，手动 compose 起停随意，指纹不会漂移。
 
 数据落在 `$AF_DATA_DIR/{mongodb,redis,qdrant}`，默认 `./data`。
 caddy 把前端和 API 收口在 :80（标准 HTTP 端口）。

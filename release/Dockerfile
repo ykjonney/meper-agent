@@ -5,14 +5,14 @@
 
 FROM python:3.12-slim
 
-# .so 依赖的运行库（cv2/onnxruntime 等原生扩展需要）
+# 应用运行库（图像/OCR 组件需要）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libglib2.0-0 libgl1 curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/agent-flow
 
-# 应用（仅必需文件：.so 代码 + 依赖清单 + 启动器 + 许可证）
+# 应用（仅必需文件：应用代码 + 依赖清单 + 启动器 + 许可证）
 COPY app/ ./app/
 COPY requirements.lock.txt LICENSE agent-flow ./
 
