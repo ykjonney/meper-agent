@@ -54,8 +54,11 @@ unzip agent-flow-<版本>-linux-x86_64.zip && cd agent-flow
 仅内网离线服务器需要手动初始化：向供应商索取离线依赖包，解压后执行 `./agent-flow setup --offline <依赖包目录>`。
 
 ### 3. 配置数据库
-打开 `etc/agent-flow.env`（解压即有，默认已带内置数据库凭据，连本机 `127.0.0.1`），按需修改：
-- `MONGODB_URI` / `REDIS_URL` / `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` / `QDRANT_URL`
+打开 `etc/agent-flow.env`。**默认值面向 Docker 部署**（连接串为内置库容器服务名，开箱即用）。
+- Docker 部署（模式 C）：默认即可，无需修改
+- 混合模式（B，`start --with-infra`）：启动器自动按 `127.0.0.1` 适配，无需修改
+- 手动部署（A，自备数据库）：**启动器会明确提示**——把连接串改为实际地址（本机示例
+  `mongodb://127.0.0.1:27017/agent_flow`、`redis://127.0.0.1:6379/0`）
 - 外接**无认证** Mongo：把 `MONGODB_URI` 里的 `agentflow:changeme@` 去掉
 
 数据迁移：`data/` 布局与原项目一致（`data/{mongodb,redis,qdrant,workspaces,...}`；

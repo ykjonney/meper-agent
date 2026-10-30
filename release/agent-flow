@@ -107,53 +107,6 @@ load_env() {
 
 # ── 配置：随包预置（etc/agent-flow.env），密钥已内置默认值 ──
 
-# 内置数据库（mongo）连接串同步默认凭据：仅当用户没改默认无认证 URI 时，
-# 写入 agentflow:<MONGO_ROOT_PASSWORD 默认 changeme>@。改过连接串的用户不动。
-# host 参数：容器模式传服务名 mongodb，混合模式传 127.0.0.1。
-sync_mongo_auth() {
-  # 只做内存导出（绝不改写 env 文件——配置是用户的，代码只读）
-  local host="$1"
-  if [ "$(_env_get MONGODB_URI)" = "mongodb://127.0.0.1:27017/agent_flow" ]; then
-    export MONGODB_URI="mongodb://agentflow:${MONGO_ROOT_PASSWORD:-changeme}@${host}:27017/agent_flow?authSource=admin"
-  fi
-}
-template_env() {
-  # 模板随包（env.template）；缺失时内嵌兜底重建
-  # 注意：env 文件保留 __AF_DATA_DIR__ 占位符，由 load_env 运行时按 AF_DATA_DIR 替换
-  # 这样改 AF_DATA_DIR 重启即生效，不必 delete env 文件重跑 template_env
-  if [ -f "$BASE/env.template" ]; then
-    cp "$BASE/env.template" "$ENV_FILE"
-  else
-    : "${AF_DATA_DIR:=$BASE/data}"
-    cat > "$ENV_FILE" <<TMPL
-# Agent Flow 配置（兜底精简版——完整版见 env.template）
-MONGODB_URI=mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin
-MONGO_ROOT_USER=agentflow
-MONGO_ROOT_PASSWORD=changeme
-REDIS_URL=redis://127.0.0.1:6379/0
-CELERY_BROKER_URL=redis://127.0.0.1:6379/1
-CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
-QDRANT_URL=http://127.0.0.1:6333
-APP_ENV=production
-AF_BACKEND_PORT=8000
-JWT_SECRET_KEY=dev-only-not-for-production-replace-me
-# 必须与 env.template 同值——env.template 丢失走兜底时，同一 data/ 的
-# 已加密模型 API Key 才能继续解密。
-MODEL_ENCRYPTION_KEY=Tc2zTINsCn0r1B1vQMgGiXvYmmSow5GnoHb5ySc0FMQ=
-AF_DATA_DIR=$AF_DATA_DIR
-WORKSPACES_HOST_DIR=$AF_DATA_DIR/workspaces
-SKILLS_HOST_DIR=$AF_DATA_DIR/skills
-HOMES_HOST_DIR=$AF_DATA_DIR/homes
-KB_HOST_DIR=$AF_DATA_DIR/knowledge_bases
-AVATARS_HOST_DIR=$AF_DATA_DIR/avatars
-SKILL_AVATARS_HOST_DIR=$AF_DATA_DIR/skill_avatars
-SANDBOX_ENABLED=false
-LOG_LEVEL=INFO
-TMPL
-  fi
-  chmod 600 "$ENV_FILE"
-}
-
 # 取【最后一条有值】匹配（env 文件同键多行时 dotenv 语义即后者生效；
 # head -1 曾读到模板空行误判缺失，进而 sed 覆盖掉已注入的真实密钥）
 _env_get() { grep -E "^$1=.+" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-; }
@@ -320,10 +273,9 @@ dstart() {
   fi
   # 容器模式下占位符不可用（容器内进程不会解析 __AF_DATA_DIR__）
   # → 替换占位符并把结果写回 env 文件（客户看到的是绝对路径，直接可改）
-  # Docker 模式内置 mongo 容器 → 连接串同步默认凭据（见 sync_mongo_auth）
+  # 默认连接串已是 Docker 服务名形态（见 env.template），无需任何适配
   ensure_env
   load_env   # 替换 __AF_DATA_DIR__ 为实际路径（下一循环用 shell 变量）
-  sync_mongo_auth 127.0.0.1   # 默认串内存补凭据（不写回 env）
   # 连接串适配：仅【模板默认串】精确匹配才替换为容器服务名——用户自定义的
   # 连接串（哪怕是 127.0.0.1:自定端口 指向外部库）绝不改动。
   # （旧实现见 127.0.0.1 就无差别替换，曾把用户自配的外部 Redis 改坏）
@@ -424,8 +376,15 @@ cmd_start() {
   [ -f "$BASE/web/index.html" ] || die "web/ 目录缺少 index.html（产物不完整？重新解压）"
   if [ "${1:-}" = "--with-infra" ]; then
     ensure_env
-    sync_mongo_auth 127.0.0.1   # 内置 mongo 容器启用认证 → 连接串补默认凭据
     load_env
+    # B 模式 app 在宿主：默认串是 Docker 服务名（容器内才可解析）——内存适配
+    # 为 127.0.0.1（infra 容器映射在宿主回环）。仅精确匹配默认值，自定义不动。
+    [ "$(_env_get MONGODB_URI)" = "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin" ] \
+      && export MONGODB_URI="mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"
+    [ "$(_env_get REDIS_URL)" = "redis://redis:6379/0" ] && export REDIS_URL="redis://127.0.0.1:6379/0"
+    [ "$(_env_get CELERY_BROKER_URL)" = "redis://redis:6379/1" ] && export CELERY_BROKER_URL="redis://127.0.0.1:6379/1"
+    [ "$(_env_get CELERY_RESULT_BACKEND)" = "redis://redis:6379/2" ] && export CELERY_RESULT_BACKEND="redis://127.0.0.1:6379/2"
+    [ "$(_env_get QDRANT_URL)" = "http://qdrant:6333" ] && export QDRANT_URL="http://127.0.0.1:6333"
     # 数据根目录：env 内 AF_DATA_DIR 优先（load_env 已 set -a 导出 env 全量）；
     # 留空回退到 $BASE/data。AF_DATA_DIR 是 B/C 共用变量 → B↔C 切换零迁移。
     : "${AF_DATA_DIR:=$BASE/data}"
@@ -442,6 +401,16 @@ cmd_start() {
       wait_port 127.0.0.1 6379  redis
     fi
   else
+    # A 模式（手动+外接库）：默认串指向 Docker 服务名（宿主上解析不了）——
+    # 明确提醒并拒启，而不是让 db_check 报一个难懂的连接失败
+    local _dv
+    for _dv in "MONGODB_URI=mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin" \
+               "REDIS_URL=redis://redis:6379/0" "CELERY_BROKER_URL=redis://redis:6379/1" \
+               "CELERY_RESULT_BACKEND=redis://redis:6379/2" "QDRANT_URL=http://qdrant:6333"; do
+      [ "$(_env_get "${_dv%%=*}")" = "${_dv#*=}" ] && die "连接串仍是 Docker 部署默认值（${_dv%%=*} 指向容器服务名）。
+  手动部署请修改 etc/agent-flow.env 为实际数据库地址（本机示例：redis://127.0.0.1:6379/0）；
+  或改用 ./agent-flow start --docker（全容器）/ start --with-infra（DB 容器+app 宿主）。"
+    done
     db_check    # 外接数据库：不可达立即报错退出（含具体地址与配置项名）
     say "数据目录: $AF_DATA_DIR$([ "$AF_DATA_DIR" = "$BASE/data" ] && echo '（AF_DATA_DIR 未设置，用包内默认）')"
   fi
