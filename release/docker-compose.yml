@@ -33,6 +33,15 @@ x-data-env: &data-env
 
 # license：容器内固定路径（宿主 etc/ 目录整个挂入，见 volumes）。
 # 必须 rw：网页激活向导的 install API 要写入 jasper.identity。
+# 连接串 docker 默认值：手动 compose（未带任何 env）也能连上内置库；
+# env 文件/启动器导出的值优先生效（自定义外部库不受影响）
+x-conn-env: &conn-env
+  MONGODB_URI: ${MONGODB_URI:-mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+  QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+
 x-license-env: &license-env
   # 固定容器内路径，不受宿主 env 文件里的相对/绝对路径影响
   LICENSE_PATH: /opt/agent-flow/etc/jasper.identity

@@ -111,10 +111,10 @@ load_env() {
 # 写入 agentflow:<MONGO_ROOT_PASSWORD 默认 changeme>@。改过连接串的用户不动。
 # host 参数：容器模式传服务名 mongodb，混合模式传 127.0.0.1。
 sync_mongo_auth() {
+  # 只做内存导出（绝不改写 env 文件——配置是用户的，代码只读）
   local host="$1"
   if [ "$(_env_get MONGODB_URI)" = "mongodb://127.0.0.1:27017/agent_flow" ]; then
-    _env_set MONGODB_URI "mongodb://agentflow:${MONGO_ROOT_PASSWORD:-changeme}@${host}:27017/agent_flow?authSource=admin"
-    say "连接串已同步内置数据库凭据（默认密码，可改 etc/agent-flow.env）"
+    export MONGODB_URI="mongodb://agentflow:${MONGO_ROOT_PASSWORD:-changeme}@${host}:27017/agent_flow?authSource=admin"
   fi
 }
 template_env() {
@@ -288,21 +288,9 @@ infra_compose() {
 }
 
 # ── Docker 模式（--docker）：compose 承载全部服务，宿主只做管理 ─────────
-_ensure_host_mac_in_env() {
-  # 手动 docker compose 兜底：env 里已有 MAC 则跳过；没有则静默探测写入
-  [ -n "$(_env_get AGENT_FLOW_MAC)" ] && return 0
-  local ifc
-  ifc="$(ip -o route show default 2>/dev/null | awk '{print $5}' | head -1)"
-  [ -z "$ifc" ] && ifc="$(ls /sys/class/net 2>/dev/null | grep -v '^lo' | head -1 || true)"
-  if [ -n "$ifc" ] && [ -r "/sys/class/net/$ifc/address" ]; then
-    _env_set AGENT_FLOW_MAC "$(tr -d '[:space:]' < "/sys/class/net/$ifc/address" | tr a-f A-F | tr ':' '-')"
-  fi
-}
-
 dcompose() {
   command -v docker >/dev/null || die "--docker 需要 Docker"
   select_compose
-  _ensure_host_mac_in_env
   [ -f "$BASE/docker-compose.yml" ] || die "包内缺少 docker-compose.yml / Dockerfile（Docker 部署组件）"
   # 插值变量注入见 _compose_interp_env：v2 --env-file / v1 shell 导出
   # （env_file 段只注入容器环境，不参与插值）
@@ -335,19 +323,13 @@ dstart() {
   # Docker 模式内置 mongo 容器 → 连接串同步默认凭据（见 sync_mongo_auth）
   ensure_env
   load_env   # 替换 __AF_DATA_DIR__ 为实际路径（下一循环用 shell 变量）
-  sync_mongo_auth 127.0.0.1   # 先补凭据（下面的主机名替换会连带保留）
-  local _v
-  for _v in WORKSPACES_HOST_DIR SKILLS_HOST_DIR HOMES_HOST_DIR KB_HOST_DIR AVATARS_HOST_DIR SKILL_AVATARS_HOST_DIR; do
-    local _val="${!_v}"
-    case "$_val" in *__AF_DATA_DIR__*) _env_set "$_v" "${_val//__AF_DATA_DIR__/$AF_DATA_DIR}" ;; esac
-  done
+  sync_mongo_auth 127.0.0.1   # 默认串内存补凭据（不写回 env）
   # 连接串适配：仅【模板默认串】精确匹配才替换为容器服务名——用户自定义的
   # 连接串（哪怕是 127.0.0.1:自定端口 指向外部库）绝不改动。
   # （旧实现见 127.0.0.1 就无差别替换，曾把用户自配的外部 Redis 改坏）
-  local _changed=0
-  _rw() { # _rw <变量> <旧默认值> <新值>
+  _rw() { # _rw <变量> <旧默认值> <新值>——仅内存导出，env 文件不动
     [ "$(_env_get "$1")" = "$2" ] || return 0
-    _env_set "$1" "$3"; _changed=1
+    export "$1=$3"
   }
   _rw MONGODB_URI         "mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
   _rw MONGODB_URI         "mongodb://127.0.0.1:27017/agent_flow"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
@@ -355,7 +337,6 @@ dstart() {
   _rw CELERY_BROKER_URL   "redis://127.0.0.1:6379/1" "redis://redis:6379/1"
   _rw CELERY_RESULT_BACKEND "redis://127.0.0.1:6379/2" "redis://redis:6379/2"
   _rw QDRANT_URL          "http://127.0.0.1:6333" "http://qdrant:6333"
-  [ "$_changed" = 1 ] && say "默认连接串已适配容器模式（自定义连接串保持不变）"
   load_env   # 重新加载改写后的值
   ensure_data_dirs
   # license 绑机指纹：compose 把宿主 /sys/class/net 只读挂载进容器，
