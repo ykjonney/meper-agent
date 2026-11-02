@@ -720,11 +720,13 @@ cmd_upgrade() {
   if [ -f "$srcdir/agent-flow" ]; then
     cp "$srcdir/agent-flow" "$BASE/agent-flow.new" && chmod +x "$BASE/agent-flow.new"
   fi
-  rm -rf "$stage"
   # docker-compose.yml / Dockerfile / Caddyfile 也随新版更新（镜像重建时用新定义）
+  # ★ 必须在 rm -rf "$stage" 之前拷——srcdir 在 stage 里面，先删后拷永远落空
+  #   （曾有此顺序 bug：升级后 compose 静默不更新）
   for f in docker-compose.yml Dockerfile Caddyfile; do
     [ -f "$srcdir/$f" ] && cp "$srcdir/$f" "$BASE/$f"
   done
+  rm -rf "$stage"
   say "升级完成。"
   if [ "$docker_mode" = 1 ]; then
     # Docker 模式：镜像里是旧代码，必须 --build 重建（start --docker 自带）
