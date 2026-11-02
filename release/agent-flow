@@ -117,6 +117,28 @@ _env_set() {
   mv "$ENV_FILE.new" "$ENV_FILE"
 }
 
+# 升级时合并 env：用户已配置的键原样保留（用户优先），
+# 新版模板新增的键按默认值追加到文件末尾——否则新功能的配置项
+# 永远进不了老部署的 env（env 文件存在时不会走 template_env 重建）。
+merge_env_template() {
+  local tpl="$1" envf="$2" added=0 line k
+  [ -f "$tpl" ] && [ -f "$envf" ] || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*)
+        k="${line%%=*}"
+        # 键名由字母数字下划线组成，可安全做 grep 正则
+        grep -qE "^${k}=" "$envf" && continue
+        [ "$added" = 0 ] && printf '\n# ── 以下为升级自动补充的新配置项（默认值，可按需修改）──\n' >> "$envf"
+        printf '%s\n' "$line" >> "$envf"
+        added=1
+        ;;
+    esac
+  done < "$tpl"
+  [ "$added" = 1 ] && say "etc/agent-flow.env 已补充新版新增的配置项（你的现有配置未改动）"
+}
+
 ensure_env() {
   [ -f "$ENV_FILE" ] || { template_env; say "已生成配置 etc/agent-flow.env（按需修改后 start）"; }
   # 密钥不自动生成（与源项目一致给默认值，用户想改手动改 env）：
@@ -717,6 +739,8 @@ cmd_upgrade() {
   [ -d "$srcdir/infra" ] && cp -a "$srcdir/infra" "$BASE/"
   [ -f "$srcdir/requirements.lock.txt" ] && cp -a "$srcdir/requirements.lock.txt" "$BASE/"
   [ -f "$srcdir/env.template" ] && cp -a "$srcdir/env.template" "$BASE/"
+  # 合并：老 env 保留用户已配置的键，补上新版新增键的默认值
+  [ -f "$srcdir/env.template" ] && merge_env_template "$srcdir/env.template" "$ENV_FILE"
   if [ -f "$srcdir/agent-flow" ]; then
     cp "$srcdir/agent-flow" "$BASE/agent-flow.new" && chmod +x "$BASE/agent-flow.new"
   fi
