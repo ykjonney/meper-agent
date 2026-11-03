@@ -76,8 +76,25 @@ say "[1/5] 前端构建…"
 # --registry 国内镜像：官方源经代理时常 ECONNRESET（曾连续构建失败于此）；
 # 不用 --silent：npm ci 失败原因必须可见（曾被静默吞掉，极难排查）
 NPM_CI=(npm ci --registry=https://registry.npmmirror.com --no-audit --no-fund)
-(cd frontend-studio  && "${NPM_CI[@]}" && npm run build)
-(cd frontend-client && "${NPM_CI[@]}" && npm run build)
+
+# 容器内构建（--docker 模式挂载仓库）时 npm ci 会把【宿主的】node_modules
+# 重装成 Linux 版（rollup 平台二进制），破坏宿主本地开发——曾致本地 dev
+# 报 Cannot find module @rollup/rollup-darwin-arm64。容器内改为拷贝到
+# 临时目录构建，只回传 dist；宿主构建不受影响（原生平台直装）。
+build_frontend() {
+  local dir="$1" tmp
+  if [ -e /.dockerenv ]; then
+    tmp="$(mktemp -d)"
+    cp -a "$dir/." "$tmp/"
+    (cd "$tmp" && "${NPM_CI[@]}" && npm run build)
+    rm -rf "$dir/dist" && cp -a "$tmp/dist" "$dir/dist"
+    rm -rf "$tmp"
+  else
+    (cd "$dir" && "${NPM_CI[@]}" && npm run build)
+  fi
+}
+build_frontend frontend-studio
+build_frontend frontend-client
 
 # ── 2) 后端 .so（Cython）──────────────────────────────────────────────
 say "[2/5] Cython 编译（412 模块 → .so）…"
