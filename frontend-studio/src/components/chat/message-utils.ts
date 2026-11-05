@@ -404,3 +404,8 @@ export function userMessageToDisplay(rec: MessageRecord): Message {
   };
 }
 
+
+/** 数值夹取到 [lo, hi]（侧栏/产物面板拖拽宽度用） */
+export function clamp(v: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, v));
+}

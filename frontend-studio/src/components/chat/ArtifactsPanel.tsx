@@ -1,6 +1,7 @@
 import { type RefObject } from 'react';
 import { X } from 'lucide-react';
 import { SessionFilesPanel, type SessionFilesPanelHandle } from '../SessionFilesPanel';
+import { clamp } from './message-utils';
 
 interface ArtifactsPanelProps {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -57,6 +58,3 @@ export function ArtifactsPanel({
   );
 }
 
-function clamp(v: number, lo: number, hi: number) {
-  return Math.min(hi, Math.max(lo, v));
-}
