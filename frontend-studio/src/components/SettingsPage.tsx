@@ -43,13 +43,17 @@ export function SettingsPage({ theme }: Props) {
   const active: Tab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
 
   return (
-    <div className="space-y-4">
-      <SegmentedTabs tabs={tabs} value={active} onChange={(id: Tab) => setTab(id)} theme={theme} />
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      <div className="shrink-0">
+        <SegmentedTabs tabs={tabs} value={active} onChange={(id: Tab) => setTab(id)} theme={theme} />
+      </div>
 
-      <div className={active === 'voice' ? 'max-w-3xl' : undefined}>
-        {active === 'general' && <SystemSettings />}
-        {active === 'voice' && <VoiceConfigPage theme={theme} />}
-        {active === 'channels' && <ChannelsPage />}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
+        <div className={active === 'voice' ? 'max-w-3xl' : undefined}>
+          {active === 'general' && <SystemSettings />}
+          {active === 'voice' && <VoiceConfigPage theme={theme} />}
+          {active === 'channels' && <ChannelsPage />}
+        </div>
       </div>
     </div>
   );

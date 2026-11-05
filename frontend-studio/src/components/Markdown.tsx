@@ -1,7 +1,8 @@
-import { isValidElement, memo } from 'react';
+import { isValidElement, memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { Check, Copy } from 'lucide-react';
 
 import { EChartBlock } from './EChartBlock';
 import { MermaidBlock } from './MermaidBlock';
@@ -20,11 +21,55 @@ import { MermaidBlock } from './MermaidBlock';
  * ```echarts fenced blocks (render_chart tool or hand-written by the agent)
  * render as charts via EChartBlock; a partial option shows a
  * "rendering…" placeholder until the JSON is complete.
+ *
+ * Fenced code blocks render with a language tag + one-click copy header
+ * (v3.2 Workbench §4.7 代码块增强).
  */
 
 export interface MarkdownProps {
   /** Raw markdown text. May be partial (mid-stream). */
   content: string;
+}
+
+/** 递归提取 React 子树里的纯文本（highlight 后 code 内是多级 span）。 */
+function extractText(node: unknown): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (isValidElement(node)) return extractText((node.props as { children?: unknown }).children);
+  return '';
+}
+
+/** 带语言标签 + 复制按钮的代码块容器。 */
+function CodeBlock({ language, children, ...preProps }: {
+  language: string;
+  children?: React.ReactNode;
+  [key: string]: unknown;
+}) {
+  const [copied, setCopied] = useState(false);
+  const raw = extractText(children);
+  const copy = () => {
+    navigator.clipboard?.writeText(raw).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <div className="af-codeblock">
+      <div className="af-codeblock-head">
+        <span className="af-codeblock-lang">{language || 'code'}</span>
+        <button
+          type="button"
+          onClick={copy}
+          className="af-codeblock-copy"
+          title="复制代码"
+        >
+          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          {copied ? '已复制' : '复制'}
+        </button>
+      </div>
+      <pre {...preProps}>{children}</pre>
+    </div>
+  );
 }
 
 export const Markdown = memo(function Markdown({ content }: MarkdownProps) {
@@ -55,14 +100,22 @@ export const Markdown = memo(function Markdown({ content }: MarkdownProps) {
               </code>
             );
           },
-          // Unwrap <pre> around chart/diagram blocks (they bring their own container).
-          pre: ({ children, ...props }) =>
-            isValidElement(children) &&
-            (children.type === EChartBlock || children.type === MermaidBlock) ? (
-              children
-            ) : (
-              <pre {...props}>{children}</pre>
-            ),
+          // Unwrap <pre> around chart/diagram blocks (they bring their own container);
+          // plain code blocks get the language+copy chrome.
+          pre: ({ children, ...props }) => {
+            const child = Array.isArray(children) ? children[0] : children;
+            if (
+              isValidElement(child) &&
+              (child.type === EChartBlock || child.type === MermaidBlock)
+            ) {
+              return child;
+            }
+            const lang =
+              isValidElement(child)
+                ? /language-([^\s]+)/.exec(String((child.props as { className?: string }).className ?? ''))?.[1] ?? ''
+                : '';
+            return <CodeBlock language={lang} {...props}>{children}</CodeBlock>;
+          },
         }}
       >
         {safe}

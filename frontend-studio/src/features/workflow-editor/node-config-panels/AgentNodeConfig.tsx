@@ -382,7 +382,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
     <div className="space-y-3">
       {/* Agent 选择 */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">Agent</label>
+        <label className="block text-xs text-ink-dim mb-1">Agent</label>
         {isLoading ? (
           <Spin size="small" />
         ) : (
@@ -437,7 +437,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
       {/* 超时（temperature/max_retry/信息不足分支已从面板移除——引擎按
           默认值执行：温度与重试沿用节点默认配置，abort 诚实终止） */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
           超时 (ms)
           <HelpHint text="Agent 节点无人值守执行（不会暂停询问用户），超时后按失败处理并触发重试。" />
         </label>
@@ -456,7 +456,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
           上轮发言锚定）；工作台模式下注入随之全量/增量。 */}
       {ownerLoopId && (
         <div>
-          <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+          <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
             跨轮记忆
             <HelpHint text="这个步骤跨轮怎么记住上下文。跨轮续接：保留之前轮次的对话（读过的资料、失败的尝试都在）——适合执行者；每轮独立：每轮全新视角不被上一轮发言锚定——适合评审者。循环外的节点无此概念。" />
           </label>
@@ -479,9 +479,9 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
 
       {/* 输出变量：全部引擎输出变量一览（用户知道下游可用什么）。
           仅 response 可编辑（弹窗内查看/编辑结构），其余为固定只读。 */}
-      <div className="border border-slate-700/60 rounded-md p-2.5 space-y-1.5">
+      <div className="border border-line rounded-md p-2.5 space-y-1.5">
         <div className="flex items-center gap-1">
-          <label className="text-xs text-slate-400">输出变量</label>
+          <label className="text-xs text-ink-dim">输出变量</label>
           <HelpHint
             text={
               '下游节点可引用的输出变量。response 是 Agent 的核心返回内容——默认纯文本，' +

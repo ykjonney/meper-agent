@@ -1,39 +1,58 @@
 /**
- * KnowledgeBasePage — KB card list + create dialog.
+ * KnowledgeBasePage — 资源库 / 知识库 tab（类型签名卡片网格）。
  *
- * Cards show name / description / file_count / total_size. Click a card to
- * open KbDetailPage (file management). Modelled on AgentSpace.
+ * 靛蓝改版（设计稿 resource-hub-page.html pane-kb）：38px 类型徽章（目录树 /
+ * 向量点阵 SVG，知识库身份色）+ 名称 + 形态描述行 + 状态 pill（已就绪/索引中/
+ * 构建失败）+ 文档统计 + 能力 chips（kb_search / kb_read）+ foot（日期 + 打开/删除）。
+ * 顶部工具栏 = 搜索（本地过滤）+「＋ 新建知识库」CTA。
+ * 创建弹窗逻辑保留（tree 类型可选编译模型），视觉用语义 token。
  */
-import { useState, type FormEvent } from 'react';
-import { Plus, BookOpen, Trash2, Loader2, FileText, Search, Sparkles } from 'lucide-react';
+import { useState, useMemo, type FormEvent } from 'react';
+import { Plus, Search, Loader2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { knowledgeApi, knowledgeKeys } from '../services/knowledge-api';
+import { knowledgeApi, knowledgeKeys, type KnowledgeBase } from '../services/knowledge-api';
 import { modelApi } from '../services/model-api';
 import { usePermission } from '../hooks/use-permission';
 import { confirmDialog } from './ui/confirm';
 import { toast } from './ui/toast';
 import { getErrorMessage } from '../lib/api-client';
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
+import { ResModal, Field, UInput, TypeCard } from './res-modal';
 
 type KbType = 'tree' | 'vector';
 
-function TypeBadge({ type }: { type: KbType }) {
-  if (type === 'vector') {
-    return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-300">
-        <Search className="w-3 h-3" />向量
-      </span>
-    );
-  }
+/** 形态描述行（设计稿 vendor-line）：tree=目录树精确检索 / vector=向量语义检索 */
+const TYPE_DESC: Record<KbType, string> = {
+  tree: '目录树 · 按路径精确检索',
+  vector: '向量语义 · 检索 + 重排',
+};
+
+/** 状态 pill 映射：last_build_status 宽匹配 → 已就绪/索引中/构建失败/未索引 */
+function buildPill(kb: KnowledgeBase): { label: string; tone: 'ok' | 'wait' | 'fail' | 'neutral' } {
+  const s = (kb.last_build_status ?? '').toLowerCase();
+  if (/fail|error/.test(s)) return { label: '构建失败', tone: 'fail' };
+  if (/build|index|running|pending|progress/.test(s)) return { label: '索引中', tone: 'wait' };
+  if (/ready|ok|done|success|complete/.test(s)) return { label: '已就绪', tone: 'ok' };
+  return { label: '未索引', tone: 'neutral' };
+}
+
+/** 类型徽章：目录树（线条）/ 向量（点阵）——知识库身份色 soft 底 + 深色 icon */
+function KbBadge({ type }: { type: KbType }) {
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-300">
-      <Sparkles className="w-3 h-3" />Wiki
-    </span>
+    <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 bg-[#F5E9E2] text-cat-kb">
+      {type === 'vector' ? (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+          <circle cx="4" cy="4" r="2" /><circle cx="10" cy="6" r="2" /><circle cx="16" cy="4" r="2" />
+          <circle cx="6" cy="11" r="2" /><circle cx="12" cy="13" r="2" /><circle cx="5" cy="17" r="2" />
+        </svg>
+      ) : (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M7 4h10M7 10h10M7 16h10" strokeLinecap="round" />
+          <circle cx="4" cy="4" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="16" r="1.5" fill="currentColor" stroke="none" />
+        </svg>
+      )}
+    </div>
   );
 }
 
@@ -45,6 +64,7 @@ export function KnowledgeBasePage({
   const queryClient = useQueryClient();
   // 写权限门控：无 knowledge:write 的用户隐藏创建/删除入口（查看详情不受影响）
   const canWrite = usePermission('knowledge:write');
+  const [searchInput, setSearchInput] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -64,6 +84,13 @@ export function KnowledgeBasePage({
     queryFn: () => knowledgeApi.list({ page: 1, page_size: 50 }),
   });
   const kbs = data?.items ?? [];
+
+  // 本地过滤：名称 / 描述 includes
+  const filtered = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    if (!q) return kbs;
+    return kbs.filter((kb) => `${kb.name} ${kb.description ?? ''}`.toLowerCase().includes(q));
+  }, [kbs, searchInput]);
 
   const createM = useMutation({
     mutationFn: (input: {
@@ -115,180 +142,175 @@ export function KnowledgeBasePage({
   };
 
   return (
-    <div className="space-y-6">
-      {/* header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-line pb-4 gap-4">
-        <div className="space-y-0.5">
-          <h2 className="text-sm font-bold text-ink flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-indigo-400" />
-            知识库 ({kbs.length})
-          </h2>
-          <p className="text-xs text-ink-dim">
-            文档树 / Wiki（AI 编译维护）/ 向量库（RAG 检索）三种形态并存，均可绑定到 Agent。
-          </p>
+    <div className="space-y-4">
+      {/* 工具栏：搜索 + 新建（设计稿 toolbar） */}
+      <div className="flex items-center gap-3">
+        <div className="relative w-[320px]">
+          <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+          <input
+            type="text"
+            placeholder="搜索知识库名称 / 描述…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="w-full pl-9 pr-3 h-8 text-xs bg-panel border border-line rounded-[10px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition font-medium"
+          />
         </div>
         {canWrite && (
           <button
             onClick={() => setIsCreating(true)}
-            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+            className="af-btn af-btn-primary shrink-0 ml-auto"
           >
-            <Plus className="w-4 h-4 text-emerald-400 font-bold" />
-            创建知识库
+            ＋ 新建知识库
           </button>
         )}
       </div>
 
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-rose-950/30 border border-rose-700/40 text-rose-300 text-xs">{error}</div>
+        <div className="px-3 py-2 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs">{error}</div>
       )}
 
       {isLoading ? (
-        <p className="text-xs text-ink-dim">加载中…</p>
-      ) : kbs.length === 0 ? (
-        <p className="text-xs text-ink-dim">还没有知识库，点击右上角创建。</p>
+        <p className="text-xs text-ink-dim flex items-center gap-2 py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> 加载知识库…
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-xs text-ink-faint py-10 text-center">
+          {searchInput ? '没有匹配的知识库' : '还没有知识库，点击右上角创建。'}
+        </p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {kbs.map((kb) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-4">
+          {filtered.map((kb) => {
             const kbType: KbType = kb.type === 'vector' ? 'vector' : 'tree';
+            const pill = buildPill(kb);
+            const chips = kbType === 'tree' ? ['kb_search', 'kb_read'] : ['kb_search'];
             return (
-            <div
-              key={kb.id}
-              onClick={() => onOpenKb({ id: kb.id, name: kb.name, type: kbType })}
-              className="bg-panel border border-line rounded-xl overflow-hidden relative group hover:border-line-strong transition cursor-pointer"
-            >
-              <div className="p-5 space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 bg-page rounded-xl flex items-center justify-center border border-line">
-                      {kbType === 'vector'
-                        ? <Search className="w-5 h-5 text-emerald-400" />
-                        : <BookOpen className="w-5 h-5 text-indigo-400" />}
-                    </div>
-                    <div className="space-y-0.5 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h4 className="text-sm font-bold text-white truncate min-w-0" title={kb.name}>{kb.name}</h4>
-                        <TypeBadge type={kbType} />
-                      </div>
-                      <span className="text-[11px] text-ink-dim font-mono block truncate" title={kb.id}>{kb.id}</span>
-                    </div>
+              <div
+                key={kb.id}
+                onClick={() => onOpenKb({ id: kb.id, name: kb.name, type: kbType })}
+                className="bg-panel border border-line rounded-xl p-4 flex flex-col transition cursor-pointer hover:shadow-[var(--shadow-card)] hover:border-line-strong"
+              >
+                {/* 头部：类型徽章 + 名称 + 形态描述 + 状态 pill */}
+                <div className="flex items-start gap-[11px]">
+                  <KbBadge type={kbType} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink truncate" title={kb.name}>{kb.name}</div>
+                    <div className="text-[10.5px] text-ink-dim mt-0.5 truncate">{TYPE_DESC[kbType]}</div>
                   </div>
-                  {canWrite && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(kb.id, kb.name); }}
-                      className="p-1 px-1.5 bg-page border border-line rounded-lg text-rose-500 hover:text-rose-400 hover:bg-rose-950/20 opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                      title="删除"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <span className={`af-pill af-pill-${pill.tone} shrink-0`}>{pill.label}</span>
+                </div>
+
+                {/* 统计行 */}
+                <div className="text-[11px] text-ink-dim mt-3">
+                  <b className="text-ink font-semibold">{kb.file_count}</b> 文档
+                  {kb.total_size > 0 && (
+                    <>
+                      <span className="mx-1.5 text-ink-faint">·</span>
+                      {(kb.total_size / 1024).toFixed(0)} KB
+                    </>
                   )}
                 </div>
-                <p className="text-xs text-ink-dim leading-relaxed min-h-[32px] line-clamp-2">{kb.description || '（无描述）'}</p>
-                <div className="flex items-center gap-3 text-[11px] text-ink-dim font-mono">
-                  <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{kb.file_count} 文件</span>
-                  <span>{formatSize(kb.total_size)}</span>
+
+                {/* 能力 chips：绑定到 Agent 时暴露的检索能力 */}
+                <div className="flex flex-wrap gap-1 mt-2.5">
+                  {chips.map((c) => (
+                    <span key={c} className="px-2 py-0.5 rounded-md bg-raise text-[10px] font-mono text-ink-dim">{c}</span>
+                  ))}
+                </div>
+
+                {/* foot：日期 + 操作 */}
+                <div className="flex items-center justify-between border-t border-line mt-3 pt-2.5">
+                  <span className="text-[10.5px] text-ink-faint font-mono">
+                    {new Date(kb.updated_at || kb.created_at).toLocaleDateString('zh-CN').replace(/\//g, '/')}
+                  </span>
+                  <div className="flex items-center gap-2.5 text-[11px]">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onOpenKb({ id: kb.id, name: kb.name, type: kbType }); }}
+                      className="text-brand hover:text-brand-hover cursor-pointer"
+                    >打开</button>
+                    {canWrite && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(kb.id, kb.name); }}
+                        className="text-sig-fail hover:opacity-75 cursor-pointer"
+                      >删除</button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
             );
           })}
         </div>
       )}
 
-      {/* create modal */}
+      {/* create modal：设计稿 res-create-edit 形态（徽章头 + kicker + 下划线字段 + 类型卡） */}
       {isCreating && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50 text-xs">
-          <div className="w-full max-w-md bg-panel border border-line rounded-xl overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-line flex items-center justify-between bg-page/60">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-indigo-400" />
-                创建知识库
-              </h3>
-              <button onClick={() => setIsCreating(false)} className="text-ink-dim hover:text-white cursor-pointer">✕</button>
-            </div>
-            <form onSubmit={handleCreateSave} className="p-6 space-y-4">
-              <div className="space-y-1">
-                <label className="text-slate-400 font-semibold uppercase tracking-wide">名称 *</label>
-                <input
-                  type="text" required autoFocus value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="如：产品手册"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-slate-400 font-semibold uppercase tracking-wide">描述</label>
-                <input
-                  type="text" value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="这个知识库涵盖哪些内容…"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-slate-400 font-semibold uppercase tracking-wide">类型</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewType('tree')}
-                    className={`text-left p-2.5 rounded-lg border transition cursor-pointer ${
-                      newType === 'tree'
-                        ? 'border-indigo-600 bg-indigo-950/30'
-                        : 'border-line hover:border-line-strong bg-page'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-white font-semibold">
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-400" />Wiki（AI 维护）
-                    </div>
-                    <p className="text-[11px] text-ink-dim mt-0.5">上传源资料，AI 编译成带引用的 wiki 页面</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewType('vector')}
-                    className={`text-left p-2.5 rounded-lg border transition cursor-pointer ${
-                      newType === 'vector'
-                        ? 'border-emerald-600 bg-emerald-950/30'
-                        : 'border-line hover:border-line-strong bg-page'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-white font-semibold">
-                      <Search className="w-3.5 h-3.5 text-emerald-400" />向量库
-                    </div>
-                    <p className="text-[11px] text-ink-dim mt-0.5">PDF/Word/MD，语义检索 + 重排</p>
-                  </button>
-                </div>
-                {newType === 'tree' && (
-                  <div className="space-y-1">
-                    <label className="text-slate-400 font-semibold uppercase tracking-wide">构建模型</label>
-                    <select
-                      value={newBuilderModel}
-                      onChange={(e) => setNewBuilderModel(e.target.value)}
-                      className="w-full px-3 py-2 bg-page border border-line rounded-lg text-white focus:outline-none focus:border-indigo-600 transition cursor-pointer"
-                    >
-                      <option value="">稍后在详情页选择</option>
-                      {activeModels.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-              <p className="text-[11px] text-ink-dim italic">
-                {newType === 'vector'
-                  ? '创建后进入详情页，可上传文档并查看索引状态。需在 .env 配置 KB_EMBEDDING_* 后方可索引。'
-                  : '创建后上传源资料（PDF/Word/MD/…），选择构建模型即可一键「构建 Wiki」；sources/ 只读，wiki 页由 AI 维护。'}
-              </p>
-              <div className="p-4 border-t border-line bg-page flex justify-end gap-3 -mx-6 -mb-6">
-                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
-                  取消
-                </button>
-                <button type="submit" disabled={createM.isPending} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2">
+        <ResModal
+          badge={<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M7 4h10M7 10h10M7 16h10" strokeLinecap="round" /><circle cx="4" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none" /><circle cx="4" cy="16" r="1.5" fill="currentColor" stroke="none" /></svg>}
+          badgeCls="bg-[#F5E9E2] text-cat-kb"
+          title="新建知识库"
+          kicker="KNOWLEDGE BASE · CREATE"
+          onClose={() => setIsCreating(false)}
+          formId="kb-create-form"
+          footer={{
+            actions: (
+              <>
+                <button type="button" onClick={() => setIsCreating(false)} className="af-btn af-btn-ghost">取消</button>
+                <button
+                  type="submit"
+                  form="kb-create-form"
+                  disabled={createM.isPending || !newName.trim()}
+                  className="af-btn af-btn-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
                   {createM.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {createM.isPending ? '创建中…' : '立即创建'}
+                  创建
                 </button>
+              </>
+            ),
+          }}
+        >
+          <form id="kb-create-form" onSubmit={handleCreateSave}>
+            <Field label="名称" required>
+              <UInput autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="例如：产品手册" />
+            </Field>
+            <Field label="检索结构" required>
+              <div className="grid grid-cols-2 gap-2.5">
+                <TypeCard
+                  on={newType === 'tree'}
+                  onClick={() => setNewType('tree')}
+                  icon={<svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M7 4h10M7 10h10M7 16h10" strokeLinecap="round" /><circle cx="4" cy="4" r="1.5" fill="currentColor" stroke="none" /><circle cx="4" cy="10" r="1.5" fill="currentColor" stroke="none" /><circle cx="4" cy="16" r="1.5" fill="currentColor" stroke="none" /></svg>}
+                  iconCls="bg-[#E9EDF7] text-cat-tool"
+                  title="目录树 Wiki"
+                  desc="上传 Markdown / 文档，按标题层级建树，AI 编译成带引用的 Wiki 页面"
+                />
+                <TypeCard
+                  on={newType === 'vector'}
+                  onClick={() => setNewType('vector')}
+                  icon={<svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><circle cx="5" cy="5" r="1.8" /><circle cx="10" cy="7" r="1.8" /><circle cx="15" cy="5" r="1.8" /><circle cx="7" cy="11" r="1.8" /><circle cx="12" cy="13" r="1.8" /><circle cx="6" cy="16" r="1.8" /></svg>}
+                  iconCls="bg-[#E3F1F4] text-cat-voice"
+                  title="向量语义"
+                  desc="文档分块向量化，语义相似检索，适合 FAQ 与非结构化资料"
+                />
               </div>
-            </form>
-          </div>
-        </div>
+            </Field>
+            {newType === 'tree' && (
+              <Field label="编译模型" optional="Wiki 维护用">
+                <select
+                  value={newBuilderModel}
+                  onChange={(e) => setNewBuilderModel(e.target.value)}
+                  className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-[7px] text-[13px] text-ink outline-none transition-colors focus:border-b-brand"
+                >
+                  <option value="">— 选择模型 —</option>
+                  {activeModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.model_id})</option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <Field label="描述" optional="可选">
+              <UInput value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="这个知识库收录什么内容…" />
+            </Field>
+            {error && <p className="text-sig-fail text-xs mb-3">{error}</p>}
+          </form>
+        </ResModal>
       )}
     </div>
   );

@@ -12,7 +12,7 @@ def _patch_env_builder(monkeypatch, calls: dict):
     """替换 harness 的 env 构建器（get_llm_client 函数内延迟 import，patch 包属性）。"""
     import agent_flow_harness
 
-    def fake_env(model_name, agent_config=None, enable_thinking=False, max_retries=None):
+    def fake_env(model_name, agent_config=None, enable_thinking=False, max_retries=None, thinking_level=""):
         calls["model"] = model_name
         calls["max_retries"] = max_retries
         return object()
@@ -59,7 +59,7 @@ async def test_model_table_path_also_wired(monkeypatch) -> None:
             "compatibility_type": "openai", "auth_type": "bearer",
         }
 
-    def fake_doc(doc, agent_config=None, enable_thinking=False, max_retries=None):
+    def fake_doc(doc, agent_config=None, enable_thinking=False, max_retries=None, thinking_level=""):
         calls["max_retries"] = max_retries
         return object()
 

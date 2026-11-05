@@ -21,7 +21,7 @@ import {
   tasksApi, taskKeys,
   type TaskDetail, type TaskStatusValue, type CommentValue,
 } from '../services/tasks-api';
-import { TASK_STATUS_STYLES } from '../constants/task-status';
+import { TASK_STATUS_STYLES, toneVar } from '../constants/task-status';
 import { TaskOutputFiles } from './task/TaskOutputFiles';
 import { TaskFlowTimeline } from './task/TaskFlowTimeline';
 import { toast } from './ui/toast';
@@ -171,16 +171,15 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
         className="w-full flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-0 text-left cursor-pointer hover:bg-panel-hover transition-colors"
       >
         <span
-          className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.pulse ? 'animate-pulse' : ''}`}
-          style={{ backgroundColor: style.color }}
+          className={`w-2 h-2 rounded-full shrink-0 ${style.pulse ? 'animate-breathe' : ''}`}
+          style={{ backgroundColor: toneVar(style.tone) }}
         />
         <span className="text-xs font-semibold text-ink truncate">
           {created.workflow_name || '工作流任务'}
         </span>
-        <span
-          className="px-1.5 py-0.5 rounded text-[11px] font-medium shrink-0"
-          style={{ backgroundColor: style.bg, color: style.color }}
-        >
+        <span className={`af-pill af-pill-${
+          style.tone === 'ok' ? 'ok' : style.tone === 'wait' ? 'wait' : style.tone === 'fail' ? 'fail' : 'neutral'
+        } shrink-0`}>
           {style.label}
         </span>
         <span className="text-[11px] text-ink-dim font-mono truncate ml-1">{created.task_id}</span>

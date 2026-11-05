@@ -54,7 +54,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">条件列表</span>
+        <span className="text-xs text-ink-dim">条件列表</span>
         <Button size="small" icon={<Plus size={12} />} onClick={addCondition}>
           添加条件
         </Button>
@@ -71,7 +71,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
             </button>
           </div>
           <div>
-            <label className="block text-[11px] text-slate-400 mb-0.5">表达式</label>
+            <label className="block text-[11px] text-ink-dim mb-0.5">表达式</label>
             <VariableSelector
               value={(cond.expression as string) ?? ''}
               onChange={(val) => updateCondition(idx, 'expression', val)}
@@ -84,7 +84,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="block text-[11px] text-slate-400 mb-0.5">判断符</label>
+              <label className="block text-[11px] text-ink-dim mb-0.5">判断符</label>
               <Select
                 size="small"
                 className="w-full"
@@ -94,7 +94,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-400 mb-0.5">期望值</label>
+              <label className="block text-[11px] text-ink-dim mb-0.5">期望值</label>
               <Input
                 size="small"
                 value={String(cond.expected ?? 'true')}
@@ -103,7 +103,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
               />
             </div>
             <div>
-              <label className="block text-[11px] text-slate-400 mb-0.5">目标节点</label>
+              <label className="block text-[11px] text-ink-dim mb-0.5">目标节点</label>
               <Select
                 size="small"
                 className="w-full"
@@ -121,7 +121,7 @@ export default function GatewayNodeConfig({ config, onChange, currentNodeId, all
         <div className="text-xs text-ink-dim text-center py-4">暂无条件，点击「添加条件」创建</div>
       )}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">默认分支 (无匹配时)</label>
+        <label className="block text-xs text-ink-dim mb-1">默认分支 (无匹配时)</label>
         <Select
           className="w-full"
           value={(config.default_branch as string) || null}

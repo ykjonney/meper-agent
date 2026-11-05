@@ -1,7 +1,14 @@
 """Execution-related Pydantic schemas for invoke/stream API."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
+
+# 思考档位：off=直答；low/medium/high 映射各厂商强度参数
+# （o-series reasoning_effort 直传 / Anthropic budget 2048/8192/16384 /
+#  Qwen·GLM 开关）。与 harness THINKING_LEVELS 保持一致。
+ThinkingLevel = Literal["off", "low", "medium", "high"]
 
 
 class ExecutionRequest(BaseModel):
@@ -20,8 +27,20 @@ class ExecutionRequest(BaseModel):
     enable_thinking: bool = Field(
         default=False,
         description="启用 LLM 原生推理（Claude extended thinking / OpenAI o-series reasoning_effort）。"
-        "不支持的模型会静默降级到普通模式。",
+        "不支持的模型会静默降级到普通模式。thinking_level 缺省时的旧开关（True→medium）。",
     )
+    thinking_level: ThinkingLevel | None = Field(
+        default=None,
+        description="思考强度档位（优先于 enable_thinking）：off 直答；low/medium/high "
+        "按厂商映射（o-series reasoning_effort / Anthropic budget_tokens / Qwen·GLM 开关）。",
+    )
+
+    @property
+    def resolved_thinking_level(self) -> str:
+        """统一档位入口：thinking_level 优先，否则按旧布尔换算。"""
+        if self.thinking_level is not None:
+            return self.thinking_level
+        return "medium" if self.enable_thinking else "off"
     plan_mode: bool = Field(
         default=False,
         description="计划模式：调研设计优先、不产生变更——剥离变更工具"
@@ -55,12 +74,28 @@ class ExecutionResponse(BaseModel):
     step_count: int = Field(default=0, description="Number of execution steps taken")
 
 
+class DefaultModelUpdate(BaseModel):
+    """聊天中切换 Agent 默认模型（只动 default_model 单字段）。"""
+
+    model_id: str = Field(..., min_length=1, description="models 表的 ULID（model_ 前缀）")
+
+
 class ResumeRequest(BaseModel):
     """Request body for resuming an interrupted agent (ask_clarification / propose_plan)."""
 
     session_id: str = Field(..., description="被中断的 session ID")
     answer: str = Field(..., min_length=1, max_length=50000, description="用户的回答")
-    enable_thinking: bool = Field(default=False, description="启用 LLM 推理模式")
+    enable_thinking: bool = Field(default=False, description="启用 LLM 推理模式（thinking_level 缺省时 True→medium）")
+    thinking_level: ThinkingLevel | None = Field(
+        default=None,
+        description="思考强度档位（优先于 enable_thinking）。",
+    )
+
+    @property
+    def resolved_thinking_level(self) -> str:
+        if self.thinking_level is not None:
+            return self.thinking_level
+        return "medium" if self.enable_thinking else "off"
     plan_mode: bool = Field(
         default=False,
         description="恢复时的执行语义：true=继续计划模式（反馈/重新规划，保持只读）；"
@@ -124,8 +159,18 @@ class PreviewRequest(BaseModel):
     )
     enable_thinking: bool = Field(
         default=False,
-        description="是否启用 thinking 模式（影响 LLM 配置预览）",
+        description="是否启用 thinking 模式（影响 LLM 配置预览；thinking_level 缺省时 True→medium）",
     )
+    thinking_level: ThinkingLevel | None = Field(
+        default=None,
+        description="思考强度档位（优先于 enable_thinking）。",
+    )
+
+    @property
+    def resolved_thinking_level(self) -> str:
+        if self.thinking_level is not None:
+            return self.thinking_level
+        return "medium" if self.enable_thinking else "off"
 
 
 class ToolPreview(BaseModel):

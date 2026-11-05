@@ -58,7 +58,7 @@ function NotificationItemRow({
   return (
     <div
       className={`px-3 py-2.5 cursor-pointer transition-colors border-b border-line/60 last:border-b-0 ${
-        !item.read ? 'bg-[#1E5EFF]/10 hover:bg-[#1E5EFF]/20' : 'hover:bg-page/60'
+        !item.read ? 'bg-brand-soft hover:bg-brand-soft' : 'hover:bg-page/60'
       }`}
       onClick={handleClick}
     >
@@ -82,12 +82,12 @@ function NotificationItemRow({
               {KIND_LABELS[item.kind] ?? item.kind}
             </span>
           </div>
-          <span className="text-xs block truncate mt-0.5 text-slate-400">{item.body}</span>
+          <span className="text-xs block truncate mt-0.5 text-ink-dim">{item.body}</span>
           <span className="text-[11px] mt-1 block text-ink-dim">
             {new Date(item.created_at).toLocaleString()}
           </span>
         </div>
-        {!item.read && <span className="mt-1.5 w-2 h-2 rounded-full bg-[#1E5EFF] shrink-0" />}
+        {!item.read && <span className="mt-1.5 w-2 h-2 rounded-full bg-brand shrink-0" />}
       </div>
     </div>
   )
@@ -134,7 +134,7 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
       title={title}
       content={content}
     >
-      <Badge count={unreadCount} size="small" style={{ backgroundColor: '#F97316' }}>
+      <Badge count={unreadCount} size="small" style={{ backgroundColor: '#D93A3F' }}>
         <Button type="text" size="small" icon={<Bell className="w-4 h-4" />} />
       </Badge>
     </Popover>

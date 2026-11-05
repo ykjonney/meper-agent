@@ -89,3 +89,65 @@ class TestSupportsThinking:
 
     def test_unknown_provider_not_supported(self):
         assert supports_thinking("some-model", "custom") is False
+
+
+class TestThinkingLevel:
+    """档位路径（thinking_level 优先于旧布尔 enable_thinking）。
+
+    档位映射：o-series reasoning_effort 直传；Anthropic budget
+    low/medium/high = 2048/8192/16384；Qwen·GLM off 关、其余开。
+    """
+
+    def test_glm_off_disables(self):
+        result = build_thinking_kwargs("glm-5.2", "openai", False, None,
+                                       thinking_level="off")
+        assert result == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+    def test_glm_high_enables(self):
+        result = build_thinking_kwargs("glm-5.2", "openai", False, None,
+                                       thinking_level="high")
+        assert result == {"extra_body": {"thinking": {"type": "enabled"}}}
+
+    def test_qwen_low_enables(self):
+        result = build_thinking_kwargs("qwen3.7-plus", "openai", False, None,
+                                       thinking_level="low")
+        assert result == {"extra_body": {"enable_thinking": True}}
+
+    def test_qwen_off_disables(self):
+        result = build_thinking_kwargs("qwen3.7-plus", "openai", False, None,
+                                       thinking_level="off")
+        assert result == {"extra_body": {"enable_thinking": False}}
+
+    def test_anthropic_level_budgets(self):
+        for level, budget in (("low", 2048), ("medium", 8192), ("high", 16384)):
+            result = build_thinking_kwargs("claude-sonnet-4", "anthropic", False,
+                                           None, thinking_level=level)
+            assert result["thinking"] == {"type": "enabled", "budget_tokens": budget}
+
+    def test_anthropic_level_budget_capped_by_max_tokens(self):
+        """max_tokens 约束在档位路径同样生效（budget ≤ max_tokens/2）。"""
+        result = build_thinking_kwargs("claude-sonnet-4", "anthropic", False,
+                                       max_tokens=4096, thinking_level="high")
+        assert result["thinking"]["budget_tokens"] == 2048
+
+    def test_o_series_level_passthrough(self):
+        for level in ("low", "medium", "high"):
+            result = build_thinking_kwargs("o3-mini", "openai", False, None,
+                                           thinking_level=level)
+            assert result == {"reasoning_effort": level}
+
+    def test_level_overrides_legacy_bool(self):
+        """thinking_level 显式给出时忽略 enable_thinking 布尔。"""
+        result = build_thinking_kwargs("glm-5.2", "openai", True, None,
+                                       thinking_level="off")
+        assert result == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+    def test_legacy_bool_keeps_legacy_behavior(self):
+        """旧调用（无 thinking_level）零行为变化：anthropic 用模型默认预算
+        5000、o-series 保持写死 high——旧行为不因档位化而漂移。"""
+        result = build_thinking_kwargs("claude-sonnet-4", "anthropic", True, None,
+                                       thinking_level="")
+        assert result["thinking"]["budget_tokens"] == 5000
+        result = build_thinking_kwargs("o3-mini", "openai", True, None,
+                                       thinking_level="")
+        assert result == {"reasoning_effort": "high"}

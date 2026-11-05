@@ -77,7 +77,7 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                         : evt.event_type === 'node_complete' || evt.event_type === 'workflow_completed'
                           ? 'bg-green-500'
                           : evt.event_type === 'node_start'
-                            ? 'bg-blue-500'
+                            ? 'bg-brand'
                             : 'bg-line-strong'
                     }`}
                   />
@@ -85,7 +85,7 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                     <span className="text-link font-mono">{evt.event_type}</span>
                     {evt.actor && <span className="text-ink-dim"> · {evt.actor}</span>}
                     {evt.data && Object.keys(evt.data).length > 0 && (
-                      <pre className="text-[11px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
+                      <pre className="text-[11px] text-ink-dim mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
                         {JSON.stringify(evt.data)}
                       </pre>
                     )}

@@ -118,7 +118,7 @@ const TYPE_OPTIONS = (Object.entries(VARIABLE_TYPE_CONFIGS) as [VariableTypeName
     label: (
       <div className="flex items-center gap-2">
         <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded text-[11px] font-bold text-white"
+          className="inline-flex items-center justify-center w-5 h-5 rounded text-[11px] font-bold text-ink"
           style={{ backgroundColor: cfg.color }}
         >
           {cfg.icon}
@@ -171,7 +171,7 @@ export default function VariableTypeSelector({
     <div className="space-y-3">
       {/* 类型选择 */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">类型</label>
+        <label className="block text-xs text-ink-dim mb-1">类型</label>
         <Select
           className="w-full"
           value={currentType}
@@ -184,7 +184,7 @@ export default function VariableTypeSelector({
       {showMeta && (
         <>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
+            <label className="block text-xs text-ink-dim mb-1">
               变量名 <span className="text-red-400">*</span>
             </label>
             <Input
@@ -199,7 +199,7 @@ export default function VariableTypeSelector({
             )}
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">显示标签</label>
+            <label className="block text-xs text-ink-dim mb-1">显示标签</label>
             <Input
               value={value?.label ?? ''}
               onChange={(e) => onChange({ ...value, label: e.target.value })}
@@ -208,7 +208,7 @@ export default function VariableTypeSelector({
             />
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">描述</label>
+            <label className="block text-xs text-ink-dim mb-1">描述</label>
             <Input
               value={value?.description ?? ''}
               onChange={(e) => onChange({ ...value, description: e.target.value })}
@@ -222,7 +222,7 @@ export default function VariableTypeSelector({
       {/* 动态约束表单 */}
       {constraintFields.length > 0 && (
         <div className="border border-line/60 rounded-lg p-2.5 bg-page/60">
-          <p className="text-[11px] text-slate-400 font-medium mb-2">约束</p>
+          <p className="text-[11px] text-ink-dim font-medium mb-2">约束</p>
           <div className="space-y-2">
             {constraintFields.map((field) => (
               <div key={field.name}>

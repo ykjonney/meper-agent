@@ -4,6 +4,17 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
+## 🎨 设计规范（改 UI 前必读）
+
+frontend-studio 的 UI 改动**必须**先读设计系统与规范：
+
+- **权威设计系统**：`docs/design/DESIGN_SYSTEM.md`（v4 纸墨×靛蓝——色彩/字体/圆角/图标/布局模板/禁用清单）
+- **文档索引**：`docs/design/README.md`（设计稿清单 + 已归档过时文档）
+- **红线速查**：靛蓝 `#2B4A9E` 唯一品牌彩；❌ 渐变 / emoji 图标 / SaaS 表单堆叠 / 彩色软底图标块；图标语义优先（`IndigoIcons.tsx`）；衬线斜体只用于 logo/问候/标题/大数字
+- 主题机制：`index.css` 的 `@theme`（全站默认亮色）+ `.theme-indigo`（会话页同值）；**语义类名不变只换值**
+
+## 1. Think Before Coding
+
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**

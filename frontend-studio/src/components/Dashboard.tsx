@@ -144,35 +144,36 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-gradient-to-br from-page to-panel rounded-xl border border-line shadow-xl overflow-hidden relative">
-        <div className="absolute top-0 right-0 w-80 h-40 bg-indigo-500/10 blur-[80px] rounded-full pointer-events-none" />
-        <div className="space-y-1 relative z-10">
-          <h1 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2 font-sans">
-            仪表盘 <span className="text-xl">📊</span>
+    <div className="af-scope h-full min-h-0 flex flex-col gap-6">
+      {/* 页头（规范 §6.2：标题+说明+主操作，无装饰渐变/emoji/dev 语） */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between">
+        <div className="space-y-1">
+          <h1 className="text-base font-semibold text-ink tracking-tight font-sans">
+            仪表盘
           </h1>
           <p className="text-ink-dim text-xs max-w-xl">
-            聚合自 /tasks/stats、/agents、/tasks{canReadExecs ? '、/execution-stats、/execution-logs/daily' : ''}。当前并发上限 {maxConcurrent}，运行中 {running}，待执行 {pending}。
+            并发上限 {maxConcurrent} · 运行中 {running} · 待执行 {pending}
           </p>
         </div>
-        <div className="mt-4 md:mt-0 flex gap-3 relative z-10">
+        <div className="mt-4 md:mt-0 flex gap-2.5">
           <button
             onClick={() => onSelectTab('workflows')}
-            className="px-4 py-2 text-xs font-semibold text-ink-dim hover:text-white bg-page hover:bg-panel-hover rounded-lg border border-line transition shadow-inner flex items-center gap-1.5 cursor-pointer"
+            className="af-btn af-btn-secondary"
           >
-            <Brain className="w-4 h-4 text-indigo-400" />
+            <Brain className="w-3.5 h-3.5" />
             设计工作流
           </button>
           <button
             onClick={() => onSelectTab('agents')}
-            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md cursor-pointer transition flex items-center gap-1.5"
+            className="af-btn af-btn-primary"
           >
-            <Cpu className="w-4 h-4" />
+            <Cpu className="w-3.5 h-3.5" />
             进入 Agent 空间
           </button>
         </div>
       </div>
+      {/* 内容区滚动：页头固定（规范 §5.10） */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
 
       {/* Metric cards (real data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -181,8 +182,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           value={statsLoading ? '…' : String(agentTotal)}
           note="已创建的智能体"
           icon={Cpu}
-          color="text-indigo-400"
-          bg="bg-indigo-500/10 border-indigo-500/20"
+          color="text-brand"
+          bg="bg-brand-soft"
           loading={statsLoading}
         />
         <MetricCard
@@ -190,8 +191,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           value={statsLoading ? '…' : String(running)}
           note={`并发上限 ${maxConcurrent} · 待执行 ${pending}`}
           icon={RotateCcw}
-          color="text-teal-400"
-          bg="bg-teal-500/10 border-teal-500/20"
+          color="text-brand"
+          bg="bg-brand-soft"
           loading={statsLoading}
         />
         <MetricCard
@@ -199,8 +200,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           value={statsLoading ? '…' : totalTasks.toLocaleString()}
           note="全部历史任务"
           icon={CheckCircle}
-          color="text-emerald-400"
-          bg="bg-emerald-500/10 border-emerald-500/20"
+          color="text-brand"
+          bg="bg-brand-soft"
           loading={statsLoading}
         />
         <MetricCard
@@ -208,8 +209,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           value={statsLoading ? '…' : String(pending)}
           note="排队等待调度"
           icon={TrendingUp}
-          color="text-amber-400"
-          bg="bg-amber-500/10 border-amber-500/20"
+          color="text-brand"
+          bg="bg-brand-soft"
           loading={statsLoading}
         />
       </div>
@@ -223,8 +224,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             value={execStatsAll ? String(execStatsAll.totals.calls) : '…'}
             note={`今日 ${execStatsToday?.totals.calls ?? 0} 次`}
             icon={Activity}
-            color="text-indigo-400"
-            bg="bg-indigo-500/10 border-indigo-500/20"
+            color="text-brand"
+            bg="bg-brand-soft"
             loading={!execStatsAll}
           />
           <MetricCard
@@ -232,8 +233,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             value={execStatsToday ? String(execStatsToday.totals.calls) : '…'}
             note={`失败 ${execStatsToday?.totals.failed ?? 0} 次`}
             icon={Zap}
-            color="text-amber-400"
-            bg="bg-amber-500/10 border-amber-500/20"
+            color="text-brand"
+            bg="bg-brand-soft"
             loading={!execStatsToday}
           />
           <MetricCard
@@ -241,8 +242,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             value={execStatsAll ? fmtTok(execStatsAll.totals.tokens) : '…'}
             note={`今日 ${fmtTok(execStatsToday?.totals.tokens ?? 0)}`}
             icon={Coins}
-            color="text-teal-400"
-            bg="bg-teal-500/10 border-teal-500/20"
+            color="text-brand"
+            bg="bg-brand-soft"
             loading={!execStatsAll}
           />
           <MetricCard
@@ -250,8 +251,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             value={execStatsAll ? `${execStatsAll.totals.success_rate}%` : '…'}
             note={`成功 ${execStatsAll?.totals.success ?? 0} · 失败 ${execStatsAll?.totals.failed ?? 0}`}
             icon={CheckCircle2}
-            color="text-emerald-400"
-            bg="bg-emerald-500/10 border-emerald-500/20"
+            color="text-brand"
+            bg="bg-brand-soft"
             loading={!execStatsAll}
           />
         </div>
@@ -259,16 +260,14 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
 
       {/* Chart + node health */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-8 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
+        <div className="lg:col-span-8 p-5 bg-panel rounded-[10px] shadow-[var(--shadow-card)] flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
-                <TrendingUp className="w-4 h-4 text-indigo-400" />
+                <TrendingUp className="w-4 h-4 text-ink-dim" />
                 近 7 天任务创建趋势
               </h3>
-              <span className="text-amber-400 text-[11px] font-mono">
-                GAP: 由 task created_at 近似，非专用时序端点
-              </span>
+              <span className="text-ink-faint text-[11px]">按天聚合</span>
             </div>
 
             <div className="relative w-full h-44 flex items-end">
@@ -289,21 +288,21 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                 })}
                 <defs>
                   <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="rgb(99, 102, 241)" stopOpacity="0.18" />
-                    <stop offset="100%" stopColor="rgb(99, 102, 241)" stopOpacity="0" />
+                    <stop offset="0%" stopColor="var(--color-brand)" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="var(--color-brand)" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 <path
                   d={`${pathData} L ${(chartPoints.length - 1) * ((svgWidth - 60) / (chartPoints.length - 1)) + 30} ${svgHeight - 20} L 30 ${svgHeight - 20} Z`}
                   fill="url(#chart-grad)"
                 />
-                <path d={pathData} fill="none" stroke="#6366f1" strokeWidth="2.5" />
+                <path d={pathData} fill="none" stroke="var(--color-brand)" strokeWidth="2.5" />
                 {chartPoints.map((p, i) => {
                   const x = (i / (chartPoints.length - 1)) * (svgWidth - 60) + 30;
                   const y = svgHeight - 20 - (p.val / maxVal) * (svgHeight - 40);
                   return (
                     <g key={i}>
-                      <circle cx={x} cy={y} r="5" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2" />
+                      <circle cx={x} cy={y} r="5" fill="var(--color-panel)" stroke="var(--color-brand)" strokeWidth="2" />
                       <text x={x} y={y - 10} textAnchor="middle" className="fill-ink-dim text-[11px] font-mono font-semibold">
                         {p.val}
                       </text>
@@ -322,16 +321,16 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
         </div>
 
         {/* Concurrency / stats panel */}
-        <div className="lg:col-span-4 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
+        <div className="lg:col-span-4 p-5 bg-panel rounded-[10px] shadow-[var(--shadow-card)] flex flex-col justify-between">
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
-              <Terminal className="w-4 h-4 text-emerald-400" />
+              <Terminal className="w-4 h-4 text-ink-dim" />
               任务执行引擎状态
             </h3>
             <div className="space-y-3">
-              <StatRow name="全局并发上限" value={String(maxConcurrent)} status="normal" desc="来自 /tasks/stats" />
-              <StatRow name="运行中任务" value={String(running)} status={running > 0 ? 'building' : 'normal'} desc="global_running" />
-              <StatRow name="待执行任务" value={String(pending)} status={pending > 0 ? 'building' : 'normal'} desc="global_pending" />
+              <StatRow name="全局并发上限" value={String(maxConcurrent)} status="normal" desc="引擎总并发额度" />
+              <StatRow name="运行中任务" value={String(running)} status={running > 0 ? 'building' : 'normal'} desc="正在执行的任务" />
+              <StatRow name="待执行任务" value={String(pending)} status={pending > 0 ? 'building' : 'normal'} desc="排队等待调度" />
               <StatRow
                 name="活跃用户数"
                 value={String(statsData?.user_stats?.length ?? 0)}
@@ -346,19 +345,19 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
       {/* Execution trend + channel breakdown（admin；真实按日聚合，缺日补零） */}
       {canReadExecs && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-8 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
+          <div className="lg:col-span-8 p-5 bg-panel rounded-[10px] shadow-[var(--shadow-card)] flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-indigo-400" />
+                  <Activity className="w-4 h-4 text-ink-dim" />
                   近 7 天 Agent 调用趋势
                 </h3>
                 <span className="flex items-center gap-3 text-[11px] font-mono text-ink-dim">
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-0.5 bg-indigo-500 inline-block" /> 调用
+                    <span className="w-2 h-0.5 bg-brand inline-block" /> 调用
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-0.5 bg-red-500 inline-block" /> 失败
+                    <span className="w-2 h-0.5 bg-sig-fail inline-block" /> 失败
                   </span>
                 </span>
               </div>
@@ -384,22 +383,22 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                     })}
                     <defs>
                       <linearGradient id="exec-chart-grad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="rgb(99, 102, 241)" stopOpacity="0.18" />
-                        <stop offset="100%" stopColor="rgb(99, 102, 241)" stopOpacity="0" />
+                        <stop offset="0%" stopColor="var(--color-brand)" stopOpacity="0.18" />
+                        <stop offset="100%" stopColor="var(--color-brand)" stopOpacity="0" />
                       </linearGradient>
                     </defs>
                     <path
                       d={`${execCallsPath} L ${(execTrend.length - 1) * ((svgWidth - 60) / Math.max(1, execTrend.length - 1)) + 30} ${svgHeight - 20} L 30 ${svgHeight - 20} Z`}
                       fill="url(#exec-chart-grad)"
                     />
-                    <path d={execCallsPath} fill="none" stroke="#6366f1" strokeWidth="2.5" />
+                    <path d={execCallsPath} fill="none" stroke="var(--color-brand)" strokeWidth="2.5" />
                     <path d={execFailedPath} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5 4" />
                     {execTrend.map((p, i) => {
                       const x = (i / Math.max(1, execTrend.length - 1)) * (svgWidth - 60) + 30;
                       const y = svgHeight - 20 - (p.calls / execMaxVal) * (svgHeight - 40);
                       return (
                         <g key={p.date}>
-                          <circle cx={x} cy={y} r="5" fill="#1e1b4b" stroke="#818cf8" strokeWidth="2" />
+                          <circle cx={x} cy={y} r="5" fill="var(--color-panel)" stroke="var(--color-brand)" strokeWidth="2" />
                           <text x={x} y={y - 10} textAnchor="middle" className="fill-ink-dim text-[11px] font-mono font-semibold">
                             {p.calls}
                           </text>
@@ -419,10 +418,10 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           </div>
 
           {/* 渠道分布（来自 /execution-stats channels） */}
-          <div className="lg:col-span-4 p-5 bg-panel rounded-xl border border-line flex flex-col justify-between">
+          <div className="lg:col-span-4 p-5 bg-panel rounded-[10px] shadow-[var(--shadow-card)] flex flex-col justify-between">
             <div className="space-y-4">
               <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
-                <Terminal className="w-4 h-4 text-indigo-400" />
+                <Terminal className="w-4 h-4 text-ink-dim" />
                 调用渠道分布
               </h3>
               <div className="space-y-3">
@@ -448,7 +447,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
 
       {/* 运行账：任务 | 执行记录 tab 切换（同卡片内切换；任务全员可见、
           执行记录仅 execution:read:all） */}
-      <div className="p-5 bg-panel rounded-xl border border-line space-y-4">
+      <div className="p-5 bg-panel rounded-[10px] shadow-[var(--shadow-card)] space-y-4">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
           <div className="flex items-center gap-1 p-1 bg-page border border-line rounded-lg">
             <button
@@ -478,7 +477,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                 value={filterSearch}
                 onChange={(e) => setFilterSearch(e.target.value)}
                 placeholder="搜索工作流或ID..."
-                className="pl-8 pr-3 py-1.5 w-60 text-xs bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-indigo-500 transition font-sans font-medium"
+                className="pl-8 pr-3 py-1.5 w-60 text-xs bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand transition font-sans font-medium"
               />
             </div>
           ) : (
@@ -530,7 +529,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                     <td className="py-3 px-3 text-right">
                       <button
                         onClick={() => openTrace(task, onViewTask)}
-                        className="text-indigo-400 hover:text-indigo-300 font-bold inline-flex items-center gap-0.5 hover:underline cursor-pointer"
+                        className="text-brand hover:text-brand-hover font-bold inline-flex items-center gap-0.5 hover:underline cursor-pointer"
                       >
                         查看追踪
                         <ExternalLink className="w-2.5 h-2.5" />
@@ -563,7 +562,8 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           />
         )}
       </div>
-    </div>
+    </div>      </div>
+
   );
 }
 
@@ -586,8 +586,10 @@ const EXEC_CHANNEL_LABELS: Record<string, string> = {
 
 function fmtTok(n?: number): string {
   if (n == null) return '0';
+  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
 }
 

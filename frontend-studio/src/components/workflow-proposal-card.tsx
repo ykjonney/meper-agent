@@ -59,26 +59,26 @@ export default function WorkflowProposalCard({
   const inputEntries = Object.entries(proposal.input_preview);
 
   return (
-    <div className="rounded-xl rounded-tl-none border border-indigo-500/30 bg-indigo-500/10 overflow-hidden font-sans shadow-sm">
+    <div className="rounded-xl rounded-tl-none border border-indigo-500/30 bg-brand-soft overflow-hidden font-sans shadow-sm">
       {/* Header */}
       <div className="flex items-center gap-2 px-3.5 py-2.5">
-        <Bot className="text-indigo-400" size={16} />
-        <span className="text-[13px] font-semibold text-indigo-400">工作流确认</span>
+        <Bot className="text-brand" size={16} />
+        <span className="text-[13px] font-semibold text-brand">工作流确认</span>
       </div>
 
       {/* Body — solid dark inner block for high text contrast (mirrors
           ask_clarification / ClarificationFormCard). */}
       <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3 space-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-indigo-400">工作流:</span>
-          <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-ink border border-indigo-500/30">
+          <span className="text-[11px] text-brand">工作流:</span>
+          <span className="text-xs px-2 py-0.5 rounded bg-brand-soft text-ink border border-indigo-500/30">
             {proposal.workflow_name}
           </span>
         </div>
 
         {proposal.workflow_description && (
           <div>
-            <span className="text-[11px] text-indigo-400">描述:</span>
+            <span className="text-[11px] text-brand">描述:</span>
             <p className="text-xs text-ink mt-0.5 leading-relaxed">
               {proposal.workflow_description}
             </p>
@@ -87,7 +87,7 @@ export default function WorkflowProposalCard({
 
         {inputEntries.length > 0 && (
           <div>
-            <span className="text-[11px] text-indigo-400">输入参数:</span>
+            <span className="text-[11px] text-brand">输入参数:</span>
             <div className="mt-0.5 space-y-0.5">
               {inputEntries.map(([key, value]) => (
                 <div key={key} className="flex items-start gap-2">
@@ -104,7 +104,7 @@ export default function WorkflowProposalCard({
         )}
 
         {proposal.has_human_node && (
-          <div className="text-[11px] text-amber-400">⚠ 该工作流包含人工审批节点</div>
+          <div className="text-[11px] text-sig-wait">⚠ 该工作流包含人工审批节点</div>
         )}
 
         {/* Actions — inside the solid block so buttons read clearly too. */}
@@ -114,7 +114,7 @@ export default function WorkflowProposalCard({
               <button
                 type="button"
                 onClick={handleConfirm}
-                className="px-3.5 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 transition cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg text-xs bg-brand text-white hover:bg-brand transition cursor-pointer inline-flex items-center gap-1.5"
               >
                 <CheckCircle2 size={13} />
                 确认执行
@@ -139,10 +139,10 @@ export default function WorkflowProposalCard({
             </>
           )}
           {action === 'confirming' && (
-            <span className="text-xs text-indigo-300">正在发送确认...</span>
+            <span className="text-xs text-brand">正在发送确认...</span>
           )}
           {action === 'confirmed' && (
-            <span className="text-xs text-emerald-400 inline-flex items-center gap-1">
+            <span className="text-xs text-sig-ok inline-flex items-center gap-1">
               <CheckCircle2 size={13} />
               已确认
             </span>

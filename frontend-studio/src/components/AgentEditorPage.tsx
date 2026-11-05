@@ -8,10 +8,11 @@
  * Used for both editing existing agents and completing a freshly-created one
  * (backend POST only takes name+description, so the editor fills the rest).
  */
-import { useState, useEffect, useMemo, type FC, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type FC, type ReactNode } from 'react';
 import {
   ArrowLeft, Bot, Save, Loader2, Rocket, Archive, RefreshCw, Cpu, Wrench,
   ChevronDown, ChevronRight, Sparkles, Plus, Trash2, Mic, ListPlus, Folder, X, Pencil,
+  Search, Check,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { agentApi, agentKeys, type AgentUpdateInput } from '../services/agent-api';
@@ -24,11 +25,14 @@ import { knowledgeApi, knowledgeKeys } from '../services/knowledge-api';
 import { toStudioAgent, fromStudioAgent } from '../services/adapters';
 import { Select, Modal, type SelectOptionGroup } from './ui';
 import { toast } from './ui/toast';
+import { IconAgent, IconWrench, IconSkill, IconPlug, IconBook, IconSubAgent, IconChip, IconVoice } from './IndigoIcons';
 import type { Agent } from '../types';
 import AvatarField from './AvatarField';
 
+/* 输入框统一定稿 inline-field 修订线语言：透明无边框就地编辑，聚焦时品牌淡底
+   + 右侧圆角（左缘修订线由字段容器 border-l-2 承担）——禁用 SaaS 白底边框矩形 */
 const inputCls =
-  'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-600 transition font-sans';
+  'w-full px-0 py-1.5 bg-transparent border-0 outline-none text-ink placeholder:text-ink-faint focus:bg-brand-soft/40 rounded-r-lg transition font-sans resize-none';
 
 export function AgentEditorPage({
   agentId,
@@ -156,6 +160,14 @@ export function AgentEditorPage({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: agentKeys.all }),
   });
 
+  const deleteM = useMutation({
+    mutationFn: () => agentApi.remove(agentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      onBack();
+    },
+  });
+
   // 批量添加推荐项弹窗 + 紧凑列表的展开索引（hooks 必须位于 isLoading 早退之前）。
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -170,9 +182,36 @@ export function AgentEditorPage({
   const [createGroupText, setCreateGroupText] = useState('');
   // 组内条目展开索引（key `${gIdx}:${itemIdx}`，避免删除后的平移运算）
   const [expandedGroupItems, setExpandedGroupItems] = useState<Set<string>>(new Set());
+  // 纸墨工作台：高级提示词折叠 / 高级参数展开 / 能力浮层开关
+  const [advOpen, setAdvOpen] = useState(false);
+  const [advParamsOpen, setAdvParamsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // 能力浮层搜索词：按名称/描述过滤当前 tab 分组
+  const [paletteQ, setPaletteQ] = useState('');
+  // 能力浮层类别 tab（技能 / MCP / 知识库 / 子 Agent）与锚定位置（触发按钮下方）
+  const [paletteTab, setPaletteTab] = useState<'skill' | 'mcp' | 'kb' | 'sub'>('skill');
+  const [palettePos, setPalettePos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  // 从触发按钮打开浮层：锚定按钮右缘正下方（380px 浮层向左展开）；
+  // 底部越界时上收（视口高 - 浮层最大高 390）。
+  const openPalette = (e: { currentTarget: EventTarget & HTMLElement }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setPalettePos({
+      top: Math.min(r.bottom + 8, window.innerHeight - 396),
+      right: window.innerWidth - r.right,
+    });
+    setPaletteTab('skill');
+    setPaletteQ('');
+    setPaletteOpen(true);
+  };
+  // 开场卡管理区折叠（推荐项卡片/分组管理/批量入口收纳于此）
+  const [guideMgrOpen, setGuideMgrOpen] = useState(false);
   // 分区折叠状态（默认全收起，点击分组头展开）：key = UNGROUPED_SECTION_KEY / groupSectionKey(title)
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
   const bulkParsed = useMemo(() => parseBulkRecommendedItems(bulkText), [bulkText]);
+  // 分类导航当前高亮项（hook 必须在下方 early return 之前声明）
+  const [activeSec, setActiveSec] = useState('sec-basic');
+  // 点击导航后的程序滚动锁：滚动期间 onScroll 不抢高亮，scrollend 解锁
+  const scrollLockRef = useRef<string | null>(null);
 
   const handleSave = () => {
     if (!form) return;
@@ -516,158 +555,224 @@ export function AgentEditorPage({
   const bulkGroupRoom = Math.max(0, MAX_RECOMMENDED_GROUPS - recommendedGroups.length);
   const bulkNewGroupCount = bulkParsed.groups.filter((g) => !recommendedGroups.some((x) => x.title === g.title)).length;
 
+  // 分类导航：滚动联动高亮（滚动列 onScroll 更新，点击平滑锚定）
+  // 高级提示词已填计数（4 个可选字段非空数）
+  const advCount = [
+    form?.constraintsPrompt,
+    form?.contextPrompt,
+    form?.outputFormatPrompt,
+    form?.systemPrompt,
+  ].filter((v) => (v ?? '').trim() !== '').length;
+
+  const FORM_SECTIONS = [
+    { id: 'sec-basic', label: '基本信息' },
+    { id: 'sec-prompt', label: 'Prompt 配置' },
+    { id: 'sec-home', label: '欢迎与引导' },
+    { id: 'sec-params', label: '执行参数' },
+    { id: 'sec-tools', label: '工具绑定' },
+  ];
+  const handleFormScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (scrollLockRef.current) return;
+    const el = e.currentTarget;
+    let current = FORM_SECTIONS[0].id;
+    for (const sec of FORM_SECTIONS) {
+      const node = document.getElementById(sec.id);
+      if (node && node.getBoundingClientRect().top - el.getBoundingClientRect().top < 120) {
+        current = sec.id;
+      }
+    }
+    setActiveSec(current);
+  };
+  const scrollToSection = (id: string) => {
+    // 仅支持 scrollend 的浏览器加锁，否则退化为滚动联动高亮（锁会永久卡住）
+    if (typeof document.createElement('div').onscrollend !== 'undefined') scrollLockRef.current = id;
+    setActiveSec(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const unlockScroll = () => { scrollLockRef.current = null; };
+
+  // 能力浮层三分组：token 与 form.skills 前缀约定一致（技能=裸 id、mcp:/kb:），
+  // 勾选即 toggle，保存链路由 adapters 的 skills↔skill_ids/mcp_connection_ids/
+  // knowledge_base_ids 双向映射承担。组恒在（tab 切分），搜索只过滤当前组条目。
+  const paletteGroups = ([
+    { key: 'skill', label: '技能', Icon: IconSkill, color: 'text-cat-skill', chip: 'bg-[#E7F2EA]',
+      items: skillTools.map((t) => ({ token: t.id, name: t.name, desc: t.description })) },
+    { key: 'mcp', label: 'MCP 连接', Icon: IconPlug, color: 'text-cat-mcp', chip: 'bg-[#F5EDDD]',
+      items: mcpConnections.map((c) => ({ token: `mcp:${c.id}`, name: c.name, desc: c.description })) },
+    { key: 'kb', label: '知识库', Icon: IconBook, color: 'text-cat-kb', chip: 'bg-[#F5E9E2]',
+      items: knowledgeBases.map((k) => ({ token: `kb:${k.id}`, name: k.name, desc: k.description })) },
+    { key: 'sub', label: '子 Agent', Icon: IconSubAgent, color: 'text-cat-sub', chip: 'bg-[#ECEFF2]',
+      // 仅已发布 Agent 可入委派池（运行时 load_subagent_bundles 同口径过滤），排除自身
+      items: subagentCandidates.map((a) => ({ token: `subagent:${a.id}`, name: a.name, desc: a.description })) },
+  ] as { key: 'skill' | 'mcp' | 'kb' | 'sub'; label: string; Icon: (p: { size?: number; className?: string }) => ReactNode; color: string; chip: string; items: { token: string; name: string; desc: string }[] }[])
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((it) =>
+        (it.name + ' ' + it.desc).toLowerCase().includes(paletteQ.trim().toLowerCase())),
+    }));
+  const paletteCur = paletteGroups.find((g) => g.key === paletteTab) ?? paletteGroups[0];
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      {/* Scrollable form column — owns its own padding because content_stage
-          renders p-0/overflow-hidden when the editor is open (see App.tsx). */}
-      <div className="flex-1 min-h-0 overflow-y-auto max-w-3xl w-full mx-auto px-6 py-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div>
-              <div className="flex items-center gap-2 text-xs text-ink-dim">
-                <Bot className="w-3.5 h-3.5" />
-                <span>智能体</span><span>/</span>
-                <span className="text-white font-semibold">{form.name || '未命名'}</span>
-              </div>
-              <h2 className="text-sm font-bold text-white mt-0.5">编辑 Agent 配置</h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isPublished ? (
-              <button
-                onClick={() => archiveM.mutate()}
-                disabled={archiveM.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60"
-              >
-                {archiveM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
-                归档
-              </button>
-            ) : (
-              <button
-                onClick={() => publishM.mutate()}
-                disabled={publishM.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60"
-              >
-                {publishM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
-                发布
-              </button>
-            )}
-          </div>
+    <div className="af-scope theme-indigo flex-1 min-h-0 flex flex-col">
+      {/* 顶栏：sticky（返回/头像/名称就地编辑/状态/删除保存发布） */}
+      <div className="shrink-0 sticky top-0 z-10 bg-page px-5 py-3 border-b border-line flex items-center gap-3">
+        <button onClick={onBack} className="w-8 h-8 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer shrink-0 flex items-center justify-center">
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        {/* 头像：点击换（复用 AvatarField 逻辑由原字段迁移，此处展示 + 触发同 input） */}
+        <div className="relative w-10 h-10 rounded-[11px] overflow-hidden shrink-0 cursor-pointer group" style={{ background: form?.iconColor || 'var(--color-brand)' }}>
+          {form?.avatar ? (
+            <img src={form.avatar} alt="" className="w-full h-full object-cover select-none" draggable={false} />
+          ) : (
+            <span className="w-full h-full flex items-center justify-center text-white font-bold text-sm">
+              {(form?.name ?? '?')[0]}
+            </span>
+          )}
+          <span className="absolute inset-0 bg-black/40 text-[9px] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">换头像</span>
         </div>
-
-        {/* ── Section: 基本信息 ── */}
-        <Section title="基本信息" icon={<Bot className="w-3.5 h-3.5" />} defaultOpen>
-          <Field label="智能体名称 *">
-            <input className={inputCls} value={form.name} onChange={(e) => set({ name: e.target.value })} />
-          </Field>
-          <Field label="头像">
-            <AvatarField value={form.avatar} entityId={agentId} onChange={(url) => set({ avatar: url })} />
-          </Field>
-          <Field label="职责描述">
-            <input className={inputCls} value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="这个 Agent 专门解决什么问题…" />
-          </Field>
+        <div className="name-edit flex items-center gap-1.5 min-w-0" title="点击编辑名称">
+          <input
+            value={form?.name ?? ''}
+            onChange={(e) => form && set({ name: e.target.value })}
+            className="bg-transparent border-0 outline-none font-bold text-ink min-w-0 max-w-[280px] px-0"
+            style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 17 }}
+          />
+        </div>
+        {isPublished && (
+          <span className="af-pill af-pill-ok shrink-0">已发布</span>
+        )}
+        {!isPublished && form?.name && (
+          <span className="af-pill af-pill-wait shrink-0">未发布</span>
+        )}
+        <span className="t-sp flex-1" />
+        <button
+          onClick={() => { if (confirm(`确认删除「${form?.name}」？此操作不可恢复。`)) { deleteM.mutate(); } }}
+          disabled={deleteM?.isPending}
+          className="af-btn af-btn-ghost border border-line !text-sig-fail hover:!border-sig-fail disabled:opacity-60"
+          title="删除该 Agent"
+        >
+          {deleteM?.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        </button>
+        <button onClick={handleSave} disabled={updateM.isPending} className="af-btn af-btn-secondary">
+          {updateM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '保存'}
+        </button>
+        {isPublished ? (
           <button
-            type="button"
-            role="switch"
-            aria-checked={form.voiceEnabled}
-            onClick={() => set({ voiceEnabled: !form.voiceEnabled })}
-            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-line bg-page px-3 py-2 text-left transition-colors duration-200 hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+            onClick={() => archiveM.mutate()}
+            disabled={archiveM.isPending}
+            className="af-btn af-btn-ghost border border-line disabled:opacity-60"
           >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <Mic className={`h-4 w-4 shrink-0 ${form.voiceEnabled ? 'text-sky-400' : 'text-ink-dim'}`} />
-              <span>
-                <span className="block text-xs font-semibold text-[#f4f4f5]">允许语音对话</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-dim">
-                  还需配置全局语音凭证，两个条件满足后才显示麦克风入口。
-                </span>
-              </span>
-            </span>
-            <span
-              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
-                form.voiceEnabled
-                  ? 'border-sky-400 bg-sky-500'
-                  : 'border-line-strong bg-line'
-              }`}
-              aria-hidden="true"
-            >
-              <span
-                className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                  form.voiceEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </span>
+            {archiveM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+            归档
           </button>
+        ) : (
           <button
-            type="button"
-            role="switch"
-            aria-checked={form.canSpawnAgents}
-            onClick={() => set({ canSpawnAgents: !form.canSpawnAgents })}
-            className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border border-line bg-page px-3 py-2 text-left transition-colors duration-200 hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+            onClick={() => publishM.mutate()}
+            disabled={publishM.isPending}
+            className="af-btn af-btn-primary disabled:opacity-60"
           >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <Bot className={`h-4 w-4 shrink-0 ${form.canSpawnAgents ? 'text-emerald-400' : 'text-ink-dim'}`} />
-              <span>
-                <span className="block text-xs font-semibold text-[#f4f4f5]">允许创建 Agent</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-dim">
-                  开启后该 Agent 获得能力盘点与创建工具；创建物为草稿态，需人工审核发布，且不再拥有此能力（最多一层）。
-                </span>
-              </span>
-            </span>
-            <span
-              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
-                form.canSpawnAgents
-                  ? 'border-emerald-400 bg-emerald-500'
-                  : 'border-line-strong bg-line'
-              }`}
-              aria-hidden="true"
-            >
-              <span
-                className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                  form.canSpawnAgents ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </span>
+            {publishM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+            发布
           </button>
-        </Section>
+        )}
+      </div>
 
-        {/* ── Section: Prompt 配置 ── */}
-        <Section title="Prompt 配置" icon={<Cpu className="w-3.5 h-3.5" />} defaultOpen>
-          <Field label="角色定义 *（Role — 必填）">
-            <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：你是一位资深产品经理…" value={form.rolePrompt ?? ''} onChange={(e) => set({ rolePrompt: e.target.value })} />
-          </Field>
-          <Field label="任务描述 *（Task — 必填）">
-            <textarea rows={3} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：根据用户需求，输出功能拆解与优先级。" value={form.taskPrompt ?? ''} onChange={(e) => set({ taskPrompt: e.target.value })} />
-          </Field>
-          <div className="grid grid-cols-1 gap-4">
-            <Field label="约束规则（Constraints · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：回答必须用中文；不臆测。" value={form.constraintsPrompt ?? ''} onChange={(e) => set({ constraintsPrompt: e.target.value })} />
-            </Field>
-            <Field label="上下文信息（Context · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：当前项目 meper-agent，技术栈 React+FastAPI。" value={form.contextPrompt ?? ''} onChange={(e) => set({ contextPrompt: e.target.value })} />
-            </Field>
-            <Field label="输出格式（Output Format · 可选）">
-              <textarea rows={2} className={`${inputCls} font-mono text-xs placeholder-ink-dim`} placeholder="如：用 Markdown 表格输出。" value={form.outputFormatPrompt ?? ''} onChange={(e) => set({ outputFormatPrompt: e.target.value })} />
-            </Field>
-            <Field label="补充说明（System Prompt · 可选）">
-              <textarea rows={3} className={`${inputCls} font-mono text-xs`} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
-            </Field>
+      {/* ═══ 双栏工作台：左人设大纸 × 右能力架 ═══ */}
+      <div className="flex-1 min-h-0 flex">
+        {/* ── 左：人设大纸（文稿修订线就地编辑）── */}
+        <div className="flex-[1.45] min-w-0 overflow-y-auto scrollbar-custom pl-8 pr-10 py-7">
+          <div className="af-label mb-6">人设 · PERSONA</div>
+
+          {/* 一句话职责 */}
+          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
+            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">一句话职责</div>
+            <input className="w-full bg-transparent outline-none text-[15px] font-semibold text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="这个 Agent 专门解决什么问题…" />
           </div>
-        </Section>
+          {/* 角色 */}
+          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
+            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">角色 · 它是谁</div>
+            <textarea rows={3} className="w-full bg-transparent outline-none text-[14px] leading-[1.85] font-medium text-ink placeholder:text-ink-faint resize-none" placeholder="如：你是一位资深产品经理…" value={form.rolePrompt ?? ''} onChange={(e) => set({ rolePrompt: e.target.value })} />
+          </div>
+          {/* 任务 */}
+          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
+            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">任务 · 它做什么</div>
+            <textarea rows={3} className="w-full bg-transparent outline-none text-[13px] leading-[1.8] text-ink placeholder:text-ink-faint resize-none" placeholder="如：根据用户需求，输出功能拆解与优先级。" value={form.taskPrompt ?? ''} onChange={(e) => set({ taskPrompt: e.target.value })} />
+          </div>
 
-        {/* ── Section: 欢迎与引导（终端用户首屏） ── */}
-        <Section title="欢迎与引导" icon={<Sparkles className="w-3.5 h-3.5" />} defaultOpen={false}>
-          <Field label="欢迎词（Markdown，展示在终端用户首屏）">
-            <textarea rows={3} className={`${inputCls} text-xs`} placeholder="如：你好！我是销售助理，可以问我业绩、客户、订单等相关问题。" value={form.welcomeMessage ?? ''} onChange={(e) => set({ welcomeMessage: e.target.value })} />
-            <div className="text-[11px] text-slate-500 mt-1">留空则使用默认欢迎语。支持 Markdown 语法（加粗、列表等）。</div>
-          </Field>
-          <Field label="推荐问题 / 操作（终端用户可一键点击发送）">
-            <div className="space-y-3">
-              {/* ── 分区列表：未分组（终端独立展示）+ 各分组；条目展开后在「所属分组」归类 ── */}
-              <div className="max-h-[520px] overflow-y-auto space-y-3 pr-1">
+          {/* 高级提示词折叠（4 个可选字段一项不缺） */}
+          <button type="button" onClick={() => setAdvOpen(v => !v)} className="flex items-center gap-2 text-[10.5px] text-ink-dim hover:text-ink cursor-pointer py-1.5 px-2 rounded-lg -ml-2 mb-2">
+            <ChevronRight className={`w-3 h-3 transition-transform ${advOpen ? 'rotate-90' : ''}`} />
+            高级提示词
+            {advCount > 0 && <span className="font-mono text-[8.5px] text-wait bg-[rgba(176,125,26,.1)] rounded-full px-1.5 py-0.5">已填 {advCount} 项</span>}
+          </button>
+          {advOpen && (
+            <div className="border border-dashed border-line2 rounded-md p-3 -ml-2 mb-5 space-y-3">
+              <div>
+                <div className="text-[10px] text-ink-faint mb-1.5">约束规则 · Constraints（可选）</div>
+                <textarea rows={2} className={inputCls} placeholder="如：回答必须用中文；不臆测。" value={form.constraintsPrompt ?? ''} onChange={(e) => set({ constraintsPrompt: e.target.value })} />
+              </div>
+              <div>
+                <div className="text-[10px] text-ink-faint mb-1.5">上下文信息 · Context（可选）</div>
+                <textarea rows={2} className={inputCls} placeholder="如：当前项目背景、术语表…" value={form.contextPrompt ?? ''} onChange={(e) => set({ contextPrompt: e.target.value })} />
+              </div>
+              <div>
+                <div className="text-[10px] text-ink-faint mb-1.5">输出格式 · Output Format（可选）</div>
+                <textarea rows={2} className={inputCls} placeholder="如：用 Markdown 表格输出。" value={form.outputFormatPrompt ?? ''} onChange={(e) => set({ outputFormatPrompt: e.target.value })} />
+              </div>
+              <div>
+                <div className="text-[10px] text-ink-faint mb-1.5">补充说明 · System Prompt（可选）</div>
+                <textarea rows={3} className={inputCls} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
+              </div>
+            </div>
+          )}
+
+          {/* ── 开场卡：所见即所得 ── */}
+          <div className="bg-panel border border-line rounded-xl p-4">
+            <div className="af-label mb-4">开场 — 用户看到的第一眼</div>
+            <div className="bg-page rounded-xl p-4">
+              <div className="flex gap-2.5 items-start">
+                <span className="w-6 h-6 rounded-lg bg-brand text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                  {(form.name ?? '?')[0]}
+                </span>
+                <textarea
+                  rows={2}
+                  className="flex-1 bg-transparent outline-none text-[12.5px] leading-[1.7] text-ink-soft placeholder:text-ink-faint resize-none border-0"
+                  placeholder="如：你好！我是销售助理，可以问我业绩、客户、订单等相关问题。"
+                  value={form.welcomeMessage ?? ''}
+                  onChange={(e) => set({ welcomeMessage: e.target.value })}
+                />
+              </div>
+              <div className="af-label mt-3 mb-2" style={{ fontSize: 9 }}>推荐问题 / 操作</div>
+              <div className="flex flex-wrap gap-1.5">
+                {recommendedItems.map((item, idx) => (
+                  <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-line bg-paper text-[10.5px] text-ink-dim">
+                    {item.label}
+                    <button type="button" onClick={() => removeItem(idx)} className="text-ink-faint hover:text-sig-fail px-0.5 cursor-pointer">✕</button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={addItem}
+                  disabled={recommendedItems.length >= MAX_RECOMMENDED_ITEMS}
+                  className="px-2.5 py-1 rounded-full border border-dashed border-line2 text-[10.5px] text-ink-faint hover:text-acc hover:border-brand cursor-pointer disabled:opacity-40"
+                >
+                  ＋ 推荐
+                </button>
+              </div>
+            </div>
+            {/* 推荐项/分组管理：完整功能折叠区（RecommendedItemCard/分组/批量 原样保留） */}
+            <div className="mt-3 border-t border-line pt-2">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-[10.5px] text-ink-dim hover:text-ink cursor-pointer py-1"
+                onClick={() => setGuideMgrOpen(v => !v)}
+              >
+                {guideMgrOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                推荐项与分组管理
+                <span className="font-mono text-[8.5px] text-ink-faint">{recommendedItems.length + recommendedGroups.reduce((n, g) => n + g.items.length, 0)} 项</span>
+              </button>
+              {guideMgrOpen && (
+              <div className="space-y-3 max-h-[420px] overflow-y-auto scrollbar-custom pr-1">
                 <div className="space-y-1.5">
                   <button
                     type="button"
@@ -717,7 +822,7 @@ export function AgentEditorPage({
                             <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
                             <input
                               autoFocus
-                              className="h-6 flex-1 min-w-0 px-2 rounded border border-amber-500/50 bg-page text-amber-200 text-[11px] focus:outline-none focus:border-amber-400"
+                              className="h-6 flex-1 min-w-0 px-2 rounded border border-line bg-page text-ink text-[11px] focus:outline-none focus:border-brand"
                               value={renameText}
                               maxLength={GROUP_TITLE_MAX}
                               onChange={(e) => setRenameText(e.target.value)}
@@ -747,7 +852,7 @@ export function AgentEditorPage({
                           <>
                             <button
                               type="button"
-                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-white hover:bg-line cursor-pointer shrink-0"
+                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-ink hover:bg-line cursor-pointer shrink-0"
                               title="重命名"
                               onClick={() => beginRenameGroup(gIdx)}
                             >
@@ -755,7 +860,7 @@ export function AgentEditorPage({
                             </button>
                             <button
                               type="button"
-                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer shrink-0"
+                              className="flex items-center justify-center w-5 h-5 rounded-full text-ink-dim hover:text-sig-fail hover:bg-sig-fail-soft cursor-pointer shrink-0"
                               title={`删除分组（${group.items.length} 条移入未分组）`}
                               onClick={() => removeGroup(gIdx)}
                             >
@@ -795,132 +900,275 @@ export function AgentEditorPage({
                   );
                 })}
               </div>
+              )}
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-3">
                 <button
                   type="button"
                   onClick={addItem}
                   disabled={recommendedItems.length >= MAX_RECOMMENDED_ITEMS}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-ink rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-3.5 h-3.5" /> 添加推荐项
                 </button>
                 <button
                   type="button"
                   onClick={openBulk}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-ink rounded-lg text-xs font-semibold transition cursor-pointer"
                 >
                   <ListPlus className="w-3.5 h-3.5" /> 批量添加
                 </button>
-                <button
-                  type="button"
-                  onClick={openCreateGroup}
-                  disabled={recommendedGroups.length >= MAX_RECOMMENDED_GROUPS}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-line hover:bg-line text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Plus className="w-3.5 h-3.5" /> 新建分组
-                </button>
-                <span className="text-[11px] text-ink-dim font-mono ml-auto">{recommendedGroups.length} / {MAX_RECOMMENDED_GROUPS} 组</span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                分组：最多 {MAX_RECOMMENDED_GROUPS} 组、每组 {MAX_GROUP_ITEMS} 条；未分组：最多 {MAX_RECOMMENDED_ITEMS} 条。点击分区头展开/收起，条目展开后在「所属分组」归类；✏ 重命名、× 删除分组。未分组条目在终端独立展示，分组在终端收进组按钮按需展开。
               </div>
             </div>
-          </Field>
-        </Section>
+          </div>
+        </div>
 
-        {/* ── Section: 执行参数 ── */}
-        <Section title="执行参数" icon={<RefreshCw className="w-3.5 h-3.5" />} defaultOpen>
-          <Field label="推理模型">
-            <Select
-              value={form.model || null}
-              onChange={(v) => set({ model: v ?? '' })}
-              placeholder={activeModels.length === 0 ? '暂无可用模型，请先在模型配置页添加' : '— 未选择 —'}
-              groups={modelGroups}
-            />
-          </Field>
-          <Field label={`思维活性 Temperature: ${form.temperature}`}>
-            <input type="range" min="0" max="1.0" step="0.1" value={form.temperature} onChange={(e) => set({ temperature: parseFloat(e.target.value) })} className="w-full accent-indigo-500 cursor-pointer" />
-          </Field>
-          <Field label="最大重试次数（0-10）">
-            <input type="number" min="0" max="10" className={`${inputCls} font-mono`} value={form.maxRetry ?? 3} onChange={(e) => set({ maxRetry: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} />
-          </Field>
-          <Field label="会话 Token 上限（0 = 全局默认）">
-            <input type="number" min="0" max="10000000" step="10000" className={`${inputCls} font-mono`} value={form.maxTokens ?? 0} onChange={(e) => set({ maxTokens: Math.max(0, Number(e.target.value) || 0) })} placeholder="0 = 使用全局默认" />
-            <div className="text-[11px] text-slate-500 mt-1">单次会话累计 Token 上限，超出后 Agent 自动停止。0 表示使用全局默认值（200000）。</div>
-          </Field>
-        </Section>
-
-        {/* ── Section: 工具绑定 ── */}
-        <Section title="工具绑定" icon={<Wrench className="w-3.5 h-3.5" />} defaultOpen>
-          <ToolGroup title="内置工具 (Built-in)" hint={builtinTools.length === 0 ? '后端无内置工具' : undefined}>
-            {builtinTools.map((t) => (
-              <ToolChip key={`builtin:${t.name}`} label={t.name} checked={form.skills.includes(`builtin:${t.name}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `builtin:${t.name}`) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup title="技能 (Skills)" hint={skillTools.length === 0 ? '无已上传技能' : undefined}>
-            {skillTools.map((t) => (
-              <ToolChip key={t.id} label={t.name} checked={form.skills.includes(t.id)} onToggle={() => set({ skills: toggleSkill(form.skills, t.id) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup title="MCP 连接" hint={mcpConnections.length === 0 ? '无 MCP 连接' : undefined}>
-            {mcpConnections.map((c) => (
-              <ToolChip key={`mcp:${c.id}`} label={c.name} checked={form.skills.includes(`mcp:${c.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `mcp:${c.id}`) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup title="工作流 (Workflows)" hint={workflows.length === 0 ? '无工作流' : undefined}>
-            {workflows.map((w) => (
-              <ToolChip key={w.id} label={w.name} checked={form.skills.includes(`workflow:${w.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `workflow:${w.id}`) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup title="知识库 (Knowledge Base)" hint={knowledgeBases.length === 0 ? '无知识库' : undefined}>
-            {knowledgeBases.map((kb) => (
-              <ToolChip key={`kb:${kb.id}`} label={kb.name} checked={form.skills.includes(`kb:${kb.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `kb:${kb.id}`) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup
-            title="可委派子 Agent (Sub-Agents)"
-            hint={subagentCandidates.length === 0 ? '无可选的已发布 Agent' : undefined}
-          >
-            <div className="w-full text-[11px] text-ink-dim mb-1">
-              勾选后，对话中该 Agent 可把自包含子任务委派给所选 Agent（独立上下文与工具、只回传结论、子任务消耗计入本会话 Token）。仅已发布 Agent 可选。
-            </div>
-            {subagentCandidates.map((a) => (
-              <ToolChip key={`subagent:${a.id}`} label={a.name} checked={form.skills.includes(`subagent:${a.id}`)} onToggle={() => set({ skills: toggleSkill(form.skills, `subagent:${a.id}`) })} />
-            ))}
-          </ToolGroup>
-          <ToolGroup title="自定义工具 (OpenAPI / Code)" hint={customToolCandidates.length === 0 ? '暂无已开启的工具——需在工具库中开启' : undefined}>
-            {customToolCandidates.map((c) => (
-              <ToolChip
-                key={c.id}
-                label={c.name}
-                checked={(form.customTools ?? []).some((b) => b.tool_id === c.id)}
-                onToggle={() => handleCustomToggle(c.id)}
-              />
-            ))}
-          </ToolGroup>
-        </Section>
-
-      </div>
-
-      {/* Footer save bar — a flex sibling of the scroll area, so it is pinned
-          flush to the bottom of the main column with no gap. bg-well and
-          border-line are theme-aware via the index.css overrides. */}
-      <div className="shrink-0 border-t border-line bg-well px-6 py-3">
-        <div className="max-w-3xl mx-auto flex justify-end gap-3">
-          <button onClick={onBack} className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
-            取消
-          </button>
+        {/* ── 右：能力架 ── */}
+        <div className="w-[300px] shrink-0 border-l border-line bg-panel overflow-y-auto scrollbar-custom px-5 py-6">
+          <div className="af-label mb-4">能力 · CAPABILITIES</div>
           <button
-            onClick={handleSave}
-            disabled={updateM.isPending}
-            className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg cursor-pointer font-semibold text-xs disabled:opacity-60"
+            type="button"
+            onClick={(e) => openPalette(e)}
+            className="w-full flex items-center gap-2.5 px-3.5 py-3 border border-dashed border-line-strong rounded-xl text-[11.5px] text-ink-dim hover:text-brand hover:border-brand transition-colors cursor-pointer mb-5"
           >
-            {updateM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            保存配置
+            <Plus className="w-3.5 h-3.5" /> 添加能力 — 搜索技能、MCP、知识库…
           </button>
+
+          {/* 内置工具 */}
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <IconWrench size={12} className="text-cat-tool" />
+              <span className="text-[11px] font-bold text-ink-soft">内置工具</span>
+              <span className="font-mono text-[8.5px] text-ink-faint ml-auto">8 默认 · +11 隐藏</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {builtinTools.filter((t) => form.skills.includes(`builtin:${t.name}`)).map((t) => (
+                <span key={`builtin:${t.name}`} className="inline-flex items-center gap-1 text-[10.5px] text-ink-soft bg-paper border border-line rounded-md px-2 py-0.5">
+                  {t.name}
+                  <button type="button" onClick={() => set({ skills: toggleSkill(form.skills, `builtin:${t.name}`) })} className="text-ink-faint hover:text-sig-fail cursor-pointer">✕</button>
+                </span>
+              ))}
+              <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 添加</button>
+            </div>
+          </div>
+
+          {/* 技能 */}
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <IconSkill size={12} className="text-cat-skill" />
+              <span className="text-[11px] font-bold text-ink-soft">技能</span>
+              <span className="font-mono text-[8.5px] text-ink-faint ml-auto">{form.skills.filter((s) => !s.includes(':')).length}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {form.skills.filter((s) => !s.includes(':')).map((sid) => (
+                <span key={sid} className="inline-flex items-center gap-1 text-[10.5px] text-ink-soft bg-paper border border-line rounded-md px-2 py-0.5">
+                  {skillTools.find((t) => t.id === sid)?.name ?? sid}
+                  <button type="button" onClick={() => set({ skills: toggleSkill(form.skills, sid) })} className="text-ink-faint hover:text-sig-fail cursor-pointer">✕</button>
+                </span>
+              ))}
+              {form.skills.filter((s) => !s.includes(':')).length === 0 && (
+                <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 从浮层添加</button>
+              )}
+            </div>
+          </div>
+
+          {/* MCP 连接 */}
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <IconPlug size={12} className="text-cat-mcp" />
+              <span className="text-[11px] font-bold text-ink-soft">MCP 连接</span>
+              <span className="font-mono text-[8.5px] text-ink-faint ml-auto">{form.skills.filter((s) => s.startsWith('mcp:')).length}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {mcpConnections.filter((c) => form.skills.includes(`mcp:${c.id}`)).map((c) => (
+                <span key={`mcp:${c.id}`} className="inline-flex items-center gap-1 text-[10.5px] text-ink-soft bg-paper border border-line rounded-md px-2 py-0.5">
+                  {c.name}
+                  <button type="button" onClick={() => set({ skills: toggleSkill(form.skills, `mcp:${c.id}`) })} className="text-ink-faint hover:text-sig-fail cursor-pointer">✕</button>
+                </span>
+              ))}
+              <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 添加</button>
+            </div>
+          </div>
+
+          {/* 知识库 */}
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <IconBook size={12} className="text-cat-kb" />
+              <span className="text-[11px] font-bold text-ink-soft">知识库</span>
+              <span className="font-mono text-[8.5px] text-ink-faint ml-auto">{form.skills.filter((s) => s.startsWith('kb:')).length}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {knowledgeBases.filter((k) => form.skills.includes(`kb:${k.id}`)).map((k) => (
+                <span key={`kb:${k.id}`} className="inline-flex items-center gap-1 text-[10.5px] text-ink-soft bg-paper border border-line rounded-md px-2 py-0.5">
+                  {k.name}
+                  <button type="button" onClick={() => set({ skills: toggleSkill(form.skills, `kb:${k.id}`) })} className="text-ink-faint hover:text-sig-fail cursor-pointer">✕</button>
+                </span>
+              ))}
+              <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 添加</button>
+            </div>
+          </div>
+
+          {/* 可委派子 Agent */}
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <IconSubAgent size={12} className="text-cat-sub" />
+              <span className="text-[11px] font-bold text-ink-soft">可委派子 Agent</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {subagentCandidates.filter((a) => form.skills.includes(`subagent:${a.id}`)).map((a) => (
+                <span key={`subagent:${a.id}`} className="inline-flex items-center gap-1 text-[10.5px] text-ink-soft bg-paper border border-line rounded-md px-2 py-0.5">
+                  {a.name}
+                  <button type="button" onClick={() => set({ skills: toggleSkill(form.skills, `subagent:${a.id}`) })} className="text-ink-faint hover:text-sig-fail cursor-pointer">✕</button>
+                </span>
+              ))}
+              <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 添加</button>
+            </div>
+          </div>
+
+          {/* ── 模型 ── */}
+          <div className="rk-h flex items-center gap-1.5 mb-2">
+            <IconChip size={12} className="text-brand" />
+            <span className="text-[11px] font-bold text-ink-soft">模型</span>
+          </div>
+          <Select
+            value={form.model || null}
+            onChange={(v) => set({ model: v ?? '' })}
+            placeholder={activeModels.length === 0 ? '暂无可用模型，请先在模型配置页添加' : '— 未选择 —'}
+            groups={modelGroups}
+          />
+
+          {/* ── 高级参数（行展开编辑）── */}
+          <div className="mt-5">
+            <button type="button" onClick={() => setAdvParamsOpen(v => !v)} className="w-full flex items-center justify-between text-[11.5px] text-ink-dim hover:text-ink cursor-pointer py-1.5">
+              <span>▸ 高级参数</span>
+              <span className="font-mono text-[9px] text-ink-faint">温度 {form.temperature} · 重试 {form.maxRetry ?? 3} · {form.maxTokens ? `${Math.round(form.maxTokens / 1000)}k` : '默认'}</span>
+            </button>
+            {advParamsOpen && (
+              <div className="border border-dashed border-line2 rounded-md p-3 space-y-3 mt-1">
+                <div>
+                  <div className="text-[10px] text-ink-faint mb-1.5">思维活性 Temperature: {form.temperature}</div>
+                  <input type="range" min="0" max="1.0" step="0.1" value={form.temperature} onChange={(e) => set({ temperature: parseFloat(e.target.value) })} className="w-full accent-indigo-500 cursor-pointer" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-ink-faint mb-1.5">最大重试次数（0-10）</div>
+                  <input type="number" min="0" max="10" className={`${inputCls} font-mono`} value={form.maxRetry ?? 3} onChange={(e) => set({ maxRetry: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} />
+                </div>
+                <div>
+                  <div className="text-[10px] text-ink-faint mb-1.5">会话 Token 上限（0 = 全局默认）</div>
+                  <input type="number" min="0" max="10000000" step="10000" className={`${inputCls} font-mono`} value={form.maxTokens ?? 0} onChange={(e) => set({ maxTokens: Math.max(0, Number(e.target.value) || 0) })} placeholder="0 = 使用全局默认" />
+                  <div className="text-[10px] text-ink-faint mt-1">单次会话累计 Token 上限，超出后自动停止。0 = 全局默认值（200000）。</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── 开关行：语音 / 允许创建 Agent ── */}
+          <div className="mt-4">
+            <div className="sw-row flex items-center justify-between py-2.5 border-b border-line">
+              <div className="flex items-center gap-2">
+                <IconVoice size={14} className="text-cat-voice" />
+                <span className="text-[11.5px] text-ink">语音对话<span className="block text-[9px] text-ink-faint mt-0.5">需全局语音凭证</span></span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.voiceEnabled}
+                onClick={() => set({ voiceEnabled: !form.voiceEnabled })}
+                className={`w-8 h-[18px] rounded-full relative transition-colors cursor-pointer ${form.voiceEnabled ? 'bg-brand' : 'bg-line-strong'}`}
+              >
+                <span className={`absolute top-[2px] w-[15px] h-[15px] rounded-full bg-white shadow transition-all ${form.voiceEnabled ? 'left-[15px]' : 'left-[2px]'}`} />
+              </button>
+            </div>
+            <div className="sw-row flex items-center justify-between py-2.5 border-b border-line">
+              <div className="flex items-center gap-2">
+                <IconSubAgent size={14} className="text-cat-sub" />
+                <span className="text-[11.5px] text-ink">允许创建 Agent<span className="block text-[9px] text-ink-faint mt-0.5">创建物为草稿，需人工审核</span></span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.canSpawnAgents}
+                onClick={() => set({ canSpawnAgents: !form.canSpawnAgents })}
+                className={`w-8 h-[18px] rounded-full relative transition-colors cursor-pointer ${form.canSpawnAgents ? 'bg-brand' : 'bg-line-strong'}`}
+              >
+                <span className={`absolute top-[2px] w-[15px] h-[15px] rounded-full bg-white shadow transition-all ${form.canSpawnAgents ? 'left-[15px]' : 'left-[2px]'}`} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* ── 能力添加浮层：锚定触发按钮下方（向左展开），类别 tab 快速切分 ── */}
+      {paletteOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPaletteOpen(false)} />
+          <div
+            className="fixed w-[380px] bg-panel border border-line rounded-2xl shadow-[var(--shadow-pop)] overflow-hidden z-50 animate-fade-in"
+            style={{ top: palettePos.top, right: palettePos.right }}
+          >
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line">
+              <Search className="w-3.5 h-3.5 text-ink-faint shrink-0" />
+              <input
+                autoFocus
+                value={paletteQ}
+                onChange={(e) => setPaletteQ(e.target.value)}
+                placeholder={`搜索${paletteCur.label}…`}
+                className="flex-1 bg-transparent border-0 outline-none text-[12.5px] text-ink placeholder:text-ink-faint"
+              />
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(false)}
+                className="text-ink-faint hover:text-ink cursor-pointer shrink-0"
+                title="关闭"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {/* 类别 tab：选中 = 靛蓝下划线；计数随搜索过滤实时变化 */}
+            <div className="flex items-center gap-1 px-3 border-b border-line">
+              {paletteGroups.map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  onClick={() => setPaletteTab(g.key)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-[11.5px] -mb-px border-b-2 transition-colors cursor-pointer ${
+                    paletteTab === g.key ? 'text-brand border-brand font-semibold' : 'text-ink-dim border-transparent hover:text-ink'
+                  }`}
+                >
+                  {g.label}
+                  <span className="font-mono text-[9px] text-ink-faint">{g.items.length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="max-h-[300px] overflow-y-auto scrollbar-custom p-1.5">
+              {paletteCur.items.length === 0 ? (
+                <div className="px-3 py-6 text-center text-[11.5px] text-ink-faint">
+                  {paletteQ.trim() ? `没有匹配「${paletteQ.trim()}」的${paletteCur.label}` : `暂无可添加的${paletteCur.label}`}
+                </div>
+              ) : (
+                paletteCur.items.map((it) => {
+                  const added = form.skills.includes(it.token);
+                  return (
+                    <button
+                      key={it.token}
+                      type="button"
+                      onClick={() => set({ skills: toggleSkill(form.skills, it.token) })}
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left transition-colors cursor-pointer hover:bg-raise ${added ? 'bg-brand-soft/50' : ''}`}
+                    >
+                      <span className={`w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0 ${paletteCur.chip}`}>
+                        <paletteCur.Icon size={12} className={paletteCur.color} />
+                      </span>
+                      <span className={`min-w-0 flex-1 text-[12.5px] truncate ${added ? 'text-brand font-medium' : 'text-ink'}`}>{it.name}</span>
+                      <span className="min-w-0 w-[130px] text-[10.5px] text-ink-faint truncate text-right">{it.desc}</span>
+                      {added && <Check className="w-3.5 h-3.5 text-brand shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 批量添加推荐项弹窗（目标在弹窗内选择；分组 JSON 同名并入、异名新建） */}
       <Modal
@@ -953,9 +1201,9 @@ export function AgentEditorPage({
           </div>
           <div className="text-[11px] text-ink-dim leading-relaxed">
             自动识别格式，直接粘贴即可：
-            <br />① 纯文本 — 每行一条 <code className="text-indigo-300">{'显示文案 | 实际发送内容'}</code>，不需要 []，不含 | 时整行即显示文案；
-            <br />② JSON — 整段数组，或每行一个 <code className="text-indigo-300">{'{"label":"…","prompt":"…"}'}</code> 对象（[] 可省略，prompt 可省略）；
-            <br />③ 分组 — 对象形如 <code className="text-indigo-300">{'{"title":"分组名","items":[…]}'}</code>（title 必填 ≤{GROUP_TITLE_MAX} 字符），同名分组直接并入、否则新建；普通条目按上方「添加到」落位。
+            <br />① 纯文本 — 每行一条 <code className="text-brand">{'显示文案 | 实际发送内容'}</code>，不需要 []，不含 | 时整行即显示文案；
+            <br />② JSON — 整段数组，或每行一个 <code className="text-brand">{'{"label":"…","prompt":"…"}'}</code> 对象（[] 可省略，prompt 可省略）；
+            <br />③ 分组 — 对象形如 <code className="text-brand">{'{"title":"分组名","items":[…]}'}</code>（title 必填 ≤{GROUP_TITLE_MAX} 字符），同名分组直接并入、否则新建；普通条目按上方「添加到」落位。
           </div>
           <textarea
             rows={8}
@@ -967,17 +1215,17 @@ export function AgentEditorPage({
           {bulkText.trim() && (
             <div className="text-[11px] leading-relaxed">
               {(bulkParsed.items.length > 0 || bulkParsed.groups.length > 0) ? (
-                <span className="text-emerald-400">
+                <span className="text-sig-ok">
                   解析出 {bulkParsed.items.length} 条{bulkParsed.groups.length > 0 ? ` + ${bulkParsed.groups.length} 个分组` : ''}（{bulkParsed.mode === 'json' ? 'JSON 格式' : '逐行文本格式'}）
                   {(bulkParsed.items.length > bulkItemRoom || bulkNewGroupCount > bulkGroupRoom) && (
-                    <span className="text-amber-400">，超出上限部分将忽略</span>
+                    <span className="text-sig-wait">，超出上限部分将忽略</span>
                   )}
                 </span>
               ) : (
-                <span className="text-rose-400">未解析出有效条目，请检查格式</span>
+                <span className="text-sig-fail">未解析出有效条目，请检查格式</span>
               )}
               {bulkParsed.invalidCount > 0 && (
-                <span className="text-amber-400">
+                <span className="text-sig-wait">
                   {' '}{bulkParsed.invalidCount} 条格式无效已跳过（label 必填 ≤{RECOMMENDED_LABEL_MAX} 字符，prompt ≤{RECOMMENDED_PROMPT_MAX} 字符，分组名 ≤{GROUP_TITLE_MAX} 字符）
                 </span>
               )}
@@ -1066,7 +1314,7 @@ function RecommendedItemCard({
             ? <ChevronDown className="w-3.5 h-3.5 text-ink-dim shrink-0" />
             : <ChevronRight className="w-3.5 h-3.5 text-ink-dim shrink-0" />}
           <span className="text-[11px] text-ink-dim font-mono shrink-0">#{index + 1}</span>
-          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-white' : 'text-ink-dim italic'}`}>
+          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-ink' : 'text-ink-dim italic'}`}>
             {item.label || '（未填写）'}
           </span>
           <span className="text-[11px] text-ink-dim truncate">
@@ -1213,20 +1461,20 @@ function parseBulkRecommendedItems(text: string): {
 }
 
 /** Collapsible section with a title bar. */
-const Section: FC<{ title: string; icon?: ReactNode; defaultOpen?: boolean; children: ReactNode }> = ({
-  title, icon, defaultOpen = false, children,
+const Section: FC<{ id?: string; title: string; icon?: ReactNode; defaultOpen?: boolean; children: ReactNode }> = ({
+  id, title, icon, defaultOpen = false, children,
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-line bg-panel overflow-hidden">
+    <div id={id} style={{ scrollMarginTop: 88 }} className="rounded-[10px] bg-panel shadow-[var(--shadow-card)] overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center gap-2 px-4 py-3 text-left cursor-pointer hover:bg-panel-hover transition"
       >
         {open ? <ChevronDown className="w-4 h-4 text-ink-dim" /> : <ChevronRight className="w-4 h-4 text-ink-dim" />}
-        {icon && <span className="text-indigo-400">{icon}</span>}
-        <span className="text-sm font-bold text-white">{title}</span>
+        {icon && <span className="text-brand">{icon}</span>}
+        <span className="text-sm font-bold text-ink">{title}</span>
       </button>
       {open && <div className="px-4 pb-4 space-y-4">{children}</div>}
     </div>
@@ -1236,7 +1484,7 @@ const Section: FC<{ title: string; icon?: ReactNode; defaultOpen?: boolean; chil
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-slate-400 font-semibold text-xs font-sans">{label}</label>
+      <label className="text-ink-dim font-semibold text-xs font-sans">{label}</label>
       {children}
     </div>
   );
@@ -1258,7 +1506,7 @@ const ToolChip: FC<{ label: string; checked: boolean; onToggle: () => void }> = 
     type="button"
     onClick={onToggle}
     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer select-none ${
-      checked ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-panel border-line text-ink-dim hover:text-white hover:border-line-strong'
+      checked ? 'bg-brand border-brand text-ink' : 'bg-panel border-line text-ink-dim hover:text-ink hover:border-line-strong'
     }`}
   >
     {checked ? '✓ ' : ''}{label}

@@ -1,15 +1,16 @@
 /**
  * WorkflowSpace — workflow card grid (list view).
  *
- * Replaces the dropdown-picker-inside-designer pattern with a proper list:
- * stats + search + status filter + card grid. Clicking a card opens the
- * react-flow editor (controlled via onOpen). Supports delete (workflowsApi.remove
- * existed but was previously uncalled). Mirrors the AgentSpace card layout.
+ * 规范 §6.2 列表页三段式（af-page-head → af-search/af-tabs → 卡片网格），
+ * 设计语言与 AgentSpace 对齐：语义 token 明暗自适应、状态 pill、⋯ 菜单
+ * （编辑/发布/归档/删除）、confirmDialog 删除确认。点击卡片进入 react-flow
+ * 编辑器（onOpen）。已发布工作流可从卡片直接运行（useWorkflowExecution）。
  */
 import { useState, useMemo, type FC } from 'react';
 import { getErrorMessage } from '../lib/api-client';
 import {
-  Layers, Search, Plus, Pencil, Trash2, Loader2, X, Play,
+  Layers, Search, SearchX, Plus, Pencil, Trash2, Loader2, Play,
+  MoreVertical, Rocket, Archive,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,26 +21,22 @@ import {
 } from '../services/workflows-api';
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
 import { usePermission } from '../hooks/use-permission';
+import { Popover } from './ui';
+import { confirmDialog } from './ui/confirm';
+import { toast } from './ui/toast';
 import { TaskTraceModal } from '../features/workflow-editor/TaskTraceModal';
+import { IconFlow } from './IndigoIcons';
 import ExecuteInputDialog from '../features/workflow-editor/ExecuteInputDialog';
-import { formatTimeFull } from '../lib/formatTime'
+import { formatTimeFull } from '../lib/formatTime';
 
-const STATUS_META: Record<WorkflowStatusValue, { label: string; dot: string; text: string }> = {
-  draft: { label: '草稿', dot: 'bg-slate-500', text: 'text-slate-400' },
-  published: { label: '已发布', dot: 'bg-emerald-500', text: 'text-emerald-400' },
-  archived: { label: '已归档', dot: 'bg-zinc-500', text: 'text-zinc-400' },
+const STATUS_PILL: Record<WorkflowStatusValue, { label: string; cls: string }> = {
+  draft: { label: '草稿', cls: 'af-pill af-pill-wait' },
+  published: { label: '已发布', cls: 'af-pill af-pill-ok' },
+  archived: { label: '已归档', cls: 'af-pill af-pill-neutral' },
 };
-
-const STATUS_FILTERS: { value: WorkflowStatusValue | 'all'; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'draft', label: '草稿' },
-  { value: 'published', label: '已发布' },
-  { value: 'archived', label: '已归档' },
-];
 
 export function WorkflowSpace({
   onOpen,
-  theme = 'dark',
 }: {
   onOpen: (id: string) => void;
   theme?: 'dark' | 'light';
@@ -49,7 +46,7 @@ export function WorkflowSpace({
   const canWrite = usePermission('workflow:write');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<WorkflowStatusValue | 'all'>('all');
-  const [confirmDelete, setConfirmDelete] = useState<WorkflowSummary | null>(null);
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -66,20 +63,19 @@ export function WorkflowSpace({
     return list;
   }, [workflows, statusFilter, search]);
 
-  const stats = useMemo(
-    () => ({
-      total: workflows.length,
-      published: workflows.filter((w) => w.status === 'published').length,
-      draft: workflows.filter((w) => w.status === 'draft').length,
-      archived: workflows.filter((w) => w.status === 'archived').length,
-    }),
-    [workflows],
-  );
+  const tabs: { id: typeof statusFilter; label: string; count: number }[] = [
+    { id: 'all', label: '全部', count: workflows.length },
+    { id: 'published', label: '已发布', count: workflows.filter((w) => w.status === 'published').length },
+    { id: 'draft', label: '草稿', count: workflows.filter((w) => w.status === 'draft').length },
+    { id: 'archived', label: '已归档', count: workflows.filter((w) => w.status === 'archived').length },
+  ];
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: workflowKeys.all });
 
   const createM = useMutation({
     mutationFn: () => workflowsApi.create({ name: `未命名工作流 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}` }),
     onSuccess: (wf) => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.lists() });
+      invalidate();
       setError(null);
       onOpen(wf.id); // jump straight into the editor for the new workflow
     },
@@ -89,12 +85,39 @@ export function WorkflowSpace({
   const deleteM = useMutation({
     mutationFn: (id: string) => workflowsApi.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.all });
-      setConfirmDelete(null);
-      setError(null);
+      invalidate();
+      toast.success('工作流已删除');
     },
-    onError: (e: unknown) => setError(getErrorMessage(e, '删除失败')),
+    onError: (e: unknown) => toast.error(getErrorMessage(e, '删除失败')),
   });
+
+  const publishM = useMutation({
+    mutationFn: (id: string) => workflowsApi.publish(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success('工作流已发布');
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, '发布失败')),
+  });
+
+  const archiveM = useMutation({
+    mutationFn: (id: string) => workflowsApi.archive(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success('工作流已归档');
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, '归档失败')),
+  });
+
+  const handleDelete = async (wf: WorkflowSummary) => {
+    const ok = await confirmDialog({
+      title: `删除工作流「${wf.name}」？`,
+      description: '删除后不可恢复。',
+      okText: '删除',
+      danger: true,
+    });
+    if (ok) deleteM.mutate(wf.id);
+  };
 
   // 工作流执行（与详情页共用 useWorkflowExecution）：列表页直接运行，
   // 不传 detail —— hook 内部按需拉取（命中详情页缓存则零请求）。
@@ -102,130 +125,109 @@ export function WorkflowSpace({
   const handleRun = (wf: WorkflowSummary) => exec.execute(wf.id);
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-400" />
-            工作流
-          </h2>
-          <p className="text-xs text-ink-dim mt-1">以卡片浏览工作流，点击进入可视化编辑。</p>
+    <div className="af-scope h-full min-h-0 flex flex-col">
+      {/* 页头：标题+计数+主 CTA（规范 §6.2 列表页） */}
+      <div className="af-page-head shrink-0">
+        <h2 className="text-[22px] font-bold text-ink" style={{ fontFamily: 'var(--font-serif)' }}>工作流</h2>
+        <span className="af-cnt">{workflows.length}</span>
+        <div className="right">
+          {canWrite && (
+            <button
+              onClick={() => createM.mutate()}
+              disabled={createM.isPending}
+              className="af-btn af-btn-primary"
+            >
+              {createM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              新建工作流
+            </button>
+          )}
         </div>
-        {canWrite && (
-          <button
-            onClick={() => createM.mutate()}
-            disabled={createM.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition cursor-pointer shadow-md shadow-indigo-600/20 disabled:opacity-60"
-          >
-            {createM.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            新建工作流
-          </button>
-        )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: '总数', value: stats.total, color: 'text-white' },
-          { label: '已发布', value: stats.published, color: 'text-emerald-400' },
-          { label: '草稿', value: stats.draft, color: 'text-slate-400' },
-          { label: '已归档', value: stats.archived, color: 'text-zinc-400' },
-        ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
-            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
+      {error && (
+        <div className="shrink-0 mb-4 px-3.5 py-2.5 rounded-lg bg-sig-fail-soft text-sig-fail text-xs">{error}</div>
+      )}
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
+      {/* 筛选行：搜索 + 状态 Tab（af-search / af-tabs 公共类） */}
+      <div className="flex items-center gap-3 shrink-0 mb-4">
+        <div className="af-search">
+          <Search className="w-3.5 h-3.5 shrink-0" />
           <input
+            className="af-search-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索工作流名称 / 描述"
-            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
+            placeholder="搜索工作流名称 / 描述…"
           />
         </div>
-        <div className="flex items-center gap-1 p-1 bg-page border border-line rounded-lg">
-          {STATUS_FILTERS.map((f) => (
+        <div className="af-tabs">
+          {tabs.map((t) => (
             <button
-              key={f.value}
-              onClick={() => setStatusFilter(f.value)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
-                statusFilter === f.value ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:text-white hover:bg-line'
-              }`}
+              key={t.id}
+              onClick={() => setStatusFilter(t.id)}
+              className={statusFilter === t.id ? 'on' : ''}
             >
-              {f.label}
+              {t.label}
+              <span className="n">{t.count}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {error && (
-        <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 text-rose-300 text-xs">{error}</div>
-      )}
-
-      {/* Grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16 text-ink-dim">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pr-1.5 content-start pb-6">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-[10px] bg-panel p-4 space-y-3 animate-pulse">
+              <div className="h-9 w-9 rounded-lg bg-raise" />
+              <div className="h-3.5 w-2/3 rounded bg-raise" />
+              <div className="h-3 w-full rounded bg-raise" />
+              <div className="h-3 w-1/2 rounded bg-raise" />
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-ink-dim">
-          <Layers className="w-8 h-8 mb-2 opacity-40" />
-          <p className="text-sm">暂无工作流{search || statusFilter !== 'all' ? '匹配筛选' : ''}，点击右上角新建</p>
+        /* 空状态：区分"没有工作流"与"筛选无结果" */
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom flex flex-col items-center justify-center py-24 text-center">
+          {workflows.length === 0 ? (
+            <>
+              <div className="w-14 h-14 rounded-2xl bg-brand-soft flex items-center justify-center mb-4">
+                <Layers className="w-7 h-7 text-brand" />
+              </div>
+              <p className="text-base font-semibold text-ink">创建第一个工作流</p>
+              <p className="text-[12.5px] text-ink-dim mt-1.5 max-w-[320px]">
+                以节点图编排多步任务：工具调用、分支循环、子流程与人工审批
+              </p>
+              {canWrite && (
+                <button onClick={() => createM.mutate()} className="af-btn af-btn-primary mt-5">
+                  <Plus className="w-3.5 h-3.5" />
+                  新建工作流
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <SearchX className="w-8 h-8 text-ink-faint mb-3" />
+              <p className="text-[13px] text-ink-dim">没有匹配的工作流，调整搜索或筛选条件</p>
+            </>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pr-1.5 content-start pb-6">
           {filtered.map((wf) => (
             <WorkflowCard
               key={wf.id}
               wf={wf}
               onOpen={onOpen}
-              onDelete={setConfirmDelete}
+              onDelete={handleDelete}
               onRun={handleRun}
+              onPublish={(id) => publishM.mutate(id)}
+              onArchive={(id) => archiveM.mutate(id)}
               running={exec.executing}
-              theme={theme}
+              menuOpen={menuOpenFor === wf.id}
+              onMenuOpen={(o) => setMenuOpenFor(o ? wf.id : null)}
+              canWrite={canWrite}
+              pending={publishM.isPending || archiveM.isPending}
             />
           ))}
-        </div>
-      )}
-
-      {/* Delete confirm modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-sm bg-page border border-line rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Trash2 className="w-4 h-4 text-rose-400" /> 确认删除
-              </h3>
-              <button onClick={() => setConfirmDelete(null)} className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              <p className="text-sm text-ink-dim">
-                确认删除工作流「<span className="text-white font-semibold">{confirmDelete.name}</span>」？此操作不可撤销。
-              </p>
-              <div className="flex justify-end gap-3 pt-2">
-                <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold text-xs">
-                  取消
-                </button>
-                <button
-                  onClick={() => deleteM.mutate(confirmDelete.id)}
-                  disabled={deleteM.isPending}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg cursor-pointer font-semibold text-xs disabled:opacity-60 flex items-center gap-2"
-                >
-                  {deleteM.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  删除
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -243,100 +245,136 @@ export function WorkflowSpace({
       />
     </div>
   );
-}
+};
 
-const WorkflowCard: FC<{
-  wf: WorkflowSummary;
-  onOpen: (id: string) => void;
-  onDelete: (wf: WorkflowSummary) => void;
-  onRun: (wf: WorkflowSummary) => void;
-  running: boolean;
-  theme: 'dark' | 'light';
-}> = ({ wf, onOpen, onDelete, onRun, running }) => {
-  // 写权限门控：无 workflow:write 的用户隐藏卡片删除入口（运行/编辑入口保留）
-  const canWrite = usePermission('workflow:write');
-  const meta = STATUS_META[wf.status] ?? STATUS_META.draft;
+const WorkflowCard: FC<CardProps> = ({
+  wf, onOpen, onDelete, onRun, onPublish, onArchive,
+  running, menuOpen, onMenuOpen, canWrite, pending,
+}) => {
+  const meta = STATUS_PILL[wf.status] ?? STATUS_PILL.draft;
   const isPublished = wf.status === 'published';
   const canRun = isPublished && !running;
   return (
-    <div className="group relative bg-panel border border-line rounded-xl p-5 hover:border-line-strong transition cursor-pointer" onClick={() => onOpen(wf.id)}>
-      {/* Header: icon + name + status */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center shrink-0 shadow-md">
-            <Layers className="w-5 h-5 text-white" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-sm font-bold text-white truncate">{wf.name}</h3>
-            <span className="text-[11px] text-ink-dim font-mono">v{wf.version}</span>
-          </div>
+    <div
+      className="group bg-panel border border-line rounded-[11px] px-[13px] py-3 flex flex-col cursor-pointer transition-all duration-150 hover:border-line-strong hover:shadow-[var(--shadow-card)]"
+      onClick={() => onOpen(wf.id)}
+    >
+      {/* 头部：类型徽章（工作流紫）+ 名称 + 节点数 + 状态 pill（签名卡） */}
+      <div className="flex items-start gap-[11px]">
+        <div className="w-[38px] h-[38px] rounded-[10px] bg-[#EEEBF8] text-cat-flow flex items-center justify-center shrink-0 select-none">
+          <IconFlow size={19} />
         </div>
-        <span className={`flex items-center gap-1.5 text-[11px] font-bold ${meta.text} shrink-0`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-          {meta.label}
-        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-bold text-ink truncate leading-tight pr-1">{wf.name}</div>
+          <div className="text-[10.5px] text-ink-dim mt-0.5 truncate">{wf.node_count} 节点</div>
+        </div>
+        <span className={`${meta.cls} shrink-0`}>{meta.label}</span>
       </div>
 
-      {/* Description */}
-      <p className="text-xs text-ink-dim mt-3 line-clamp-2 leading-relaxed min-h-[32px]">
+      {/* 描述（两行截断） */}
+      <p className="text-[11.5px] text-ink-dim leading-relaxed mt-2 min-h-[32px] line-clamp-2">
         {wf.description || '（无描述）'}
       </p>
 
-      {/* Tags */}
+      {/* 标签 */}
       {wf.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-3">
+        <div className="flex flex-wrap gap-1 mt-1.5">
           {wf.tags.slice(0, 4).map((t) => (
-            <span key={t} className="px-1.5 py-0.5 rounded bg-page border border-line text-[11px] text-ink-dim">
+            <span key={t} className="px-1.5 py-0.5 rounded bg-raise text-[10px] text-ink-dim">
               {t}
             </span>
           ))}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-line">
-        <span className="text-[11px] text-ink-dim flex items-center gap-1">
-          <Layers className="w-3 h-3" /> {wf.node_count} 节点
-        </span>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-ink-dim">{formatTimeFull(wf.updated_at)}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRun(wf);
-            }}
-            disabled={!canRun}
-            title={!isPublished ? '需先发布' : running ? '正在执行…' : '运行'}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition ${
-              canRun
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
-                : 'bg-page border border-line text-ink-dim cursor-not-allowed'
-            }`}
-          >
-            <Play className="w-3 h-3" /> 运行
-          </button>
-        </div>
-      </div>
-
-      {/* Hover actions */}
-      <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
+      {/* foot：运行（主操作）+ 更多菜单（hairline 操作行） */}
+      <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-line">
         <button
-          onClick={() => onOpen(wf.id)}
-          title="编辑"
-          className="p-1.5 rounded-lg bg-page border border-line text-ink-dim hover:text-indigo-400 hover:border-indigo-500/50 transition cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (canRun) onRun(wf);
+          }}
+          disabled={!canRun}
+          title={!isPublished ? '需先发布' : running ? '正在执行…' : '运行'}
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+            canRun
+              ? 'bg-brand hover:bg-brand-hover text-white cursor-pointer'
+              : 'bg-page border border-line text-ink-faint cursor-not-allowed'
+          }`}
         >
-          <Pencil className="w-3.5 h-3.5" />
+          <Play className="w-3 h-3" /> 运行
         </button>
-        {canWrite && (
+        <span className="flex-1" />
+        <span className="font-mono text-[10px] text-ink-faint" onClick={(e) => e.stopPropagation()}>
+          v{wf.version} · {formatTimeFull(wf.updated_at)}
+        </span>
+        <Popover
+          trigger="click"
+          open={menuOpen}
+          onOpenChange={onMenuOpen}
+          content={
+            <div className="text-xs w-36">
+              <button
+                onClick={() => { onMenuOpen(false); onOpen(wf.id); }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-ink-soft hover:bg-panel-hover hover:text-ink transition cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" /> 编辑
+              </button>
+              {wf.status === 'draft' && (
+                <button
+                  disabled={pending}
+                  onClick={() => { onMenuOpen(false); onPublish(wf.id); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-ink-soft hover:bg-panel-hover hover:text-ink transition cursor-pointer disabled:opacity-50"
+                >
+                  <Rocket className="w-3.5 h-3.5" /> 发布
+                </button>
+              )}
+              {isPublished && (
+                <button
+                  disabled={pending}
+                  onClick={() => { onMenuOpen(false); onArchive(wf.id); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-ink-soft hover:bg-panel-hover hover:text-ink transition cursor-pointer disabled:opacity-50"
+                >
+                  <Archive className="w-3.5 h-3.5" /> 归档
+                </button>
+              )}
+              {canWrite && (
+                <>
+                  <div className="border-t border-line my-1" />
+                  <button
+                    onClick={() => { onMenuOpen(false); void onDelete(wf); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sig-fail hover:bg-panel-hover transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> 删除
+                  </button>
+                </>
+              )}
+            </div>
+          }
+        >
           <button
-            onClick={() => onDelete(wf)}
-            title="删除"
-            className="p-1.5 rounded-lg bg-page border border-line text-ink-dim hover:text-rose-400 hover:border-rose-500/50 transition cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); onMenuOpen(!menuOpen) }}
+            className="shrink-0 p-1 rounded-md text-ink-faint hover:text-ink hover:bg-raise transition cursor-pointer"
+            title="更多操作"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <MoreVertical className="w-3.5 h-3.5" />
           </button>
-        )}
+        </Popover>
       </div>
     </div>
   );
 };
+
+interface CardProps {
+  wf: WorkflowSummary;
+  onOpen: (id: string) => void;
+  onDelete: (wf: WorkflowSummary) => void | Promise<void>;
+  onRun: (wf: WorkflowSummary) => void;
+  onPublish: (id: string) => void;
+  onArchive: (id: string) => void;
+  running: boolean;
+  menuOpen: boolean;
+  onMenuOpen: (open: boolean) => void;
+  canWrite: boolean;
+  pending: boolean;
+}

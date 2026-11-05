@@ -45,9 +45,6 @@ export function KbDetailPage({
             <span>知识库</span><span>/</span><span className="text-white font-semibold">{kbName}</span>
             <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-fuchsia-500/15 text-fuchsia-300">Wiki</span>
           </div>
-          <p className="text-[11px] text-ink-dim mt-0.5">
-            上传源资料到 sources/，点「构建 Wiki」由 AI 编译成带引用的知识页面；Agent 可用 kb_guide / kb_write 维护
-          </p>
         </div>
       </div>
       <WikiWorkspace kbId={kbId} />

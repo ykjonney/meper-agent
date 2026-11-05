@@ -143,10 +143,10 @@ export function ClarificationFormCard({
     // 已忽略：不解析字段摘要（忽略标记不是 JSON），给一行提示即可。
     if (result === DISMISSED_CLARIFICATION_TEXT) {
       return (
-        <div className="rounded-xl rounded-tl-none border border-indigo-500/30 bg-indigo-500/10 overflow-hidden font-sans shadow-sm opacity-70">
+        <div className="rounded-[10px] border border-line bg-page overflow-hidden font-sans opacity-70">
           <div className="flex items-center gap-2 px-3.5 py-2.5">
             <CheckCircle className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
-            <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
+            <span className="text-xs font-semibold text-ink-dim truncate">澄清提问</span>
             <span className="text-[11px] text-zinc-500 opacity-70">已忽略</span>
           </div>
           <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
@@ -158,15 +158,15 @@ export function ClarificationFormCard({
       );
     }
     return (
-      <div className="rounded-xl rounded-tl-none border border-indigo-500/30 bg-indigo-500/10 overflow-hidden font-sans shadow-sm">
+      <div className="rounded-[10px] border border-line bg-page overflow-hidden font-sans">
         <div className="flex items-center gap-2 px-3.5 py-2.5">
-          <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-          <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
-          <span className="text-[11px] text-emerald-400 opacity-70">已回答</span>
+          <CheckCircle className="w-3.5 h-3.5 shrink-0 text-sig-ok" />
+          <span className="text-xs font-semibold text-ink-dim truncate">澄清提问</span>
+          <span className="text-[11px] text-sig-ok opacity-70">已回答</span>
         </div>
         <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
           <div className="flex items-start gap-2.5">
-            <span className="text-sm mt-0.5 select-none text-indigo-400">📋</span>
+            <span className="text-sm mt-0.5 select-none text-brand">📋</span>
             <div className="flex-1 min-w-0">
               {question && (
                 <div className="text-[13px] font-medium text-ink whitespace-pre-wrap leading-relaxed mb-2">
@@ -176,7 +176,7 @@ export function ClarificationFormCard({
               <div className="space-y-1">
                 {fields.map((f) => (
                   <div key={f.name} className="flex items-baseline gap-2 text-xs">
-                    <span className="text-indigo-400 shrink-0">{f.label}:</span>
+                    <span className="text-brand shrink-0">{f.label}:</span>
                     <span className="text-ink font-medium break-all">
                       {renderValue(f, answeredValues[f.name])}
                     </span>
@@ -191,15 +191,15 @@ export function ClarificationFormCard({
   }
 
   return (
-    <div className="rounded-xl rounded-tl-none border border-indigo-500/30 bg-indigo-500/10 overflow-hidden font-sans shadow-sm">
+    <div className="rounded-[10px] border border-line bg-page overflow-hidden font-sans">
       <div className="flex items-center gap-2 px-3.5 py-2.5">
-        <Loader2 className="w-3.5 h-3.5 shrink-0 text-amber-400 animate-spin" />
-        <span className="text-xs font-semibold text-indigo-400 truncate">澄清提问</span>
-        <span className="text-[11px] text-amber-400 opacity-70">等待回答</span>
+        <Loader2 className="w-3.5 h-3.5 shrink-0 text-sig-wait animate-spin" />
+        <span className="text-xs font-semibold text-ink-dim truncate">澄清提问</span>
+        <span className="text-[11px] text-sig-wait opacity-70">等待回答</span>
       </div>
       <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
         <div className="flex items-start gap-2.5">
-          <span className="text-sm mt-0.5 select-none text-indigo-400">📋</span>
+          <span className="text-sm mt-0.5 select-none text-brand">📋</span>
           <div className="flex-1 min-w-0">
             {question && <div className="text-xs text-ink-dim mb-1.5">{question}</div>}
             {context && (
@@ -213,7 +213,7 @@ export function ClarificationFormCard({
             <div className="text-[13px] text-ink font-medium mb-2">
               {current.label}
               {current.required && current.field_type !== 'boolean' && (
-                <span className="text-rose-400 ml-0.5">*</span>
+                <span className="text-sig-fail ml-0.5">*</span>
               )}
             </div>
             {current.description && (
@@ -227,7 +227,7 @@ export function ClarificationFormCard({
                   onClick={() => commitAnswer(true)}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition ${
                     currentVal === true
-                      ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
+                      ? 'bg-brand-soft border-brand text-ink font-medium'
                       : 'bg-well border-line-strong text-ink hover:bg-line'
                   }`}
                 >
@@ -238,7 +238,7 @@ export function ClarificationFormCard({
                   onClick={() => commitAnswer(false)}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition ${
                     currentVal === false
-                      ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
+                      ? 'bg-brand-soft border-brand text-ink font-medium'
                       : 'bg-well border-line-strong text-ink hover:bg-line'
                   }`}
                 >
@@ -258,12 +258,12 @@ export function ClarificationFormCard({
                       onClick={() => commitAnswer(opt)}
                       className={`text-left px-3 py-1.5 rounded-lg text-xs border transition-colors ${
                         selected
-                          ? 'bg-indigo-500/20 border-indigo-500/60 text-indigo-200 font-medium'
-                          : 'bg-well border-line-strong text-ink-soft hover:border-indigo-500/50 hover:bg-indigo-500/10 cursor-pointer'
+                          ? 'bg-brand-soft border-brand text-brand font-medium'
+                          : 'bg-well border-line-strong text-ink-soft hover:border-brand hover:bg-brand-soft cursor-pointer'
                       }`}
                     >
                       {opt}
-                      {selected && <span className="ml-1.5 text-indigo-400">✓</span>}
+                      {selected && <span className="ml-1.5 text-brand">✓</span>}
                     </button>
                   );
                 })}
@@ -285,7 +285,7 @@ export function ClarificationFormCard({
                     handleNext();
                   }
                 }}
-                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink-soft placeholder:text-ink-dim focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink-soft placeholder:text-ink-dim focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors"
               />
             )}
 
@@ -325,7 +325,7 @@ export function ClarificationFormCard({
                   type="button"
                   onClick={handleNext}
                   disabled={current.required && current.field_type !== 'boolean' && !isAnswered}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-brand text-white hover:bg-brand disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                 >
                   {isLast ? (
                     <>

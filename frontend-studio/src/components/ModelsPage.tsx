@@ -11,7 +11,7 @@
  */
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Plus, Search, Server, Pencil, Trash2, Zap, Loader2, X, AlertTriangle, CheckCircle2,
+  Plus, Search, Server, Zap, Loader2, X, AlertTriangle, CheckCircle2, ChevronRight,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -28,6 +28,7 @@ import { Select } from './ui';
 import { confirmDialog } from './ui/confirm';
 import { usePermission } from '../hooks/use-permission';
 import { getErrorMessage } from '../lib/api-client';
+import { ResModal, Field, UInput, Seg, VendorCell } from './res-modal';
 
 const COMPATIBILITY_LABELS: Record<CompatibilityType, string> = {
   openai: 'OpenAI',
@@ -35,9 +36,9 @@ const COMPATIBILITY_LABELS: Record<CompatibilityType, string> = {
 };
 
 const AUTH_LABELS: Record<AuthType, string> = {
-  bearer: 'Bearer Token (Authorization)',
-  x_api_key: 'X-API-Key (Header)',
-  api_key_header: 'API-Key (Header)',
+  bearer: 'Bearer Token',
+  x_api_key: 'X-API-Key',
+  api_key_header: 'API-Key Header',
   custom: '自定义',
 };
 
@@ -54,6 +55,76 @@ const ERROR_HINTS: Record<string, string> = {
 
 const COMPATIBILITY_OPTIONS: CompatibilityType[] = ['openai', 'anthropic'];
 const AUTH_TYPES: AuthType[] = ['bearer', 'x_api_key', 'api_key_header', 'custom'];
+
+/** 厂商 logo（设计稿 vendors 真图形）：白线条 SVG，置于厂商身份色块上 */
+/** 厂商 logo（贴近官方形态）：智谱 Z 圆 / OpenAI 六瓣花结 / 通义四角星 / Gemini 渐变 spark / Kimi K / DeepSeek 鲸 / Anthropic A\u005c 字标 */
+const VENDOR_LOGOS: Record<string, ReactNode> = {
+  '智谱 AI': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.14)" /><path d="M7.6 8.6 H16.4 L7.6 15.4 H16.4" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  ),
+  '阿里云通义': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.14)" /><path d="M12 4.6 C12.7 8.4 15.6 11.3 19.4 12 C15.6 12.7 12.7 15.6 12 19.4 C11.3 15.6 8.4 12.7 4.6 12 C8.4 11.3 11.3 8.4 12 4.6 Z" fill="#fff" /></svg>
+  ),
+  'DeepSeek': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M4 16 C4 10 8 6.5 13 6.5 C17.5 6.5 20.5 9 20.5 12 C20.5 13.8 19.2 15 17.5 15 L7 15 C5.8 15 5 15.8 5 17 C5 17.8 4.6 18.3 4 16 Z" /><circle cx="16.2" cy="10.2" r="1.1" fill="#4D6BFE" /></svg>
+  ),
+  'OpenAI': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff">
+      <path id="oai-petal" d="M12 2.9 a3.85 3.85 0 0 1 3.33 1.93 l.42 .74 a1.1 1.1 0 0 1 -1.9 1.1 l-.42 -.74 A2.35 2.35 0 0 0 12 5.4 a2.35 2.35 0 0 0 -1.16 .31 l-.75 .43 A1.1 1.1 0 0 1 8.78 4.42 l.75 -.43 A3.85 3.85 0 0 1 12 2.9 Z" />
+      <use href="#oai-petal" transform="rotate(60 12 12)" /><use href="#oai-petal" transform="rotate(120 12 12)" />
+      <use href="#oai-petal" transform="rotate(180 12 12)" /><use href="#oai-petal" transform="rotate(240 12 12)" />
+      <use href="#oai-petal" transform="rotate(300 12 12)" />
+    </svg>
+  ),
+  'Anthropic': (
+    <span className="text-white font-extrabold text-[13px] leading-none" style={{ fontFamily: 'var(--font-serif)' }}>{'A\\'}</span>
+  ),
+  'Google': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <defs><linearGradient id="gemi-g" x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#4285F4" /><stop offset=".5" stopColor="#9B72CB" /><stop offset="1" stopColor="#D96570" /></linearGradient></defs>
+      <path d="M12 3.2 C12.6 8.2 15.8 11.4 20.8 12 C15.8 12.6 12.6 15.8 12 20.8 C11.4 15.8 8.2 12.6 3.2 12 C8.2 11.4 11.4 8.2 12 3.2 Z" fill="url(#gemi-g)" />
+    </svg>
+  ),
+  'Moonshot AI': (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.12)" /><path d="M8.4 5.6 H11 L14.2 10.6 L13 12.3 L16 18.4 H13.3 L10 12.2 L11.2 10.6 Z M8.4 10.4 H10.4 V18.4 H8.4 Z" fill="#fff" /></svg>
+  ),
+};
+
+/** 厂商网格（设计稿 vendors）：选厂商自动带出官方端点 + 兼容协议 + 常见模型预设。
+ * endpoint=官方兼容端点（用户可改为自建网关）；models=模型 ID 快捷 chips。 */
+const VENDORS: { key: string; bg: string; fg?: string; compat: CompatibilityType; endpoint: string; models: string[] }[] = [
+  { key: '智谱 AI', bg: '#2E5BFF', compat: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3-flash', 'glm-5.2', 'glm-4.7'] },
+  { key: '阿里云通义', bg: '#FF6A00', compat: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen3.7-plus', 'qwen-max', 'qwen-plus'] },
+  { key: 'DeepSeek', bg: '#4D6BFE', compat: 'openai', endpoint: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  { key: 'OpenAI', bg: '#0D0D0D', compat: 'openai', endpoint: 'https://api.openai.com/v1', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'] },
+  { key: 'Anthropic', bg: '#D97757', compat: 'anthropic', endpoint: 'https://api.anthropic.com', models: ['claude-opus-4', 'claude-sonnet-4'] },
+  { key: 'Google', bg: '#FFFFFF', fg: '#5A6472', compat: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+  { key: 'Moonshot AI', bg: '#0B0B1E', compat: 'openai', endpoint: 'https://api.moonshot.cn/v1', models: ['kimi-k2', 'moonshot-v1-128k'] },
+  { key: '自定义', bg: '#EDF0F5', fg: '#666E7D', compat: 'openai', endpoint: '', models: [] },
+];
+
+/** 编辑回显：provider_tag 可能存的是小写/旧值（anthropic / deepseek…）——宽匹配厂商格 */
+function matchVendorKey(tag?: string): string {
+  const t = (tag ?? '').toLowerCase();
+  if (!t) return '';
+  const hit = VENDORS.find((v) => v.key !== '自定义' && (
+    v.key.toLowerCase() === t || v.key.toLowerCase().includes(t) || t.includes(v.key.toLowerCase().split(' ')[0])
+  ));
+  return hit?.key ?? (t ? '自定义' : '');
+}
+
+/** 厂商徽章（设计稿 badge-44）：按名称/model_id/provider_tag 匹配厂商 → 真 logo SVG + 身份色 */
+function vendorStyle(m: Model): { bg: string; label: ReactNode } {
+  const key = `${m.name} ${m.model_id} ${m.provider_tag ?? ''}`.toLowerCase();
+  if (/embed|bge|text-embedding/.test(key)) return { bg: '#14B8A6', label: VENDOR_LOGOS['OpenAI'] ?? 'E' };
+  if (/glm|zhipu|chatglm/.test(key)) return { bg: '#2E5BFF', label: VENDOR_LOGOS['智谱 AI'] ?? '智' };
+  if (/qwen|tongyi|dashscope/.test(key)) return { bg: '#FF6A00', label: VENDOR_LOGOS['阿里云通义'] ?? '通' };
+  if (/claude|anthropic/.test(key)) return { bg: '#D97757', label: VENDOR_LOGOS['Anthropic'] ?? 'A' };
+  if (/deepseek/.test(key)) return { bg: '#4D6BFE', label: VENDOR_LOGOS['DeepSeek'] ?? 'D' };
+  if (/gpt|openai|o1|o3/.test(key)) return { bg: '#0D0D0D', label: VENDOR_LOGOS['OpenAI'] ?? 'O' };
+  if (/kimi|moonshot/.test(key)) return { bg: '#0B0B1E', label: VENDOR_LOGOS['Moonshot AI'] ?? 'K' };
+  return { bg: '#5A6472', label: (m.name || '?').trim().slice(0, 1).toUpperCase() };
+}
 
 /** Format an ISO timestamp as a short Chinese relative string ('刚刚' / '3 分钟前'). '' if missing/invalid. */
 function formatRelativeTime(iso?: string): string {
@@ -115,6 +186,8 @@ export function ModelsPage() {
   const [form, setForm] = useState<ModelForm>(emptyForm());
   const [error, setError] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+  // 高级参数折叠（认证方式 / 兼容协议 / 采样与上下文参数）——主流形态：默认只露基础字段
+  const [advOpen, setAdvOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: modelKeys.list({ page_size: 100, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) }),
@@ -131,15 +204,6 @@ export function ModelsPage() {
       [m.name, m.model_id, m.provider_tag ?? ''].some((v) => v.toLowerCase().includes(q)),
     );
   }, [models, search]);
-
-  // ── Stats ──
-  const stats = useMemo(() => {
-    const total = models.length;
-    const active = models.filter((m) => m.status === 'active').length;
-    const openai = models.filter((m) => m.compatibility_type === 'openai').length;
-    const anthropic = models.filter((m) => m.compatibility_type === 'anthropic').length;
-    return { total, active, openai, anthropic };
-  }, [models]);
 
   const createM = useMutation({
     mutationFn: (input: ModelCreateInput) => modelApi.create(input),
@@ -200,7 +264,8 @@ export function ModelsPage() {
       model_id: form.model_id.trim(),
       name: form.name.trim(),
       base_url: form.base_url.trim(),
-      api_key: form.api_key,
+      // 编辑留空 = 保持原密钥：彻底省略字段，避免后端把空串当新值覆盖
+      ...(form.api_key ? { api_key: form.api_key } : {}),
       compatibility_type: form.compatibility_type,
       auth_type: form.auth_type,
       ...(form.auth_type === 'custom' ? { auth_header_format: form.auth_header_format } : {}),
@@ -229,359 +294,307 @@ export function ModelsPage() {
   const testResult: ModelTestResult | undefined = testM.data;
 
   return (
-    <div className="space-y-5">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Server className="w-5 h-5 text-indigo-400" />
-            模型配置
-          </h2>
-          <p className="text-xs text-ink-dim mt-1">
-            配置 LLM 接入（接口 / Key / 模型 / 协议），供 Agent 与工作流调用。
-          </p>
-        </div>
-        {canWrite && (
-          <button
-            onClick={handleOpenCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition cursor-pointer shadow-md shadow-indigo-600/20"
-          >
-            <Plus className="w-4 h-4" />
-            新建模型
-          </button>
-        )}
-      </div>
-
-      {/* ── Stats ── */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: '模型总数', value: stats.total, color: 'text-white' },
-          { label: '已启用 (active)', value: stats.active, color: 'text-emerald-400' },
-          { label: 'OpenAI 兼容', value: stats.openai, color: 'text-sky-400' },
-          { label: 'Anthropic 兼容', value: stats.anthropic, color: 'text-orange-400' },
-        ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
-            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Toolbar ── */}
+    <div className="space-y-4">
+      {/* ── 工具栏：搜索 + 状态筛选 + 接入模型 CTA（设计稿 toolbar） ── */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
+        <div className="relative w-[320px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-faint" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索名称 / model_id / provider"
-            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
+            placeholder="搜索模型名称 / 厂商…"
+            className="w-full pl-9 pr-3 h-8 text-xs bg-panel border border-line rounded-[10px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition font-medium"
           />
         </div>
         <Select
           value={statusFilter}
           onChange={(v) => setStatusFilter((v ?? 'all') as ModelStatus | 'all')}
           placeholder="全部状态"
-          className="w-36"
+          className="w-32"
           options={[
             { value: 'all', label: '全部状态' },
             { value: 'active', label: '已启用' },
             { value: 'inactive', label: '已停用' },
           ]}
         />
+        {canWrite && (
+          <button
+            onClick={handleOpenCreate}
+            className="af-btn af-btn-primary shrink-0 ml-auto"
+          >
+            ＋ 接入模型
+          </button>
+        )}
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 text-rose-300 text-xs">
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span className="font-sans">{error}</span>
         </div>
       )}
 
-      {/* ── Table ── */}
-      <div className="rounded-xl border border-line bg-panel overflow-x-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-ink-dim">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-ink-dim">
-            <Server className="w-8 h-8 mb-2 opacity-40" />
-            <p className="text-sm">暂无模型配置{search ? '匹配搜索' : ''}，点击右上角新建</p>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-dim text-[11px] uppercase tracking-wider">
-                <th className="text-left font-semibold px-4 py-3">模型</th>
-                <th className="text-left font-semibold px-4 py-3">认证</th>
-                <th className="text-left font-semibold px-4 py-3">上下文</th>
-                <th className="text-left font-semibold px-4 py-3">状态</th>
-                <th className="text-left font-semibold px-4 py-3">连通性</th>
-                <th className="text-right font-semibold px-4 py-3">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((m) => (
-                <tr key={m.id} className="border-b border-line last:border-0 hover:bg-panel-hover transition">
-                  <td className="px-4 py-3 max-w-[320px]">
-                    <p className="font-semibold text-white truncate" title={m.name}>{m.name}</p>
-                    <p className="text-[11px] text-ink-dim font-mono truncate" title={m.model_id}>{m.model_id}</p>
-                  </td>
-                  <td className="px-4 py-3 text-[11px] text-ink-dim">{AUTH_LABELS[m.auth_type]}</td>
-                  <td className="px-4 py-3 text-[11px] text-ink-dim font-mono">
-                    {m.default_params?.context_window ? `${Math.round(m.default_params.context_window / 1000)}K` : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                      m.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-400'
-                    }`}>
-                      {m.status === 'active' ? '已启用' : '已停用'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {m.last_test_success === true ? (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 w-fit">连通</span>
-                        <span className="text-[11px] text-ink-dim">{formatRelativeTime(m.last_test_at)}</span>
-                      </div>
-                    ) : m.last_test_success === false ? (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-400 w-fit">不通</span>
-                        <span className="text-[11px] text-ink-dim">{formatRelativeTime(m.last_test_at)}</span>
-                      </div>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-500/10 text-zinc-400">未测试</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      {canTest && (
-                        <button
-                          onClick={() => handleOpenTest(m)}
-                          title="测试连通性"
-                          className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer"
-                        >
-                          <Zap className="w-4 h-4" />
-                        </button>
-                      )}
-                      {canWrite && (
-                        <button
-                          onClick={() => handleOpenEdit(m)}
-                          title="编辑"
-                          className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                      )}
-                      {canWrite && (
-                        <button
-                          onClick={() => handleDelete(m)}
-                          title="删除"
-                          className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* ── Create / Edit Modal ── */}
-      {(creating || editing) && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
-              <h3 className="text-sm font-bold text-white">
-                {editing ? `编辑模型 · ${editing.name}` : '新建模型'}
-              </h3>
-              <button
-                onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
+      {/* ── 模型签名卡网格（设计稿 pane-models：厂商徽章 + 协议 via + 连通 pill +
+          上下文窗口 track + foot 操作） ── */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 text-ink-dim">
+          <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-ink-faint">
+          <Server className="w-8 h-8 mb-2 opacity-40" />
+          <p className="text-sm">暂无模型配置{search ? '匹配搜索' : ''}，点击右上角接入</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-4">
+          {filtered.map((m) => {
+            const vendor = vendorStyle(m);
+            const isEmbed = /embed/i.test(`${m.name} ${m.model_id} ${m.provider_tag ?? ''}`);
+            // pill 优先级：已停用 > 连通性测试结果
+            const pill = m.status !== 'active'
+              ? { label: '已停用', tone: 'neutral' as const }
+              : m.last_test_success === true
+                ? { label: '已连通', tone: 'ok' as const }
+                : m.last_test_success === false
+                  ? { label: '连接失败', tone: 'fail' as const }
+                  : { label: '未验证', tone: 'neutral' as const };
+            const ctx = m.default_params?.context_window ?? 0;
+            const ctxPct = ctx > 0 ? Math.min(100, Math.round((ctx / 1_000_000) * 100)) : 0;
+            return (
+              <div
+                key={m.id}
+                className="bg-panel border border-line rounded-xl p-4 flex flex-col transition hover:shadow-[var(--shadow-card)] hover:border-line-strong"
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="模型 ID (model_id) *">
-                  <input
-                    required value={form.model_id}
-                    onChange={(e) => setForm({ ...form, model_id: e.target.value })}
-                    placeholder="deepseek-chat, gpt-4o-mini"
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="显示名称 (name) *">
-                  <input
-                    required value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="DeepSeek Chat"
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-
-              <Field label="Base URL *">
-                <input
-                  required value={form.base_url}
-                  onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-                  placeholder="https://api.deepseek.com/v1"
-                  className={inputCls}
-                />
-              </Field>
-
-              <Field label={`API Key ${editing ? '（留空表示不修改）' : '*'}`}>
-                <input
-                  type="password"
-                  required={!editing}
-                  value={form.api_key}
-                  onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-                  placeholder={editing ? '留空则保留原有密钥' : '输入 API Key'}
-                  className={inputCls}
-                />
-                {editing && (
-                  <p className="text-[11px] text-ink-dim mt-1">
-                    当前密钥已加密存储（脱敏回显：{editing.api_key || '—'}）
-                  </p>
-                )}
-              </Field>
-
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="兼容协议">
-                  <Select
-                    value={form.compatibility_type}
-                    onChange={(v) => setForm({ ...form, compatibility_type: (v ?? 'openai') as CompatibilityType })}
-                    options={COMPATIBILITY_OPTIONS.map((c) => ({ value: c, label: COMPATIBILITY_LABELS[c] }))}
-                  />
-                </Field>
-                <Field label="认证方式">
-                  <Select
-                    value={form.auth_type}
-                    onChange={(v) => setForm({ ...form, auth_type: (v ?? 'bearer') as AuthType })}
-                    options={AUTH_TYPES.map((a) => ({ value: a, label: AUTH_LABELS[a] }))}
-                  />
-                </Field>
-              </div>
-
-              {form.auth_type === 'custom' && (
-                <Field label="自定义认证模板（支持 {key} 占位符）">
-                  <input
-                    value={form.auth_header_format}
-                    onChange={(e) => setForm({ ...form, auth_header_format: e.target.value })}
-                    placeholder='Authorization: Bearer {key}'
-                    className={inputCls}
-                  />
-                  <p className="text-[11px] text-ink-dim mt-1">
-                    纯文本 → 单个 header；JSON → 多个 header
-                  </p>
-                </Field>
-              )}
-
-              <Field label="Provider 标签（可选）">
-                <input
-                  value={form.provider_tag ?? ''}
-                  onChange={(e) => setForm({ ...form, provider_tag: e.target.value })}
-                  placeholder="deepseek / openai / anthropic"
-                  className={inputCls}
-                />
-              </Field>
-
-              {/* Default params */}
-              <div className="pt-2 border-t border-line">
-                <p className="text-[11px] font-bold text-ink-dim uppercase tracking-wider mb-3">默认参数</p>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <label className="text-slate-400 font-medium">Temperature</label>
-                      <span className="text-slate-300 font-mono font-bold">
-                        {form.default_params?.temperature ?? 0.7}
+                {/* 头部：厂商徽章 + 名称 + 厂商/协议行 + 连通 pill */}
+                <div className="flex items-start gap-[11px]">
+                  <div
+                    className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 text-white font-bold text-[15px] select-none"
+                    style={{ background: vendor.bg, fontFamily: 'var(--font-serif)' }}
+                    title={`${m.provider_tag || COMPATIBILITY_LABELS[m.compatibility_type]}`}
+                  >
+                    {vendor.label}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-ink truncate" title={m.name}>{m.name}</div>
+                    <div className="text-[10.5px] text-ink-dim mt-0.5 truncate flex items-center gap-1.5">
+                      {m.provider_tag || COMPATIBILITY_LABELS[m.compatibility_type]}
+                      <span className="px-1.5 py-px rounded bg-raise text-[10px] text-ink-dim shrink-0">
+                        {COMPATIBILITY_LABELS[m.compatibility_type]} 兼容
                       </span>
                     </div>
-                    <input
-                      type="range" min="0" max="2" step="0.1"
-                      value={form.default_params?.temperature ?? 0.7}
-                      onChange={(e) => setForm({
-                        ...form,
-                        default_params: { ...form.default_params!, temperature: Number(e.target.value) },
-                      })}
-                      className="w-full accent-indigo-500"
-                    />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Max Tokens">
-                      <input
-                        type="number" min="1"
-                        value={form.default_params?.max_tokens ?? 4096}
-                        onChange={(e) => setForm({
-                          ...form,
-                          default_params: { ...form.default_params!, max_tokens: Number(e.target.value) },
-                        })}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Context Window">
-                      <input
-                        type="number" min="1"
-                        value={form.default_params?.context_window ?? 128000}
-                        onChange={(e) => setForm({
-                          ...form,
-                          default_params: { ...form.default_params!, context_window: Number(e.target.value) },
-                        })}
-                        className={inputCls}
-                      />
-                    </Field>
+                  <span className={`af-pill af-pill-${pill.tone} shrink-0`}>{pill.label}</span>
+                </div>
+
+                {/* 能力行：LLM/EMBEDDING 类型 tag */}
+                <div className="flex items-center gap-1.5 mt-2.5">
+                  <span
+                    className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md tracking-[.05em] font-mono ${
+                      isEmbed ? 'bg-[rgba(20,184,166,.12)] text-[#0D9488]' : 'bg-brand-soft text-brand'
+                    }`}
+                  >
+                    {isEmbed ? 'EMBEDDING' : 'LLM'}
+                  </span>
+                </div>
+
+                {/* 上下文窗口 track（mono 数字右对齐） */}
+                <div className="mt-3">
+                  <div className="h-1 rounded-full bg-raise overflow-hidden">
+                    <div className="h-full rounded-full bg-brand" style={{ width: `${ctxPct}%` }} />
                   </div>
-                  <Field label="思考预算 Thinking Budget（可选）">
-                    <input
-                      type="number" min="1024" step="128"
-                      value={form.default_params?.thinking_budget ?? ''}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const rest = { ...form.default_params! };
-                        if (raw === '') delete rest.thinking_budget;
-                        else rest.thinking_budget = Number(raw);
-                        setForm({ ...form, default_params: rest });
-                      }}
-                      placeholder="留空默认 5000"
-                      className={inputCls}
-                    />
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      仅 Anthropic claude 系思考模式生效（思考 token 上限，自动压缩至 max_tokens/2 以内；下限 1024）。
-                    </div>
-                  </Field>
+                  <div className="flex justify-between font-mono text-[10px] text-ink-faint mt-1.5">
+                    <span>上下文窗口</span>
+                    <span>{ctx > 0 ? ctx.toLocaleString() : '—'}</span>
+                  </div>
+                </div>
+
+                {/* foot：接入日期 + 操作（设计稿 c-actions 文字链接） */}
+                <div className="flex items-center justify-between border-t border-line mt-3 pt-2.5">
+                  <span className="text-[10.5px] text-ink-faint font-mono">
+                    {m.created_at ? new Date(m.created_at).toLocaleDateString('zh-CN') : ''}
+                  </span>
+                  <div className="flex items-center gap-2.5 text-[11px]">
+                    {canTest && (
+                      <button
+                        onClick={() => handleOpenTest(m)}
+                        className="text-ink-dim hover:text-ink cursor-pointer"
+                      >测试连接</button>
+                    )}
+                    {canWrite && (
+                      <button
+                        onClick={() => handleOpenEdit(m)}
+                        className="text-brand hover:text-brand-hover cursor-pointer"
+                      >编辑</button>
+                    )}
+                    {canWrite && (
+                      <button
+                        onClick={() => handleDelete(m)}
+                        className="text-sig-fail hover:opacity-75 cursor-pointer"
+                      >删除</button>
+                    )}
+                  </div>
                 </div>
               </div>
+            );
+          })}
+        </div>
+      )}
 
-              {/* Footer */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-line">
-                <button
-                  type="button"
-                  onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold"
-                >
-                  取消
-                </button>
+      {/* ── Create / Edit Modal：设计稿 res-create-edit 形态（厂商网格 + 下划线字段 + 分段） ── */}
+      {(creating || editing) && (
+        <ResModal
+          badge={<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="4" y="6" width="12" height="8" rx="2" /><circle cx="8" cy="10" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="10" r="1" fill="currentColor" stroke="none" /><path d="M8 16v2M12 16v2M8 2v2M12 2v2" strokeLinecap="round" /></svg>}
+          badgeCls="bg-[#E9EDF7] text-cat-tool"
+          title={editing ? '编辑模型' : '接入模型'}
+          kicker={editing ? 'MODEL · EDIT' : 'MODEL · CONNECT'}
+          onClose={() => { setCreating(false); setEditing(null); setError(null); }}
+          formId="model-form"
+          footer={{
+                       actions: (
+              <>
+                <button type="button" onClick={() => { setCreating(false); setEditing(null); setError(null); }} className="af-btn af-btn-ghost">取消</button>
                 {canWrite && (
-                  <button
-                    type="submit"
-                    disabled={createM.isPending || updateM.isPending}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2"
-                  >
+                  <button type="submit" form="model-form" disabled={createM.isPending || updateM.isPending}
+                    className="af-btn af-btn-primary disabled:opacity-60 flex items-center gap-2">
                     {(createM.isPending || updateM.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     {editing ? '保存' : '创建'}
                   </button>
                 )}
+              </>
+            ),
+          }}
+        >
+          <form onSubmit={handleSubmit}>
+            {/* 厂商网格：选厂商 → 官方端点/协议/模型预设自动带出（主流模式） */}
+            <Field label="厂商" required hint="选厂商自动带出官方端点与兼容协议；端点可改为自建网关">
+              <div className="grid grid-cols-8 gap-2">
+                {VENDORS.map((v) => (
+                  <VendorCell
+                    key={v.key}
+                    on={matchVendorKey(form.provider_tag) === v.key}
+                    bg={v.bg}
+                    fg={v.fg}
+                    label={VENDOR_LOGOS[v.key] ?? <span className="text-[13px]">?</span>}
+                    title={v.key}
+                    onClick={() => {
+                      const isEmptyBase = !form.base_url || VENDORS.some((o) => o.endpoint && o.endpoint === form.base_url);
+                      setForm({
+                        ...form,
+                        provider_tag: v.key,
+                        compatibility_type: v.compat,
+                        ...(v.endpoint ? { base_url: v.endpoint } : {}),
+                        ...(v.models.length ? { model_id: form.model_id && v.models.includes(form.model_id) ? form.model_id : v.models[0] } : {}),
+                      });
+                    }}
+                  />
+                ))}
               </div>
-            </form>
-          </div>
-        </div>
+            </Field>
+            {(() => {
+              const cur = VENDORS.find((v) => matchVendorKey(form.provider_tag) === v.key);
+              if (!cur || cur.models.length === 0) return null;
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 -mt-2 mb-[18px]">
+                  {cur.models.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setForm({ ...form, model_id: m })}
+                      className={`px-2 py-1 rounded-md text-[11px] font-mono cursor-pointer transition-colors ${
+                        form.model_id === m ? 'bg-brand-soft text-brand font-semibold' : 'bg-raise text-ink-dim hover:text-ink'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="模型 ID" required hint="调用时发送的 model 参数">
+                <UInput mono required value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })} placeholder="如 glm-5.2" />
+              </Field>
+              <Field label="显示名" required>
+                <UInput required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如 GLM-5.2" />
+              </Field>
+            </div>
+            <Field label="接入端点" required>
+              <UInput mono required value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://open.bigmodel.cn/api" />
+            </Field>
+            {/* 编辑态不渲染 API Key 字段：留空即保持原密钥（提交时空值不会覆盖） */}
+            {!editing && (
+              <Field label="API Key" required>
+                <UInput type="password" required value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder="输入 API Key" />
+              </Field>
+            )}
+            {/* 高级参数折叠：认证 / 协议 / 采样与上下文（主流形态——基础流不露） */}
+            <div className="border-t border-line pt-3 mt-1">
+              <button
+                type="button"
+                onClick={() => setAdvOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-[11.5px] text-ink-dim hover:text-ink cursor-pointer mb-4"
+              >
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${advOpen ? 'rotate-90' : ''}`} />
+                高级参数
+                <span className="font-mono text-[10px] text-ink-faint">认证 · 协议 · 采样</span>
+              </button>
+              {advOpen && (
+              <div className="space-y-0 max-h-[42vh] overflow-y-auto scrollbar-custom pr-1">
+            <Field label="兼容协议" required hint="选厂商时自动带出；自定义网关时手动切换">
+              <Seg
+                value={form.compatibility_type}
+                onChange={(v) => setForm({ ...form, compatibility_type: v })}
+                options={COMPATIBILITY_OPTIONS.map((c) => ({ value: c, label: COMPATIBILITY_LABELS[c] }))}
+              />
+            </Field>
+            <Field label="认证方式" required>
+              <Seg
+                value={form.auth_type}
+                onChange={(v) => setForm({ ...form, auth_type: v })}
+                options={AUTH_TYPES.map((a) => ({ value: a, label: AUTH_LABELS[a] }))}
+              />
+            </Field>
+            {form.auth_type === 'custom' && (
+              <Field label="自定义认证模板" hint="支持 {key} 占位符；纯文本 → 单个 header，JSON → 多个 header">
+                <UInput mono value={form.auth_header_format} onChange={(e) => setForm({ ...form, auth_header_format: e.target.value })} placeholder="Authorization: Bearer {key}" />
+              </Field>
+            )}
+
+            {/* 能力参数（默认参数区） */}
+            <div className="pt-1 mt-1">
+              <div className="font-mono text-[10.5px] text-ink-faint tracking-[.12em] mt-4 mb-4">DEFAULT PARAMS · 能力参数</div>
+              <Field label="Temperature" optional={`当前 ${form.default_params?.temperature ?? 0.7}`}>
+                <input
+                  type="range" min="0" max="2" step="0.1"
+                  value={form.default_params?.temperature ?? 0.7}
+                  onChange={(e) => setForm({
+                    ...form,
+                    default_params: { ...form.default_params!, temperature: Number(e.target.value) },
+                  })}
+                  className="w-full accent-[var(--color-brand)] cursor-pointer"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Max Tokens">
+                  <UInput type="number" min={1} value={form.default_params?.max_tokens ?? 4096} onChange={(e) => setForm({
+                    ...form,
+                    default_params: { ...form.default_params!, max_tokens: Number(e.target.value) },
+                  })} />
+                </Field>
+                <Field label="Context Window">
+                  <UInput type="number" min={1} value={form.default_params?.context_window ?? 128000} onChange={(e) => setForm({
+                    ...form,
+                    default_params: { ...form.default_params!, context_window: Number(e.target.value) },
+                  })} />
+                </Field>
+              </div>
+            </div>
+              </div>
+            )}
+            </div>
+            {error && <p className="text-sig-fail text-xs mb-3">{error}</p>}
+          </form>
+        </ResModal>
       )}
 
       {/* ── Test Modal ── */}
@@ -679,18 +692,6 @@ export function ModelsPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-const inputCls =
-  'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <label className="text-slate-400 font-medium font-sans">{label}</label>
-      {children}
     </div>
   );
 }

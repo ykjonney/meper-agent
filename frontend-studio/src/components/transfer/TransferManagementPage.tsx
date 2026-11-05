@@ -222,9 +222,9 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
   const hoverBg = 'hover:bg-page'
 
   return (
-    <div className="space-y-4">
+    <div className="h-full min-h-0 flex flex-col gap-4">
       {/* 类型筛选 */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="shrink-0 flex flex-wrap items-center gap-1.5">
         <button
           onClick={() => setGroupFilter('all')}
           className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition cursor-pointer ${
@@ -258,6 +258,8 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
       </div>
 
       {/* 分组列表 */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
+
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-dim">
           <Loader2 className="w-4 h-4 animate-spin" /> 加载资源清单…
@@ -361,6 +363,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
         </div>
       </div>
     </div>
+      </div>
   )
 }
 

@@ -73,15 +73,16 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
   const headingCls = theme === 'dark' ? 'text-ink' : 'text-slate-900'
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="h-full min-h-0 flex flex-col gap-6 max-w-2xl mx-auto">
       {/* 页面标题 */}
-      <div>
+      <div className="shrink-0">
         <h1 className={`text-lg font-bold ${headingCls} flex items-center gap-2`}>
           <User className="w-5 h-5 text-indigo-400" />
           个人设置
         </h1>
-        <p className={`text-xs ${subCls} mt-1`}>管理你的账户信息与登录密码</p>
       </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
 
       {/* 只读：账户信息 */}
       <section className={`rounded-xl border p-5 space-y-4 ${cardCls}`}>
@@ -199,6 +200,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
         )}
       </section>
     </div>
+      </div>
   )
 }
 

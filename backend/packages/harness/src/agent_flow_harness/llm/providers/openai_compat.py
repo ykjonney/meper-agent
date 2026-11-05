@@ -78,6 +78,7 @@ def build_client_from_doc(
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
     max_retries: int | None = None,
+    thinking_level: str = "",
 ) -> ChatOpenAI | ChatAnthropic:
     """Build a chat model from a model-table document shape.
 
@@ -86,9 +87,11 @@ def build_client_from_doc(
             ``model_id``, ``compatibility_type``, ``auth_type``,
             ``auth_header_format`` and ``default_params``.
         agent_config: Optional overrides (e.g. ``temperature``).
-        enable_thinking: Enable native reasoning if supported.
+        enable_thinking: Enable native reasoning if supported (legacy boolean;
+            ignored when ``thinking_level`` is given).
         max_retries: SDK 级瞬态重试次数(网络抖动/5xx/限流,由 provider SDK
             原生执行,回调链完整)。None = 用 SDK 默认。
+        thinking_level: 用户思考档位 ``off/low/medium/high``；空 = 旧布尔。
 
     Returns:
         A configured :class:`ChatOpenAI` / :class:`ChatAnthropic`.
@@ -120,7 +123,8 @@ def build_client_from_doc(
 
     auth_kwargs = build_auth_kwargs(auth_type, api_key, auth_header_format)
     thinking_kwargs = build_thinking_kwargs(
-        model_id, compatibility, enable_thinking, max_tokens, thinking_budget
+        model_id, compatibility, enable_thinking, max_tokens, thinking_budget,
+        thinking_level=thinking_level,
     )
 
     if compatibility == "openai":
@@ -142,6 +146,7 @@ def build_client_from_env(
     agent_config: dict[str, Any] | None = None,
     enable_thinking: bool = False,
     max_retries: int | None = None,
+    thinking_level: str = "",
 ) -> ChatOpenAI | ChatAnthropic:
     """Legacy env-var fallback: build a chat model from a plain model name.
 
@@ -156,7 +161,8 @@ def build_client_from_env(
     cls: type = ReasoningChatOpenAI if provider == "openai" else ChatAnthropic
 
     thinking_kwargs = build_thinking_kwargs(
-        model_name, provider, enable_thinking, max_tokens=None
+        model_name, provider, enable_thinking, max_tokens=None,
+        thinking_level=thinking_level,
     )
 
     extra_kwargs: dict[str, Any] = {}

@@ -32,12 +32,13 @@ import { confirmDialog } from './ui/confirm';
 import { toast } from './ui/toast';
 import { usePermission } from '../hooks/use-permission';
 import { getErrorMessage } from '../lib/api-client';
+import { ResModal, Field as ResField, UInput, UTextarea, Seg } from './res-modal';
 
-const STATUS_STYLES: Record<ConnectionStatus, { label: string; color: string; Icon: typeof CircleCheck }> = {
-  connected: { label: '已连接', color: 'text-emerald-400', Icon: CircleCheck },
-  connecting: { label: '连接中', color: 'text-sky-400', Icon: Loader2 },
-  disconnected: { label: '未连接', color: 'text-zinc-400', Icon: CircleSlash },
-  error: { label: '错误', color: 'text-rose-400', Icon: AlertCircle },
+const STATUS_STYLES: Record<ConnectionStatus, { label: string; color: string; tone: 'ok' | 'wait' | 'neutral' | 'fail'; Icon: typeof CircleCheck }> = {
+  connected: { label: '已连接', color: 'text-sig-ok', tone: 'ok', Icon: CircleCheck },
+  connecting: { label: '连接中', color: 'text-sig-wait', tone: 'wait', Icon: Loader2 },
+  disconnected: { label: '未连接', color: 'text-ink-dim', tone: 'neutral', Icon: CircleSlash },
+  error: { label: '错误', color: 'text-sig-fail', tone: 'fail', Icon: AlertCircle },
 };
 
 const AUTH_LABELS: Record<McpAuthType, string> = {
@@ -224,13 +225,6 @@ export function McpManagePage() {
     });
   };
 
-  const stats = {
-    total: connections.length,
-    connected: connections.filter((c) => c.status === 'connected').length,
-    disconnected: connections.filter((c) => c.status === 'disconnected').length,
-    error: connections.filter((c) => c.status === 'error').length,
-  };
-
   const createM = useMutation({
     mutationFn: (input: McpConnectionCreateInput) => mcpApi.create(input),
     onSuccess: async () => {
@@ -322,54 +316,19 @@ export function McpManagePage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Plug className="w-5 h-5 text-indigo-400" />
-            外部工具接入
-          </h2>
-          <p className="text-xs text-ink-dim mt-1">
-            管理 Model Context Protocol 连接：测试连通、发现工具、配置认证。
-          </p>
-        </div>
-        {canWrite && (
-          <button
-            onClick={() => { setError(null); setForm(emptyForm()); setCreating(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition cursor-pointer shadow-md shadow-indigo-600/20"
-          >
-            <Plus className="w-4 h-4" /> 新建连接
-          </button>
-        )}
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: '连接总数', value: stats.total, color: 'text-white' },
-          { label: '已连接', value: stats.connected, color: 'text-emerald-400' },
-          { label: '未连接', value: stats.disconnected, color: 'text-zinc-400' },
-          { label: '错误', value: stats.error, color: 'text-rose-400' },
-        ].map((s) => (
-          <div key={s.label} className="p-4 rounded-xl border border-line bg-panel">
-            <p className="text-[11px] text-ink-dim uppercase tracking-widest font-bold">{s.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Search + Category filter */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim" />
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      {/* 工具栏：搜索 + 分组筛选 + 管理分组 + 视图切换 + 接入 CTA */}
+      <div className="shrink-0 flex items-center gap-3">
+        <div className="relative w-[320px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-faint" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索连接名称"
-            className="w-full pl-9 pr-3 py-2 bg-page border border-line rounded-lg text-sm text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition"
+            placeholder="搜索 MCP 服务名称…"
+            className="w-full pl-9 pr-3 h-8 text-xs bg-panel border border-line rounded-[10px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition font-medium"
           />
         </div>
-        <div className="w-44">
+        <div className="w-40">
           <Select
             value={categoryFilter}
             onChange={(v) => setCategoryFilter(v ?? 'all')}
@@ -383,40 +342,48 @@ export function McpManagePage() {
         {canWrite && (
           <button
             onClick={() => setCategoryModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+            className="af-btn af-btn-ghost shrink-0"
           >
-            <Folder className="w-4 h-4" /> 管理分组
+            <Folder className="w-3.5 h-3.5" /> 管理分组
           </button>
         )}
-        {/* 视图切换：树形（按分组折叠）/ 列表（平铺表格） */}
+        {/* 视图切换：树形（按分组折叠）/ 列表（签名卡平铺） */}
         <div className="ml-auto flex items-center rounded-lg border border-line overflow-hidden shrink-0">
           <button
             onClick={() => setViewMode('tree')}
             title="树形视图（按分组折叠）"
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition cursor-pointer ${
-              viewMode === 'tree' ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:bg-panel hover:text-white'
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+              viewMode === 'tree' ? 'bg-brand text-white' : 'text-ink-dim hover:bg-raise hover:text-ink'
             }`}
           >
             <ListTree className="w-4 h-4" /> 树形
           </button>
           <button
             onClick={() => setViewMode('table')}
-            title="列表视图（平铺表格）"
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition cursor-pointer border-l border-line ${
-              viewMode === 'table' ? 'bg-indigo-600 text-white' : 'text-ink-dim hover:bg-panel hover:text-white'
+            title="列表视图（平铺卡片）"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition cursor-pointer border-l border-line ${
+              viewMode === 'table' ? 'bg-brand text-white' : 'text-ink-dim hover:bg-raise hover:text-ink'
             }`}
           >
             <Table className="w-4 h-4" /> 列表
           </button>
         </div>
+        {canWrite && (
+          <button
+            onClick={() => { setError(null); setForm(emptyForm()); setCreating(true); }}
+            className="af-btn af-btn-primary shrink-0"
+          >
+            ＋ 接入 MCP
+          </button>
+        )}
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 text-rose-300 text-xs">{error}</div>
+        <div className="p-3 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs">{error}</div>
       )}
 
-      {/* Tree / Table view */}
-      <div className="rounded-xl border border-line bg-panel overflow-hidden">
+      {/* Tree / Card view（列表区内部滚动，页头/筛选固定） */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom overflow-x-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-16 text-ink-dim">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中…
@@ -440,208 +407,177 @@ export function McpManagePage() {
             onDelete={handleDelete}
           />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-ink-dim text-[11px] uppercase tracking-wider">
-                <th className="text-left font-semibold px-4 py-3">名称</th>
-                <th className="text-left font-semibold px-4 py-3">分组</th>
-                <th className="text-left font-semibold px-4 py-3">URL</th>
-                <th className="text-left font-semibold px-4 py-3">协议</th>
-                <th className="text-left font-semibold px-4 py-3">状态</th>
-                <th className="text-left font-semibold px-4 py-3">工具数</th>
-                <th className="text-right font-semibold px-4 py-3">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => {
-                const st = STATUS_STYLES[c.status] ?? STATUS_STYLES.disconnected;
-                return (
-                  <tr key={c.id} className="border-b border-line last:border-0 hover:bg-panel-hover transition">
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-white">{c.name}</p>
-                      {c.description && <p className="text-[11px] text-ink-dim line-clamp-1">{c.description}</p>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.category_id && categoryMap.has(c.category_id) ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[11px] font-semibold">
-                          <Folder className="w-3 h-3" />
-                          {categoryMap.get(c.category_id)?.name}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-ink-dim">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-[11px] text-ink-dim font-mono max-w-[200px] truncate">{c.url}</td>
-                    <td className="px-4 py-3 text-[11px] text-ink-dim">{c.protocol ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`flex items-center gap-1.5 text-[11px] font-bold ${st.color}`}>
-                        <st.Icon className={`w-3.5 h-3.5 ${c.status === 'connecting' ? 'animate-spin' : ''}`} />
-                        {st.label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-[11px] text-ink-dim font-mono">{c.tool_count ?? 0}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        {canWrite && (
-                          <button onClick={() => { setError(null); testM.mutate(c); setTestingId(c.id); }} title="测试连接 + 发现工具" disabled={testingId === c.id}
-                            className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer disabled:opacity-50">
-                            {testingId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                          </button>
-                        )}
-                        <button onClick={() => setViewingConn(c)} title="查看工具"
-                          className="p-1.5 rounded-lg text-ink-dim hover:text-sky-400 hover:bg-line transition cursor-pointer">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {canWrite && (
-                          <button onClick={() => { setError(null); setForm(connToForm(c)); setEditing(c); }} title="编辑"
-                            className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
-                        {canWrite && (
-                          <button onClick={() => handleDelete(c)} title="删除"
-                            className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+          /* 列表视图：MCP 签名卡（设计稿 pane-mcp：插头徽章 + 协议 via 标签 +
+              状态 pill + 工具数统计 + 地址 mono + foot 操作） */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-4">
+            {filtered.map((c) => {
+              const st = STATUS_STYLES[c.status] ?? STATUS_STYLES.disconnected;
+              // 协议 via 标签：sse=绿 / streamable=琥珀 / 其它=灰
+              const proto = (c.protocol ?? '').toLowerCase();
+              const viaCls = proto.includes('sse')
+                ? 'bg-sig-ok-soft text-sig-ok'
+                : proto.includes('stream')
+                  ? 'bg-sig-wait-soft text-sig-wait'
+                  : 'bg-raise text-ink-dim';
+              return (
+                <div
+                  key={c.id}
+                  className={`bg-panel border rounded-xl p-4 flex flex-col transition hover:shadow-[var(--shadow-card)] hover:border-line-strong ${
+                    c.status === 'error' ? 'border-sig-fail border-dashed' : 'border-line'
+                  }`}
+                >
+                  {/* 头部：插头徽章 + 名称 + 描述 + 状态 pill */}
+                  <div className="flex items-start gap-[11px]">
+                    <div className={`w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 ${
+                      c.status === 'error' ? 'bg-sig-fail-soft text-sig-fail' : 'bg-brand-soft text-brand'
+                    }`}>
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="4" cy="10" r="2" fill="currentColor" stroke="none" />
+                        <circle cx="15" cy="4.5" r="2" fill="currentColor" stroke="none" />
+                        <circle cx="15" cy="15.5" r="2" fill="currentColor" stroke="none" />
+                        <path d="M6 9 L13 5.2 M6 11 L13 14.8" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold text-ink truncate" title={c.name}>{c.name}</div>
+                      <div className="text-[10.5px] text-ink-dim mt-0.5 truncate flex items-center gap-1.5">
+                        {c.description ? <span className="truncate">{c.description}</span> : <span className="truncate">{c.category_id && categoryMap.has(c.category_id) ? categoryMap.get(c.category_id)?.name : '未分组'}</span>}
+                        {c.protocol && <span className={`px-1.5 py-px rounded text-[10px] font-mono shrink-0 uppercase ${viaCls}`}>{proto}</span>}
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                    <span className={`af-pill af-pill-${st.tone} shrink-0`}>
+                      <st.Icon className={`w-3 h-3 ${c.status === 'connecting' ? 'animate-spin' : ''}`} />
+                      {st.label}
+                    </span>
+                  </div>
+
+                  {/* 统计行：工具数 + 地址 */}
+                  <div className="text-[11px] text-ink-dim mt-3 flex items-center gap-1.5 min-w-0">
+                    <b className="text-ink font-semibold">{c.tool_count ?? 0}</b> 工具
+                    {c.url && (
+                      <>
+                        <span className="text-ink-faint">·</span>
+                        <span className="font-mono text-[10px] text-ink-faint truncate" title={c.url}>{c.url}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* foot：操作（设计稿 c-actions 文字链接） */}
+                  <div className="flex items-center justify-end gap-2.5 border-t border-line mt-3 pt-2.5 text-[11px]">
+                    <button onClick={() => setViewingConn(c)} className="text-brand hover:text-brand-hover cursor-pointer">工具明细</button>
+                    {canWrite && (
+                      <button
+                        onClick={() => { setError(null); testM.mutate(c); setTestingId(c.id); }}
+                        disabled={testingId === c.id}
+                        className="text-ink-dim hover:text-ink cursor-pointer disabled:opacity-50"
+                      >{testingId === c.id ? '测试中…' : '测试连通'}</button>
+                    )}
+                    {canWrite && (
+                      <button onClick={() => { setError(null); setForm(connToForm(c)); setEditing(c); }} className="text-ink-dim hover:text-ink cursor-pointer">编辑</button>
+                    )}
+                    {canWrite && (
+                      <button onClick={() => handleDelete(c)} className="text-sig-fail hover:opacity-75 cursor-pointer">删除</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Create / Edit Modal */}
+      {/* Create / Edit Modal：设计稿 res-create-edit 形态（徽章头 + kicker + 下划线字段 + 分段控件） */}
       {(creating || editing) && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <PlugZap className="w-4 h-4 text-indigo-400" />
-                {editing ? `编辑连接 · ${editing.name}` : '新建 MCP 连接'}
-              </h3>
-              <button onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
-              <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="连接名称 *"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} /></Field>
-                <Field label="协议">
-                  <Select
-                    value={form.protocol}
-                    onChange={(v) => setForm({ ...form, protocol: (v ?? 'streamable-http') as string })}
-                    options={PROTOCOL_OPTIONS.map((p) => ({ value: p, label: p }))}
-                  />
-                </Field>
-              </div>
-              <Field label="端点 URL *"><input required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://api.example.com/v1/tools" className={inputCls} /></Field>
-              <Field label="分组">
-                <Select
-                  value={form.categoryId}
-                  onChange={(v) => setForm({ ...form, categoryId: v ?? '' })}
-                  options={[
-                    { value: '', label: '未分组' },
-                    ...categories.map((c) => ({ value: c.id, label: c.name })),
-                  ]}
-                />
-              </Field>
-              <Field label="描述"><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inputCls} /></Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="认证方式">
-                  <Select
-                    value={form.auth_type}
-                    onChange={(v) => setForm({ ...form, auth_type: (v ?? 'none') as McpAuthType })}
-                    options={AUTH_OPTIONS.map((a) => ({ value: a, label: AUTH_LABELS[a] }))}
-                  />
-                </Field>
-                <Field label="超时 (秒)"><input type="number" min="1" max="300" value={form.timeout} onChange={(e) => setForm({ ...form, timeout: Number(e.target.value) })} className={inputCls} /></Field>
-              </div>
-              {form.auth_type !== 'none' && (
-                <div className="space-y-3 rounded-lg border border-line bg-panel/40 p-3">
-                  <p className="text-[11px] text-ink-dim leading-relaxed">
-                    {AUTH_HINTS[form.auth_type]}
-                  </p>
-                  {form.auth_type === 'api_key' && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="API Key *" hint={editing && form.apiKey === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
-                        <input
-                          required
-                          value={form.apiKey}
-                          onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                          placeholder="sk-..."
-                          className={inputCls}
-                          autoComplete="off"
-                        />
-                      </Field>
-                      <Field label="请求头名称">
-                        <input
-                          value={form.headerName}
-                          onChange={(e) => setForm({ ...form, headerName: e.target.value })}
-                          placeholder="X-API-Key"
-                          className={inputCls}
-                        />
-                      </Field>
-                    </div>
-                  )}
-                  {form.auth_type === 'bearer_token' && (
-                    <Field label="Token *" hint={editing && form.token === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
-                      <input
-                        required
-                        value={form.token}
-                        onChange={(e) => setForm({ ...form, token: e.target.value })}
-                        placeholder="粘贴 Bearer Token（无需加 Bearer 前缀）"
-                        className={inputCls}
-                        autoComplete="off"
-                      />
-                    </Field>
-                  )}
-                  {form.auth_type === 'basic' && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="用户名 *">
-                        <input
-                          required
-                          value={form.username}
-                          onChange={(e) => setForm({ ...form, username: e.target.value })}
-                          className={inputCls}
-                          autoComplete="off"
-                        />
-                      </Field>
-                      <Field label="密码" hint={editing && form.password === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
-                        <input
-                          type="password"
-                          value={form.password}
-                          onChange={(e) => setForm({ ...form, password: e.target.value })}
-                          className={inputCls}
-                          autoComplete="new-password"
-                        />
-                      </Field>
-                    </div>
-                  )}
-                </div>
-              )}
-              <Field label="默认参数 (JSON，可选)">
-                <textarea value={form.default_params} onChange={(e) => setForm({ ...form, default_params: e.target.value })} placeholder="{}" rows={2} className={`${inputCls} font-mono resize-y`} />
-              </Field>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-line">
-                <button type="button" onClick={() => { setCreating(false); setEditing(null); setError(null); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold">取消</button>
-                <button type="submit" disabled={createM.isPending || updateM.isPending}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2">
+        <ResModal
+          badge={<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="4" cy="10" r="2" fill="currentColor" stroke="none" /><circle cx="15" cy="4.5" r="2" fill="currentColor" stroke="none" /><circle cx="15" cy="15.5" r="2" fill="currentColor" stroke="none" /><path d="M6 9 L13 5.2 M6 11 L13 14.8" strokeLinecap="round" /></svg>}
+          badgeCls="bg-[#F5EDDD] text-cat-mcp"
+          title={editing ? `编辑连接 · ${editing.name}` : '接入 MCP 服务'}
+          kicker="MCP SERVER · CONNECT"
+          onClose={() => { setCreating(false); setEditing(null); setError(null); }}
+          formId="mcp-conn-form"
+          footer={{
+            actions: (
+              <>
+                <button type="button" onClick={() => { setCreating(false); setEditing(null); setError(null); }} className="af-btn af-btn-ghost">取消</button>
+                <button type="submit" form="mcp-conn-form" disabled={createM.isPending || updateM.isPending}
+                  className="af-btn af-btn-primary disabled:opacity-60 flex items-center gap-2">
                   {(createM.isPending || updateM.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {editing ? '保存' : '创建'}
                 </button>
+              </>
+            ),
+          }}
+        >
+          <form id="mcp-conn-form" onSubmit={handleSubmit}>
+            <ResField label="名称" required>
+              <UInput required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如 工单管理-本地-jdk8" />
+            </ResField>
+            <ResField label="描述" optional="可选">
+              <UInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="这个服务提供什么能力…" />
+            </ResField>
+            <ResField label="传输协议" required>
+              <Seg
+                value={form.protocol}
+                onChange={(v) => setForm({ ...form, protocol: v })}
+                options={PROTOCOL_OPTIONS.map((p) => ({ value: p, label: p === 'sse' ? 'SSE 远程' : 'Streamable HTTP' }))}
+              />
+            </ResField>
+            <ResField label="端点 URL" required hint="以 /sse 或 /mcp 结尾的服务地址">
+              <UInput mono required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="http://127.0.0.1:8080/mcp/sse" />
+            </ResField>
+            <ResField label="分组" optional="可选">
+              <select
+                value={form.categoryId}
+                onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-[7px] text-[13px] text-ink outline-none transition-colors focus:border-b-brand"
+              >
+                <option value="">未分组</option>
+                {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              </select>
+            </ResField>
+            <ResField label="认证方式" optional={form.auth_type === 'none' ? '可选' : undefined} hint={form.auth_type !== 'none' ? AUTH_HINTS[form.auth_type] : undefined}>
+              <Seg
+                value={form.auth_type}
+                onChange={(v) => setForm({ ...form, auth_type: v })}
+                options={AUTH_OPTIONS.map((a) => ({ value: a, label: AUTH_LABELS[a] }))}
+              />
+            </ResField>
+            {form.auth_type === 'api_key' && (
+              <div className="grid grid-cols-2 gap-4">
+                <ResField label="API Key" required hint={editing && form.apiKey === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
+                  <UInput type="password" required value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-..." autoComplete="off" />
+                </ResField>
+                <ResField label="请求头名称">
+                  <UInput value={form.headerName} onChange={(e) => setForm({ ...form, headerName: e.target.value })} placeholder="X-API-Key" />
+                </ResField>
               </div>
-            </form>
-          </div>
-        </div>
+            )}
+            {form.auth_type === 'bearer_token' && (
+              <ResField label="Token" required hint={editing && form.token === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
+                <UInput type="password" required value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} placeholder="粘贴 Bearer Token（无需加 Bearer 前缀）" autoComplete="off" />
+              </ResField>
+            )}
+            {form.auth_type === 'basic' && (
+              <div className="grid grid-cols-2 gap-4">
+                <ResField label="用户名" required>
+                  <UInput required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" />
+                </ResField>
+                <ResField label="密码" hint={editing && form.password === '***' ? '已配置，保持 *** 不修改；重新输入以更新' : undefined}>
+                  <UInput type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
+                </ResField>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <ResField label="超时 (秒)">
+                <UInput type="number" min={1} max={300} value={form.timeout} onChange={(e) => setForm({ ...form, timeout: Number(e.target.value) })} />
+              </ResField>
+            </div>
+            <ResField label="默认参数" optional="JSON，可选">
+              <UTextarea mono rows={2} value={form.default_params} onChange={(e) => setForm({ ...form, default_params: e.target.value })} placeholder="{}" />
+            </ResField>
+            {error && <p className="text-sig-fail text-xs mb-3">{error}</p>}
+          </form>
+        </ResModal>
       )}
 
       {/* View-tools Modal */}
@@ -708,9 +644,9 @@ function ConnectionTree({
               className="w-full flex items-center gap-2 px-4 py-3 hover:bg-panel-hover transition text-left cursor-pointer"
             >
               <ChevronRight className={`w-4 h-4 text-ink-dim shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
-              <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span className="text-xs font-bold text-white shrink-0">{g.name}</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[11px] font-semibold font-mono shrink-0">
+              <Folder className="w-4 h-4 text-brand shrink-0" />
+              <span className="text-xs font-bold text-ink shrink-0">{g.name}</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-brand-soft text-brand text-[11px] font-semibold font-mono shrink-0">
                 {g.conns.length}
               </span>
               {g.description && <span className="text-[11px] text-ink-dim truncate">{g.description}</span>}
@@ -731,7 +667,7 @@ function ConnectionTree({
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-semibold text-white truncate">{c.name}</span>
+                              <span className="text-xs font-semibold text-ink truncate">{c.name}</span>
                               <span className={`text-[11px] font-bold shrink-0 ${st.color}`}>{st.label}</span>
                             </div>
                             {c.description && <p className="text-[11px] text-ink-dim truncate">{c.description}</p>}
@@ -863,19 +799,19 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
       <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          <h3 className="text-sm font-bold text-ink flex items-center gap-2">
             <Folder className="w-4 h-4 text-indigo-400" />
             MCP 分组管理
           </h3>
           <button onClick={() => { resetForm(); onClose(); }}
-            className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
+            className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-line transition cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="p-5 space-y-4">
           {/* 内联新增/编辑表单 */}
           <div className="space-y-2.5 rounded-lg border border-line bg-panel/40 p-3">
-            <p className="text-xs font-bold text-white">{editId ? '编辑分组' : '新增分组'}</p>
+            <p className="text-xs font-bold text-ink">{editId ? '编辑分组' : '新增分组'}</p>
             <div className="grid grid-cols-[1fr_90px] gap-2">
               <div className="space-y-1">
                 <label className="text-[11px] text-ink-dim">分组名称 *</label>
@@ -893,10 +829,10 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-end gap-2">
               {editId && (
                 <button type="button" onClick={resetForm}
-                  className="px-3 py-1.5 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg text-xs font-semibold transition cursor-pointer">取消编辑</button>
+                  className="px-3 py-1.5 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg text-xs font-semibold transition cursor-pointer">取消编辑</button>
               )}
               <button type="button" onClick={handleSubmit} disabled={createM.isPending || updateM.isPending}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5">
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-brand text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5">
                 {(createM.isPending || updateM.isPending) && <Loader2 className="w-3 h-3 animate-spin" />}
                 {editId ? '保存' : '新增'}
               </button>
@@ -914,7 +850,7 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
                 <div key={c.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 hover:bg-panel transition">
                   <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-white truncate">{c.name}</p>
+                    <p className="text-xs font-semibold text-ink truncate">{c.name}</p>
                     {c.description && <p className="text-[11px] text-ink-dim truncate">{c.description}</p>}
                   </div>
                   <span className="text-[11px] text-ink-dim shrink-0">排序 {c.sort ?? 0}</span>
@@ -946,8 +882,8 @@ function ViewToolsModal({ conn, onClose }: { conn: McpConnection; onClose: () =>
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
       <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-page border border-line rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h3 className="text-sm font-bold text-white">MCP 工具列表 — {conn.name}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
+          <h3 className="text-sm font-bold text-ink">MCP 工具列表 — {conn.name}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-line transition cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -964,7 +900,7 @@ function ViewToolsModal({ conn, onClose }: { conn: McpConnection; onClose: () =>
               return (
                 <div key={t.id} className="p-3 rounded-lg border border-line bg-panel">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-white text-xs">{t.name}</span>
+                    <span className="font-mono font-bold text-ink text-xs">{t.name}</span>
                     {paramNames.length > 0 && (
                       <div className="flex flex-wrap gap-1 ml-auto">
                         {paramNames.map((p) => (
@@ -987,7 +923,7 @@ function ViewToolsModal({ conn, onClose }: { conn: McpConnection; onClose: () =>
   );
 }
 
-const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
+const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-brand transition text-xs font-sans';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (

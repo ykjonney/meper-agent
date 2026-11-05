@@ -16,8 +16,8 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import {
-  Sparkles, ThumbsUp, Zap, Download, Copy, Trash2, Eye, Plus,
-  ToggleLeft, ToggleRight, Send, FileText, Brain, RefreshCw, Crown,
+  Sparkles, Zap, Trash2, Eye, Plus,
+  ToggleLeft, ToggleRight, Send, FileText, Brain, RefreshCw,
 } from 'lucide-react';
 import { getErrorMessage } from '../lib/api-client';
 import { usePermission } from '../hooks/use-permission';
@@ -62,13 +62,16 @@ export function UserSkillsPage({ theme = 'dark', onOpenOfficial }: Props) {
   ];
 
   return (
-    <div className="space-y-4">
-      <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      <div className="shrink-0">
+        <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
+      </div>
 
-      {tab === 'marketplace' && <MarketplaceTab theme={theme} isAdmin={isAdmin} />}
-      {tab === 'mine' && <MySkillsTab theme={theme} isAdmin={isAdmin} onOpenOfficial={onOpenOfficial} />}
-      {tab === 'memory' && <MemoryTab theme={theme} />}
-
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
+        {tab === 'marketplace' && <MarketplaceTab theme={theme} isAdmin={isAdmin} />}
+        {tab === 'mine' && <MySkillsTab theme={theme} isAdmin={isAdmin} onOpenOfficial={onOpenOfficial} />}
+        {tab === 'memory' && <MemoryTab theme={theme} />}
+      </div>
     </div>
   );
 }
@@ -196,84 +199,51 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
 
   return (
     <div
-      className={`rounded-xl border p-5 flex flex-col gap-3 transition ${
-        isPending
-          ? theme === 'dark'
-            ? 'bg-amber-950/20 border-amber-700/50'
-            : 'bg-amber-50 border-amber-300'
-          : isOfficial
-            ? 'border-amber-500/40 border-t-2 border-t-amber-500/70 hover:border-amber-400'
-            : `hover:border-line-strong ${card}`
+      className={`bg-panel border rounded-xl p-4 flex flex-col transition hover:shadow-[var(--shadow-card)] hover:border-line-strong ${
+        isPending ? 'border-sig-wait bg-sig-wait-soft/30' : 'border-line'
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          {/* 头像（官方技能 avatar；个人技能用图标占位）——对齐旧 SkillsStore 观感 */}
-          <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-            isOfficial ? 'border-amber-500/50' : theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
-          }`}>
-            {/* 与旧 SkillsStore 一致：AvatarRender 空值回退 /AFLogo.png 占位 */}
-            <AvatarRender value={item.avatar ?? ''} className="w-full h-full p-1.5" />
-          </div>
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-bold truncate flex-1 min-w-0" title={item.name}>{item.name}</span>
-              {item.is_own && (
-                <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded ${chip} text-blue-400`}>我的</span>
-              )}
-              {item.installed && (
-                <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded ${chip} text-emerald-500`}>已安装</span>
-              )}
-            </div>
-            <p className={`text-[11px] ${textMuted}`}>
-              by <span className="text-indigo-400">{item.author_name}</span>
-            </p>
-          </div>
+      {/* 头部：技能徽章 + 名称 + 作者行 + 来源徽章（设计稿 pane-skills） */}
+      <div className="flex items-start gap-[11px]">
+        <div className={`w-[38px] h-[38px] rounded-[10px] overflow-hidden flex items-center justify-center shrink-0 ${isOfficial ? 'bg-brand-soft' : 'bg-raise'}`}>
+          <AvatarRender value={item.avatar ?? ''} className="w-full h-full p-1" />
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          {/* 来源徽章固定右上——卡片间严格对齐 */}
-          {isOfficial ? (
-            <span className="inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-500 font-semibold">
-              <Crown size={10} /> 官方
-            </span>
-          ) : (
-            <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted}`}>
-              用户创作
-            </span>
-          )}
-          <div className="flex items-center gap-2 text-xs">
-          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${chip}`} title="对话中真实 load 次数">
-            <Zap size={11} className="text-emerald-500" />
-            <b>{item.stats?.load_count ?? 0}</b>
-            <span className={textMuted}>次</span>
-          </span>
-          <span
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${chip}`}
-            title="点赞回复的派生积分（👍 − 👎）"
-          >
-            <ThumbsUp size={11} className={(item.score ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'} />
-            <b className={(item.score ?? 0) >= 0 ? 'text-blue-400' : 'text-rose-400'}>
-              {(item.score ?? 0) > 0 ? `+${item.score}` : item.score ?? 0}
-            </b>
-          </span>
-          </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-ink truncate" title={item.name}>{item.name}</div>
+          <div className="text-[10.5px] text-ink-dim mt-0.5 truncate">by {item.author_name}</div>
         </div>
+        {isPending ? (
+          <span className="shrink-0 inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md bg-sig-wait-soft text-sig-wait tracking-[.03em]">◌ 审核中</span>
+        ) : isOfficial ? (
+          <span className="shrink-0 inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md bg-brand-soft text-brand tracking-[.03em]">✦ 官方收录</span>
+        ) : (
+          <span className="shrink-0 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md bg-raise text-ink-dim tracking-[.03em]">用户创作</span>
+        )}
       </div>
 
-      <p className={`text-xs leading-relaxed line-clamp-2 min-h-[2rem] ${textMuted}`}>
+      {/* 描述 */}
+      <p className="text-[11.5px] text-ink-dim leading-relaxed line-clamp-2 mt-2.5 min-h-[2rem]">
         {item.description || '（无描述）'}
       </p>
 
+      {/* 我的/已安装 chips + 调用统计（mono） */}
+      <div className="flex items-center gap-1.5 mt-2 text-[11px] text-ink-dim">
+        {item.is_own && <span className="px-1.5 py-0.5 rounded bg-raise text-[10px] text-ink-dim">我的</span>}
+        {item.installed && <span className="px-1.5 py-0.5 rounded bg-brand-soft text-[10px] text-brand">已安装</span>}
+        <span className="ml-auto font-mono text-[10px] text-ink-faint shrink-0" title="对话中真实 load 次数">
+          {item.stats?.load_count ?? 0} 次调用
+        </span>
+      </div>
+
+      {/* 内联驳回理由输入（待审卡，admin） */}
       {isPending && isAdmin && rejecting && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 mt-2">
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="驳回理由（会反馈给提交者）"
             autoFocus
-            className={`flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border outline-none ${
-              theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
-            }`}
+            className="flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border border-line bg-page text-ink placeholder:text-ink-faint outline-none focus:border-brand"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && reason.trim()) {
                 reviewM.mutate({ action: 'reject', reason: reason.trim() });
@@ -287,7 +257,7 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
               if (reason.trim()) reviewM.mutate({ action: 'reject', reason: reason.trim() });
               setRejecting(false);
             }}
-            className="text-xs border-0 bg-transparent text-rose-400 cursor-pointer shrink-0"
+            className="text-xs border-0 bg-transparent text-sig-fail cursor-pointer shrink-0"
           >
             确认驳回
           </button>
@@ -297,61 +267,28 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
         </div>
       )}
 
-      {/* 内联驳回理由输入（待审卡） */}
-      {isPending && isAdmin && rejecting && (
-        <div className="flex items-center gap-1.5">
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="驳回理由（会反馈给提交者）"
-            autoFocus
-            className={`flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border outline-none ${
-              theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
-            }`}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && reason.trim()) {
-                reviewM.mutate({ action: 'reject', reason: reason.trim() });
-                setRejecting(false);
-              }
-              if (e.key === 'Escape') setRejecting(false);
-            }}
-          />
-          <button
-            onClick={() => {
-              if (reason.trim()) reviewM.mutate({ action: 'reject', reason: reason.trim() });
-              setRejecting(false);
-            }}
-            className="text-xs border-0 bg-transparent text-rose-400 cursor-pointer shrink-0"
-          >
-            确认驳回
-          </button>
-          <button onClick={() => setRejecting(false)} className="text-xs border-0 bg-transparent cursor-pointer opacity-70 shrink-0">
-            取消
-          </button>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between pt-2 border-t border-inherit">
+      {/* foot：查看全文 + 审核 / 安装 / Fork 操作 */}
+      <div className="flex items-center justify-between border-t border-line mt-3 pt-2.5">
         <button
           onClick={onPreview}
-          className="flex items-center gap-1 text-xs border-0 bg-transparent cursor-pointer opacity-80 hover:opacity-100"
+          className="text-[11px] border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer"
         >
-          <Eye size={13} /> 查看全文
+          查看全文
         </button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2.5 text-[11px]">
           {isPending && isAdmin && !rejecting && (
             <>
               <button
                 onClick={() => reviewM.mutate({ action: 'approve' })}
                 disabled={reviewM.isPending}
-                className="flex items-center gap-1 text-xs border-0 bg-transparent text-emerald-400 cursor-pointer disabled:opacity-40"
+                className="border-0 bg-transparent text-sig-ok cursor-pointer disabled:opacity-40"
               >
                 通过
               </button>
               <button
                 onClick={() => setRejecting(true)}
                 disabled={reviewM.isPending}
-                className="flex items-center gap-1 text-xs border-0 bg-transparent text-rose-400 cursor-pointer disabled:opacity-40"
+                className="border-0 bg-transparent text-sig-fail cursor-pointer disabled:opacity-40"
               >
                 驳回
               </button>
@@ -359,23 +296,18 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
           )}
           {item.kind === 'user' && !item.is_own && !isAdmin && (
             item.installed ? (
-              <button onClick={onUninstall} className="flex items-center gap-1 text-xs border-0 bg-transparent text-rose-400 cursor-pointer">
-                卸载
-              </button>
+              <button onClick={onUninstall} className="border-0 bg-transparent text-sig-fail cursor-pointer">卸载</button>
             ) : (
-              <button onClick={onInstall} className="flex items-center gap-1 text-xs border-0 bg-transparent text-blue-400 cursor-pointer">
-                <Download size={13} /> 安装
-              </button>
+              <button onClick={onInstall} className="border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer">安装</button>
             )
           )}
-          {/* fork：用户技能（非自己的）；官方技能仅非管理员 */}
           {((item.kind === 'user' && !item.is_own) || (item.kind === 'official' && !isAdmin)) && (
             <button
               onClick={onFork}
-              className="flex items-center gap-1 text-xs border-0 bg-transparent cursor-pointer opacity-80 hover:opacity-100"
+              className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer"
               title={isAdmin ? '收录为官方技能' : '复制为己用'}
             >
-              <Copy size={13} /> {isAdmin ? '收录' : 'Fork'}
+              {isAdmin ? '收录' : 'Fork'}
             </button>
           )}
         </div>
@@ -557,7 +489,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
           <div className="flex items-center gap-2">
             {/* 两种创建入口（admin=官方技能走 /tools/upload；用户=个人技能前端解析后走 /user-skills） */}
             <label
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white shadow transition cursor-pointer"
               title={isAdmin ? '上传一个或多个 .md 文件，创建官方技能' : '上传 .md 文件，创建个人技能'}
             >
               <Plus size={13} /> 上传 Markdown Skill
@@ -570,7 +502,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
               />
             </label>
             <label
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white shadow transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white shadow transition cursor-pointer"
               title="上传整个技能目录（个人技能取其中的 SKILL.md）"
             >
               <Plus size={13} /> 上传 Skill 文件夹
@@ -605,7 +537,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                 <div className="flex items-center justify-between pt-2 border-t border-inherit">
                   <button
                     onClick={() => onOpenOfficial?.(m.id, m.name)}
-                    className="flex items-center gap-1 text-xs border-0 bg-transparent text-blue-400 cursor-pointer"
+                    className="flex items-center gap-1 text-xs border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer"
                   >
                     编辑（官方详情）
                   </button>
@@ -689,7 +621,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                       </button>
                     ) : (
                       <>
-                        <button onClick={() => setEditTarget(s)} className="border-0 bg-transparent text-blue-400 cursor-pointer">编辑</button>
+                        <button onClick={() => setEditTarget(s)} className="border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer">编辑</button>
                         {s.status === 'private' && (
                           <button onClick={() => submitM.mutate(s.id)} className="flex items-center gap-0.5 border-0 bg-transparent cursor-pointer opacity-80">
                             <Send size={11} /> 发布
@@ -788,7 +720,7 @@ function SkillEditModal({ theme, target, onClose, onSaved }: {
           <button
             onClick={() => saveM.mutate()}
             disabled={saveM.isPending || (!isEdit && !name.trim()) || !content.trim()}
-            className="px-4 py-1.5 rounded-lg text-sm border-0 bg-blue-600 text-white cursor-pointer disabled:opacity-40"
+            className="px-4 py-1.5 rounded-lg text-sm border-0 bg-brand text-white cursor-pointer disabled:opacity-40"
           >
             {saveM.isPending ? '保存中…' : '保存'}
           </button>
@@ -858,7 +790,7 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
                     saveM.mutate(next);
                     setEditing(null);
                   }}
-                  className="text-xs border-0 bg-transparent text-blue-400 cursor-pointer shrink-0"
+                  className="text-xs border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer shrink-0"
                 >
                   保存
                 </button>
@@ -867,7 +799,7 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
             ) : (
               <>
                 <span className="flex-1 text-sm">{e}</span>
-                <button onClick={() => setEditing({ index: i, text: e })} className="text-xs border-0 bg-transparent text-blue-400 cursor-pointer shrink-0">编辑</button>
+                <button onClick={() => setEditing({ index: i, text: e })} className="text-xs border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer shrink-0">编辑</button>
                 <button
                   onClick={() => saveM.mutate(entries.filter((_, j) => j !== i))}
                   className="text-xs border-0 bg-transparent text-rose-400 cursor-pointer shrink-0"
@@ -904,7 +836,7 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
             saveM.mutate([...entries, draft.trim()]);
             setDraft('');
           }}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border-0 bg-blue-600 text-white cursor-pointer"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border-0 bg-brand text-white cursor-pointer"
         >
           <Plus size={13} /> 添加
         </button>

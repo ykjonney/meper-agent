@@ -178,22 +178,15 @@ export default function WorkflowCanvas({
   }, [onSelectNode])
 
   /* ─── xyflow edges: 从 canvasNodes 的 config 推导（隐藏成员的回边/进体边
-     端点不在渲染集，deriveXyflowEdgesFromNodes 自带悬空过滤），注入 selected 样式 ─── */
+     端点不在渲染集，deriveXyflowEdgesFromNodes 自带悬空过滤）。
+     颜色/粗细全部由 index.css 的 react-flow 主题层按 className 控制
+     （默认 ink-faint / 选中 brand / 条件边 brand 虚线），明暗自适应。 ─── */
   const xyflowEdges = useMemo<Edge[]>(
     () =>
-      deriveXyflowEdgesFromNodes(canvasNodes).map((e) => {
-        const isSelected = selectedEdgeIds.has(e.id)
-        const isCondition = e.className?.includes('workflow-edge--condition')
-        return {
-          ...e,
-          selected: isSelected,
-          style: isSelected
-            ? { stroke: '#3B82F6', strokeWidth: 1.8 }
-            : isCondition
-              ? { stroke: '#8B5CF6', strokeWidth: 1.2 }
-              : { stroke: '#94A3B8', strokeWidth: 0.8 },
-        }
-      }),
+      deriveXyflowEdgesFromNodes(canvasNodes).map((e) => ({
+        ...e,
+        selected: selectedEdgeIds.has(e.id),
+      })),
     [canvasNodes, selectedEdgeIds],
   )
 
@@ -368,24 +361,21 @@ export default function WorkflowCanvas({
         multiSelectionKeyCode={null}
       >
         <SelectionHandler workflowNodes={workflowNodes} onSelectNode={onSelectNode} />
-        <Controls
-          showInteractive={false}
-          className={`!rounded-lg !border !shadow-sm ${theme === 'dark' ? '!border-line !bg-panel' : '!border-gray-200 !bg-white'}`}
-        />
+        {/* 控件/小地图外观由 index.css react-flow 主题层接管（语义 token 明暗自适应） */}
+        <Controls showInteractive={false} />
         <MiniMap
           nodeColor={(n) => {
             const meta = (n.data as unknown as WorkflowNodeData)
-            return meta?.typeColor ?? '#94A3B8'
+            return meta?.typeColor ?? 'var(--color-ink-faint)'
           }}
-          maskColor={theme === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)'}
-          className={`!rounded-lg !border ${theme === 'dark' ? '!border-line !bg-page' : '!border-gray-200 !bg-white'}`}
+          maskColor={'rgba(0,0,0,0.5)'}
           style={{ width: 150, height: 100 }}
         />
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1}
-          color={theme === 'dark' ? '#27272a' : '#E2E8F0'}
+          color="var(--color-line-strong)"
         />
       </ReactFlow>
     </div>

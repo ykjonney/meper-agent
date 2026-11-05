@@ -119,7 +119,7 @@ export default function VariableListEditor({
       dataIndex: 'label',
       key: 'label',
       render: (label: unknown) => (
-        <span className="text-xs text-slate-300">{String(label)}</span>
+        <span className="text-xs text-ink-faint">{String(label)}</span>
       ),
     },
     {
@@ -146,7 +146,7 @@ export default function VariableListEditor({
               type="text"
               icon={<Pencil size={12} />}
               onClick={() => handleEdit(index)}
-              className="!text-slate-400 !text-xs"
+              className="!text-ink-dim !text-xs"
             />
           </Tooltip>
           <Tooltip title="删除">
@@ -173,7 +173,7 @@ export default function VariableListEditor({
     <div className="space-y-2">
       {/* 头部 */}
       <div className="flex items-center justify-between">
-        <label className="text-xs text-slate-400 font-medium">输出变量</label>
+        <label className="text-xs text-ink-dim font-medium">输出变量</label>
         {!readonly && (
           <Button
             type="dashed"

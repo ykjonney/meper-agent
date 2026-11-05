@@ -78,7 +78,7 @@ function NodeConfigPanel({ node, allNodes, onNodeChange, onNodesChange, onSelect
     default:
       return (
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Config (JSON)</label>
+          <label className="block text-xs text-ink-dim mb-1">Config (JSON)</label>
           <Input.TextArea
             value={JSON.stringify(node.config, null, 2)}
             onChange={(e) => {
@@ -128,7 +128,7 @@ export default function WorkflowNodeConfigPanel({
           <button
             type="button"
             onClick={() => onSelectNode(ownerLoop)}
-            className="mb-2 flex items-center gap-1 text-[11px] text-[#d8b4fe] hover:text-white cursor-pointer"
+            className="mb-2 flex items-center gap-1 text-[11px] text-[#d8b4fe] hover:text-ink cursor-pointer"
           >
             ← 返回循环配置
           </button>
@@ -146,7 +146,7 @@ export default function WorkflowNodeConfigPanel({
 
         {/* 节点名称（label）：节点级字段，所有类型通用，随保存透传后端 */}
         <div className="mb-3">
-          <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+          <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
             节点名称
             <HelpHint text="显示在画布节点卡片上，用于区分同类节点的不同用途（如同一 Agent 的多个节点）。仅作编辑标识，不参与运行时、不会发给 Agent。注意与 human 节点的「审批标题」不同——那是发给审批人的内容标题。" />
           </label>

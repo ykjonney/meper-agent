@@ -84,6 +84,10 @@ export default function Login() {
           }
         : { id: '', username: username.trim(), role: '', permissions: [] }
       setAuth(access_token, authUser)
+      // 登录成功必须整页跳离 /login：SPA 条件渲染依赖 URL 与状态同步，
+      // URL 停在 /login 时任何整页跳转都会被 AuthInitializer 拉回登录页循环。
+      const redirect = new URLSearchParams(window.location.search).get('redirect')
+      window.location.href = redirect ? decodeURIComponent(redirect) : '/'
     } catch (err) {
       const msg = isNormalizedError(err) ? err.message : '登录失败，请检查网络或凭据'
       const code = isNormalizedError(err) ? err.code : undefined

@@ -712,6 +712,7 @@ async def resolve_harness_context(
     require_user_credentials: bool = False,
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
+    thinking_level: str = "",
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
@@ -768,7 +769,8 @@ async def resolve_harness_context(
 
     # 1. 解析 LLM + context_window
     with timed_phase(timing_phases, "build_llm_client"):
-        llm = await get_llm_client(agent, enable_thinking=enable_thinking)
+        llm = await get_llm_client(agent, enable_thinking=enable_thinking,
+                                   thinking_level=thinking_level)
         model_ref = resolve_default_model(agent)
         context_window = await get_context_window_async(model_ref)
 

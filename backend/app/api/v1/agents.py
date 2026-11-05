@@ -30,6 +30,7 @@ from app.schemas.agent import (
 )
 from app.schemas.execution import (
     ApprovePlanRequest,
+    DefaultModelUpdate,
     DismissRequest,
     ExecutionRequest,
     ExecutionResponse,
@@ -41,6 +42,7 @@ from app.schemas.execution import (
 from app.schemas.user import UserResponse
 from app.services.agent_execution_service import AgentExecutionService
 from app.services.agent_service import AgentService
+from app.services.model_service import ModelService
 from app.services.run_registry import find_latest_run, find_run, set_cancel_flag
 
 router = APIRouter(
@@ -347,6 +349,21 @@ async def archive_agent(
     if doc is None:
         raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
     return _doc_to_response(doc)
+
+
+@router.put("/{agent_id}/default-model", response_model=AgentResponse, summary="切换 Agent 默认模型（聊天中实时切换）")
+async def set_default_model(
+    agent_id: str,
+    body: DefaultModelUpdate,
+    _: UserResponse = Depends(require_permission("agent:write")),
+) -> AgentResponse:
+    doc = await ModelService.get_model_config_by_id(body.model_id)
+    if doc is None:
+        raise NotFoundError(code="MODEL_NOT_FOUND", message=f"模型 {body.model_id} 不存在")
+    updated = await AgentService.set_default_model(agent_id, body.model_id)
+    if updated is None:
+        raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
+    return _doc_to_response(updated)
 
 
 @router.post(

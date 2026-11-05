@@ -16,7 +16,8 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronLeft, Ban, RotateCcw, Trash2, Check, X, AlertTriangle, PanelRight, ChevronDown, Workflow, Undo2,
+  ChevronLeft, Ban, RotateCcw, Trash2, Check, X, AlertTriangle, PanelRight, ChevronDown, Workflow, Undo2, Copy,
+  Loader2,
 } from 'lucide-react'
 import {
   tasksApi, taskKeys,
@@ -26,7 +27,7 @@ import { agentApi, agentKeys } from '../../services/agent-api'
 import { userApi } from '../../services/user-api'
 import { useAuthStore } from '../../stores/auth-store'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
-import { Button, Modal, Spin } from '../ui'
+import { Button, Modal } from '../ui'
 import { toast } from '../ui/toast'
 import { confirmDialog } from '../ui/confirm'
 import { TaskOutputFiles } from './TaskOutputFiles'
@@ -210,6 +211,9 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
   /* ─── 右侧栏折叠 ─── */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
+  /* ─── 页头 ⋯ 溢出菜单（复制 ID / 删除） ─── */
+  const [overflowOpen, setOverflowOpen] = useState(false)
+
   /* ─── 退回重跑弹窗 ─── */
   const [rewindOpen, setRewindOpen] = useState(false)
   const [basicOpen, setBasicOpen] = useState(true)
@@ -225,7 +229,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
   return (
     <DataViewEnhanceProvider agentNameMap={agentNameMap}>
-      <div className="flex flex-col flex-1 min-h-0 bg-page">
+      <div className="af-scope flex flex-col flex-1 min-h-0 bg-page">
         {/* ── Header（sticky）── */}
         <div className="flex items-center gap-3 border-b border-line px-5 py-3 shrink-0">
           <button
@@ -236,20 +240,33 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider font-mono">任务详情</div>
-            <h3 className="text-sm font-bold text-ink truncate mt-0.5">
-              {taskDetail ? (workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id) : '加载中…'}
-            </h3>
+            <div className="af-label">任务详情</div>
+            <div className="flex items-center gap-2 mt-0.5 min-w-0">
+              <h3 className="text-[15px] font-bold text-ink truncate" style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}>
+                {taskDetail ? (workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id) : '加载中…'}
+              </h3>
+              {/* ID 短码：折叠展示 + 点击复制全码（规范 §5.3） */}
+              {taskDetail && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(taskDetail.id).catch(() => {});
+                    toast.success('已复制任务 ID');
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1 text-[11px] font-mono text-ink-dim hover:text-brand transition cursor-pointer"
+                  title={`复制完整 ID：${taskDetail.id}`}
+                >
+                  …{taskDetail.id.slice(-5)}
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+              )}
+            </div>
           </div>
           {taskDetail && status && (
-            <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border shrink-0"
-              style={{
-                color: TASK_STATUS_STYLES[status].color,
-                background: TASK_STATUS_STYLES[status].bg,
-                borderColor: `${TASK_STATUS_STYLES[status].accent}33`,
-              }}
-            >
+            <span className={`af-pill af-pill-${
+              TASK_STATUS_STYLES[status].tone === 'ok' ? 'ok'
+              : TASK_STATUS_STYLES[status].tone === 'wait' ? 'wait'
+              : TASK_STATUS_STYLES[status].tone === 'fail' ? 'fail' : 'neutral'
+            } shrink-0`}>
               {TASK_STATUS_STYLES[status].label}
             </span>
           )}
@@ -257,33 +274,83 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
           {full && taskDetail && status && (
             <div className="flex items-center gap-2 shrink-0 ml-2">
               {status === 'running' && (
-                <Button danger size="small" icon={<Ban className="w-3.5 h-3.5" />} onClick={handleCancel} loading={interveneLoading}>取消</Button>
+                <button onClick={handleCancel} disabled={interveneLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] border border-line-strong text-sig-fail text-[11.5px] font-semibold cursor-pointer hover:bg-sig-fail-soft disabled:opacity-50 transition-colors">
+                  <Ban className="w-3.5 h-3.5" /> 取消
+                </button>
               )}
               {status === 'waiting_human' && useResume && (
-                <Button type="primary" size="small" icon={<RotateCcw className="w-3.5 h-3.5" />} onClick={handleResume} loading={interveneLoading}>继续</Button>
+                <button onClick={handleResume} disabled={interveneLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] bg-brand text-white border-0 text-[11.5px] font-bold cursor-pointer hover:bg-brand-hover disabled:opacity-50 transition-colors">
+                  <RotateCcw className="w-3.5 h-3.5" /> 继续
+                </button>
               )}
               {status === 'waiting_human' && !useResume && (
                 <>
-                  <Button type="primary" size="small" icon={<Check className="w-3.5 h-3.5" />} onClick={() => openApproval('approve')} loading={interveneLoading}
-                    className="!bg-[#8B5CF6] !border-[#8B5CF6] hover:!bg-[#7c4fe0]">通过</Button>
-                  <Button danger size="small" icon={<X className="w-3.5 h-3.5" />} onClick={() => openApproval('reject')} loading={interveneLoading}>驳回</Button>
+                  <button onClick={() => openApproval('reject')} disabled={interveneLoading}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] border border-line-strong text-ink-dim text-[11.5px] font-semibold cursor-pointer hover:bg-raise disabled:opacity-50 transition-colors">
+                    <X className="w-3.5 h-3.5" /> 驳回
+                  </button>
+                  <button onClick={() => openApproval('approve')} disabled={interveneLoading}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] bg-brand text-white border-0 text-[11.5px] font-bold cursor-pointer hover:bg-brand-hover disabled:opacity-50 transition-colors">
+                    <Check className="w-3.5 h-3.5" /> 通过
+                  </button>
                 </>
               )}
               {/* 退回重跑：无论有无 human options 都可用（对齐 frontend 老版） */}
               {status === 'waiting_human' && (
-                <Button size="small" icon={<Undo2 className="w-3.5 h-3.5" />} onClick={() => setRewindOpen(true)} loading={interveneLoading}>退回重跑</Button>
+                <button onClick={() => setRewindOpen(true)} disabled={interveneLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] border border-line-strong text-ink-dim text-[11.5px] font-semibold cursor-pointer hover:bg-raise disabled:opacity-50 transition-colors">
+                  <Undo2 className="w-3.5 h-3.5" /> 退回重跑
+                </button>
               )}
               {status === 'failed' && (
-                <Button type="primary" size="small" icon={<RotateCcw className="w-3.5 h-3.5" />} onClick={handleRetry} loading={interveneLoading}>重试</Button>
+                <button onClick={handleRetry} disabled={interveneLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-[7px] bg-brand text-white border-0 text-[11.5px] font-bold cursor-pointer hover:bg-brand-hover disabled:opacity-50 transition-colors">
+                  <RotateCcw className="w-3.5 h-3.5" /> 重试
+                </button>
               )}
+              {/* ⋯ 溢出菜单：复制 ID / 删除（危险操作收进菜单，规范 §5.2） */}
               {(status === 'completed' || status === 'failed' || status === 'cancelled') && (
-                <Button danger size="small" icon={<Trash2 className="w-3.5 h-3.5" />} onClick={handleDelete} loading={removeTask.isPending}>删除</Button>
+                <div className="relative">
+                  <button
+                    onClick={() => setOverflowOpen((v) => !v)}
+                    className="h-7 px-2 rounded-lg border border-line-strong text-ink-dim hover:text-ink hover:bg-panel-hover transition cursor-pointer text-xs"
+                  >
+                    ⋯
+                  </button>
+                  {overflowOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setOverflowOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1.5 w-44 bg-panel rounded-[10px] shadow-[var(--shadow-pop)] border border-line p-1.5 z-50 animate-fade-in">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard?.writeText(taskDetail.id).catch(() => {});
+                            toast.success('已复制任务 ID');
+                            setOverflowOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-ink-soft hover:bg-panel-hover transition cursor-pointer"
+                        >
+                          复制任务 ID
+                        </button>
+                        <div className="border-t border-line my-1" />
+                        <button
+                          onClick={() => { setOverflowOpen(false); handleDelete(); }}
+                          disabled={removeTask.isPending}
+                          className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-sig-fail hover:bg-panel-hover transition cursor-pointer disabled:opacity-40"
+                        >
+                          删除任务…
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           )}
           <button
             onClick={() => setSidebarCollapsed((v) => !v)}
-            className={`p-1.5 rounded-lg transition cursor-pointer shrink-0 ${sidebarCollapsed ? 'text-ink-dim hover:text-ink' : 'text-accent hover:bg-panel'}`}
+            className={`p-1.5 rounded-lg transition cursor-pointer shrink-0 ${sidebarCollapsed ? 'text-ink-dim hover:text-ink' : 'text-ink-dim hover:text-ink hover:bg-raise'}`}
             title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
           >
             <PanelRight className="w-4 h-4" />
@@ -295,17 +362,17 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
           {/* 左主区：执行流程主轴 */}
           <div className="flex-1 overflow-y-auto scrollbar-custom">
             {isLoading ? (
-              <div className="flex items-center justify-center py-20"><Spin size="large" /></div>
+              <div className="flex items-center justify-center py-20"><Loader2 className="w-5 h-5 animate-spin" /></div>
             ) : !taskDetail ? (
               <div className="flex items-center justify-center py-20 text-sm text-ink-dim">任务不存在或已删除</div>
             ) : (
-              <div className="max-w-4xl mx-auto p-6 space-y-6">
+              <div className="max-w-4xl p-6 space-y-6">
                 {/* 错误提示（failed 时置顶醒目） */}
                 {taskDetail.error && (
-                  <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 flex gap-2">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="p-3 rounded-lg border bg-sig-fail-soft border-line flex gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-sig-fail shrink-0 mt-0.5" />
                     <div className="min-w-0">
-                      <div className="text-xs font-medium text-rose-400">执行错误</div>
+                      <div className="text-xs font-medium text-sig-fail">执行错误</div>
                       <div className="text-[11px] text-ink-soft mt-0.5 break-all">
                         [{taskDetail.error.error_code}] {taskDetail.error.error_message}
                       </div>
@@ -350,26 +417,26 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
 
                 {/* 流程图（可折叠 card） */}
                 <section className={`rounded-lg border overflow-hidden ${
-                  theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'
+                  'border-line bg-panel'
                 }`}>
                   <button
                     type="button"
                     onClick={() => setGraphOpen((v) => !v)}
                     className={`flex items-center justify-between w-full px-4 py-2.5 cursor-pointer transition-colors ${
-                      theme === 'dark' ? 'hover:bg-[#1f1f23]' : 'hover:bg-slate-100'
+                      'hover:bg-[#1f1f23]'
                     }`}
                   >
                     <span className={`flex items-center gap-2 text-sm font-medium ${
-                      theme === 'dark' ? 'text-ink' : 'text-slate-800'
+                      'text-ink'
                     }`}>
-                      <Workflow className={`w-4 h-4 ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'}`} /> 流程图
+                      <Workflow className={`w-4 h-4 ${'text-ink-dim'}`} /> 流程图
                     </span>
                     <ChevronDown className={`w-4 h-4 transition-transform ${graphOpen ? '' : '-rotate-90'} ${
-                      theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+                      'text-ink-dim'
                     }`} />
                   </button>
                   {graphOpen && (
-                    <div className={`p-3 border-t ${theme === 'dark' ? 'border-line' : 'border-slate-200'}`}>
+                    <div className={`p-3 border-t ${'border-line'}`}>
                       <TaskFlowGraph task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
                     </div>
                   )}

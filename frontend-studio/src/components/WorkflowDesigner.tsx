@@ -14,7 +14,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Play, Save, Upload, Loader2, X, Pencil, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Play, Save, Upload, Loader2, ArrowLeft, Pencil, ChevronsLeft, ChevronsRight, Layers, Trash2 } from 'lucide-react'
 import {
   workflowsApi,
   workflowKeys,
@@ -40,8 +40,8 @@ import WorkflowNodeConfigPanel from '../features/workflow-editor/WorkflowNodeCon
 import ExecuteInputDialog from '../features/workflow-editor/ExecuteInputDialog'
 import { TaskTraceModal } from '../features/workflow-editor/TaskTraceModal'
 import { validateWorkflow } from '../features/workflow-editor/utils/workflow-validator'
-import { Button, Tag, Input } from './ui'
 import { toast } from './ui/toast'
+import { confirmDialog } from './ui/confirm'
 
 /* ─── helpers ─── */
 
@@ -50,10 +50,10 @@ function isDraftOrPublished(status: string): boolean {
   return status === 'draft' || status === 'published'
 }
 
-const STATUS_LABEL: Record<string, { text: string; color: string }> = {
-  draft: { text: '草稿', color: '#64748B' },
-  published: { text: '已发布', color: '#10B981' },
-  archived: { text: '已归档', color: '#94A3B8' },
+const STATUS_PILL: Record<string, { text: string; cls: string }> = {
+  draft: { text: '草稿', cls: 'af-pill af-pill-wait' },
+  published: { text: '已发布', cls: 'af-pill af-pill-ok' },
+  archived: { text: '已归档', cls: 'af-pill af-pill-neutral' },
 }
 
 /* ─── Main Component ─── */
@@ -275,6 +275,28 @@ export function WorkflowDesigner({
     })
   }, [createMutation])
 
+  /* ─── 删除（编辑器内删除后回列表）─── */
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => workflowsApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.lists() })
+      toast.success('工作流已删除')
+      onBack?.()
+    },
+    onError: (e: unknown) => toast.error((e as Error).message || '删除失败'),
+  })
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedWorkflowId || !workflowDetail) return
+    const ok = await confirmDialog({
+      title: `删除工作流「${nameDraft.trim() || workflowDetail.name}」？`,
+      description: '删除后不可恢复。',
+      okText: '删除',
+      danger: true,
+    })
+    if (ok) deleteMutation.mutate(selectedWorkflowId)
+  }, [selectedWorkflowId, workflowDetail, nameDraft, deleteMutation, onBack])
+
   /* ─── 执行：委托 useWorkflowExecution（建任务 + 轮询 + 追踪弹窗）─── */
   const handleExecute = useCallback(() => {
     if (!selectedWorkflowId) return
@@ -337,8 +359,7 @@ export function WorkflowDesigner({
 
   /* ─── render ─── */
   return (
-    <div className="flex flex-col h-full gap-4">
-      {/* 主体（顶栏已移除：选择器/新建下线，关闭按钮并入画布左上浮动栏）*/}
+    <div className="flex flex-col h-full">
       {!selectedWorkflowId ? (
         <div className="bg-panel rounded-2xl border border-line p-16 text-center text-sm text-ink-dim">
           {listLoading ? '加载工作流列表...' : '请新建或选择一个工作流开始编辑'}
@@ -350,7 +371,99 @@ export function WorkflowDesigner({
         </div>
       ) : (
         <>
-          {/* 三栏编辑器（flex：Palette 可收缩、ConfigPanel 未选中时隐藏，画布占满中间）*/}
+          {/* 固定顶栏：返回 / 面包屑 / 名称 / 状态 / 版本 —— 不随画布滚动（UX 约定） */}
+          <div className="shrink-0 flex items-center gap-3 px-1 pb-3 border-b border-line mb-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                title="返回工作流列表"
+                className="p-1.5 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowLeft size={16} />
+              </button>
+            )}
+            <div className="flex items-center gap-2 text-xs text-ink-dim min-w-0 shrink-0">
+              <Layers size={14} className="shrink-0" />
+              <span className="whitespace-nowrap">工作流</span>
+              <span className="text-ink-faint">/</span>
+            </div>
+            {/* 名称就地编辑（修订线：衬线斜体，hover 铅笔，focus 下划线） */}
+            <div className="group/name flex items-center gap-1 min-w-0">
+              <input
+                value={nameDraft}
+                onChange={(e) => {
+                  setNameDraft(e.target.value)
+                  setHasUnsavedChanges(true)
+                  setDirtySinceLoad(true)
+                }}
+                placeholder="工作流名称"
+                title="修改工作流名称（保存后生效）"
+                className="w-44 bg-transparent border-0 border-b border-transparent focus:border-b-line-strong hover:border-b-line text-[15px] font-bold text-ink placeholder:text-ink-faint focus:outline-none px-0 truncate"
+                style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}
+              />
+              <Pencil size={11} className="text-ink-faint opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
+            </div>
+            {workflowDetail && (
+              <span className={STATUS_PILL[currentStatus ?? 'draft']?.cls ?? 'af-pill af-pill-neutral'}>
+                {STATUS_PILL[currentStatus ?? 'draft']?.text ?? currentStatus}
+              </span>
+            )}
+            {workflowDetail && (
+              <span className="text-[11px] text-ink-faint font-mono whitespace-nowrap hidden md:inline">
+                v{workflowDetail.version} · {nodes.length} 节点
+              </span>
+            )}
+            {hasUnsavedChanges && (
+              <span className="af-pill af-pill-wait shrink-0">未保存</span>
+            )}
+
+            {/* 右侧操作区 */}
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              {canWrite && (
+                <button
+                  onClick={handleSave}
+                  disabled={!hasUnsavedChanges || saveMutation.isPending}
+                  title={!hasUnsavedChanges ? '没有需要保存的修改' : '保存修改'}
+                  className="af-btn af-btn-ghost border border-line disabled:opacity-50"
+                >
+                  {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                  保存
+                </button>
+              )}
+              {canWrite && (
+                <button
+                  onClick={handlePublish}
+                  disabled={hasUnsavedChanges || !isDraftOrPublished(currentStatus ?? '') || publishMutation.isPending}
+                  title={hasUnsavedChanges ? '请先保存' : !isDraftOrPublished(currentStatus ?? '') ? '当前状态不可发布' : '发布工作流'}
+                  className="af-btn af-btn-ghost border border-line disabled:opacity-50"
+                >
+                  {publishMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                  发布
+                </button>
+              )}
+              <button
+                onClick={handleExecute}
+                disabled={!canExecute}
+                title={!canExecute ? '需先发布后执行' : exec.executing ? '执行中，点击查看追踪' : '执行工作流'}
+                className="af-btn af-btn-primary disabled:opacity-50"
+              >
+                {exec.executing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                {exec.executing ? '执行中' : '执行'}
+              </button>
+              {canWrite && (
+                <button
+                  onClick={() => void handleDelete()}
+                  disabled={deleteMutation.isPending}
+                  title="删除工作流"
+                  className="af-btn af-btn-ghost border border-line text-sig-fail hover:bg-sig-fail-soft hover:border-sig-fail/40 disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 三栏编辑器（Palette 可收缩、ConfigPanel 未选中时隐藏，画布占满中间） */}
           <AgentInfoContext.Provider value={resolvedAgentInfoMap}>
           <ToolNameContext.Provider value={toolNameMap}>
           <div className="flex flex-col xl:flex-row gap-3 flex-1 min-h-0">
@@ -359,7 +472,7 @@ export function WorkflowDesigner({
               <button
                 onClick={() => setPaletteCollapsed((v) => !v)}
                 title={paletteCollapsed ? '展开节点类型' : '收起节点类型'}
-                className="shrink-0 flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium text-ink-dim hover:text-ink hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer border-b border-line"
+                className="shrink-0 flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium text-ink-dim hover:text-ink hover:bg-brand-soft transition-colors cursor-pointer border-b border-line"
               >
                 {paletteCollapsed ? (
                   <ChevronsRight className="w-3.5 h-3.5 mx-auto" />
@@ -375,58 +488,8 @@ export function WorkflowDesigner({
               </div>
             </div>
 
-            {/* 中：Canvas + 浮动操作栏（画布左上角，不占顶部行）*/}
+            {/* 中：Canvas（画布区无浮动栏，操作全部收进固定顶栏） */}
             <div className="flex-1 min-w-0 relative bg-well rounded-xl border border-line overflow-hidden">
-              <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-x-2 gap-y-1 max-w-[calc(100%-1.5rem)] px-2 py-1.5 rounded-lg bg-panel/80 backdrop-blur border border-line shadow-lg">
-                {/* 关闭编辑（返回列表）*/}
-                {onBack && (
-                  <button
-                    onClick={onBack}
-                    title="关闭编辑"
-                    className="p-1 rounded-md text-ink-dim hover:text-ink hover:bg-[#1E5EFF]/10 transition-colors cursor-pointer"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-                {/* 名称（保存后生效）*/}
-                <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-page border border-line focus-within:border-[#1E5EFF]/60 transition-colors">
-                  <Pencil size={12} className="text-ink-dim shrink-0" />
-                  <input
-                    value={nameDraft}
-                    onChange={(e) => {
-                      setNameDraft(e.target.value)
-                      setHasUnsavedChanges(true)
-                      setDirtySinceLoad(true)
-                    }}
-                    placeholder="工作流名称"
-                    title="修改工作流名称（保存后生效）"
-                    className="w-32 bg-transparent text-xs text-ink placeholder-ink-dim focus:outline-none font-medium"
-                  />
-                </div>
-                {/* 当前状态 */}
-                {workflowDetail && (
-                  <Tag color={STATUS_LABEL[currentStatus ?? 'draft']?.color ?? '#64748B'}>
-                    {STATUS_LABEL[currentStatus ?? 'draft']?.text ?? currentStatus}
-                  </Tag>
-                )}
-                {workflowDetail && (
-                  <span className="text-[11px] text-ink-dim whitespace-nowrap">v{workflowDetail.version} · {nodes.length}节点</span>
-                )}
-                {hasUnsavedChanges && <Tag color="#F59E0B">未保存</Tag>}
-                {canWrite && (
-                  <Button size="small" icon={<Save size={13} />} onClick={handleSave} loading={saveMutation.isPending} disabled={!hasUnsavedChanges}>
-                    保存
-                  </Button>
-                )}
-                {canWrite && (
-                  <Button size="small" type="primary" icon={<Upload size={13} />} onClick={handlePublish} loading={publishMutation.isPending} disabled={hasUnsavedChanges || !isDraftOrPublished(currentStatus ?? '')}>
-                    发布
-                  </Button>
-                )}
-                <Button size="small" type="primary" icon={exec.executing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} onClick={handleExecute} disabled={!canExecute}>
-                  {exec.executing ? '执行中' : '执行'}
-                </Button>
-              </div>
               <WorkflowCanvas
                 workflowNodes={nodes}
                 selectedNodeId={selectedNode?.node_id ?? null}
@@ -436,9 +499,9 @@ export function WorkflowDesigner({
               />
             </div>
 
-            {/* 右：ConfigPanel（仅选中节点时渲染；未选中时画布占满）*/}
+            {/* 右：ConfigPanel（仅选中节点时渲染；全高滚动） */}
             {selectedNode && (
-              <div className="shrink-0 w-96 max-h-[60vh] xl:max-h-none overflow-y-auto scrollbar-custom">
+              <div className="shrink-0 w-96 xl:w-[22rem] min-h-0 overflow-y-auto scrollbar-custom">
                 <WorkflowNodeConfigPanel
                   selectedNode={selectedNode}
                   allNodes={nodes}

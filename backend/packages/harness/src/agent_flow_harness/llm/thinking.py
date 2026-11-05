@@ -49,6 +49,14 @@ _GLM_MARKERS: tuple[str, ...] = ("glm",)
 # doc's ``default_params.thinking_budget`` is absent (configurable override).
 _DEFAULT_ANTHROPIC_THINKING_BUDGET = 5000
 
+# User-facing thinking levels → Anthropic budget_tokens mapping. low/medium/
+# high 是 UI 档位（对齐 OpenAI reasoning_effort 语义）；budget 连续值由
+# 档位离散化，模型配置 thinking_budget 只在旧布尔路径下生效。
+_LEVEL_ANTHROPIC_BUDGET = {"low": 2048, "medium": 8192, "high": 16384}
+
+# 合法档位（与 API schema Literal 保持一致）
+THINKING_LEVELS = ("off", "low", "medium", "high")
+
 # Anthropic requires budget_tokens >= 1024 — API protocol floor, clamped
 # automatically when a configured budget falls below it.
 _MIN_ANTHROPIC_THINKING_BUDGET = 1024
@@ -90,12 +98,23 @@ def _openai_thinking_kwargs(model_id: str, enable_thinking: bool) -> dict[str, A
     return {}
 
 
+def _normalize_level(enable_thinking: bool, thinking_level: str) -> str:
+    """归一化档位：显式 level 优先；旧布尔路径 True→medium / False→off。
+
+    非法档位字符串按 off 处理（防御性，schema 层已 Literal 校验）。
+    """
+    if thinking_level:
+        return thinking_level if thinking_level in THINKING_LEVELS else "off"
+    return "medium" if enable_thinking else "off"
+
+
 def build_thinking_kwargs(
     model_id: str,
     provider_or_compatibility: str,
     enable_thinking: bool,
     max_tokens: int | None = None,
     thinking_budget: int | None = None,
+    thinking_level: str = "",
 ) -> dict[str, Any]:
     """Build constructor kwargs enabling/disabling native LLM reasoning.
 
@@ -103,18 +122,23 @@ def build_thinking_kwargs(
         model_id: Model identifier (e.g. ``"claude-sonnet-4"``, ``"o3-mini"``).
         provider_or_compatibility: Provider name (``"openai"`` / ``"anthropic"``)
             from detection, or a ``compatibility_type`` from a model document.
-        enable_thinking: Whether the caller requested thinking mode.
+        enable_thinking: Legacy boolean switch. Ignored when ``thinking_level``
+            is given (True → medium / False → off).
         max_tokens: Optional ``max_tokens`` (Anthropic needs ``max_tokens >
             budget``).
-        thinking_budget: Optional Anthropic thinking budget override (from the
-            model doc's ``default_params.thinking_budget``); clamped to the
-            API floor 1024, default 5000 when absent.
+        thinking_budget: Optional Anthropic thinking budget override — legacy
+            boolean path only (from the model doc's
+            ``default_params.thinking_budget``); clamped to the API floor 1024,
+            default 5000 when absent. Level path uses ``_LEVEL_ANTHROPIC_BUDGET``.
+        thinking_level: User-facing level ``off/low/medium/high``; empty = use
+            the legacy boolean.
 
     Returns:
         Kwargs to spread into the chat-model constructor. Empty when thinking
         is disabled/unsupported.
     """
-    if not enable_thinking:
+    level = _normalize_level(enable_thinking, thinking_level)
+    if level == "off":
         # Explicitly disable thinking for providers that default to returning
         # reasoning content (e.g. DeepSeek / 开源 Qwen3 默认开思考).
         if provider_or_compatibility == "openai":
@@ -128,7 +152,12 @@ def build_thinking_kwargs(
 
     # Anthropic path.
     if provider_or_compatibility == "anthropic":
-        budget = _resolve_budget(thinking_budget)
+        # 档位路径：档位直接映射 budget；旧布尔路径用模型配置/默认值。
+        budget = (
+            _LEVEL_ANTHROPIC_BUDGET[level]
+            if thinking_level in _LEVEL_ANTHROPIC_BUDGET
+            else _resolve_budget(thinking_budget)
+        )
         if max_tokens is not None:
             if int(max_tokens) < _MIN_THINKING_MAX_TOKENS:
                 # Too small to fit a meaningful budget + answer — explicitly
@@ -156,11 +185,12 @@ def build_thinking_kwargs(
             kwargs["max_tokens"] = budget * 4
         return kwargs
 
-    # OpenAI path: o-series → reasoning_effort;Qwen/GLM → 厂商扩展参数;
+    # OpenAI path: o-series → reasoning_effort(档位直传);Qwen/GLM → 厂商扩展参数;
     # 其余静默降级。
     if provider_or_compatibility == "openai":
         if any(model_id.startswith(p) for p in _OPENAI_REASONING_PREFIXES):
-            return {"reasoning_effort": "high"}
+            # 旧布尔路径保持原行为（写死 high）；显式档位才直传。
+            return {"reasoning_effort": level if thinking_level else "high"}
         vendor = _openai_thinking_kwargs(model_id, True)
         if vendor:
             return vendor
@@ -178,6 +208,7 @@ def apply_thinking_mode(
     enable_thinking: bool,
     model_name: str,
     thinking_budget: int | None = None,
+    thinking_level: str = "",
 ) -> BaseChatModel:
     """Best-effort mutate an already-built chat model to enable reasoning.
 
@@ -188,14 +219,17 @@ def apply_thinking_mode(
 
     Args:
         llm: A built chat model.
-        enable_thinking: Whether to enable reasoning.
+        enable_thinking: Legacy boolean switch (ignored when ``thinking_level``
+            is given).
         model_name: Model id, used to pick the provider knob.
-        thinking_budget: Optional Anthropic budget override (default 5000).
+        thinking_budget: Optional Anthropic budget override — legacy path only.
+        thinking_level: User-facing level ``off/low/medium/high``.
 
     Returns:
         The same ``llm`` instance (mutated in place when supported).
     """
-    if not enable_thinking:
+    level = _normalize_level(enable_thinking, thinking_level)
+    if level == "off":
         return llm
 
     lowered = model_name.lower()
@@ -203,9 +237,14 @@ def apply_thinking_mode(
     # Claude / Anthropic.
     if lowered.startswith(_ANTHROPIC_PREFIXES) or "anthropic" in type(llm).__name__.lower():
         if hasattr(llm, "thinking"):
+            budget = (
+                _LEVEL_ANTHROPIC_BUDGET[level]
+                if thinking_level in _LEVEL_ANTHROPIC_BUDGET
+                else _resolve_budget(thinking_budget)
+            )
             llm.thinking = {
                 "type": "enabled",
-                "budget_tokens": _resolve_budget(thinking_budget),
+                "budget_tokens": budget,
             }
         else:
             logger.warning(
@@ -218,7 +257,7 @@ def apply_thinking_mode(
     # OpenAI o-series.
     if lowered.startswith(_OPENAI_REASONING_PREFIXES):
         if hasattr(llm, "reasoning_effort"):
-            llm.reasoning_effort = "high"
+            llm.reasoning_effort = level if thinking_level else "high"
         else:
             logger.warning(
                 "llm_thinking_attribute_missing",

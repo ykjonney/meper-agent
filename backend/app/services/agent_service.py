@@ -520,6 +520,35 @@ class AgentService:
         return updated
 
     @staticmethod
+    async def set_default_model(agent_id: str, model_id: str) -> dict | None:
+        """聊天中切换默认模型：只更新 default_model 单字段。
+
+        刻意绕过 update_agent 的 published-immutable 检查——模型是运行参数
+        而非内容承诺（提示词/工具），用户在会话中换模型是合法的运行时操作。
+        专用窄端点，避免 PUT 全量替换误伤其它字段。
+
+        Args:
+            agent_id: The Agent's ID.
+            model_id: models 表的 ULID（model_ 前缀）。
+
+        Returns:
+            Updated Agent document, or None if not found.
+        """
+        col = AgentService._collection()
+
+        existing_doc = await col.find_one({"_id": agent_id})
+        if existing_doc is None:
+            return None
+
+        from app.models.base import utc_now
+
+        await col.update_one(
+            {"_id": agent_id},
+            {"$set": {"default_model": model_id, "updated_at": utc_now().isoformat()}},
+        )
+        return await col.find_one({"_id": agent_id})
+
+    @staticmethod
     async def archive_agent(agent_id: str) -> dict | None:
         """Archive an Agent (published → archived).
 

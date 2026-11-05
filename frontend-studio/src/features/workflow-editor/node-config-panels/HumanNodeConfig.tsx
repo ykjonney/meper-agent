@@ -39,7 +39,7 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
     <div className="space-y-3">
       {/* ── 审批标题（支持变量引用） ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">审批标题</label>
+        <label className="block text-xs text-ink-dim mb-1">审批标题</label>
         <VariableSelector
           value={typeof config?.title === 'string' ? config.title : ''}
           onChange={(val) => onChange({ ...(config ?? {}), title: val })}
@@ -69,26 +69,26 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
 
       {/* ── 审批行为（系统固定三个：approve / reject / comment） ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1.5 flex items-center gap-1">
           审批行为
           <HelpHint text="审批完成后，审批结论、意见、审批人和审批时间会写入流程变量，供下游节点引用。" />
         </label>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="success">通过</Tag>
-            <span className="text-xs text-slate-400 flex-1">
+            <span className="text-xs text-ink-dim flex-1">
               审批人点击后，任务继续执行
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="error">驳回</Tag>
-            <span className="text-xs text-slate-400 flex-1">
+            <span className="text-xs text-ink-dim flex-1">
               审批人点击后，任务标记为失败并终止
             </span>
           </div>
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-line bg-[#1e1e22]">
             <Tag color="purple">意见</Tag>
-            <span className="text-xs text-slate-400 flex-1">
+            <span className="text-xs text-ink-dim flex-1">
               审批人在通过或驳回时填写，可留空
             </span>
           </div>
@@ -97,7 +97,7 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
 
       {/* ── 超时时间 ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">超时时间 (分钟)</label>
+        <label className="block text-xs text-ink-dim mb-1">超时时间 (分钟)</label>
         <input
           className="w-full px-2 py-1.5 rounded border border-line bg-page text-ink text-sm focus:outline-none focus:border-[#8B5CF6]"
           type="number"
@@ -112,7 +112,7 @@ export default function HumanNodeConfig({ config, onChange, currentNodeId, allNo
 
       {/* ── 超时动作 ── */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">超时动作</label>
+        <label className="block text-xs text-ink-dim mb-1">超时动作</label>
         <Select
           className="w-full"
           value={typeof config?.timeout_action === 'string' ? config.timeout_action : 'fail'}

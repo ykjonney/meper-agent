@@ -266,17 +266,14 @@ export function ExternalAuthPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="h-full min-h-0 flex flex-col gap-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="shrink-0 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Blocks className="w-5 h-5 text-indigo-400" />
             外部授权
           </h2>
-          <p className="text-xs text-ink-dim mt-1">
-            连接你的外部应用。授权后，Agent 可以在你的业务权限范围内访问应用下的 MCP 资源。
-          </p>
         </div>
         {canManage && (
           <button onClick={openCreateApp}
@@ -286,6 +283,7 @@ export function ExternalAuthPage() {
         )}
       </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center py-16 text-ink-dim">
@@ -538,6 +536,7 @@ export function ExternalAuthPage() {
         </div>
       )}
     </div>
+      </div>
   );
 }
 

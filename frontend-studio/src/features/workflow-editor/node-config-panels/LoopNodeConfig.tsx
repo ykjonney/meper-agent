@@ -323,7 +323,7 @@ export default function LoopNodeConfig({
     <div className="space-y-3">
       {/* 步骤管理：顺序即每轮执行顺序 */}
       <div>
-        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
           每轮执行
           <HelpHint text="循环每轮从上到下依次执行这些步骤。点击步骤可配置其内容；用 ↑↓ 调整顺序，✕ 删除。" />
         </label>
@@ -351,14 +351,14 @@ export default function LoopNodeConfig({
                 >
                   {i + 1}
                 </span>
-                <span className="text-xs text-slate-200 truncate flex-1">{nodeLabel(id)}</span>
+                <span className="text-xs text-ink truncate flex-1">{nodeLabel(id)}</span>
                 {!isBranchy && (
                   <span className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleMove(id, -1) }}
                       disabled={i === 0}
                       title="上移"
-                      className="p-0.5 rounded text-ink-dim hover:text-white hover:bg-line disabled:opacity-30 cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-ink hover:bg-line disabled:opacity-30 cursor-pointer"
                     >
                       <ArrowUp size={11} />
                     </button>
@@ -366,7 +366,7 @@ export default function LoopNodeConfig({
                       onClick={(e) => { e.stopPropagation(); handleMove(id, 1) }}
                       disabled={i === chain.length - 1}
                       title="下移"
-                      className="p-0.5 rounded text-ink-dim hover:text-white hover:bg-line disabled:opacity-30 cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-ink hover:bg-line disabled:opacity-30 cursor-pointer"
                     >
                       <ArrowDown size={11} />
                     </button>
@@ -399,16 +399,16 @@ export default function LoopNodeConfig({
             ))}
           </div>
         ) : !isBranchy && !editable ? (
-          <div className="text-[11px] text-slate-500 mt-2">编辑不可用（请刷新页面重试）</div>
+          <div className="text-[11px] text-ink-dim mt-2">编辑不可用（请刷新页面重试）</div>
         ) : (
-          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300 mt-2">
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-sig-wait mt-2">
             此循环包含分支/并行结构，步骤只读（调整顺序会破坏分支）
           </div>
         )}
       </div>
 
       <div>
-        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
           最多重复
           <HelpHint text="防失控的兜底上限。循环通常由「提前结束条件」提前退出；到上限仍未通过也会结束，可在下游按是否通过分别处理。" />
         </label>
@@ -426,12 +426,12 @@ export default function LoopNodeConfig({
             }
             className="w-20"
           />
-          <span className="text-xs text-slate-400">次</span>
+          <span className="text-xs text-ink-dim">次</span>
         </div>
       </div>
 
       <div>
-        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
           结束条件
           <HelpHint text={'每轮结束检查一次，满足即提前结束；不添加条件 = 跑满上面的次数。多个条件间可设为「且」（全部满足）或「或」（任一满足）。'} />
         </label>
@@ -504,7 +504,7 @@ export default function LoopNodeConfig({
             ))}
 
             {conditions.length > 1 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <div className="flex items-center gap-1.5 text-[11px] text-ink-dim">
                 条件间关系
                 <Select
                   className="w-32"
@@ -527,7 +527,7 @@ export default function LoopNodeConfig({
               添加条件
             </button>
             {/* 生成的表达式原文：透明可核对，也教用户语法 */}
-            <div className="text-[11px] text-slate-500 font-mono break-all" title={convergeExpr}>
+            <div className="text-[11px] text-ink-dim font-mono break-all" title={convergeExpr}>
               {convergeExpr}
             </div>
           </div>
@@ -535,10 +535,10 @@ export default function LoopNodeConfig({
 
         {body.length > 0 && isCustomExpr && (
           <div className="space-y-1">
-            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-sig-wait">
               当前为自定义表达式（含表单不支持的结构，如且/或混用），表单不覆盖、仅展示原文
             </div>
-            <div className="text-[11px] text-slate-500 font-mono break-all" title={convergeExpr}>
+            <div className="text-[11px] text-ink-dim font-mono break-all" title={convergeExpr}>
               {convergeExpr}
             </div>
           </div>
@@ -546,7 +546,7 @@ export default function LoopNodeConfig({
       </div>
 
       {body.length > 0 && (
-        <div className="text-[11px] text-slate-500 border-t border-line pt-2">
+        <div className="text-[11px] text-ink-dim border-t border-line pt-2">
           循环结束后可接条件分支，按{' '}
           <code className="text-ink-dim">{'{{'}{currentNodeId}.converged{'}}'}</code>{' '}
           （通过/未通过）分别走不同下游。

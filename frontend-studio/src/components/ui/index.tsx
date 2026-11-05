@@ -142,7 +142,7 @@ function InputInner({ size = 'middle', status, className = '', ...rest }: InputP
     <input
       {...rest}
       className={`w-full rounded-md border bg-page text-ink placeholder:text-ink-dim
-        focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
+        focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors
         ${status === 'error' ? 'border-red-400' : 'border-line'}
         ${SIZE_CLASS[size]} ${className}`}
     />
@@ -165,7 +165,7 @@ const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextAre
       rows={rows}
       className={`w-full rounded-md border border-line bg-page text-ink
         placeholder:text-ink-dim px-2.5 py-1.5 text-xs leading-relaxed resize-y
-        focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
+        focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors
         ${className}`}
     />
   )
@@ -386,7 +386,7 @@ export function Select({
         aria-haspopup="listbox"
         className={`w-full ${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5
           rounded-md border border-line bg-page flex items-center justify-between gap-1 cursor-pointer
-          text-ink hover:border-[#1E5EFF] focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors`}
+          text-ink hover:border-brand focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors`}
       >
         <span className={`flex-1 min-w-0 truncate ${value ? '' : 'text-ink-dim'}`}>
           {displayNode ?? placeholder}
@@ -426,7 +426,7 @@ export function Select({
                 onKeyDown={onKeyDown}
                 placeholder="搜索…"
                 className="w-full h-7 px-2 rounded bg-page border border-line text-xs text-ink
-                  placeholder:text-ink-dim focus:outline-none focus:border-[#1E5EFF]"
+                  placeholder:text-ink-dim focus:outline-none focus:border-brand"
               />
             </div>
           )}
@@ -462,7 +462,7 @@ export function Select({
                           onMouseEnter={() => setActiveIndex(myIdx)}
                           className={`px-2.5 py-1.5 text-xs cursor-pointer flex items-start gap-1.5 text-ink
                             ${opt.disabled ? 'opacity-40 cursor-not-allowed' : ''}
-                            ${isActive && !opt.disabled ? 'bg-[#1E5EFF]/10' : ''}
+                            ${isActive && !opt.disabled ? 'bg-brand-soft' : ''}
                             ${isSelected ? 'text-link font-medium' : ''}`}
                         >
                           {opt.icon && <span className="shrink-0 mt-0.5">{opt.icon}</span>}
@@ -509,9 +509,9 @@ const BTN_SIZE: Record<NonNullable<ButtonProps['size']>, string> = {
 }
 
 const BTN_TYPE: Record<NonNullable<ButtonProps['type']>, string> = {
-  default: 'bg-panel border border-line text-ink hover:border-[#1E5EFF] hover:text-link',
-  primary: 'bg-[#1E5EFF] border border-[#1E5EFF] text-white hover:bg-[#1a4fd6]',
-  dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-[#1E5EFF] hover:text-link',
+  default: 'bg-panel border border-line text-ink hover:border-brand hover:text-brand',
+  primary: 'bg-brand border border-brand text-white hover:bg-brand-hover',
+  dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-brand hover:text-link',
   link: 'bg-transparent border-0 text-link hover:underline px-1',
   text: 'bg-transparent border-0 text-slate-400 hover:bg-page/60 px-1.5',
 }
@@ -635,7 +635,7 @@ export function Switch({ size = 'default', checked = false, disabled = false, on
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
       className={`${w} rounded-full transition-colors flex items-center
-        ${checked ? 'bg-[#1E5EFF]' : 'bg-line'}
+        ${checked ? 'bg-brand' : 'bg-line'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       {/* Knob stays white for contrast on the colored track in both themes */}

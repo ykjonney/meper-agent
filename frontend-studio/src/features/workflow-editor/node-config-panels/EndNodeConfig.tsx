@@ -48,7 +48,7 @@ export default function EndNodeConfig({ config, onChange, currentNodeId, allNode
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+        <p className="text-[11px] text-ink-dim font-medium flex items-center gap-1">
           输出映射
           <HelpHint
             text={

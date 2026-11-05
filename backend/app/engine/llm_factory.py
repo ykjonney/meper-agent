@@ -30,6 +30,7 @@ from loguru import logger
 async def get_llm_client(
     agent_doc: dict | None = None,
     enable_thinking: bool = False,
+    thinking_level: str = "",
 ):
     """Construct a LangChain chat model from an Agent document.
 
@@ -71,6 +72,7 @@ async def get_llm_client(
             return build_client_from_doc(
                 model_doc, agent_config,
                 enable_thinking=enable_thinking, max_retries=max_retries,
+                thinking_level=thinking_level,
             )
         # Model not found in table → fall through to legacy
 
@@ -88,11 +90,13 @@ async def get_llm_client(
         return build_client_from_env(
             model_ref, agent_config,
             enable_thinking=enable_thinking, max_retries=max_retries,
+            thinking_level=thinking_level,
         )
 
     # 3. Final fallback
     return build_client_from_env(
         "gpt-4o-mini", {}, enable_thinking=enable_thinking, max_retries=max_retries,
+        thinking_level=thinking_level,
     )
 
 
@@ -164,6 +168,7 @@ def build_client_from_doc(
     doc: dict,
     agent_config: dict | None = None,
     enable_thinking: bool = False,
+    thinking_level: str = "",
 ):
     """Build a ChatModel from a model table document (public API).
 
@@ -171,7 +176,8 @@ def build_client_from_doc(
     """
     from agent_flow_harness import build_client_from_doc as _harness_build
 
-    return _harness_build(doc, agent_config or {}, enable_thinking=enable_thinking)
+    return _harness_build(doc, agent_config or {}, enable_thinking=enable_thinking,
+                          thinking_level=thinking_level)
 
 
 def supports_thinking(model_id: str, compatibility: str) -> bool:
