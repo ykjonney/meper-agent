@@ -45,6 +45,9 @@ import { voiceConfigApi, voiceConfigKeys } from '../services/voice-config-api';
 // off=灰 / low=绿 / medium=黄 / high=橙红）。
 import { ActivityGroup, StreamingDots } from './chat/ActivityGroup';
 import { ChatAttachmentCard } from './chat/ChatAttachmentCard';
+import { ArtifactsPanel } from './chat/ArtifactsPanel';
+import { EmptySession } from './chat/EmptySession';
+import { SessionHeader } from './chat/SessionHeader';
 import { userMessageToDisplay, MORE_ICONS, PRIMARY_NAV, THINK_LEVELS, THINK_LEVEL_META, agentMessageToDisplay, doneTimelineToEntries, fmtContextWindow, formatSessionTime, isInterruptTool, parseOutputAttachments } from './chat/message-utils';
 
 interface ChatHomepageProps {
@@ -1884,92 +1887,29 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         )}
 
         {!activeSession ? (
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-10 pb-8">
-          <p className="text-[10px] text-ink-faint tracking-[.22em] mb-4 font-semibold">NEW SESSION</p>
-          <div className="text-[21px] font-bold text-ink mb-7" style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}>
-            今天想完成什么？
-          </div>
-          <div className="w-full max-w-[680px]">
-            {composerEl}
-          </div>
-          {/* agent 选择：composer 下方独立行（不在输入框内） */}
-          <div className="relative w-full max-w-[680px] mt-3 flex items-center gap-2">
-            <span onClick={() => setAgentMenuOpen(v => !v)}
-              className="inline-flex items-center gap-[6px] text-[10.5px] text-ink bg-panel border border-line rounded-lg px-[9px] py-[5px] cursor-pointer hover:border-line-strong transition-colors">
-              <span className="w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center text-[8.5px]">{(activeAgent?.name ?? '?')[0]}</span>
-              {activeAgent?.name ?? '选择执行者'}
-              <span className="text-[8px] text-ink-faint">▾</span>
-            </span>
-            <span className="text-[8.5px] text-ink-faint">切换执行者 · 会话列表随之切换</span>
-            {agentMenuOpen && (
-              <div className="absolute top-full mt-1.5 w-60 max-h-[264px] overflow-y-auto scrollbar-custom bg-panel rounded-[10px] shadow-[var(--shadow-pop)] border border-line p-1 z-50 animate-fade-in">
-                {agents.map((ag) => (
-                  <button key={ag.id} onClick={() => handleStartNewWithAgent(ag)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition cursor-pointer hover:bg-panel-hover ${activeAgent?.id === ag.id ? 'bg-brand-soft' : ''}`}>
-                    <span className="w-6 h-6 rounded-md bg-raise flex items-center justify-center text-[10px] shrink-0 overflow-hidden">
-                      <AvatarRender value={ag.avatar} className="w-full h-full p-0.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11px] font-medium text-ink truncate">{ag.name}</span>
-                      <span className="block text-[9.5px] text-ink-faint truncate">{modelLabel(ag.model)}</span>
-                    </span>
-                    {activeAgent?.id === ag.id && <CheckCircle className="w-3 h-3 text-brand shrink-0" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="w-full max-w-[680px] mt-6">
-            {[['01', '把会议记录整理成待办清单'], ['02', '生成一份竞品分析报告'], ['03', '润色这段产品文案']].map(([no, text]) => (
-              <div key={no} onClick={() => setInputText(text)}
-                className="flex gap-3 items-baseline text-[10.5px] text-ink-dim py-2 border-b border-line cursor-pointer hover:text-ink transition-colors text-left">
-                <span className="text-brand font-bold">{no}</span>{text}
-              </div>
-            ))}
-          </div>
-        </div>
+        <EmptySession
+          composerEl={composerEl}
+          agents={agents}
+          activeAgent={activeAgent}
+          agentMenuOpen={agentMenuOpen}
+          setAgentMenuOpen={setAgentMenuOpen}
+          onSelectAgent={handleStartNewWithAgent}
+          onPickSuggestion={setInputText}
+          modelLabel={modelLabel}
+        />
         ) : (
         <>
-        <div className="px-5 h-12 shrink-0 flex items-center gap-3 border-b border-line">
-          <span onClick={() => setAgentMenuOpen(v => !v)} className="inline-flex items-center gap-[6px] text-[10.5px] text-ink bg-panel border border-line rounded-lg px-[9px] py-[5px] cursor-pointer hover:border-line-strong transition-colors shrink-0" title="切换执行者">
-            <span className="w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center text-[8.5px]">{(activeAgent?.name ?? '?')[0]}</span>
-            {activeAgent?.name ?? '选择执行者'}
-            <span className="text-[8px] text-ink-faint">▾</span>
-          </span>
-          <span className="text-[13.5px] font-bold text-ink truncate flex-1" style={{ fontFamily: 'var(--font-serif)' }}>
-            {activeSession?.title || '未命名会话'}
-          </span>
-          {/* 功能区开关：产物与后续扩展面板 */}
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition cursor-pointer ${
-              panelOpen ? 'bg-brand-soft text-brand' : 'text-ink-dim hover:bg-raise hover:text-ink'
-            }`}
-            title={panelOpen ? '关闭功能区' : '打开功能区（产物）'}
-          >
-            <PanelRight className="w-4 h-4" />
-          </button>
-          {agentMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setAgentMenuOpen(false)} />
-              <div className="absolute left-5 top-12 w-60 max-h-[264px] overflow-y-auto scrollbar-custom bg-panel rounded-[10px] shadow-[var(--shadow-pop)] border border-line p-1 z-50 animate-fade-in">
-                {agents.map((ag) => (
-                  <button key={ag.id} onClick={() => handleStartNewWithAgent(ag)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition cursor-pointer hover:bg-panel-hover ${activeAgent?.id === ag.id ? 'bg-brand-soft' : ''}`}>
-                    <span className="w-6 h-6 rounded-md bg-raise flex items-center justify-center text-[10px] shrink-0 overflow-hidden">
-                      <AvatarRender value={ag.avatar} className="w-full h-full p-0.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11px] font-medium text-ink truncate">{ag.name}</span>
-                      <span className="block text-[9.5px] text-ink-faint truncate">{modelLabel(ag.model)}</span>
-                    </span>
-                    {activeAgent?.id === ag.id && <CheckCircle className="w-3 h-3 text-brand shrink-0" />}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <SessionHeader
+          activeSession={activeSession}
+          agents={agents}
+          activeAgent={activeAgent}
+          agentMenuOpen={agentMenuOpen}
+          setAgentMenuOpen={setAgentMenuOpen}
+          onSelectAgent={handleStartNewWithAgent}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
+          modelLabel={modelLabel}
+        />
 
         <div
           ref={chatScrollRef}
@@ -2272,43 +2212,15 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
       {/* 4. RIGHT PANEL：产物 + 后续扩展功能（左右可拉伸，默认关闭，≥lg 显示） */}
       {panelOpen && (
-        <div
-          style={{ width: 'var(--panel-w)' }}
-          className="hidden lg:flex min-h-0 shrink-0 border-l border-line bg-well flex-col relative"
-        >
-          {/* 左缘拖拽手标 */}
-          <div
-            onMouseDown={(e) => {
-              const rect = rootRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              startColDrag(e, (x) => {
-                const w = clamp(rect.right - x, 280, 560);
-                setPanelW(w);
-                localStorage.setItem('agentflow_chat_panel_w', String(w));
-              });
-            }}
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand/40 transition-colors z-10"
-            title="拖拽调整宽度"
-          />
-          <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b border-line">
-            <span className="af-label">产物</span>
-            {artifactCount > 0 && (
-              <span className="px-[7px] rounded-full text-[11px] font-mono leading-[17px] bg-raise text-ink-dim">
-                {artifactCount}
-              </span>
-            )}
-            <button
-              onClick={() => setPanelOpen(false)}
-              className="ml-auto w-6 h-6 rounded-md flex items-center justify-center text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer"
-              title="关闭功能区"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom">
-            <SessionFilesPanel ref={filesPanelRef} sessionId={activeSessionId} />
-          </div>
-        </div>
+        <ArtifactsPanel
+          rootRef={rootRef}
+          startColDrag={startColDrag}
+          setPanelW={setPanelW}
+          artifactCount={artifactCount}
+          onClose={() => setPanelOpen(false)}
+          filesPanelRef={filesPanelRef}
+          activeSessionId={activeSessionId}
+        />
       )}
       </>
       )}
@@ -2318,4 +2230,3 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     </div>
   );
 }
-
