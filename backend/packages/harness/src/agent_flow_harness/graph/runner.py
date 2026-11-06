@@ -24,6 +24,7 @@ def build_config(
     middlewares: Any | None = None,
     recursion_limit: int = 75,
     cancel_checker: Callable[[], Awaitable[bool]] | None = None,
+    final_answer_gate: Callable[[Any, Any], Awaitable[str | None]] | None = None,
     tool_output_reference_formatter: Callable[[str], str] | None = None,
     image_reference_formatter: Callable[[str, str], str] | None = None,
     image_keep_recent: int | None = None,
@@ -61,6 +62,13 @@ def build_config(
             it at the top of every REACT iteration and calls ``interrupt()``
             to gracefully suspend. On resume (``Command(resume=...)``) the loop
             continues with full context continuity.
+        final_answer_gate: Optional async callable ``(state, response) -> str | None``
+            polled by ``llm_node`` when the model produces a final answer (no
+            tool calls, about to route END). Returning a reminder string makes
+            the node append it as a HumanMessage and loop back to ``compress``
+            instead of ending the turn (bounded per user turn by an internal
+            reminder budget). Application-supplied — harness never hardcodes
+            the gate semantics (e.g. pending todos).
         tool_output_reference_formatter: Optional callable that turns a
             ``tool_call_id`` into a reference note appended to truncated tool
             outputs (so the agent knows how to recall the full original).
@@ -98,6 +106,8 @@ def build_config(
         configurable["workspace"] = workspace
     if cancel_checker is not None:
         configurable["cancel_checker"] = cancel_checker
+    if final_answer_gate is not None:
+        configurable["final_answer_gate"] = final_answer_gate
     if tool_output_reference_formatter is not None:
         configurable["tool_output_reference_formatter"] = (
             tool_output_reference_formatter

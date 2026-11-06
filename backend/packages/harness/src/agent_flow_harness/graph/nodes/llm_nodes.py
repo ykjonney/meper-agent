@@ -37,6 +37,38 @@ _TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 _MIN_SUMMARY_PROGRESS_TOKENS = 2000
 _MIN_SUMMARY_PROGRESS_RATIO = 0.05
 
+# ── Final-answer gate（回合结束门控，宿主语义 / harness 机制）──────────
+# LLM 产出不带 tool_call 的最终回复（tools_condition 将路由 END）时，宿主
+# 注入的 final_answer_gate 可否决收尾：返回提醒文案则追加一条带此 id 前缀
+# 的 HumanMessage，builder 的路由见前缀回 compress 续跑而非 END。
+FINAL_GATE_REMINDER_PREFIX = "final_gate_reminder_"
+# 每用户轮的提醒预算：自最近一条真实用户消息起计数，超限放行 END——
+# 防模型固执收尾时无限续跑（recursion_limit 是绝对兜底）。显式 id 另有
+# 重放去重作用（add_messages 按 id upsert）。
+_FINAL_GATE_REMINDER_BUDGET = 2
+
+
+def _final_gate_reminders_in_turn(messages: list[Any]) -> int:
+    """统计当前用户轮内已注入的门控提醒数。
+
+    自消息末尾向前数 ``FINAL_GATE_REMINDER_PREFIX`` 前缀的消息，遇到最近的
+    「真实用户消息」即停（轮边界：用户输入 / workflow 反馈消息）。工具产生
+    的图片后续 HumanMessage（TOOL_IMAGE_FOLLOW_UP_PREFIX）不是轮边界，跳过。
+    """
+    from agent_flow_harness.context_engineering.interruption import (
+        TOOL_IMAGE_FOLLOW_UP_PREFIX,
+    )
+
+    count = 0
+    for msg in reversed(messages):
+        mid = str(getattr(msg, "id", "") or "")
+        if mid.startswith(FINAL_GATE_REMINDER_PREFIX):
+            count += 1
+            continue
+        if isinstance(msg, HumanMessage) and not mid.startswith(TOOL_IMAGE_FOLLOW_UP_PREFIX):
+            break
+    return count
+
 
 def _finish_reason(response: AIMessage) -> str | None:
     """提取本次调用的结束原因（OpenAI finish_reason / Anthropic stop_reason）。"""
@@ -369,6 +401,57 @@ async def llm_node(
             "step_count": step_count,
             "error": depth_result.reason,
         }
+
+    # ── Final-answer gate — host-supplied turn-end check ────────────────
+    # 放在 depth guard 之后：depth 触发（error 置位提前 return）时天然跳过，
+    # 防超深时再续跑撞 recursion_limit。只对「干净的最终回复」生效：本节点
+    # 即将落盘的消息里最后一条 AIMessage 无 tool_call（tools_condition 判
+    # END 的同一时刻）。截断重试成功产生的 retry_response 同样适用。
+    gate = configurable.get("final_answer_gate")
+    if gate is not None:
+        outgoing = [response, *extra_messages]
+        last_ai = next(
+            (m for m in reversed(outgoing) if isinstance(m, AIMessage)),
+            None,
+        )
+        if last_ai is not None and not getattr(last_ai, "tool_calls", None):
+            history = state.get("messages") or []
+            used = _final_gate_reminders_in_turn(history)
+            if used < _FINAL_GATE_REMINDER_BUDGET:
+                try:
+                    reminder = await gate(state, last_ai)
+                except Exception as exc:
+                    # 门控自身故障不能阻断正常收尾——按无提醒放行
+                    logger.warning(
+                        "final_answer_gate_error",
+                        agent_id=state.get("agent_id"),
+                        request_id=state.get("request_id"),
+                        error=str(exc),
+                    )
+                    reminder = None
+                if reminder:
+                    # id 全局递增（跨用户轮不重号——add_messages 按 id
+                    # upsert，重号会覆盖旧提醒而非追加）；输入确定 → id
+                    # 确定，重放时天然去重。
+                    seq = 1 + sum(
+                        1
+                        for m in history
+                        if str(getattr(m, "id", "") or "").startswith(
+                            FINAL_GATE_REMINDER_PREFIX
+                        )
+                    )
+                    extra_messages.append(
+                        HumanMessage(
+                            content=str(reminder),
+                            id=f"{FINAL_GATE_REMINDER_PREFIX}{seq}",
+                        )
+                    )
+                    logger.info(
+                        "final_answer_gate_reminder",
+                        agent_id=state.get("agent_id"),
+                        request_id=state.get("request_id"),
+                        reminder_count=used + 1,
+                    )
 
     return {"messages": [response, *extra_messages], "step_count": step_count}
 

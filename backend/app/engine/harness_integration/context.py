@@ -30,7 +30,7 @@ def get_checkpointer() -> Any:
 _INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "bash", "read", "write", "edit", "glob", "grep", "ask_clarification",
     "run_code", "parse_file", "view_image", "recall_tool_result",
-    "request_app_authorization",
+    "request_app_authorization", "todo_write",
 )
 
 # 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
@@ -143,6 +143,7 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
     from app.engine.agent.parse_tool import PARSE_TOOL_BY_NAME
     from app.engine.agent.plan_tool import _PLAN_TOOLS
     from app.engine.agent.recall_tool import RECALL_TOOL_BY_NAME
+    from app.engine.agent.todo_tool import TODO_TOOL_BY_NAME
     from app.engine.agent.workflow_executor import _TASK_TOOLS, _WORKFLOW_CONTEXT_TOOLS
 
     tools: list = []
@@ -180,13 +181,14 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
         builtin_config |= {"read", "write", "edit"}
 
     for name in _INJECTED_BUILTIN_TOOL_NAMES:
-        # parse_file / view_image / recall_tool_result 是 app 层工具,harness
-        # 注册表取不到,补查找表。
+        # parse_file / view_image / recall_tool_result / todo_write 是 app 层
+        # 工具,harness 注册表取不到,补查找表。
         tool = (
             BUILTIN_TOOLS.get(name)
             or PARSE_TOOL_BY_NAME.get(name)
             or IMAGE_TOOL_BY_NAME.get(name)
             or RECALL_TOOL_BY_NAME.get(name)
+            or TODO_TOOL_BY_NAME.get(name)
         )
         if tool is None:
             continue
@@ -948,7 +950,9 @@ async def resolve_harness_context(
 
     # 父 agent id 上下文（spawn_tools 繁殖审计用；release 成对 reset）。
     from app.engine.agent.spawn_tools import set_spawn_agent_context
+    from app.engine.agent.todo_tool import todo_final_gate
     from app.engine.harness_integration.recorder_middleware import RecorderMiddleware
+    from app.engine.harness_integration.todo_middleware import TodoSalienceMiddleware
 
     spawn_token = set_spawn_agent_context(str(agent_doc.get("_id", "") or agent_id))
 
@@ -986,7 +990,11 @@ async def resolve_harness_context(
         "tri_token": tri_token,
         "ext_token": ext_token,
         "tb_token": tb_token,
-        "middlewares": [UsageMiddleware(), RecorderMiddleware(recorder)],
+        "middlewares": [
+            UsageMiddleware(),
+            RecorderMiddleware(recorder),
+            TodoSalienceMiddleware(),
+        ],
         "context_window": context_window,
         # 执行过程记录器——execution.py 经 recorder_sink 暴露给调用方。
         "recorder": recorder,
@@ -1016,6 +1024,10 @@ async def resolve_harness_context(
         "image_reference_formatter": _make_image_reference_formatter(),
         # 降级时保留最近 N 张真图(0 = 全部降级,最省 token)。
         "image_keep_recent": settings.IMAGE_KEEP_RECENT_N,
+        # 回合结束门控——最终回复(无 tool_call)落定前,harness 回调此 gate
+        # 检查未完成待办并注入提醒续跑。同 formatter 模式:harness 只透传
+        # callable,语义(读 state.todos 判定未完成项)归 app 层。
+        "final_answer_gate": todo_final_gate,
     }
 
 

@@ -34,6 +34,16 @@ class AgentState(TypedDict):
     tool_results: dict[str, Any]
     """Cache of tool-call results keyed by tool name or call ID."""
 
+    todos: list[dict[str, Any]]
+    """Host-managed task list (todo tracking) as plain data.
+
+    Last-value-wins (full replacement on write). Lives in the checkpointer
+    alongside the state, so it survives context compression (which only
+    rewrites the ``messages`` channel) and is deleted with the thread.
+    The harness treats it as opaque payload; semantics belong to the host
+    application (tool + final-answer gate + salience re-injection).
+    """
+
     step_count: int
     """Number of reasoning / acting steps taken so far (0-based)."""
 

@@ -6,6 +6,7 @@ import {
   DatabaseOutlined,
   FileOutlined,
   FileTextOutlined,
+  OrderedListOutlined,
   QuestionCircleOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -36,6 +37,7 @@ const SPECIAL_TOOLS = new Set([
   'confirm_workflow',
   'request_app_authorization',
   'delegate_to_subagent',
+  'todo_write',
 ])
 
 /** 一段连续的普通工具分组。特殊工具作为独立的 ToolRun 单独渲染,打断聚合。 */
@@ -336,6 +338,57 @@ function SubagentCard({ tool }: { tool: ToolRun }) {
         },
       ]}
     />
+  )
+}
+
+/** 解析 todo_write 的 args → 清单项数组(失败回退空,走通用卡片)。 */
+function parseTodoArgs(args?: string): { content: string; status: string }[] {
+  try {
+    const a: { todos?: { content?: unknown; status?: unknown }[] } = args
+      ? JSON.parse(args)
+      : {}
+    if (!Array.isArray(a.todos)) return []
+    return a.todos
+      .filter((t): t is { content: string; status: string } => typeof t === 'object' && t !== null)
+      .map((t) => ({
+        content: String(t.content ?? ''),
+        status: String(t.status ?? 'pending'),
+      }))
+  } catch {
+    return []
+  }
+}
+
+const TODO_STATUS_GLYPH: Record<string, string> = {
+  pending: '☐',
+  in_progress: '◐',
+  completed: '☑',
+}
+
+/** todo_write 专属卡片:checkbox 清单(全量替换语义,卡片展示该次更新的
+ * 完整清单快照)。完成项划线灰显、进行中高亮,摘要行显示完成度。 */
+function TodoCard({ tool }: { tool: ToolRun }) {
+  const todos = parseTodoArgs(tool.args)
+  if (!todos.length) return null
+  const done = todos.filter((t) => t.status === 'completed').length
+  return (
+    <div className={`todo-card tool-run-${tool.status}`}>
+      <div className="todo-card-header">
+        <OrderedListOutlined />
+        <span className="todo-card-label">任务清单</span>
+        <span className="todo-card-count">
+          {done}/{todos.length} 完成
+        </span>
+      </div>
+      <ul className="todo-card-list">
+        {todos.map((t, i) => (
+          <li key={i} className={`todo-item todo-item-${t.status}`}>
+            <span className="todo-item-glyph">{TODO_STATUS_GLYPH[t.status] ?? '☐'}</span>
+            <span className="todo-item-content">{t.content}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -702,6 +755,10 @@ function ToolResult({
   // delegate_to_subagent：子 Agent 委派专属卡片(直接显示执行主体名)。
   if (tool.name === 'delegate_to_subagent') {
     return <SubagentCard tool={tool} />
+  }
+  // todo_write：任务清单专属卡片(checkbox 清单快照)。解析失败落通用卡片。
+  if (tool.name === 'todo_write' && parseTodoArgs(tool.args).length) {
+    return <TodoCard tool={tool} />
   }
   const isKnowledge = tool.name === 'kb_retrieve' || tool.name === 'search_kb'
   const title = isKnowledge ? '知识库检索' : tool.name

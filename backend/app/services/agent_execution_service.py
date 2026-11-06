@@ -940,6 +940,7 @@ def _build_initial_state(
         "execution_path": execution_path,
         "request_id": request_id,
         "tool_results": {},
+        "todos": [],
         "step_count": 0,
         "error": None,
         "call_chain": call_chain,

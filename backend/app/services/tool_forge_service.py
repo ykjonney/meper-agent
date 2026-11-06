@@ -394,6 +394,7 @@ class ToolForgeService:
             "execution_path": "react",
             "request_id": generate_id("req"),
             "tool_results": {},
+            "todos": [],
             "step_count": 0,
             "error": None,
             "call_chain": [],

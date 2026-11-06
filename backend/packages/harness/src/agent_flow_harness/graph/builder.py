@@ -19,8 +19,10 @@ wired by LangGraph edges:
 * ``tools`` — native ``langgraph.prebuilt.ToolNode`` (concurrent execution,
   error handling, middleware via ``awrap_tool_call``).
 
-Routing uses the native ``tools_condition`` conditional edge. Iteration cap is
-enforced by the graph's ``recursion_limit`` (default in ``build_config``).
+Routing wraps the native ``tools_condition`` conditional edge (see
+``_route_after_llm``; the wrapper additionally loops back to ``compress`` when
+the final-answer gate injected a reminder message). Iteration cap is enforced
+by the graph's ``recursion_limit`` (default in ``build_config``).
 
 Guards are resolved from ``agent_doc["guards"]`` unless an explicit
 ``guards=`` list is passed. A ``Block`` from any guard sets ``state["error"]``
@@ -36,7 +38,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from agent_flow_harness.graph.nodes import compress_node, llm_node, make_tool_wrapper
+from agent_flow_harness.graph.nodes import (
+    FINAL_GATE_REMINDER_PREFIX,
+    compress_node,
+    llm_node,
+    make_tool_wrapper,
+)
 from agent_flow_harness.guards import resolve_guards
 from agent_flow_harness.guards.nodes import make_guard_in_node
 from agent_flow_harness.middleware.chain import MiddlewareChain
@@ -48,6 +55,24 @@ if TYPE_CHECKING:
 
     from agent_flow_harness.guards.base import Guard
     from agent_flow_harness.middleware.base import Middleware
+
+
+def _route_after_llm(state: dict[str, Any]) -> str:
+    """tools_condition 包装：门控提醒消息 → 回 compress 续跑。
+
+    llm_node 的 final-answer gate 在最终回复后可能追加一条带
+    ``FINAL_GATE_REMINDER_PREFIX`` id 前缀的 HumanMessage（宿主语义，如
+    「还有未完成待办」）。原生 tools_condition 对无 tool_call 的末消息只会
+    判 END；此处见前缀改判 ``compress``，让循环带着提醒继续（compress→llm
+    固定边已存在）。路由函数必须纯读 state，不改状态——注入已在 llm_node
+    的返回 patch 里完成。
+    """
+    messages = state.get("messages") or []
+    last = messages[-1] if messages else None
+    last_id = str(getattr(last, "id", "") or "") if last is not None else ""
+    if last_id.startswith(FINAL_GATE_REMINDER_PREFIX):
+        return "compress"
+    return tools_condition(state)
 
 
 def build_agent_graph(
@@ -110,13 +135,14 @@ def build_agent_graph(
     )
     builder.add_node("tools", tool_node)
 
-    # ── Edges: compress → llm → (tools_condition) ───────────────────────
+    # ── Edges: compress → llm → (_route_after_llm) ──────────────────────
     builder.add_edge("compress", "llm")
-    # tools_condition returns "tools" or END; route accordingly.
+    # _route_after_llm returns "tools" / "compress" / END; route accordingly.
+    # ("compress" = final-answer gate 注入了提醒，回环续跑。)
     builder.add_conditional_edges(
         "llm",
-        tools_condition,
-        {"tools": "tools", END: END},
+        _route_after_llm,
+        {"tools": "tools", "compress": "compress", END: END},
     )
     # After tools, loop back to compress for the next iteration.
     builder.add_edge("tools", "compress")

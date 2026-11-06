@@ -595,6 +595,32 @@ def _build_builtin_tool_declaration(
             "",
         ])
 
+    # todo_write is always available in all contexts (capability tool).
+    # 门控行为与运行时一致（final_answer_gate 每用户轮 ≤2 次提醒），声明
+    # 必须写明——模型知道"留未完成项收不了尾"才会主动维护清单终态。
+    from app.engine.agent.todo_tool import TODO_TOOL_BY_NAME
+
+    _todo = TODO_TOOL_BY_NAME.get("todo_write")
+    if _todo is not None:
+        _todo_desc = (_todo.description or "").split("\n")[0].strip()
+        lines.extend([
+            "",
+            "### Task Tracking",
+            "",
+            f"- **todo_write**: {_todo_desc}",
+            "Before starting a multi-step task (3+ steps), call `todo_write` with the full",
+            "checklist; update it as you progress. Every call passes the COMPLETE list",
+            "(full replacement). Keep exactly one item `in_progress` at a time; mark items",
+            "`completed` only when fully done; remove items that are no longer relevant;",
+            "when everything is done, clear the list by passing an empty list.",
+            "The current checklist is re-injected before each of your turns, and you",
+            "MUST NOT end your reply while the checklist still has pending / in_progress",
+            "items — the system will remind you (up to 2 times per user turn) and send",
+            "you back to continue. Do not create checklists for simple Q&A or single-step",
+            "tasks.",
+            "",
+        ])
+
     if execution_context == "workflow":
         # 工作流无人值守语义：ask_clarification 已剥离，不生成 Clarification 段
         # （自主执行规则由 build_tool_declaration 作为独立段注入）。
