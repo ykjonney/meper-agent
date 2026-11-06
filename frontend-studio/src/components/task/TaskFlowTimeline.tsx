@@ -232,13 +232,13 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     return <div className="text-xs text-ink-dim italic">暂无执行事件</div>
   }
 
-  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
-  const subText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
+  const mutedText = 'text-ink-dim'
+  const subText = 'text-ink-dim'
 
   return (
     <div className="relative pl-6">
       {/* 竖向连接线 */}
-      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] ${theme === 'dark' ? 'bg-line' : 'bg-slate-200'}`} />
+      <div className={`absolute left-[11px] top-2 bottom-2 w-[2px] bg-line`} />
 
       {/* 创建里程碑 */}
       {createdEvt && (
@@ -267,9 +267,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
           <div key={stage.nodeId} className="relative py-1.5">
             {/* 左侧状态圆点 */}
             <div
-              className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 z-10 flex items-center justify-center ${
-                theme === 'dark' ? 'border-line' : 'border-white'
-              }`}
+              className="absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-line z-10 flex items-center justify-center"
               style={{ backgroundColor: meta.color }}
             />
 
@@ -287,17 +285,15 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                 state === 'executing'
                   ? 'border-[#3B82F6]/50 bg-[#3B82F6]/5'
                   : state === 'failed' || state === 'rejected'
-                    ? 'border-[#EF4444]/40 bg-[#EF4444]/5'
+                    ? 'border-sig-fail/40 bg-sig-fail-soft'
                     : state === 'waiting'
-                      ? 'border-[#8B5CF6]/40 bg-[#8B5CF6]/5'
-                      : theme === 'dark'
-                        ? 'border-line bg-panel hover:border-line-strong'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
+                      ? 'border-brand/40 bg-brand-soft'
+                      : 'border-line bg-panel hover:border-line-strong'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className={`shrink-0 ${subText}`}>{NODE_TYPE_ICON[stage.nodeType] ?? <Flag size={13} />}</span>
-                <span className={`text-xs font-medium truncate flex-1 ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{nodeLabel}</span>
+                <span className={`text-xs font-medium truncate flex-1 text-ink`}>{nodeLabel}</span>
                 <span
                   className="inline-flex items-center gap-1 text-[11px] font-medium shrink-0"
                   style={{ color: meta.color }}
@@ -325,7 +321,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
               {isExpanded && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className={`mt-2 pt-2 space-y-2.5 ${theme === 'dark' ? 'border-line' : 'border-slate-200'} border-t`}
+                  className={`mt-2 pt-2 space-y-2.5 border-line border-t`}
                 >
                   {/* 事件列表（保留旧的中文标签 / actor / 可折叠 data） */}
                   {stage.events.length > 0 && (
@@ -438,7 +434,7 @@ function LoopMembers({
   threadPolicyMap: Map<string, string>
   loopNodeId: string
 }) {
-  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const mutedText = 'text-ink-dim'
   const loopOutput = (task.output ?? task.variables)?.[loopNodeId] as
     | { rounds?: Record<string, Record<string, unknown>> }
     | undefined
@@ -495,10 +491,10 @@ function FreshMemberCard({
     : latestVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
     : null
   return (
-    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+    <div className={`rounded-md border px-2 py-1.5 border-line bg-panel`}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
-        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{label}</span>
+        <span className={`text-[11px] font-medium truncate text-ink`}>{label}</span>
         <span className={`text-[11px] ${mutedText}`}>每轮独立 · {memberRounds.length} 轮</span>
         {verdictBadge && (
           <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
@@ -564,10 +560,10 @@ function ContinueMemberCard({
     : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
     : null
   return (
-    <div className={`rounded-md border px-2 py-1.5 ${theme === 'dark' ? 'border-line bg-panel' : 'border-slate-200 bg-white'}`}>
+    <div className={`rounded-md border px-2 py-1.5 border-line bg-panel`}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
-        <span className={`text-[11px] font-medium truncate ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>{mLabel}</span>
+        <span className={`text-[11px] font-medium truncate text-ink`}>{mLabel}</span>
         {verdictBadge && (
           <span className="text-[11px] font-medium rounded px-1 py-0.5 shrink-0" style={{ color: verdictBadge.color, backgroundColor: `${verdictBadge.color}1a` }}>
             {verdictBadge.text}
@@ -609,7 +605,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
     staleTime: 60_000,
     retry: 1,
   })
-  const mutedText = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const mutedText = 'text-ink-dim'
   const errAny = error as { statusCode?: number; response?: { status?: number }; message?: string } | null
   const errStatus = errAny?.statusCode ?? errAny?.response?.status
   const is404 = errStatus === 404
@@ -617,11 +613,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
     <div onClick={(e) => e.stopPropagation()} className="mt-2">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
-          theme === 'dark'
-            ? `border-line bg-well hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-ink-dim'}`
-            : `border-slate-200 bg-slate-50 hover:border-[#1E5EFF]/50 hover:text-link ${expanded ? 'text-link border-[#1E5EFF]/40' : 'text-slate-600'}`
-        }`}
+        className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer border-line bg-well hover:border-brand/50 hover:text-link ${expanded ? 'text-link border-brand/40' : 'text-ink-dim'}`}
       >
         <Workflow size={12} className="shrink-0" />
         Agent 执行明细
@@ -638,7 +630,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
           <Spin />
         </div>
       ) : error ? (
-        <div className={`text-[11px] italic ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>
+        <div className={`text-[11px] italic text-ink-dim`}>
           {is404 ? '该节点暂无执行记录' : `加载失败：${errAny?.message ?? '请稍后重试'}`}
         </div>
       ) : nodeTimeline?.timeline?.length ? (

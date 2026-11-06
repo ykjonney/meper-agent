@@ -207,13 +207,13 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
           ) : null}
 
           {fetchError ? (
-            <div className="text-[11px] text-amber-300 flex items-center gap-1.5">
+            <div className="text-[11px] text-sig-wait flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
               <span className="flex-1">无法加载任务详情{fetchError.message ? `：${fetchError.message}` : ''}</span>
               <button
                 type="button"
                 onClick={() => detailQ.refetch()}
-                className="text-amber-300/80 hover:text-amber-200 underline"
+                className="text-sig-wait/80 hover:text-sig-wait underline"
               >
                 重试
               </button>
@@ -299,7 +299,7 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
               <button
                 type="button"
                 onClick={() => detailQ.refetch()}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-ink hover:bg-line transition-colors cursor-pointer"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-ink-dim hover:text-ink hover:bg-raise transition-colors cursor-pointer"
                 title="刷新"
               >
                 <RefreshCw className="w-3 h-3" /> 刷新
@@ -315,7 +315,7 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
                 onChange={(e) => setComment(e.target.value)}
                 placeholder={pendingAction === 'reject' ? '驳回理由（可选）' : '取消原因（可选）'}
                 rows={2}
-                className="w-full bg-well border border-line rounded p-1.5 text-[11px] text-ink resize-none outline-none focus:border-indigo-500/50"
+                className="w-full bg-well border border-line rounded p-1.5 text-[11px] text-ink resize-none outline-none focus:border-brand/50"
               />
               <div className="flex gap-1.5 justify-end">
                 <button
@@ -324,7 +324,7 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
                     setPendingAction(null);
                     setComment('');
                   }}
-                  className="px-2 py-1 rounded text-[11px] text-ink-dim hover:bg-line cursor-pointer"
+                  className="px-2 py-1 rounded text-[11px] text-ink-dim hover:bg-raise cursor-pointer"
                 >
                   取消
                 </button>
@@ -332,7 +332,7 @@ export function WorkflowTaskCard({ created }: { created: TaskCreated }) {
                   type="button"
                   onClick={submitPending}
                   disabled={interveneMut.isPending}
-                  className="px-2 py-1 rounded text-[11px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/30 disabled:opacity-50 cursor-pointer"
+                  className="px-2 py-1 rounded text-[11px] bg-brand-soft text-brand border border-brand/40 hover:bg-brand-soft disabled:opacity-50 cursor-pointer"
                 >
                   确认{pendingAction === 'reject' ? '驳回' : '取消'}
                 </button>
@@ -360,10 +360,10 @@ function ActBtn({
 }) {
   const cls =
     tone === 'ok'
-      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+      ? 'border-sig-ok/40 bg-sig-ok-soft text-sig-ok hover:bg-sig-ok-soft'
       : tone === 'warn'
-        ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
-        : 'border-line-strong bg-line/40 text-ink-soft hover:bg-line';
+        ? 'border-sig-wait/40 bg-sig-wait-soft text-sig-wait hover:bg-sig-wait-soft'
+        : 'border-line-strong bg-line/40 text-ink-soft hover:bg-raise';
   return (
     <button
       type="button"

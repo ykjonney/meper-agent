@@ -95,7 +95,7 @@ function HtmlPreview({ source }: { source: string }) {
         <button
           onClick={() => setMode('render')}
           className={`px-2 py-1 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
-            mode === 'render' ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
+            mode === 'render' ? 'bg-brand text-white' : 'text-ink-dim hover:text-ink'
           }`}
         >
           <Eye className="w-3 h-3" /> 渲染
@@ -103,7 +103,7 @@ function HtmlPreview({ source }: { source: string }) {
         <button
           onClick={() => setMode('source')}
           className={`px-2 py-1 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
-            mode === 'source' ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
+            mode === 'source' ? 'bg-brand text-white' : 'text-ink-dim hover:text-ink'
           }`}
         >
           <Code2 className="w-3 h-3" /> 源码
@@ -142,13 +142,13 @@ function highlightJson(jsonStr: string): { __html: string } {
   const colored = escaped.replace(
     /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
     (match) => {
-      let cls = 'text-emerald-400'; // number
+      let cls = 'text-sig-ok'; // number
       if (/^"/.test(match)) {
-        cls = /:$/.test(match) ? 'text-link' : 'text-amber-300'; // key : vs string
+        cls = /:$/.test(match) ? 'text-link' : 'text-sig-wait'; // key : vs string
       } else if (/true|false/.test(match)) {
         cls = 'text-purple-400'; // boolean
       } else if (/null/.test(match)) {
-        cls = 'text-rose-400'; // null
+        cls = 'text-sig-fail'; // null
       }
       return `<span class="${cls}">${match}</span>`;
     },
@@ -168,7 +168,7 @@ function JsonPreview({ raw }: { raw: string }) {
   return (
     <div className="flex flex-col gap-2">
       {parseError && (
-        <div className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+        <div className="text-[11px] text-sig-wait bg-sig-wait-soft border border-sig-wait/20 rounded px-2 py-1">
           {parseError}
         </div>
       )}

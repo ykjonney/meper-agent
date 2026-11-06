@@ -142,7 +142,7 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
           {files.length > 0 && (
             <button
               onClick={handleDownloadZip}
-              className="flex items-center gap-1 px-2 py-1 rounded-md border border-line hover:bg-line text-ink-dim hover:text-white text-[11px] font-semibold transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 rounded-md border border-line hover:bg-raise text-ink-dim hover:text-ink text-[11px] font-semibold transition cursor-pointer"
             >
               <FolderArchive className="w-3 h-3" /> 下载全部 (ZIP)
             </button>
@@ -191,13 +191,13 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
                     <span className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => handleDelete(file.path)}
-                        className="px-1.5 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
+                        className="px-1.5 py-0.5 rounded bg-sig-fail hover:opacity-90 text-white text-[11px] font-semibold cursor-pointer"
                       >
                         删除
                       </button>
                       <button
                         onClick={() => setConfirmingPath(null)}
-                        className="px-1.5 py-0.5 rounded border border-line text-ink-dim hover:text-white text-[11px] font-semibold cursor-pointer"
+                        className="px-1.5 py-0.5 rounded border border-line text-ink-dim hover:text-ink text-[11px] font-semibold cursor-pointer"
                       >
                         取消
                       </button>
@@ -221,7 +221,7 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
                       <button
                         onClick={() => setConfirmingPath(file.path)}
                         title="删除"
-                        className="p-0.5 text-ink-dim hover:text-rose-400 cursor-pointer transition-colors"
+                        className="p-0.5 text-ink-dim hover:text-sig-fail cursor-pointer transition-colors"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>

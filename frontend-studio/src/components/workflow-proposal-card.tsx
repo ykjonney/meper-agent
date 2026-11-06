@@ -122,7 +122,7 @@ export default function WorkflowProposalCard({
               <button
                 type="button"
                 onClick={handleReject}
-                className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-line transition cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-raise transition cursor-pointer inline-flex items-center gap-1.5"
               >
                 <XCircle size={13} />
                 拒绝

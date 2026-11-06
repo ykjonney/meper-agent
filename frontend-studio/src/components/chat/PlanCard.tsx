@@ -71,7 +71,6 @@ export function PlanCard({
   // [作为反馈提交]（编辑稿走 resume 修订通道）。零 LLM 的精确修正路径。
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const dark = theme === 'dark';
   const plan = String(entry.args?.plan ?? "");
   const result = entry.result ?? "";
   const answered = Boolean(result);
@@ -88,46 +87,34 @@ export function PlanCard({
   ].filter((s): s is { title: string; body: string } => Boolean(s));
   const isObjective = (title: string) => title === "目标";
 
-  // 主题化实色（prose-chat 正文色随主题切换，卡片底色必须跟着走，
-  // 否则浅色主题下深字深底看不清）。
-  const shellCls = dark
-    ? 'border-line-strong bg-panel'
-    : 'border-line bg-panel';
-  const headerCls = dark ? 'bg-[#212126] border-line-strong' : 'bg-panel-hover border-line';
-  const bodyCls = dark ? 'bg-[#1a1a20]' : 'bg-panel';
-  const footerCls = dark ? 'bg-page border-line-strong' : 'bg-panel-hover border-line';
-  const titleCls = dark ? 'text-white' : 'text-ink';
-  const subtitleCls = dark ? 'text-ink-dim' : 'text-ink-dim';
-  const sectionTitleCls = dark ? 'text-brand' : 'text-brand';
-  const dashCls = dark ? 'border-line-strong' : 'border-line-strong';
-  const objectiveTextCls = dark ? 'text-white' : 'text-ink';
-  const bodyTextCls = dark ? 'text-zinc-300' : 'text-slate-700';
+  // 语义类随主题挂载链自动适配（卡片底色必须与 prose-chat 正文色同步）。
+  const shellCls = 'border-line bg-panel';
+  const headerCls = 'bg-panel-hover border-line';
+  const bodyCls = 'bg-panel';
+  const footerCls = 'bg-page border-line';
+  const titleCls = 'text-ink';
+  const subtitleCls = 'text-ink-dim';
+  const sectionTitleCls = 'text-brand';
+  const dashCls = 'border-line-strong';
+  const objectiveTextCls = 'text-ink';
+  const bodyTextCls = 'text-ink-soft';
   const badge = answered
     ? approved
-      ? dark ? 'bg-sig-ok-soft text-sig-ok border-line'
-             : 'bg-sig-ok-soft text-sig-ok border-line'
-      : dark ? 'bg-sig-wait-soft text-sig-wait border-line'
-             : 'bg-sig-wait-soft text-sig-wait border-line'
-    : dark ? 'bg-brand-soft text-brand border-brand'
-           : 'bg-brand-soft text-brand border-brand';
-  const ghostBtnCls = dark
-    ? 'border-line-strong text-ink-dim hover:text-white hover:border-line-strong'
-    : 'border-line-strong text-ink-dim hover:text-ink hover:border-ink-dim';
-  const inputCls = dark
-    ? 'bg-panel border-line-strong text-white placeholder-ink-dim focus:border-brand'
-    : 'bg-panel border-line-strong text-ink placeholder-slate-400 focus:border-brand';
-  const secondaryBtnCls = dark
-    ? 'bg-line hover:bg-line-strong text-white'
-    : 'bg-line hover:bg-line-strong text-ink';
-  const resultTextCls = dark ? 'text-ink-dim' : 'text-ink-dim';
+      ? 'bg-sig-ok-soft text-sig-ok border-line'
+      : 'bg-sig-wait-soft text-sig-wait border-line'
+    : 'bg-brand-soft text-brand border-brand';
+  const ghostBtnCls = 'border-line-strong text-ink-dim hover:text-ink hover:border-line-strong';
+  const inputCls = 'bg-panel border-line-strong text-ink placeholder:text-ink-dim focus:border-brand';
+  const secondaryBtnCls = 'bg-line hover:bg-raise text-ink';
+  const resultTextCls = 'text-ink-dim';
 
   return (
     <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-lg max-w-full ${shellCls}`}>
       {/* 文档标题栏 */}
       <div className={`flex items-center justify-between px-5 py-3 border-b ${headerCls}`}>
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-sky-500/15 border border-brand flex items-center justify-center">
-            <ClipboardList className={`w-3.5 h-3.5 ${dark ? 'text-brand' : 'text-brand'}`} />
+          <div className="w-7 h-7 rounded-md bg-brand-soft border border-brand flex items-center justify-center">
+            <ClipboardList className="w-3.5 h-3.5 text-brand" />
           </div>
           <div>
             <div className={`text-[13px] font-bold tracking-widest ${titleCls}`}>
@@ -145,19 +132,15 @@ export function PlanCard({
 
       {/* ① 工具清单警示条：审批焦点从"步骤合理"降到"会碰什么"（变更类⚠高亮） */}
       {toolHints.length > 0 && (
-        <div className={`flex flex-wrap items-center gap-1.5 px-5 py-2 border-b ${dark ? 'border-line-strong bg-[#1d1d23]' : 'border-raise bg-slate-50/60'}`}>
+        <div className="flex flex-wrap items-center gap-1.5 px-5 py-2 border-b border-raise bg-page">
           <span className={`text-[11px] font-semibold tracking-wide ${subtitleCls}`}>本计划将使用：</span>
           {toolHints.map((h) => (
             <span
               key={h.label}
               className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
                 h.mutating
-                  ? dark
-                    ? 'bg-sig-wait-soft border-line text-sig-wait'
-                    : 'bg-sig-wait-soft border-line text-sig-wait'
-                  : dark
-                    ? 'bg-line border-line-strong text-ink-dim'
-                    : 'bg-raise border-line text-ink-dim'
+                  ? 'bg-sig-wait-soft border-line text-sig-wait'
+                  : 'bg-raise border-line text-ink-dim'
               }`}
             >
               {h.mutating ? '⚠ ' : ''}{h.label}
@@ -173,13 +156,13 @@ export function PlanCard({
           <div key={i}>
             {sec.title && (
               <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="w-1 h-3.5 bg-sky-500/70 rounded-full" />
+                <span className="w-1 h-3.5 bg-brand/70 rounded-full" />
                 <h4 className={`text-[11px] font-bold tracking-widest uppercase ${sectionTitleCls}`}>{sec.title}</h4>
                 <span className={`flex-1 border-t border-dashed ${dashCls}`} />
               </div>
             )}
             {isObjective(sec.title) ? (
-              <div className={`px-3 py-2 rounded-md bg-sky-500/5 border-l-2 border-sky-500/60 text-[13px] font-medium leading-relaxed ${objectiveTextCls}`}>
+              <div className={`px-3 py-2 rounded-md bg-brand-soft/50 border-l-2 border-brand/60 text-[13px] font-medium leading-relaxed ${objectiveTextCls}`}>
                 <Markdown content={planCheckboxGlyphs(sec.body.trim())} />
               </div>
             ) : (
@@ -211,7 +194,7 @@ export function PlanCard({
                     setEditing(false);
                     onApprovePlan?.(draft.trim());
                   }}
-                  className="px-4 py-1.5 rounded-md bg-brand hover:bg-brand text-white text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-4 py-1.5 rounded-md bg-brand hover:bg-brand-hover text-white text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   按此版本批准
                 </button>
@@ -241,7 +224,7 @@ export function PlanCard({
             <button
               type="button"
               onClick={() => onApprovePlan?.(plan)}
-              className="px-4 py-1.5 rounded-md bg-brand hover:bg-brand text-white text-xs font-semibold cursor-pointer transition-colors"
+              className="px-4 py-1.5 rounded-md bg-brand hover:bg-brand-hover text-white text-xs font-semibold cursor-pointer transition-colors"
             >
               同意执行
             </button>
@@ -307,24 +290,17 @@ export function PlanCard({
 /** 授权守卫引导条 — ask_clarification 被 authorization_guard_veto 拦截
  * （存在未授权应用时防模型向用户索要凭证）的呈现形态。与澄清卡区分：
  * 这是系统级安全引导（指向 request_app_authorization），不是一次提问。 */
-export function GuardRedirectNote({ text, theme }: { text: string; theme: 'dark' | 'light' }) {
-  const dark = theme === 'dark';
+export function GuardRedirectNote({ text }: { text: string; theme?: 'dark' | 'light' }) {
   return (
-    <div
-      className={`rounded-xl rounded-tl-none border px-4 py-3 font-sans shadow-sm ${
-        dark
-          ? 'border-amber-500/25 bg-amber-500/5'
-          : 'border-line bg-sig-wait-soft'
-      }`}
-    >
-      <div className={`flex items-center gap-2 text-xs font-semibold ${dark ? 'text-sig-wait' : 'text-sig-wait'}`}>
+    <div className="rounded-xl rounded-tl-none border border-line px-4 py-3 font-sans shadow-sm bg-sig-wait-soft">
+      <div className="flex items-center gap-2 text-xs font-semibold text-sig-wait">
         <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
         系统安全引导（追问已拦截）
       </div>
-      <p className={`mt-1.5 text-[11.5px] leading-relaxed ${dark ? 'text-zinc-300' : 'text-ink-dim'}`}>
+      <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-soft">
         {text}
       </p>
-      <p className={`mt-1 text-[11px] ${dark ? 'text-ink-dim' : 'text-ink-dim'}`}>
+      <p className="mt-1 text-[11px] text-ink-dim">
         模型被引导改用应用授权流程（request_app_authorization），凭证永不进入对话。
       </p>
     </div>

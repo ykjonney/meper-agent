@@ -128,7 +128,7 @@ export function ClarificationCard({
     ? { icon: 'text-sig-wait', wrap: 'bg-sig-wait-soft border-line', sym: '⚠️' }
     : isSuggestion
       ? { icon: 'text-sig-ok', wrap: 'bg-sig-ok-soft border-line', sym: '💡' }
-      : { icon: 'text-brand', wrap: 'bg-brand-soft border-indigo-500/30', sym: '❓' };
+      : { icon: 'text-brand', wrap: 'bg-brand-soft border-brand/30', sym: '❓' };
 
   return (
     <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-sm ${accent.wrap}`}>
@@ -190,14 +190,14 @@ export function ClarificationCard({
                 <button
                   type="button"
                   onClick={() => onAnswer?.('确认')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-rose-600 text-white hover:bg-sig-fail transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-sig-fail text-white hover:bg-sig-fail transition cursor-pointer"
                 >
                   确认执行
                 </button>
                 <button
                   type="button"
                   onClick={() => onAnswer?.('取消')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-line transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-raise transition cursor-pointer"
                 >
                   取消
                 </button>
@@ -210,7 +210,7 @@ export function ClarificationCard({
                 <button
                   type="button"
                   onClick={() => onAnswer?.('接受建议')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-sig-ok text-white hover:bg-sig-ok transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs bg-sig-ok text-white hover:opacity-90 transition cursor-pointer"
                 >
                   接受
                 </button>

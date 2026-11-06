@@ -102,7 +102,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
-                className="hover:text-white cursor-pointer"
+                className="hover:text-ink cursor-pointer"
               >
                 <X className="w-2.5 h-2.5" />
               </button>
@@ -184,7 +184,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => setPlanMode(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none bg-page border-line text-ink-dim hover:text-white"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none bg-page border-line text-ink-dim hover:text-ink"
               title="计划模式（plan_mode）— 调研设计优先、不产生变更（沙盒内探索性命令保留）；路径不确定或不可逆的任务先出计划审批后再执行"
             >
               <ClipboardList className="w-3 h-3" />
@@ -293,7 +293,7 @@ export function Composer({
             <button
               type="button"
               onClick={onStop}
-              className="w-[23px] h-[23px] rounded-full flex items-center justify-center cursor-pointer bg-sig-fail hover:bg-sig-fail text-white shadow-[0_2px_8px_rgba(217,58,63,.3)]"
+              className="w-[23px] h-[23px] rounded-full flex items-center justify-center cursor-pointer bg-sig-fail hover:opacity-90 text-white shadow-[0_2px_8px_rgba(217,58,63,.3)]"
               title="中断"
             >
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

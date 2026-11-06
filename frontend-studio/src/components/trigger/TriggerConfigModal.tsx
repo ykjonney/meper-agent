@@ -233,7 +233,7 @@ export default function TriggerConfigModal({
             工作流{isEdit && '（不可更改）'}
           </div>
           {isEdit ? (
-            <div className="text-xs text-slate-400 px-2.5 h-8 flex items-center rounded-md border border-line bg-page">
+            <div className="text-xs text-ink-dim px-2.5 h-8 flex items-center rounded-md border border-line bg-page">
               {editWorkflowName}
             </div>
           ) : (
@@ -253,7 +253,7 @@ export default function TriggerConfigModal({
         <div className="flex items-center gap-3">
           <span className="text-xs font-medium text-ink">启用</span>
           <Switch checked={enabled} onChange={setEnabled} size="small" />
-          {enabled && <span className="text-[11px] text-emerald-400">● 已启用</span>}
+          {enabled && <span className="text-[11px] text-sig-ok">● 已启用</span>}
         </div>
 
         {/* 触发类型 */}
@@ -269,8 +269,8 @@ export default function TriggerConfigModal({
                   onClick={() => setTriggerType(t)}
                   className={`h-7 px-3 rounded-md text-xs font-medium border cursor-pointer transition-colors
                     ${active
-                      ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
-                      : 'bg-panel border-line text-slate-300 hover:border-[#1E5EFF]'}`}
+                      ? 'bg-brand border-brand text-white'
+                      : 'bg-panel border-line text-ink-soft hover:border-brand'}`}
                 >
                   {t === 'cron' ? '重复执行' : '一次性'}
                 </button>
