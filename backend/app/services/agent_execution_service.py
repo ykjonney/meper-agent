@@ -116,7 +116,7 @@ class AgentExecutionService:
         try:
             result = await harness_invoke(
                 exec_doc, initial_state,
-                enable_thinking=body.enable_thinking,
+                enable_thinking=(body.resolved_thinking_level != "off"),
                 thinking_level=body.resolved_thinking_level,
                 legacy_records=legacy_records,
                 user_token=user_token,
@@ -261,7 +261,7 @@ class AgentExecutionService:
                 result = await harness_stream(
                     exec_doc, initial_state,
                     on_event=_on_event,
-                    enable_thinking=body.enable_thinking,
+                    enable_thinking=(body.resolved_thinking_level != "off"),
                     thinking_level=body.resolved_thinking_level,
                     legacy_records=legacy_records,
                     cancel_checker=make_cancel_checker(request_id),
@@ -430,7 +430,7 @@ class AgentExecutionService:
             try:
                 result = await harness_resume(
                     exec_doc, state, _on_event, body.answer,
-                    enable_thinking=body.enable_thinking,
+                    enable_thinking=(body.resolved_thinking_level != "off"),
                     thinking_level=body.resolved_thinking_level,
                     cancel_checker=make_cancel_checker(request_id),
                     user_token=user_token,
