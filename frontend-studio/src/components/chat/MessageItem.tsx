@@ -1,4 +1,4 @@
-import { Fragment, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react';
+import { type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { Copy, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { toast } from '../ui/toast';
 import AvatarRender from '../AvatarRender';
@@ -79,91 +79,58 @@ export function MessageItem({
           ) : null}
         </div>
         {hasTimeline ? (() => {
-          /* 按 text 边界切轮：每轮 = text 前的 thinking/工具 + 该轮正文。
-             流式过程只单调追加、永不重排——旧实现依赖"最后一个 text 是
-             最终回答"启发式，轮间它会漂移（中间 text 先被当作最终回答
-             独立渲染、下一轮开始又被吸回组内），导致多组并存/结构重排/
-             收起展开抖动。error 保持独立红卡（醒目不折叠）。 */
+          /* 主流形态：过程 = 最终文本之外的一切（thinking/工具/中间正文），
+             全部收进【一张】过程卡；最后一个 text = 最终回答，在卡外独立
+             流式输出。正文开始 → 整卡收起；之后又有工具运行 → 卡重新
+             展开（ActivityGroup 内部驱动）。纯正文消息（无过程）只渲染
+             正文本身，与无 timeline 分支自然一致。 */
           const tl = msg.timeline!;
-          const rounds: { group: TimelineEntry[]; text?: TimelineEntry }[] = [];
-          let cur: TimelineEntry[] = [];
-          tl.forEach((entry) => {
-            if (entry.type === 'text') {
-              rounds.push({ group: cur, text: entry });
-              cur = [];
-            } else if (entry.type === 'error') {
-              if (cur.length) { rounds.push({ group: cur }); cur = []; }
-              rounds.push({ group: [entry] });
-            } else {
-              cur.push(entry);
-            }
-          });
-          // 尾巴：思考/工具进行中（本轮正文尚未开始）→ 活动组
-          if (cur.length) rounds.push({ group: cur });
+          let lastTextIdx = -1;
+          tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
+          const finalText = lastTextIdx >= 0 ? tl[lastTextIdx] : null;
+          const processEntries = lastTextIdx >= 0 ? tl.filter((_, i) => i !== lastTextIdx) : tl;
+          const hasProcess = processEntries.some((e) =>
+            (e.type === 'thinking' && !!(e.content ?? '').trim()) ||
+            (e.type === 'tool' && !!e.toolName) ||
+            e.type === 'error' ||
+            e.type === 'text',
+          );
           return (
-          <div className="space-y-2">
-            {rounds.map((round, ri) => {
-              const isLastRound = ri === rounds.length - 1;
-              const head = round.text ?? round.group[0];
-              if (head.type === 'error') {
-                return (
-                  <div
-                    key={`rd-${ri}`}
-                    className="px-3.5 py-2.5 rounded-lg text-[13px] leading-relaxed font-sans bg-sig-fail-soft text-sig-fail"
-                  >
-                    {head.content}
-                  </div>
-                );
-              }
-              const pieces: ReactNode[] = [];
-              if (round.group.length > 0) {
-                pieces.push(
-                  <ActivityGroup
-                    key={`grp-${ri}`}
-                    entries={round.group}
-                    msgId={msg.id}
-                    interrupted={!!msg.isInterrupted}
-                    theme={theme}
-                    thinkingActive={msg.status === 'thinking'}
-                    /* 本轮正文已开始输出 → 该轮活动组收起（过程是进度
-                       指示器，答案开始才折叠；工具跑完不收） */
-                    hasOwnText={!!round.text}
-                    msgStreaming={inFlight}
-                    onAnswer={onAnswer}
-                    onDismiss={() => onDismissInterrupt(msg.id)}
-                    onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
-                    planVersion={undefined}
-                  />,
-                );
-              }
-              if (round.text) {
-                pieces.push(
-                  <div
-                    key={`tx-${ri}`}
-                    className="text-[14px] leading-[1.75] font-sans select-text text-ink"
-                  >
-                    <Markdown content={round.text.content} />
-                    {/* 产出附件挂最后一轮正文后面 */}
-                    {isLastRound && msg.attachments && msg.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
-                        {msg.attachments.map((att, i) => (
-                          <ChatAttachmentCard
-                            key={`${msg.id}-att-${i}-${att.ref}`}
-                            att={att}
-                            sessionId={activeSessionId}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>,
-                );
-              }
-              {/* key 用轮次序号而非 entry id：流式单调追加时序号恒定，落库定稿
-                  替换 timeline 后仍对齐——id 跨两套体系（前端临时/后端落库），
-                  用它做 key 会让活动组/思考块在定稿瞬间全量重建（闪一下） */}
-              return <Fragment key={`round-${ri}`}>{pieces}</Fragment>;
-            })}
-          </div>
+            <div className="space-y-2">
+              {hasProcess && (
+                <ActivityGroup
+                  entries={processEntries}
+                  msgId={msg.id}
+                  interrupted={!!msg.isInterrupted}
+                  theme={theme}
+                  thinkingActive={msg.status === 'thinking'}
+                  /* 最终回答已开始输出 → 过程卡整体收起（组头=执行摘要一行） */
+                  hasOwnText={!!finalText}
+                  msgStreaming={inFlight}
+                  onAnswer={onAnswer}
+                  onDismiss={() => onDismissInterrupt(msg.id)}
+                  onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
+                  planVersion={undefined}
+                />
+              )}
+              {finalText && (
+                <div className="text-[14px] leading-[1.75] font-sans select-text text-ink">
+                  <Markdown content={finalText.content} />
+                  {/* 产出附件挂正文后面 */}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
+                      {msg.attachments.map((att, i) => (
+                        <ChatAttachmentCard
+                          key={`${msg.id}-att-${i}-${att.ref}`}
+                          att={att}
+                          sessionId={activeSessionId}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })() : (
         <div

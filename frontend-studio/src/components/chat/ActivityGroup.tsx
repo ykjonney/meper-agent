@@ -208,6 +208,7 @@ export function ActivityGroup({
   const finished = !!hasOwnText || !msgStreaming;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
   const prevFinished = useRef(finished);
+  const prevRunning = useRef(isRunning);
   // 组内 thinking 块的展开态（本地管理，不回写消息树）
   const [openThinkings, setOpenThinkings] = useState<Set<string>>(new Set());
   const toggleThinking = (id: string) =>
@@ -218,12 +219,16 @@ export function ActivityGroup({
       return next;
     });
   useEffect(() => {
-    // 本轮结束跃迁 → 收起为摘要行（出错/待回答的交互卡保持展开不藏）
-    if (prevFinished.current !== finished) {
+    // 状态跃迁驱动展开/收起（用户手动操作后仅在跃迁时跟随一次）：
+    // - 过程未结束（最终正文未开始）或有工具在跑 → 展开（过程=实时进度）
+    // - 正文已开始且无工具在跑 → 收起为摘要行（出错/待答交互卡不藏）
+    if (prevFinished.current !== finished || prevRunning.current !== isRunning) {
       prevFinished.current = finished;
-      if (finished && !hasError && !interrupted && !hasOpenInteractive) setOpen(false);
+      prevRunning.current = isRunning;
+      if (!finished || isRunning) setOpen(true);
+      else if (!hasError && !interrupted && !hasOpenInteractive) setOpen(false);
     }
-  }, [finished, hasError, interrupted, hasOpenInteractive]);
+  }, [finished, isRunning, hasError, interrupted, hasOpenInteractive]);
 
   // 过程条目：按时序渲染；紧邻的普通工具 = 同一批并行调用 → 合并为一个
   // 「执行了 N 个工具」折叠条目（点击展开每条），执行顺序不丢失
