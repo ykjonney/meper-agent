@@ -288,6 +288,8 @@
 }
 
 @utility scrollbar-custom {
+  /* gutter 恒定预留：滚动条出现/消失不挤内容宽度（防流结束整页文字重排抖动） */
+  scrollbar-gutter: stable;
   &::-webkit-scrollbar { width: 6px; height: 6px; }
   &::-webkit-scrollbar-track { background: transparent; }
   &::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 9999px; }
