@@ -105,7 +105,7 @@ export default function TriggerTaskRecordsModal({
                   onClick={() => onViewTask(task.id)}
                 >
                   <Tag color={st.color}>{st.label}</Tag>
-                  <span className="text-[11px] text-slate-400 w-44 shrink-0">
+                  <span className="text-[11px] text-ink-dim w-44 shrink-0">
                     {formatTimeFull(task.created_at)}
                   </span>
                   <span className="text-[11px] text-slate-300 flex-1 truncate font-mono">

@@ -148,7 +148,7 @@ export default function WorkflowProposalCard({
             </span>
           )}
           {action === 'rejected' && (
-            <span className="text-xs text-zinc-500 inline-flex items-center gap-1">
+            <span className="text-xs text-ink-faint inline-flex items-center gap-1">
               <XCircle size={13} />
               已取消
             </span>

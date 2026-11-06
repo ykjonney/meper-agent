@@ -578,7 +578,7 @@ function matchKnownField(
   if (typeof value === 'string' && (k === 'error' || k === 'error_message')) {
     return (
       <div className="flex gap-1.5 items-start">
-        <AlertTriangle size={11} className="text-rose-400 shrink-0 mt-1" />
+        <AlertTriangle size={11} className="text-sig-fail shrink-0 mt-1" />
         <div className="flex-1 min-w-0">
           <LongText text={value} tone="danger" />
         </div>

@@ -93,8 +93,8 @@ const TOKENS: Record<'light' | 'dark', ThemeTokens> = {
   },
   light: {
     card: 'bg-slate-50', cardBorder: 'border-slate-200',
-    text: 'text-slate-800', muted: 'text-slate-400',
-    codeBg: 'bg-white', codeText: 'text-slate-600',
+    text: 'text-ink', muted: 'text-ink-dim',
+    codeBg: 'bg-white', codeText: 'text-ink-dim',
   },
 }
 

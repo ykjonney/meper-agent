@@ -94,8 +94,8 @@ export function MermaidBlock({ code }: { code: string }) {
         }}
       />
       {error ? (
-        <div className="my-3 rounded-lg border border-amber-800/50 bg-amber-950/20 p-3">
-          <p className="text-[11px] text-amber-400 mb-1 font-semibold">
+        <div className="my-3 rounded-lg border border-sig-wait/30 bg-sig-wait-soft/50 p-3">
+          <p className="text-[11px] text-sig-wait mb-1 font-semibold">
             Mermaid 图解析失败：{error}
           </p>
           <pre className="text-[11px] text-ink-dim whitespace-pre-wrap font-mono">{code}</pre>

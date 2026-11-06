@@ -145,9 +145,9 @@ export function ClarificationFormCard({
       return (
         <div className="rounded-[10px] border border-line bg-page overflow-hidden font-sans opacity-70">
           <div className="flex items-center gap-2 px-3.5 py-2.5">
-            <CheckCircle className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+            <CheckCircle className="w-3.5 h-3.5 shrink-0 text-ink-faint" />
             <span className="text-xs font-semibold text-ink-dim truncate">澄清提问</span>
-            <span className="text-[11px] text-zinc-500 opacity-70">已忽略</span>
+            <span className="text-[11px] text-ink-faint opacity-70">已忽略</span>
           </div>
           <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
             <div className="text-xs text-ink-dim">

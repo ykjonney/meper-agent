@@ -40,7 +40,7 @@ export function SegmentedTabs<T extends string>({ tabs, value, onChange, theme }
                 ? 'bg-blue-600 text-white'
                 : theme === 'dark'
                   ? 'text-ink-dim hover:text-ink'
-                  : 'text-slate-500 hover:text-slate-700'
+                  : 'text-ink-dim hover:text-ink-soft'
             }`}
           >
             {Icon && <Icon size={13} className="shrink-0" />}

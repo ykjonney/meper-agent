@@ -124,9 +124,9 @@ export function TaskFlowGraph({ task, theme = 'dark', resolveTemplateId }: TaskF
     const unresolved = !templateId
     return (
       <div className={`h-[360px] flex flex-col items-center justify-center text-xs gap-1.5 text-center px-4 ${
-        theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
+        theme === 'dark' ? 'text-ink-dim' : 'text-ink-dim'
       }`}>
-        <AlertTriangle className="w-4 h-4 text-amber-400" />
+        <AlertTriangle className="w-4 h-4 text-sig-wait" />
         <span>流程图加载失败</span>
         <span className="text-[11px]">
           {unresolved

@@ -605,7 +605,7 @@ export function UserManagement() {
                         {r.role_type === 'custom' && (
                           <button
                             onClick={() => handleDeleteRole(r)}
-                            className="text-[11px] uppercase font-bold text-ink-faint hover:text-rose-400 transition cursor-pointer"
+                            className="text-[11px] uppercase font-bold text-ink-faint hover:text-sig-fail transition cursor-pointer"
                           >
                             删除
                           </button>
@@ -751,7 +751,7 @@ export function UserManagement() {
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans flex items-center justify-between">
                   <span>新密码</span>
-                  <span className={`text-[11px] font-mono ${resetPwdValue.length > 0 && resetPwdValue.length < 8 ? 'text-rose-400' : 'text-ink-faint'}`}>
+                  <span className={`text-[11px] font-mono ${resetPwdValue.length > 0 && resetPwdValue.length < 8 ? 'text-sig-fail' : 'text-ink-faint'}`}>
                     {resetPwdValue.length}/8 位
                   </span>
                 </label>

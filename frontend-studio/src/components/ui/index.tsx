@@ -969,7 +969,7 @@ export function Popconfirm({
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 max-h-[70vh] overflow-y-auto bg-panel rounded-lg shadow-xl border border-line">
           <div className="px-3.5 py-3">
             <div className="text-xs font-medium text-ink">{title}</div>
-            {description && <div className="text-[11px] text-slate-400 mt-1">{description}</div>}
+            {description && <div className="text-[11px] text-ink-dim mt-1">{description}</div>}
             <div className="flex justify-end gap-2 mt-3">
               <Button size="small" onClick={() => setOpen(false)}>
                 {cancelText}
@@ -1036,7 +1036,7 @@ export function Table<T extends Record<string, unknown>>({
               <th
                 key={col.key}
                 style={{ width: col.width }}
-                className={`${pad} text-left font-medium text-slate-400 whitespace-nowrap`}
+                className={`${pad} text-left font-medium text-ink-dim whitespace-nowrap`}
               >
                 {col.title}
               </th>

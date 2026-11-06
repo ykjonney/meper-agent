@@ -156,7 +156,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
             <span className="px-2 py-1 rounded bg-brand-soft border border-brand/30 text-brand font-semibold">
               {phase === 'done' ? '已新建' : '将新建'} {report.summary.created}
             </span>
-            <span className="px-2 py-1 rounded bg-line text-zinc-300 font-semibold">复用 {report.summary.reused}</span>
+            <span className="px-2 py-1 rounded bg-line text-ink-soft font-semibold">复用 {report.summary.reused}</span>
             {report.summary.skipped > 0 && (
               <span className="px-2 py-1 rounded bg-line text-zinc-400 font-semibold">跳过 {report.summary.skipped}</span>
             )}
@@ -186,7 +186,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
                       ) : (
                         <span className="w-3 h-3 shrink-0" />
                       )}
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold shrink-0">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-ink-soft font-semibold shrink-0">
                         {kindLabel(it.kind)}
                       </span>
                       <span className="text-ink truncate">
@@ -210,7 +210,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
               <ul className="divide-y divide-sig-wait/20 max-h-48 overflow-y-auto">
                 {report.warnings.map((w, i) => (
                   <li key={i} className="px-3 py-1.5 text-xs text-ink-soft leading-relaxed">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold mr-1.5">
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-ink-soft font-semibold mr-1.5">
                       {kindLabel(w.kind)}{w.name ? ` · ${w.name}` : ''}
                     </span>
                     {w.message}
@@ -228,7 +228,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
               <ul className="divide-y divide-sig-fail/20">
                 {report.errors.map((er, i) => (
                   <li key={i} className="px-3 py-1.5 text-xs text-ink-soft leading-relaxed">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold mr-1.5">
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-ink-soft font-semibold mr-1.5">
                       {kindLabel(er.kind)}{er.name ? ` · ${er.name}` : ''}
                     </span>
                     {er.message}
