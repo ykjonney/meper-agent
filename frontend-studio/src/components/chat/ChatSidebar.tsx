@@ -195,16 +195,18 @@ export function ChatSidebar({
           )}
         </div>
 
+        {/* 会话列表头：与主目录同级的独立固定区（不在滚动容器内——
+            sticky 会被滚动条目穿过，结构性分离才彻底） */}
+        <div className="flex justify-between items-center px-4 py-1.5 shrink-0">
+          <span style={{ fontSize: 9, letterSpacing: '.13em', color: 'var(--color-ink-faint)' }}>会话</span>
+          <span
+            className="cursor-pointer text-[13px] leading-none text-ink-dim hover:text-brand transition-colors"
+            onClick={() => activeAgent && onStartNewWithAgent(activeAgent)}
+            title={`以 ${activeAgent?.name ?? '当前 Agent'} 开新会话`}
+          >＋</span>
+        </div>
+
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-2 space-y-1">
-          {/* 会话列表头：sticky 固定——＋新建入口不随列表滚动 */}
-          <div className="sticky top-0 z-10 flex justify-between items-center px-2.5 py-1.5 -mx-2 mt-[-8px] pt-2 bg-well">
-            <span style={{ fontSize: 9, letterSpacing: '.13em', color: 'var(--color-ink-faint)' }}>会话</span>
-            <span
-              className="cursor-pointer text-[13px] leading-none text-ink-dim hover:text-brand transition-colors"
-              onClick={() => activeAgent && onStartNewWithAgent(activeAgent)}
-              title={`以 ${activeAgent?.name ?? '当前 Agent'} 开新会话`}
-            >＋</span>
-          </div>
           {sessionsLoading && (
             <div className="p-3 text-[11px] text-ink-dim font-mono">加载会话中…</div>
           )}
