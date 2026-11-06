@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { toast } from '../ui/toast';
@@ -15,6 +15,8 @@ interface MessageListProps {
   activeAgent: Agent | null;
   activeSessionId: string | null;
   isStreaming: boolean;
+  /** 贴底跟随标记（ChatHomepage 维护）：true 时内容高度变化持续跳底 */
+  pinnedRef: RefObject<boolean>;
   streamingMsgId: string | null;
   feedbackMap: Record<string, SessionFeedbackItem>;
   chatScrollRef: RefObject<HTMLDivElement | null>;
@@ -35,13 +37,26 @@ interface MessageListProps {
 /** 聊天流滚动区：空会话 Agent 介绍 + 消息列表（MessageItem）+ 底部锚点 + 回到底部浮标 */
 export function MessageList({
   messages, activeSession, sessionsLoading, activeAgent, activeSessionId,
-  isStreaming, streamingMsgId, feedbackMap, chatScrollRef, messageEndRef,
+  isStreaming, pinnedRef, streamingMsgId, feedbackMap, chatScrollRef, messageEndRef,
   setShowJumpToBottom, showJumpToBottom, theme,
   onAnswer, onEditMessage, inputTextareaRef, onDismissInterrupt, onApprovePlan, onVote, onRegenerate,
 }: MessageListProps) {
   // 浮标 = 「用户主动上翻」驱动，而非距底距离采样——程序跳底后内容继续
   // 撑高（气泡布局/图片加载）会让离散采样误判成用户上翻，新会话首帧必现。
   const lastScrollTopRef = useRef(0);
+  // 贴底持续跟随：ResizeObserver 观察内容高度变化（含卡片收起/展开的
+  // 300ms grid 动画期间——离散的 liveMessages layout effect 在动画渐变
+  // 中会滞后，动画结束时一次性跳正 = 视口"闪一下"）。
+  useLayoutEffect(() => {
+    const el = chatScrollRef.current;
+    const inner = el?.firstElementChild as HTMLElement | null;
+    if (!el || !inner) return;
+    const ro = new ResizeObserver(() => {
+      if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [chatScrollRef]);
   return (
     <>
     <div

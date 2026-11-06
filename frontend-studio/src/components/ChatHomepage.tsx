@@ -1488,6 +1488,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           activeAgent={activeAgent}
           activeSessionId={activeSessionId ?? pendingSessionId}
           isStreaming={isStreaming}
+          pinnedRef={pinnedRef}
           streamingMsgId={streamingMsgId}
           feedbackMap={feedbackMap}
           chatScrollRef={chatScrollRef}
