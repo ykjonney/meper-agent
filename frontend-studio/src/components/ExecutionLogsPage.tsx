@@ -113,18 +113,18 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
             <span className="opacity-75"> · {ev.tools.join(', ')}</span>
           )}
           {(ev.load_errors ?? []).map((le, i) => (
-            <div key={i} className="text-red-400 font-mono text-[11px] break-all mt-0.5">
+            <div key={i} className="text-sig-fail font-mono text-[11px] break-all mt-0.5">
               加载失败 {le.tool}: {le.error}
             </div>
           ))}
         </span>
       )
     case 'request_begin':
-      return <span className="text-blue-400">LLM 请求 #{ev.i ?? '?'}</span>
+      return <span className="text-brand">LLM 请求 #{ev.i ?? '?'}</span>
     case 'request_end':
       return (
         <span>
-          <span className="text-blue-400">LLM 请求 #{ev.i ?? '?'} 完成</span>
+          <span className="text-brand">LLM 请求 #{ev.i ?? '?'} 完成</span>
           <span className="opacity-75">
             {' '}· {fmtMs(ev.dur)} · ↑{fmtTok(ev.in_tok)} ↓{fmtTok(ev.out_tok)}
           </span>
@@ -141,7 +141,7 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
       )
     case 'tool_result':
       return (
-        <span className={ev.ok === false ? 'text-red-400' : 'text-green-500'}>
+        <span className={ev.ok === false ? 'text-sig-fail' : 'text-sig-ok'}>
           {(ev.ok === false ? '✕ ' : '') + (ev.n || ev.id) + ' 返回'}
           <span className="opacity-75"> · {fmtMs(ev.dur)} · {ev.size ?? 0} 字符</span>
         </span>

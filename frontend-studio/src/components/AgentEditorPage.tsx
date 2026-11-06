@@ -791,7 +791,7 @@ export function AgentEditorPage({
                     {openSections.has(UNGROUPED_SECTION_KEY)
                       ? <ChevronDown className="w-3 h-3 text-ink-dim shrink-0" />
                       : <ChevronRight className="w-3 h-3 text-ink-dim shrink-0" />}
-                    <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
+                    <Folder className="w-3 h-3 text-sig-wait shrink-0" />
                     <span className="text-[11px] font-semibold text-ink-dim">未分组</span>
                     <span className="text-[11px] text-ink-dim font-mono ml-auto shrink-0">{recommendedItems.length} / {MAX_RECOMMENDED_ITEMS}</span>
                   </button>
@@ -827,7 +827,7 @@ export function AgentEditorPage({
                       <div className="flex items-center gap-1.5">
                         {renamingGroup === gIdx ? (
                           <>
-                            <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
+                            <Folder className="w-3 h-3 text-sig-wait shrink-0" />
                             <input
                               autoFocus
                               className="h-6 flex-1 min-w-0 px-2 rounded border border-line bg-page text-ink text-[11px] focus:outline-none focus:border-brand"
@@ -851,7 +851,7 @@ export function AgentEditorPage({
                             {sectionOpen
                               ? <ChevronDown className="w-3 h-3 text-ink-dim shrink-0" />
                               : <ChevronRight className="w-3 h-3 text-ink-dim shrink-0" />}
-                            <Folder className="w-3 h-3 text-amber-400/80 shrink-0" />
+                            <Folder className="w-3 h-3 text-sig-wait shrink-0" />
                             <span className="text-[11px] font-semibold text-ink-dim truncate">{group.title}</span>
                             <span className="text-[11px] text-ink-dim font-mono ml-auto shrink-0">{group.items.length} / {MAX_GROUP_ITEMS}</span>
                           </button>

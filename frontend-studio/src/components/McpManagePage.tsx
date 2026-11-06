@@ -832,7 +832,7 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
                   className="px-3 py-1.5 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg text-xs font-semibold transition cursor-pointer">取消编辑</button>
               )}
               <button type="button" onClick={handleSubmit} disabled={createM.isPending || updateM.isPending}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-brand text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5">
+                className="px-4 py-1.5 bg-brand hover:bg-brand-hover text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-60 flex items-center gap-1.5">
                 {(createM.isPending || updateM.isPending) && <Loader2 className="w-3 h-3 animate-spin" />}
                 {editId ? '保存' : '新增'}
               </button>
@@ -928,7 +928,7 @@ const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-wh
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-slate-400 font-medium font-sans">{label}</label>
+      <label className="text-ink-dim font-medium font-sans">{label}</label>
       {children}
       {hint && <p className="text-[11px] text-ink-dim leading-relaxed">{hint}</p>}
     </div>
