@@ -10,12 +10,13 @@
  * `refresh()` after a stream finishes.
  */
 import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { FileText, Download, Trash2, Eye, Loader2, FolderArchive } from 'lucide-react';
+import { FileText, Download, Trash2, Eye, Loader2, FolderArchive, FileX } from 'lucide-react';
 import {
   sessionApi, type SessionFileEntry,
 } from '../services/session-api';
 import { detectPreviewKind } from './FilePreview';
 import { FilePreviewModal } from './FilePreviewModal';
+import { confirmDialog } from './ui/confirm';
 import { formatFileSize } from '../lib/file-preview';
 
 export interface SessionFilesPanelHandle {
@@ -38,7 +39,6 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
     const [files, setFiles] = useState<SessionFileEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [preview, setPreview] = useState<PreviewState | null>(null);
-    const [confirmingPath, setConfirmingPath] = useState<string | null>(null);
     const [busyPath, setBusyPath] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
@@ -61,7 +61,6 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
     // Reload whenever the active session changes.
     useEffect(() => {
       setPreview(null);
-      setConfirmingPath(null);
       refresh();
     }, [sessionId, refresh]);
 
@@ -114,11 +113,17 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
 
     const handleDelete = async (filePath: string) => {
       if (!sessionId) return;
+      const ok = await confirmDialog({
+        title: `删除「${fileName(filePath)}」？`,
+        description: '删除后不可恢复；正在引用该文件的操作将失效。',
+        okText: '删除',
+        danger: true,
+      });
+      if (!ok) return;
       setBusyPath(filePath);
       try {
         const updated = await sessionApi.deleteFile(sessionId, filePath);
         setFiles(updated);
-        setConfirmingPath(null);
       } catch (err) {
         console.error('删除文件失败', err);
       } finally {
@@ -129,109 +134,92 @@ export const SessionFilesPanel = forwardRef<SessionFilesPanelHandle, Props>(
     const fileName = (p: string) => p.split('/').pop() || p;
 
     return (
-      <div className="flex-1 overflow-y-auto scrollbar-custom p-6 space-y-3">
-        {/* Header: title + ZIP download */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-ink-dim" />
-            <span className="text-xs font-bold text-white">生成文件</span>
-            {files.length > 0 && (
-              <span className="text-[11px] text-ink-dim">({files.length})</span>
-            )}
-          </div>
-          {files.length > 0 && (
+      <div className="flex-1 min-h-0 flex flex-col">
+        {/* 工具行：ZIP 下载（标题「产物」+ 计数由壳层 ArtifactsPanel 承担） */}
+        {files.length > 0 && (
+          <div className="shrink-0 flex items-center justify-end px-4 py-2 border-b border-line">
             <button
               onClick={handleDownloadZip}
-              className="flex items-center gap-1 px-2 py-1 rounded-md border border-line hover:bg-raise text-ink-dim hover:text-ink text-[11px] font-semibold transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-ink-dim hover:text-brand hover:bg-raise text-[11px] font-semibold transition cursor-pointer"
             >
               <FolderArchive className="w-3 h-3" /> 下载全部 (ZIP)
             </button>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom px-2 py-1">
+          {!sessionId && (
+            <div className="text-center py-10 text-[11px] text-ink-dim">请先选择一个会话</div>
+          )}
+
+          {loading && (
+            <div className="flex items-center justify-center py-8 text-ink-dim">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" /> 载入文件…
+            </div>
+          )}
+
+          {!loading && sessionId && files.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <FileX className="w-5 h-5 text-ink-faint" />
+              <p className="text-[11px] text-ink-dim">暂无生成文件</p>
+              <p className="text-[11px] text-ink-faint">智能体运行产出的文件会出现在这里，可预览和下载</p>
+            </div>
+          )}
+
+          {!loading && files.length > 0 && (
+            <div className="divide-y divide-line/60">
+              {files.map((file) => {
+                const isBusy = busyPath === file.path;
+                return (
+                  <div
+                    key={file.path}
+                    title={file.path}
+                    className="group flex items-center gap-2 px-2 py-2 text-[11px] text-ink-soft hover:bg-raise transition-colors"
+                  >
+                    <FileText className="w-3 h-3 text-ink-dim shrink-0" />
+                    <button
+                      onClick={() => handlePreview(file.path)}
+                      disabled={isBusy}
+                      className="truncate flex-1 text-left hover:text-brand transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {fileName(file.path)}
+                    </button>
+                    <span className="text-[11px] text-ink-faint shrink-0 font-mono">
+                      {formatFileSize(file.size)}
+                    </span>
+                    {isBusy ? (
+                      <Loader2 className="w-3 h-3 text-ink-dim animate-spin shrink-0" />
+                    ) : (
+                      <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handlePreview(file.path)}
+                          title="预览"
+                          className="p-0.5 text-ink-dim hover:text-brand cursor-pointer transition-colors"
+                        >
+                          <Eye className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDownload(file.path)}
+                          title="下载"
+                          className="p-0.5 text-ink-dim hover:text-brand cursor-pointer transition-colors"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(file.path)}
+                          title="删除"
+                          className="p-0.5 text-ink-dim hover:text-sig-fail cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-
-        {!sessionId && (
-          <div className="text-center py-10 text-[11px] text-ink-dim">请先选择一个会话</div>
-        )}
-
-        {loading && (
-          <div className="flex items-center justify-center py-8 text-ink-dim">
-            <Loader2 className="w-4 h-4 animate-spin mr-2" /> 载入文件…
-          </div>
-        )}
-
-        {!loading && sessionId && files.length === 0 && (
-          <div className="text-center py-10 text-[11px] text-ink-dim">暂无生成文件</div>
-        )}
-
-        {!loading && files.length > 0 && (
-          <div className="space-y-1">
-            {files.map((file) => {
-              const isBusy = busyPath === file.path;
-              const isConfirming = confirmingPath === file.path;
-              return (
-                <div
-                  key={file.path}
-                  title={file.path}
-                  className="group flex items-center gap-2 rounded-md px-2 py-2 text-[11px] text-ink-soft hover:bg-panel-hover transition-colors border border-transparent hover:border-line"
-                >
-                  <FileText className="w-3 h-3 text-ink-dim shrink-0" />
-                  <button
-                    onClick={() => handlePreview(file.path)}
-                    disabled={isBusy}
-                    className="truncate flex-1 text-left hover:text-link transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {fileName(file.path)}
-                  </button>
-                  <span className="text-[11px] text-ink-dim shrink-0 font-mono">
-                    {formatFileSize(file.size)}
-                  </span>
-                  {isBusy ? (
-                    <Loader2 className="w-3 h-3 text-ink-dim animate-spin shrink-0" />
-                  ) : isConfirming ? (
-                    <span className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => handleDelete(file.path)}
-                        className="px-1.5 py-0.5 rounded bg-sig-fail hover:opacity-90 text-white text-[11px] font-semibold cursor-pointer"
-                      >
-                        删除
-                      </button>
-                      <button
-                        onClick={() => setConfirmingPath(null)}
-                        className="px-1.5 py-0.5 rounded border border-line text-ink-dim hover:text-ink text-[11px] font-semibold cursor-pointer"
-                      >
-                        取消
-                      </button>
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handlePreview(file.path)}
-                        title="预览"
-                        className="p-0.5 text-ink-dim hover:text-link cursor-pointer transition-colors"
-                      >
-                        <Eye className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => handleDownload(file.path)}
-                        title="下载"
-                        className="p-0.5 text-ink-dim hover:text-link cursor-pointer transition-colors"
-                      >
-                        <Download className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => setConfirmingPath(file.path)}
-                        title="删除"
-                        className="p-0.5 text-ink-dim hover:text-sig-fail cursor-pointer transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* Preview modal（共享件：可缩放、Esc 关闭、嵌 FilePreview 富渲染） */}
         <FilePreviewModal

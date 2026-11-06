@@ -1524,7 +1524,12 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           </div>
         )}
 
-      {/* 4. RIGHT PANEL：产物 + 后续扩展功能（左右可拉伸，默认关闭，≥lg 显示） */}
+      </>
+      )}
+      </div>
+
+      {/* 4. RIGHT PANEL：产物 + 后续扩展功能（左右可拉伸，默认关闭，≥lg 显示）。
+          根级子级（聊天面板 div 之外）——否则会被纵向排到 composer 下方 */}
       {panelOpen && (
         <ArtifactsPanel
           rootRef={rootRef}
@@ -1536,9 +1541,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           activeSessionId={activeSessionId ?? pendingSessionId}
         />
       )}
-      </>
-      )}
-      </div>
       </>
       )}
     </div>
