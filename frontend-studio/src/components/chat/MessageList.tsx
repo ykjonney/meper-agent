@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { toast } from '../ui/toast';
@@ -38,13 +39,24 @@ export function MessageList({
   setShowJumpToBottom, showJumpToBottom, theme,
   onAnswer, onEditMessage, inputTextareaRef, onDismissInterrupt, onApprovePlan, onVote, onRegenerate,
 }: MessageListProps) {
+  // 浮标 = 「用户主动上翻」驱动，而非距底距离采样——程序跳底后内容继续
+  // 撑高（气泡布局/图片加载）会让离散采样误判成用户上翻，新会话首帧必现。
+  const lastScrollTopRef = useRef(0);
   return (
     <>
     <div
       ref={chatScrollRef}
       onScroll={(e) => {
         const el = e.currentTarget;
-        setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 240);
+        const goingUp = el.scrollTop < lastScrollTopRef.current - 2;
+        lastScrollTopRef.current = el.scrollTop;
+        if (goingUp) {
+          // 用户上翻且离底较远 → 提示可跳回最新
+          if (el.scrollHeight - el.scrollTop - el.clientHeight > 240) setShowJumpToBottom(true);
+        } else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 240) {
+          // 下滚回到底部附近 → 浮标消失；程序跳底(差值暂时大)保持现状不清除
+          setShowJumpToBottom(false);
+        }
       }}
       className="flex-1 min-h-0 overflow-y-auto scrollbar-custom px-4 lg:px-6 pt-5 pb-3"
     >
