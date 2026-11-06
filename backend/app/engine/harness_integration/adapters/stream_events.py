@@ -213,7 +213,7 @@ async def stream_events_to_app_events(
                 # 条件边路由 END，该文本即最终回答（final 标记供前端精确
                 # 收起过程卡，免启发式猜测）。tool_calls 的响应文本是
                 # 工具前的过渡说明，final=False。
-                has_tool_calls = next(_iter_tool_calls(output), None) is not None
+                has_tool_calls = bool(_iter_tool_calls(output))
                 content = extract_answer_text(getattr(output, "content", None))
                 if content:
                     await on_event(TextEvent(content=content, final=not has_tool_calls))
