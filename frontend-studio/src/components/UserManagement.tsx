@@ -335,7 +335,7 @@ export function UserManagement() {
       {/* Top action bar */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center p-4 bg-panel rounded-xl border border-line gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <Shield className="w-5 h-5 text-emerald-400" />
+          <Shield className="w-5 h-5 text-brand" />
           <div className="space-y-0.5">
             <h2 className="text-sm font-bold text-ink font-sans">RBAC 角色及矩阵鉴权中心</h2>
             <p className="text-xs text-ink-dim font-sans">配置组织成员角色、管理角色权限点（后端 {allPerms.length} 权限字符串）。</p>
@@ -344,13 +344,13 @@ export function UserManagement() {
 
         <div className="flex gap-2.5">
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-ink-faint absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="搜索用户名 / 邮箱..."
-              className="pl-9 pr-4 py-1.5 w-56 text-xs bg-page border border-line rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500 font-sans"
+              className="pl-9 pr-4 py-1.5 w-56 text-xs bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-sans"
             />
           </div>
 
@@ -358,7 +358,7 @@ export function UserManagement() {
             <button
               onClick={() => { setCreateFormError(null); setIsAdding(true); }}
               id="btn_add_user"
-              className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow transition cursor-pointer flex items-center gap-1 font-sans"
+              className="px-3 py-1.5 text-xs font-semibold bg-brand hover:bg-brand-hover text-white rounded-xl transition cursor-pointer flex items-center gap-1 font-sans"
             >
               <Plus className="w-3.5 h-3.5" />
               新增成员
@@ -370,9 +370,9 @@ export function UserManagement() {
       {/* RENDER MEMBERS TABLE */}
       {/* grid-rows：单列（窄屏）时约束两行行高，防止内容把 grid 撑破裁切；lg 单行满高。 */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-1">
-        <div className="lg:col-span-2 p-5 bg-panel border border-line rounded-xl flex flex-col min-h-0 shadow-lg">
-          <h3 className="text-xs font-semibold text-slate-400 tracking-wider uppercase flex items-center gap-1 shrink-0">
-            <Users className="w-3.5 h-3.5 text-indigo-400" />
+        <div className="lg:col-span-2 p-5 bg-panel border border-line rounded-xl flex flex-col min-h-0 shadow-[var(--shadow-card)]">
+          <h3 className="text-xs font-semibold text-ink-dim tracking-wider uppercase flex items-center gap-1 shrink-0">
+            <Users className="w-3.5 h-3.5 text-brand" />
             团队成员授权列表
             <span className="font-mono normal-case">（共 {total} 人{isFetching ? ' · 加载中…' : ''}）</span>
           </h3>
@@ -382,7 +382,7 @@ export function UserManagement() {
             {/* border-separate 是 sticky 表头的前提：Tailwind preflight 给 table 设了
                 border-collapse:collapse，而 Chromium 在 collapse 模式下 th 的
                 position:sticky 不生效（表头会随内容滚走）。spacing-0 保持视觉零间距。 */}
-            <table className="w-full text-xs text-left text-slate-400 leading-normal border-separate border-spacing-0">
+            <table className="w-full text-xs text-left text-ink-dim leading-normal border-separate border-spacing-0">
               <thead>
                 {/* 吸顶表头：sticky 放在 th 上（tr 的 border 会随滚动消失，边框移到 th）。
                     bg 用卡片色 #18181b，light 主题由 index.css 的 .theme-light 覆写映射。 */}
@@ -417,13 +417,13 @@ export function UserManagement() {
                             {initialsOf(user.name)}
                           </div>
                           <div className="min-w-0">
-                            <span className="font-semibold text-white truncate block font-sans inline-flex items-center gap-1">
+                            <span className="font-semibold text-ink truncate block font-sans inline-flex items-center gap-1">
                               {user.name}
                               {user.isSuperAdmin && (
-                                <Crown className="w-3 h-3 text-amber-400 shrink-0" aria-label="超级管理员" />
+                                <Crown className="w-3 h-3 text-sig-wait shrink-0" aria-label="超级管理员" />
                               )}
                             </span>
-                            <span className="text-[11px] text-slate-500 font-mono block">{user.email}</span>
+                            <span className="text-[11px] text-ink-faint font-mono block">{user.email}</span>
                           </div>
                         </div>
                       </td>
@@ -443,7 +443,7 @@ export function UserManagement() {
                                   <button
                                     key={o.value}
                                     onClick={() => handleChangeRole(user.id, o.value)}
-                                    className={`px-2.5 py-1.5 text-xs text-left rounded cursor-pointer hover:bg-[#1E5EFF]/10 ${
+                                    className={`px-2.5 py-1.5 text-xs text-left rounded cursor-pointer hover:bg-brand-soft ${
                                       o.value === user.role ? 'text-link font-medium' : 'text-ink'
                                     }`}
                                   >
@@ -456,12 +456,12 @@ export function UserManagement() {
                             <span
                               className={`inline-flex items-center h-7 px-2.5 rounded-full text-[11px] font-bold tracking-wide font-sans cursor-pointer hover:bg-page ${
                                 user.role === 'admin'
-                                  ? 'bg-rose-500/10 text-rose-400'
+                                  ? 'bg-sig-fail-soft text-sig-fail'
                                   : user.role === 'developer'
-                                  ? 'bg-indigo-500/10 text-indigo-400'
+                                  ? 'bg-brand-soft text-brand'
                                   : user.role === 'operator'
-                                  ? 'bg-amber-500/10 text-amber-500'
-                                  : 'bg-slate-900 text-slate-400'
+                                  ? 'bg-sig-wait-soft text-sig-wait'
+                                  : 'bg-raise text-ink-dim'
                               }`}
                             >
                               {roleDisplayName(user.role)} ✎
@@ -471,12 +471,12 @@ export function UserManagement() {
                           <span
                             className={`inline-flex items-center h-7 px-2.5 rounded-full text-[11px] font-bold tracking-wide font-sans ${
                               user.role === 'admin'
-                                ? 'bg-rose-500/10 text-rose-400'
+                                ? 'bg-sig-fail-soft text-sig-fail'
                                 : user.role === 'developer'
-                                ? 'bg-indigo-500/10 text-indigo-400'
+                                ? 'bg-brand-soft text-brand'
                                 : user.role === 'operator'
-                                ? 'bg-amber-500/10 text-amber-500'
-                                : 'bg-slate-900 text-slate-400'
+                                ? 'bg-sig-wait-soft text-sig-wait'
+                                : 'bg-raise text-ink-dim'
                             }`}
                           >
                             {roleDisplayName(user.role)}
@@ -487,10 +487,10 @@ export function UserManagement() {
                       <td className="py-3.5 px-3 border-b border-line/60">
                         <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold ${
                           user.status === 'active'
-                            ? 'bg-emerald-500/10 text-emerald-400'
-                            : 'bg-red-500/10 text-red-500'
+                            ? 'bg-sig-ok-soft text-sig-ok'
+                            : 'bg-sig-fail-soft text-sig-fail'
                         }`}>
-                          <span className={`w-1 h-1 rounded-full ${user.status === 'active' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                          <span className={`w-1 h-1 rounded-full ${user.status === 'active' ? 'bg-sig-ok' : 'bg-sig-fail'}`} />
                           {user.status === 'active' ? '正常激活' : '已停用'}
                         </span>
                       </td>
@@ -502,7 +502,7 @@ export function UserManagement() {
                               <button
                                 onClick={() => handleToggleStatus(user.id, user.status)}
                                 className={`text-[11px] uppercase font-bold hover:underline transition cursor-pointer ${
-                                  user.status === 'active' ? 'text-red-400 hover:text-red-300' : 'text-emerald-400'
+                                  user.status === 'active' ? 'text-sig-fail hover:opacity-75' : 'text-sig-ok'
                                 }`}
                               >
                                 {user.status === 'active' ? '锁定' : '激活'}
@@ -515,7 +515,7 @@ export function UserManagement() {
                                   setResetPwdValue('');
                                   setResetPwdTarget(user);
                                 }}
-                                className="text-[11px] uppercase font-bold text-slate-500 hover:text-amber-400 transition cursor-pointer"
+                                className="text-[11px] uppercase font-bold text-ink-faint hover:text-brand transition cursor-pointer"
                               >
                                 重置密码
                               </button>
@@ -523,7 +523,7 @@ export function UserManagement() {
                             {canManageUser && (
                               <button
                                 onClick={() => void handleDeleteUser(user)}
-                                className="text-[11px] uppercase font-bold text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                                className="text-[11px] uppercase font-bold text-ink-faint hover:text-sig-fail transition cursor-pointer"
                               >
                                 删除
                               </button>
@@ -550,7 +550,7 @@ export function UserManagement() {
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1 || isFetching}
-                  className="p-1 rounded-md border border-line text-slate-400 hover:text-white hover:bg-page transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 rounded-md border border-line text-ink-dim hover:text-ink hover:bg-page transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   title="上一页"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
@@ -559,7 +559,7 @@ export function UserManagement() {
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages || isFetching}
-                  className="p-1 rounded-md border border-line text-slate-400 hover:text-white hover:bg-page transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 rounded-md border border-line text-ink-dim hover:text-ink hover:bg-page transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   title="下一页"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -570,16 +570,16 @@ export function UserManagement() {
         </div>
 
         {/* ROLES PANEL (管理并入此页) */}
-        <div className="p-5 bg-panel border border-line rounded-xl flex flex-col min-h-0 shadow-lg">
+        <div className="p-5 bg-panel border border-line rounded-xl flex flex-col min-h-0 shadow-[var(--shadow-card)]">
           <div className="flex items-center justify-between shrink-0">
-            <h3 className="text-xs font-semibold text-slate-400 tracking-wider uppercase flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-indigo-400" />
+            <h3 className="text-xs font-semibold text-ink-dim tracking-wider uppercase flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-brand" />
               角色管理 ({roles.length})
             </h3>
             {canWrite && (
               <button
                 onClick={openRoleCreate}
-                className="text-[11px] text-indigo-400 hover:underline cursor-pointer"
+                className="text-[11px] text-brand hover:underline cursor-pointer"
               >
                 + 新建角色
               </button>
@@ -597,14 +597,14 @@ export function UserManagement() {
                       <>
                         <button
                           onClick={() => openRoleEdit(r)}
-                          className="text-[11px] uppercase font-bold text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
+                          className="text-[11px] uppercase font-bold text-brand hover:opacity-75 transition cursor-pointer"
                         >
                           编辑
                         </button>
                         {r.role_type === 'custom' && (
                           <button
                             onClick={() => handleDeleteRole(r)}
-                            className="text-[11px] uppercase font-bold text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                            className="text-[11px] uppercase font-bold text-ink-faint hover:text-rose-400 transition cursor-pointer"
                           >
                             删除
                           </button>
@@ -618,7 +618,7 @@ export function UserManagement() {
                 </p>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {r.permissions.slice(0, 6).map((p) => (
-                    <span key={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-slate-400 font-mono">
+                    <span key={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-ink-dim font-mono">
                       {p}
                     </span>
                   ))}
@@ -638,18 +638,18 @@ export function UserManagement() {
       {/* CREATE USER DIALOG MODAL */}
       {isAdding && (
         <div id="modal_create_user" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-2xl relative">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-[var(--shadow-pop)] relative">
             <div className="p-4 border-b border-line flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-ink flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-emerald-400" />
+                <Plus className="w-4 h-4 text-brand" />
                 新增团队成员
               </h3>
-              <button onClick={() => { setCreateFormError(null); setIsAdding(false); }} className="text-slate-500 hover:text-slate-300 font-bold cursor-pointer">✕</button>
+              <button onClick={() => { setCreateFormError(null); setIsAdding(false); }} className="text-ink-faint hover:text-ink font-bold cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={handleCreateUser} className="p-5 space-y-4 text-xs">
               {createFormError && (
-                <div className="px-3 py-2 rounded-lg bg-rose-950/30 border border-rose-700/40 text-rose-300 text-xs whitespace-pre-line">
+                <div className="px-3 py-2 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs whitespace-pre-line">
                   {createFormError.fieldErrors
                     ? Object.entries(createFormError.fieldErrors)
                         .map(([field, msgs]) =>
@@ -661,37 +661,37 @@ export function UserManagement() {
               )}
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">成员用户名</label>
+                <label className="text-ink-dim font-medium font-sans">成员用户名</label>
                 <input type="text" required value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如: chenming"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-slate-200 focus:outline-none focus:border-emerald-500 transition font-sans" />
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand transition font-sans" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">邮箱 (Email)</label>
+                <label className="text-ink-dim font-medium font-sans">邮箱 (Email)</label>
                 <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="如: chen.ming@linkgraph.ai"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-slate-200 focus:outline-none focus:border-emerald-500 transition font-sans" />
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand transition font-sans" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans flex items-center justify-between">
+                <label className="text-ink-dim font-medium font-sans flex items-center justify-between">
                   <span>初始密码</span>
-                  <span className={`text-[11px] font-mono ${newPassword.length > 0 && newPassword.length < 8 ? 'text-rose-400' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-mono ${newPassword.length > 0 && newPassword.length < 8 ? 'text-rose-400' : 'text-ink-faint'}`}>
                     {newPassword.length}/8 位
                   </span>
                 </label>
                 <input type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="至少 8 位"
-                  className={`w-full px-3 py-2 bg-page rounded-lg text-slate-200 focus:outline-none transition font-sans ${
+                  className={`w-full px-3 py-2 bg-page rounded-lg text-ink focus:outline-none transition font-sans ${
                     newPassword.length > 0 && newPassword.length < 8
-                      ? 'border border-rose-700/60 focus:border-rose-500'
-                      : 'border border-line focus:border-emerald-500'
+                      ? 'border border-sig-fail/50 focus:border-sig-fail'
+                      : 'border border-line focus:border-brand'
                   }`} />
                 {newPassword.length > 0 && newPassword.length < 8 && (
-                  <p className="text-[11px] text-rose-400 font-sans">密码至少需要 8 个字符</p>
+                  <p className="text-[11px] text-sig-fail font-sans">密码至少需要 8 个字符</p>
                 )}
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">赋予初始角色</label>
+                <label className="text-ink-dim font-medium font-sans">赋予初始角色</label>
                 <Select
                   value={newRole}
                   onChange={(v) => setNewRole(v ?? 'viewer')}
@@ -702,11 +702,11 @@ export function UserManagement() {
 
               <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4">
                 <button type="button" onClick={() => { setCreateFormError(null); setIsAdding(false); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold">
                   取消
                 </button>
                 <button type="submit" disabled={createM.isPending}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-md cursor-pointer font-sans disabled:opacity-60">
+                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60">
                   {createM.isPending ? '创建中…' : '挂载该成员'}
                 </button>
               </div>
@@ -718,27 +718,27 @@ export function UserManagement() {
       {/* RESET PASSWORD MODAL（admin 重置成员密码，POST /users/{id}/reset-password） */}
       {resetPwdTarget && (
         <div id="modal_reset_password" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-2xl relative">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-[var(--shadow-pop)] relative">
             <div className="p-4 border-b border-line flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-ink flex items-center gap-1.5">
-                <KeyRound className="w-4 h-4 text-amber-400" />
+                <KeyRound className="w-4 h-4 text-brand" />
                 重置密码 — {resetPwdTarget.name}
               </h3>
               <button
                 onClick={() => { setResetPwdError(null); setResetPwdTarget(null); }}
-                className="text-slate-500 hover:text-slate-300 font-bold cursor-pointer"
+                className="text-ink-faint hover:text-ink font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleResetPassword} className="p-5 space-y-4 text-xs">
-              <p className="text-slate-400 font-sans">
+              <p className="text-ink-dim font-sans">
                 重置后原密码立即失效，请将新密码告知该用户。
               </p>
 
               {resetPwdError && (
-                <div className="px-3 py-2 rounded-lg bg-rose-950/30 border border-rose-700/40 text-rose-300 text-xs whitespace-pre-line">
+                <div className="px-3 py-2 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs whitespace-pre-line">
                   {resetPwdError.fieldErrors
                     ? Object.entries(resetPwdError.fieldErrors)
                         .map(([field, msgs]) =>
@@ -750,9 +750,9 @@ export function UserManagement() {
               )}
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans flex items-center justify-between">
+                <label className="text-ink-dim font-medium font-sans flex items-center justify-between">
                   <span>新密码</span>
-                  <span className={`text-[11px] font-mono ${resetPwdValue.length > 0 && resetPwdValue.length < 8 ? 'text-rose-400' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-mono ${resetPwdValue.length > 0 && resetPwdValue.length < 8 ? 'text-rose-400' : 'text-ink-faint'}`}>
                     {resetPwdValue.length}/8 位
                   </span>
                 </label>
@@ -765,23 +765,23 @@ export function UserManagement() {
                     value={resetPwdValue}
                     onChange={(e) => setResetPwdValue(e.target.value)}
                     placeholder="至少 8 位，可点右侧随机生成"
-                    className={`flex-1 px-3 py-2 bg-page rounded-lg text-slate-200 focus:outline-none transition font-mono ${
+                    className={`flex-1 px-3 py-2 bg-page rounded-lg text-ink focus:outline-none transition font-mono ${
                       resetPwdValue.length > 0 && resetPwdValue.length < 8
-                        ? 'border border-rose-700/60 focus:border-rose-500'
-                        : 'border border-line focus:border-emerald-500'
+                        ? 'border border-sig-fail/50 focus:border-sig-fail'
+                        : 'border border-line focus:border-brand'
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setResetPwdValue(generatePassword())}
                     title="重新生成 12 位随机强密码"
-                    className="px-3 py-2 border border-line rounded-lg text-slate-400 hover:text-white hover:bg-page transition cursor-pointer shrink-0 flex items-center gap-1.5"
+                    className="px-3 py-2 border border-line rounded-lg text-ink-dim hover:text-ink hover:bg-page transition cursor-pointer shrink-0 flex items-center gap-1.5"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> 随机
                   </button>
                 </div>
                 {resetPwdValue.length > 0 && resetPwdValue.length < 8 && (
-                  <p className="text-[11px] text-rose-400 font-sans">密码至少需要 8 个字符</p>
+                  <p className="text-[11px] text-sig-fail font-sans">密码至少需要 8 个字符</p>
                 )}
               </div>
 
@@ -789,14 +789,14 @@ export function UserManagement() {
                 <button
                   type="button"
                   onClick={() => { setResetPwdError(null); setResetPwdTarget(null); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold"
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
                   disabled={resetPwdM.isPending}
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-md cursor-pointer font-sans disabled:opacity-60"
+                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60"
                 >
                   {resetPwdM.isPending ? '重置中…' : '重置密码'}
                 </button>
@@ -809,28 +809,28 @@ export function UserManagement() {
       {/* ROLE CREATE/EDIT DIALOG MODAL */}
       {roleModalMode !== null && (
         <div id="modal_create_role" className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-2xl relative">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-xl shadow-[var(--shadow-pop)] relative">
             <div className="p-4 border-b border-line flex items-center justify-between">
               <h3 className="text-normal font-sans font-bold text-ink flex items-center gap-1.5">
                 {roleModalMode === 'create' ? (
                   <>
-                    <Plus className="w-4 h-4 text-indigo-400" />
+                    <Plus className="w-4 h-4 text-brand" />
                     新建角色（POST /roles）
                   </>
                 ) : (
                   <>
-                    <Pencil className="w-4 h-4 text-indigo-400" />
+                    <Pencil className="w-4 h-4 text-brand" />
                     编辑角色（PATCH /roles/{editingRole?.id}）
                   </>
                 )}
               </h3>
-              <button onClick={closeRoleModal} className="text-slate-500 hover:text-slate-300 font-bold cursor-pointer">✕</button>
+              <button onClick={closeRoleModal} className="text-ink-faint hover:text-ink font-bold cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={handleRoleSubmit} className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-slate-400 font-medium font-sans">角色 key (小写)</label>
+                  <label className="text-ink-dim font-medium font-sans">角色 key (小写)</label>
                   <input
                     type="text"
                     required
@@ -839,11 +839,11 @@ export function UserManagement() {
                     onChange={(e) => setRoleName(e.target.value)}
                     readOnly={roleModalMode === 'edit'}
                     placeholder="如: content_editor"
-                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500 font-mono read-only:opacity-60 read-only:cursor-not-allowed"
+                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-mono read-only:opacity-60 read-only:cursor-not-allowed"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-slate-400 font-medium font-sans">
+                  <label className="text-ink-dim font-medium font-sans">
                     显示名{isEditingSystemRole ? '（系统角色不可改）' : ''}
                   </label>
                   <input
@@ -853,34 +853,34 @@ export function UserManagement() {
                     onChange={(e) => setRoleDisplay(e.target.value)}
                     disabled={isEditingSystemRole}
                     placeholder="如: 内容编辑"
-                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500 font-sans disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-sans disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">描述{isEditingSystemRole ? '（系统角色不可改）' : ''}</label>
+                <label className="text-ink-dim font-medium font-sans">描述{isEditingSystemRole ? '（系统角色不可改）' : ''}</label>
                 <input
                   type="text"
                   value={roleDesc}
                   onChange={(e) => setRoleDesc(e.target.value)}
                   disabled={isEditingSystemRole}
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-slate-200 focus:outline-none focus:border-indigo-500 font-sans disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-sans disabled:opacity-60 disabled:cursor-not-allowed"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-400 font-medium font-sans">权限点 ({rolePerms.size}/{allPerms.length})</label>
+                <label className="text-ink-dim font-medium font-sans">权限点 ({rolePerms.size}/{allPerms.length})</label>
                 <PermissionTree selected={rolePerms} onChange={setRolePerms} />
               </div>
 
               <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4">
                 <button type="button" onClick={closeRoleModal}
-                  className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold">
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold">
                   取消
                 </button>
                 <button type="submit" disabled={roleFormPending}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-sans disabled:opacity-60">
+                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60">
                   {roleFormPending
                     ? roleModalMode === 'edit' ? '保存中…' : '创建中…'
                     : roleModalMode === 'edit' ? '保存修改' : '创建角色'}
