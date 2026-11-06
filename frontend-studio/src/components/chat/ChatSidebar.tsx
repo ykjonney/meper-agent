@@ -196,6 +196,15 @@ export function ChatSidebar({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-2 space-y-1">
+          {/* 会话列表头：sticky 固定——＋新建入口不随列表滚动 */}
+          <div className="sticky top-0 z-10 flex justify-between items-center px-2.5 py-1.5 -mx-2 mt-[-8px] pt-2 bg-well">
+            <span style={{ fontSize: 9, letterSpacing: '.13em', color: 'var(--color-ink-faint)' }}>会话</span>
+            <span
+              className="cursor-pointer text-[13px] leading-none text-ink-dim hover:text-brand transition-colors"
+              onClick={() => activeAgent && onStartNewWithAgent(activeAgent)}
+              title={`以 ${activeAgent?.name ?? '当前 Agent'} 开新会话`}
+            >＋</span>
+          </div>
           {sessionsLoading && (
             <div className="p-3 text-[11px] text-ink-dim font-mono">加载会话中…</div>
           )}
@@ -232,16 +241,10 @@ export function ChatSidebar({
               (days < 1 ? buckets[0] : days < 7 ? buckets[1] : buckets[2]).items.push(sess);
             }
             const agentName = activeAgent?.name;
-            return buckets.filter((b) => b.items.length > 0).map((bucket, bi) => (
+            return buckets.filter((b) => b.items.length > 0).map((bucket) => (
               <div key={bucket.label}>
                 <div className="flex justify-between items-center px-2.5 pt-3 pb-1" style={{ fontSize: 9, letterSpacing: '.13em', color: 'var(--color-ink-faint)' }}>
                   <span>{bucket.label}{agentName ? <> · <span className="text-brand">{agentName}</span></> : null}</span>
-                  {/* 添加会话入口全局唯一：仅首个分组节标题显示 */}
-                  {bi === 0 && (
-                    <span className="cursor-pointer text-[12px] hover:text-brand"
-                      onClick={() => activeAgent && onStartNewWithAgent(activeAgent)}
-                      title={`以 ${agentName ?? '当前 Agent'} 开新会话`}>＋</span>
-                  )}
                 </div>
                 {bucket.items.map((sess) => {
                   const infoAgent = agents.find((a) => a.id === sess.agent_id);
