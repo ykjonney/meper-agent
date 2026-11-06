@@ -223,6 +223,8 @@ interface SelectProps {
   groups?: SelectOptionGroup[]
   placeholder?: string
   size?: 'small' | 'middle'
+  /** boxed=圆角边框触发器（默认）；line=下划线无边框（弹窗表单，与 Input line 配套） */
+  variant?: 'boxed' | 'line'
   className?: string
   allowClear?: boolean
   /** Inline search box in the dropdown. Defaults to `true` (post-upgrade behavior). */
@@ -252,6 +254,7 @@ export function Select({
   groups,
   placeholder = '请选择',
   size = 'middle',
+  variant = 'boxed',
   className = '',
   allowClear = false,
   showSearch = true,
@@ -397,9 +400,10 @@ export function Select({
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
-        className={`w-full ${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5
-          rounded-md border border-line bg-page flex items-center justify-between gap-1 cursor-pointer
-          text-ink hover:border-brand focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors`}
+        className={`w-full flex items-center justify-between gap-1 cursor-pointer text-ink focus:outline-none transition-colors
+          ${variant === 'line'
+            ? `border-0 border-b border-line-strong bg-transparent px-0 py-1.5 ${size === 'small' ? 'text-xs' : 'text-[13px]'} hover:border-brand focus:border-brand`
+            : `${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5 rounded-md border border-line bg-page hover:border-brand focus:border-brand focus:ring-[3px] focus:ring-brand-soft`}`}
       >
         <span className={`flex-1 min-w-0 truncate ${value ? '' : 'text-ink-dim'}`}>
           {displayNode ?? placeholder}

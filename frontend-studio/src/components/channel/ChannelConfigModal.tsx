@@ -158,6 +158,7 @@ export default function ChannelConfigModal({
             </p>
           ) : (
             <Select
+              variant="line"
               value={agentId || null}
               onChange={(v) => setAgentId(v ?? '')}
               placeholder="选择处理 IM 消息的智能体"
