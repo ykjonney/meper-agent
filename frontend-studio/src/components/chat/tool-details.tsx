@@ -44,7 +44,6 @@ import { voiceConfigApi, voiceConfigKeys } from '../../services/voice-config-api
 // 思考档位元数据：label=档位文字，color=强度色（信号色 token，明暗主题自适应；
 // off=灰 / low=绿 / medium=黄 / high=橙红）。
 import { ThinkingEntryCard } from './ToolEntryCard';
-import { ParallelToolBatch } from './ActivityGroup';
 
 export const TOOL_STATUS_CFG: Record<
   NonNullable<Message['toolStatus']>,

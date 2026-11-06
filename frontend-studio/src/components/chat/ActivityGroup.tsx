@@ -230,92 +230,63 @@ export function ActivityGroup({
     }
   }, [finished, isRunning, hasError, interrupted, hasOpenInteractive]);
 
-  // 过程条目：按时序渲染；紧邻的普通工具 = 同一批并行调用 → 合并为一个
-  // 「执行了 N 个工具」折叠条目（点击展开每条），执行顺序不丢失
-  const renderEntries = () => {
-    const slots: TimelineEntry[][] = [];
-    let batch: TimelineEntry[] = [];
-    const isChartEntry = (e: TimelineEntry) =>
-      e.type === 'tool' &&
-      e.toolName === 'render_chart' &&
-      /```(?:echarts|chart)\s*\n/i.test(e.result ?? '');
-    for (const entry of entries) {
-      const isNormalTool = entry.type === 'tool' && !isInteractiveTool(entry);
-      // 图表是核心产出：独立直出（默认展开），永不收进折叠批次
-      if (isNormalTool && !isChartEntry(entry)) {
-        batch.push(entry);
-      } else {
-        if (batch.length) slots.push(batch);
-        batch = [];
-        slots.push([entry]);
-      }
-    }
-    if (batch.length) slots.push(batch);
-    return slots.map((slot, si) => {
-      if (slot.length === 1) {
-        const entry = slot[0];
-        if (entry.type === 'thinking') {
-          return (
-            <ThinkingEntryCard
-              key={`sl-${si}`}
-              entry={{ ...entry, expanded: openThinkings.has(entry.id) }}
-              streaming={
-                entry === liveEntries[liveEntries.length - 1] &&
-                !!thinkingActive &&
-                isLive &&
-                !isRunning
-              }
-              onToggle={() => toggleThinking(entry.id)}
-            />
-          );
-        }
-        if (entry.type === 'error') {
-          return (
-            <div
-              key={`sl-${si}`}
-              className="px-3 py-2 rounded-lg bg-sig-fail-soft text-sig-fail text-[12.5px] font-sans"
-            >
-              {entry.content}
-            </div>
-          );
-        }
-        if (entry.type === 'text') {
-          // 卡内中间小结：与最终回答同款式（模型文本输出的类型一致），
-          // 只是身处过程卡内、按发生时序排在工具卡之间
-          return (
-            <div
-              key={`sl-${si}`}
-              className="px-2.5 py-1 text-[14px] leading-[1.75] text-ink font-sans"
-            >
-              <Markdown content={entry.content} />
-            </div>
-          );
-        }
-        // 单条交互卡 / 单条工具
+  // 过程条目：按时序直接平铺（thinking/工具/小结/错误各自渲染）——
+  // 不再做「执行了 N 个工具」的内部折叠批：外层卡组头已有计数汇总，
+  // 内层再包一层是重复信息；执行动效只出现在正在执行的工具条目上。
+  const renderEntries = () =>
+    entries.map((entry, i) => {
+      if (entry.type === 'thinking') {
         return (
-          <ToolEntryCard
-            key={`sl-${si}`}
-            entry={entry}
-            msgId={msgId}
-            interrupted={interrupted}
-            theme={theme}
-            onAnswer={onAnswer}
-            onDismiss={onDismiss}
-            onApprovePlan={onApprovePlan}
-            planVersion={planVersion}
+          <ThinkingEntryCard
+            key={`en-${i}`}
+            entry={{ ...entry, expanded: openThinkings.has(entry.id) }}
+            streaming={
+              entry === liveEntries[liveEntries.length - 1] &&
+              !!thinkingActive &&
+              isLive &&
+              !isRunning
+            }
+            onToggle={() => toggleThinking(entry.id)}
           />
         );
       }
-      // 并行批次：N ≥ 2 → 折叠为一个条目
+      if (entry.type === 'error') {
+        return (
+          <div
+            key={`en-${i}`}
+            className="px-3 py-2 rounded-lg bg-sig-fail-soft text-sig-fail text-[12.5px] font-sans"
+          >
+            {entry.content}
+          </div>
+        );
+      }
+      if (entry.type === 'text') {
+        // 卡内中间小结：与最终回答同款式（模型文本输出的类型一致），
+        // 只是身处过程卡内、按发生时序排在工具卡之间
+        return (
+          <div
+            key={`en-${i}`}
+            className="px-2.5 py-1 text-[14px] leading-[1.75] text-ink font-sans"
+          >
+            <Markdown content={entry.content} />
+          </div>
+        );
+      }
+      // 工具 / 交互卡：直接显示，不包折叠层
       return (
-        <ParallelToolBatch
-          key={`batch-${msgId}-${si}`}
-          entries={slot}
+        <ToolEntryCard
+          key={`en-${i}`}
+          entry={entry}
           msgId={msgId}
+          interrupted={interrupted}
+          theme={theme}
+          onAnswer={onAnswer}
+          onDismiss={onDismiss}
+          onApprovePlan={onApprovePlan}
+          planVersion={planVersion}
         />
       );
     });
-  };
 
   // 统一形态：流式中与完成后都是同一张折叠卡（流式中默认展开）——
   // 仅组头状态与 open 随运行状态变化。原实现流式中"平铺"、结束瞬间
@@ -328,8 +299,10 @@ export function ActivityGroup({
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-raise transition-colors rounded-[10px]"
       >
+        {/* 组头不放置动效——spinner 只出现在正在执行的工具条目上，
+            避免"内外两层同时转圈"的重复动效 */}
         {isRunning ? (
-          <Loader2 className="w-3.5 h-3.5 self-center text-sig-wait shrink-0 animate-spin" />
+          <Wrench className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
         ) : hasError ? (
           <AlertTriangle className="w-3.5 h-3.5 self-center text-sig-fail shrink-0" />
         ) : (
@@ -338,7 +311,7 @@ export function ActivityGroup({
         <span className="text-xs font-medium text-ink-dim shrink-0 leading-none">
           执行过程
         </span>
-        <span className="text-[11px] text-ink-faint font-mono shrink-0">
+        <span className={`text-[11px] font-mono shrink-0 ${isRunning ? 'text-sig-wait' : 'text-ink-faint'}`}>
           {hasError
             ? '执行出错'
             : isRunning
