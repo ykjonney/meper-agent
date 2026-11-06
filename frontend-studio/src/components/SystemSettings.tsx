@@ -2,18 +2,19 @@
  * ExternalAccessPage — 外部接入（设置 Tab，原「通用」）。
  *
  * API Key 管理：供 /ext 嵌入式对话与第三方系统调用 OpenAPI。
- * 设计稿：docs/design-mockups/admin-pages.html pane-apikey（列表态）+
- * apikey-pages.html（创建/编辑 = 页内全屏双栏，弹窗形态已废弃 §3.1）。
+ * 布局：左侧创建/编辑表单 + 右侧 Key 列表展示（同页双栏）。
+ * 资源绑定（智能体/工作流）用锚定浮层选择（同 AgentEditorPage 能力浮层形态）。
  *
- * 列表态：stats 条 + cfg-row 配置行（KEY 实体块 + 状态 pill + mono 描述）。
- * 创建/编辑：页内切换到 KeyFormPage（下划线输入 + res-chips，非弹窗）。
+ * RuntimeParamsPage — 全局参数（独立设置 Tab，分组分区形态，持续扩容）。
+ *
+ * 设计稿：docs/design-mockups/admin-pages.html pane-apikey +
+ * apikey-pages.html（下划线输入 + res-chips 形态）。
  */
-import { useEffect, useState, FormEvent, type InputHTMLAttributes } from 'react';
+import { useEffect, useRef, useState, FormEvent, type InputHTMLAttributes } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldAlert, Plus, Sliders, CheckCircle, Check, Copy,
-  AlertTriangle, RefreshCw, ChevronDown, ChevronRight, Pencil,
-  ArrowLeft,
+  AlertTriangle, RefreshCw, Pencil, ArrowLeft, Search, X, Bot, Workflow,
 } from 'lucide-react';
 import { agentApi } from '../services/agent-api';
 import { workflowsApi } from '../services/workflows-api';
@@ -86,7 +87,7 @@ function LineInput(props: InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-/* ═══════════════════════ 列表态 ═══════════════════════ */
+/* ═══════════════════════ 外部接入：左表单 + 右列表双栏 ═══════════════════════ */
 
 export function ExternalAccessPage() {
   const qc = useQueryClient();
@@ -98,13 +99,13 @@ export function ExternalAccessPage() {
   const apiKeys = data?.items ?? [];
   const activeCount = apiKeys.filter((k) => k.status === 'active').length;
 
-  const [mode, setMode] = useState<'list' | 'create'>('list');
+  // 编辑态：列表「编辑」→ 左栏表单载入该 Key；取消回创建模式
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null);
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // 选项列表——详情面板里的 id → 名称解析
+  // 选项列表——表单浮层 + 详情面板名称解析共用
   const { data: agentsData } = useQuery({
     queryKey: ['api-keys', 'agent-options'],
     queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'all' }),
@@ -138,24 +139,7 @@ export function ExternalAccessPage() {
     revokeMutation.mutate(key.id);
   };
 
-  // ── 创建/编辑全屏视图 ──
-  if (mode === 'create' || editingKey) {
-    return (
-      <KeyFormPage
-        keyItem={editingKey ?? undefined}
-        onBack={() => {
-          setMode('list');
-          setEditingKey(null);
-        }}
-        onCreated={(res) => {
-          setCreatedKey(res);
-          setMode('list');
-        }}
-      />
-    );
-  }
-
-  // ── 详情行渲染（plain function，同旧实现） ──
+  // ── 详情行渲染（plain function） ──
   const renderRow = (label: string, value: string, mono = false) => (
     <div className="flex gap-2" key={label}>
       <span className="text-ink-dim w-20 shrink-0">{label}</span>
@@ -223,8 +207,8 @@ export function ExternalAccessPage() {
   };
 
   return (
-    <div className="space-y-4 max-w-3xl">
-      {/* One-time raw key reveal + full detail */}
+    <div className="space-y-4">
+      {/* One-time raw key reveal（创建成功后置顶提示） */}
       {createdKey && (
         <div className="p-4 bg-sig-ok-soft border border-line rounded-xl space-y-3">
           <div className="flex items-start justify-between gap-3">
@@ -250,10 +234,7 @@ export function ExternalAccessPage() {
             <code className="flex-1 px-3 py-2 bg-panel border border-line rounded-lg text-ink font-mono text-xs break-all">
               {createdKey.key}
             </code>
-            <button
-              onClick={() => copy(createdKey.key)}
-              className="shrink-0 af-btn af-btn-primary"
-            >
+            <button onClick={() => copy(createdKey.key)} className="shrink-0 af-btn af-btn-primary">
               {copiedValue === createdKey.key ? (
                 <Check className="w-3.5 h-3.5" />
               ) : (
@@ -267,215 +248,265 @@ export function ExternalAccessPage() {
         </div>
       )}
 
-      {/* 说明 + 创建入口（设计稿 page-head 形态：说明行 + 主 CTA） */}
-      <div className="flex items-center gap-3">
-        <p className="text-xs text-ink-dim font-sans flex-1">
-          管理对外接入用的 API Key（供 /ext 嵌入式对话、第三方系统调用 OpenAPI）
-        </p>
-        <button onClick={() => setMode('create')} className="af-btn af-btn-primary shrink-0">
-          <Plus className="w-3.5 h-3.5" />
-          创建 API Key
-        </button>
-      </div>
-
-      {/* stats 条（设计稿 pane-apikey：真实数据 + 接入端点） */}
-      <div className="flex bg-panel border border-line rounded-xl divide-x divide-line shadow-[var(--shadow-card)]">
-        <div className="flex-1 px-4 py-3">
-          <div className="text-[22px] font-bold text-ink leading-tight">{activeCount}</div>
-          <div className="text-[11px] text-ink-dim mt-0.5">活跃 Key · 共 {apiKeys.length} 个</div>
+      {/* 双栏：左创建/编辑表单 + 右 Key 列表 */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* 左：创建/编辑表单（col-span-5） */}
+        <div className="lg:col-span-5 min-w-0">
+          <KeyFormCard
+            keyItem={editingKey ?? undefined}
+            agents={agentsData?.items ?? []}
+            workflows={workflowsData?.items ?? []}
+            apps={appsData?.items ?? []}
+            onCancelEdit={() => setEditingKey(null)}
+            onCreated={(res) => {
+              setCreatedKey(res);
+              qc.invalidateQueries({ queryKey: apiKeyKeys.lists() });
+            }}
+            onUpdated={() => {
+              qc.invalidateQueries({ queryKey: apiKeyKeys.lists() });
+              setEditingKey(null);
+            }}
+          />
         </div>
-        <div className="flex-[1.4] px-4 py-3 flex flex-col justify-center">
-          <div className="font-mono text-[13px] text-ink font-semibold">POST /api/v1/ext/*</div>
-          <div className="text-[11px] text-ink-dim mt-0.5">接入端点 · 携带 Authorization: Bearer + X-User-Token</div>
-        </div>
-      </div>
 
-      {/* Key 列表 — cfg-row 配置行（无边框行 + hairline 分隔） */}
-      <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)]">
-        {isLoading && (
-          <p className="text-xs text-ink-faint font-sans text-center py-8">加载中…</p>
-        )}
-        {!isLoading && apiKeys.length === 0 && (
-          <p className="text-xs text-ink-faint font-sans text-center py-8">暂无对外 Key，点击右上角「创建 API Key」。</p>
-        )}
-        {apiKeys.map((key, i) => {
-          const open = expandedId === key.id;
-          const active = key.status === 'active';
-          return (
-            <div key={key.id} className={i > 0 ? 'border-t border-line' : ''}>
-              <div className="flex items-center gap-3 px-4 py-3.5">
-                {/* KEY 实体块 */}
-                <span
-                  className={`w-9 h-9 rounded-lg font-mono text-[9px] font-bold flex items-center justify-center shrink-0 ${
-                    active ? 'bg-brand-soft text-brand' : 'bg-raise text-ink-faint'
-                  }`}
-                >
-                  KEY
-                </span>
-                {/* 名称 + 状态 + mono 描述 */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-semibold text-ink truncate">{key.name}</span>
-                    <span className={`af-pill ${active ? 'af-pill-ok' : 'af-pill-neutral'}`}>
-                      {active ? '活跃' : '已撤销'}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-ink-dim font-mono mt-0.5 truncate">
-                    {key.key_prefix || '—'} · {key.scopes.length} 项权限 · 限流 {key.rate_limit}/分 ·{' '}
-                    {key.expires_at ? `有效期至 ${fmtDate(key.expires_at)}` : '永不过期'}
-                  </div>
-                </div>
-                {/* 上次使用 */}
-                <span className="hidden sm:block text-[11px] text-ink-faint font-mono shrink-0">
-                  {key.last_used_at ? `${fmtDate(key.last_used_at)} 使用` : '从未使用'}
-                </span>
-                {/* 操作 */}
-                <div className="flex items-center gap-3 shrink-0 text-xs">
-                  <button
-                    onClick={() => setExpandedId((prev) => (prev === key.id ? null : key.id))}
-                    className="text-brand hover:opacity-75 cursor-pointer font-medium"
-                  >
-                    {open ? '收起' : '详情'}
-                  </button>
-                  {active && (
-                    <button
-                      onClick={() => setEditingKey(key)}
-                      className="text-brand hover:opacity-75 cursor-pointer font-medium flex items-center gap-0.5"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      编辑
-                    </button>
-                  )}
-                  {active && (
-                    <button
-                      onClick={() => handleRevoke(key)}
-                      disabled={revokeMutation.isPending}
-                      className="text-sig-fail hover:opacity-75 cursor-pointer font-medium disabled:opacity-40"
-                    >
-                      撤销
-                    </button>
-                  )}
-                </div>
-              </div>
-              {open && <div className="px-4 pb-4">{renderKeyDetail(key)}</div>}
+        {/* 右：stats + Key 列表（col-span-7） */}
+        <div className="lg:col-span-7 min-w-0 space-y-4">
+          {/* stats 条（真实数据 + 接入端点） */}
+          <div className="flex bg-panel border border-line rounded-xl divide-x divide-line shadow-[var(--shadow-card)]">
+            <div className="flex-1 px-4 py-3">
+              <div className="text-[22px] font-bold text-ink leading-tight">{activeCount}</div>
+              <div className="text-[11px] text-ink-dim mt-0.5">活跃 Key · 共 {apiKeys.length} 个</div>
             </div>
-          );
-        })}
+            <div className="flex-[1.4] px-4 py-3 flex flex-col justify-center">
+              <div className="font-mono text-[13px] text-ink font-semibold">POST /api/v1/ext/*</div>
+              <div className="text-[11px] text-ink-dim mt-0.5">接入端点 · 携带 Authorization: Bearer + X-User-Token</div>
+            </div>
+          </div>
+
+          {/* Key 列表 — cfg-row 配置行（无边框行 + hairline 分隔） */}
+          <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)]">
+            {isLoading && (
+              <p className="text-xs text-ink-faint font-sans text-center py-8">加载中…</p>
+            )}
+            {!isLoading && apiKeys.length === 0 && (
+              <p className="text-xs text-ink-faint font-sans text-center py-8">暂无对外 Key，在左侧创建第一个。</p>
+            )}
+            {apiKeys.map((key, i) => {
+              const open = expandedId === key.id;
+              const active = key.status === 'active';
+              return (
+                <div key={key.id} className={i > 0 ? 'border-t border-line' : ''}>
+                  <div className="flex items-center gap-3 px-4 py-3.5">
+                    {/* KEY 实体块 */}
+                    <span
+                      className={`w-9 h-9 rounded-lg font-mono text-[9px] font-bold flex items-center justify-center shrink-0 ${
+                        active ? 'bg-brand-soft text-brand' : 'bg-raise text-ink-faint'
+                      }`}
+                    >
+                      KEY
+                    </span>
+                    {/* 名称 + 状态 + mono 描述 */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-semibold text-ink truncate">{key.name}</span>
+                        <span className={`af-pill ${active ? 'af-pill-ok' : 'af-pill-neutral'}`}>
+                          {active ? '活跃' : '已撤销'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-ink-dim font-mono mt-0.5 truncate">
+                        {key.key_prefix || '—'} · {key.scopes.length} 项权限 · 限流 {key.rate_limit}/分 ·{' '}
+                        {key.expires_at ? `有效期至 ${fmtDate(key.expires_at)}` : '永不过期'}
+                      </div>
+                    </div>
+                    {/* 上次使用 */}
+                    <span className="hidden xl:block text-[11px] text-ink-faint font-mono shrink-0">
+                      {key.last_used_at ? `${fmtDate(key.last_used_at)} 使用` : '从未使用'}
+                    </span>
+                    {/* 操作 */}
+                    <div className="flex items-center gap-3 shrink-0 text-xs">
+                      <button
+                        onClick={() => setExpandedId((prev) => (prev === key.id ? null : key.id))}
+                        className="text-brand hover:opacity-75 cursor-pointer font-medium"
+                      >
+                        {open ? '收起' : '详情'}
+                      </button>
+                      {active && (
+                        <button
+                          onClick={() => setEditingKey(key)}
+                          className="text-brand hover:opacity-75 cursor-pointer font-medium flex items-center gap-0.5"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          编辑
+                        </button>
+                      )}
+                      {active && (
+                        <button
+                          onClick={() => handleRevoke(key)}
+                          disabled={revokeMutation.isPending}
+                          className="text-sig-fail hover:opacity-75 cursor-pointer font-medium disabled:opacity-40"
+                        >
+                          撤销
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {open && <div className="px-4 pb-4">{renderKeyDetail(key)}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 底部 mono 说明（设计稿 pane-apikey 脚注） */}
+          <p className="text-[10.5px] text-ink-faint font-mono">
+            Key 创建后仅展示一次完整值（复制保存），此后只显示掩码 · 权限范围与资源绑定在详情中查看
+          </p>
+        </div>
       </div>
-
-      {/* 底部 mono 说明（设计稿 pane-apikey 脚注） */}
-      <p className="text-[10.5px] text-ink-faint font-mono">
-        Key 创建后仅展示一次完整值（复制保存），此后只显示掩码 · 权限范围与资源绑定在详情中查看
-      </p>
-
-      {/* 全局运行参数（mock，未接后端——保留原功能位） */}
-      <RuntimeParamsCard />
     </div>
   );
 }
 
-/* ── 全局运行参数卡（mock：本地 state，无持久化——维持既有占位功能） ── */
+/* ── 资源选择浮层：智能体/工作流 tab 勾选（形态同 AgentEditorPage 能力浮层） ── */
 
-function RuntimeParamsCard() {
-  const [timeout, setTimeoutVal] = useState(30);
-  const [detailedAnimation, setDetailedAnimation] = useState(true);
-  const [autoClearCache, setAutoClearCache] = useState(false);
-  const [strictSchema, setStrictSchema] = useState(true);
+type PickerItem = { id: string; name: string; description?: string };
+type PickerTab = 'agent' | 'workflow';
+
+function ResourcePickerOverlay({
+  anchorEl,
+  tab,
+  onTabChange,
+  agents,
+  workflows,
+  selectedAgents,
+  selectedWorkflows,
+  onToggleAgent,
+  onToggleWorkflow,
+  onClose,
+}: {
+  anchorEl: HTMLElement | null;
+  tab: PickerTab;
+  onTabChange: (t: PickerTab) => void;
+  agents: PickerItem[];
+  workflows: PickerItem[];
+  selectedAgents: Set<string>;
+  selectedWorkflows: Set<string>;
+  onToggleAgent: (id: string) => void;
+  onToggleWorkflow: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  // 锚定触发按钮下方（380px 浮层向左展开；底部越界时上收）。
+  // 触发钮可能贴近视口左缘：right 需 clamp 保证浮层左缘 ≥ 12px。
+  useEffect(() => {
+    if (!anchorEl) return;
+    const r = anchorEl.getBoundingClientRect();
+    setPos({
+      top: Math.min(r.bottom + 8, window.innerHeight - 396),
+      right: Math.max(12, Math.min(window.innerWidth - r.right, window.innerWidth - 392)),
+    });
+  }, [anchorEl]);
+
+  const groups: { key: PickerTab; label: string; items: PickerItem[]; selected: Set<string>; toggle: (id: string) => void }[] = [
+    { key: 'agent', label: '智能体', items: agents, selected: selectedAgents, toggle: onToggleAgent },
+    { key: 'workflow', label: '工作流', items: workflows, selected: selectedWorkflows, toggle: onToggleWorkflow },
+  ];
+  const cur = groups.find((g) => g.key === tab)!;
+  const kw = q.trim().toLowerCase();
+  const filtered = kw
+    ? cur.items.filter((it) => it.name.toLowerCase().includes(kw) || (it.description ?? '').toLowerCase().includes(kw))
+    : cur.items;
 
   return (
-    <div className="bg-panel border border-line rounded-xl p-5 shadow-[var(--shadow-card)] max-w-3xl mt-8">
-      <div className="space-y-1 border-b border-line pb-3 mb-4">
-        <h3 className="text-sm font-bold text-ink flex items-center gap-1.5">
-          <Sliders className="w-4 h-4 text-brand" />
-          虚拟机全局控制参数
-        </h3>
-        <p className="text-xs text-ink-dim">微调 Dify 以及 LangGraph 工作流运行时系统机制。</p>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-xs">
-          <span className="text-ink-dim font-medium">最大 LLM 事务超时时长 (Timeout)</span>
-          <span className="text-ink font-mono font-bold">{timeout}s</span>
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className="fixed w-[380px] bg-panel border border-line rounded-2xl shadow-[var(--shadow-pop)] overflow-hidden z-50 animate-fade-in"
+        style={{ top: pos.top, right: pos.right }}
+      >
+        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line">
+          <Search className="w-3.5 h-3.5 text-ink-faint shrink-0" />
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={`搜索${cur.label}…`}
+            className="flex-1 bg-transparent border-0 outline-none text-[12.5px] text-ink placeholder:text-ink-faint"
+          />
+          <button type="button" onClick={onClose} className="text-ink-faint hover:text-ink cursor-pointer shrink-0" title="关闭">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <input
-          type="range"
-          min="5"
-          max="120"
-          step="5"
-          value={timeout}
-          onChange={(e) => setTimeoutVal(parseInt(e.target.value))}
-          className="w-full focus:outline-none accent-brand"
-        />
-      </div>
-
-      <div className="space-y-4 pt-4">
-        {[
-          {
-            id: 'detailedAnimation',
-            title: '启用图 Dashing 流转连线动效',
-            desc: '在测试运行工作流时，实时渲染连线的高精度流动虚线轨迹。建议始终开启。',
-            state: detailedAnimation,
-            setter: setDetailedAnimation,
-          },
-          {
-            id: 'strictSchema',
-            title: '严格模型执行 Schema 校验',
-            desc: '对每一个 Agent worker 输出的 JSON payload 实施强制格式和数据类型校正，出错则自动重试打回。',
-            state: strictSchema,
-            setter: setStrictSchema,
-          },
-          {
-            id: 'autoClearCache',
-            title: '会话闭环后自清理内存临时变量',
-            desc: '为了安全性。一旦整个流程图完美流至 END 节点，一键释放在内存中的任务草纲与文件缓存。',
-            state: autoClearCache,
-            setter: setAutoClearCache,
-          },
-        ].map((flag) => (
-          <div key={flag.id} className="flex items-start justify-between gap-4 text-xs">
-            <div className="space-y-0.5">
-              <span className="font-semibold text-ink-soft">{flag.title}</span>
-              <p className="text-[11px] text-ink-dim leading-normal">{flag.desc}</p>
-            </div>
+        {/* 类别 tab：选中 = 靛蓝下划线；计数随搜索过滤实时变化 */}
+        <div className="flex items-center gap-1 px-3 border-b border-line">
+          {groups.map((g) => (
             <button
-              onClick={() => flag.setter(!flag.state)}
-              className="shrink-0 w-11 h-6 rounded-full transition relative flex items-center p-0.5 cursor-pointer"
-              style={{ backgroundColor: flag.state ? 'var(--color-brand)' : 'var(--color-raise)' }}
+              key={g.key}
+              type="button"
+              onClick={() => onTabChange(g.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-[11.5px] -mb-px border-b-2 transition-colors cursor-pointer ${
+                tab === g.key ? 'text-brand border-brand font-semibold' : 'text-ink-dim border-transparent hover:text-ink'
+              }`}
             >
-              <span
-                className="w-5 h-5 rounded-full bg-white shadow-md block transition-transform duration-200"
-                style={{ transform: flag.state ? 'translateX(20px)' : 'translateX(0)' }}
-              />
+              {g.label}
+              <span className="font-mono text-[9px] text-ink-faint">{g.items.length}</span>
             </button>
-          </div>
-        ))}
+          ))}
+        </div>
+        <div className="max-h-[300px] overflow-y-auto scrollbar-custom p-1.5">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-6 text-center text-[11.5px] text-ink-faint">
+              {kw ? `没有匹配「${q.trim()}」的${cur.label}` : `暂无可选择的${cur.label}`}
+            </div>
+          ) : (
+            filtered.map((it) => {
+              const added = cur.selected.has(it.id);
+              const Icon = cur.key === 'agent' ? Bot : Workflow;
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  onClick={() => cur.toggle(it.id)}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left transition-colors cursor-pointer hover:bg-raise ${added ? 'bg-brand-soft/50' : ''}`}
+                >
+                  <span className="w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0 bg-[#F5E9E2]">
+                    <Icon size={12} className="text-cat-kb" />
+                  </span>
+                  <span className={`min-w-0 flex-1 text-[12.5px] truncate ${added ? 'text-brand font-medium' : 'text-ink'}`}>
+                    {it.name}
+                  </span>
+                  <span className="min-w-0 w-[110px] text-[10.5px] text-ink-faint truncate text-right">{it.description}</span>
+                  {added && <Check className="w-3.5 h-3.5 text-brand shrink-0" />}
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
-
-      <div className="p-3 bg-raise rounded-lg space-y-1 mt-5">
-        <span className="font-semibold flex items-center gap-1.5 text-xs text-ink-soft">
-          <ShieldAlert className="w-3.5 h-3.5 text-brand" />
-          API 安全提醒
-        </span>
-        <p className="text-[11px] leading-relaxed text-ink-dim">
-          对外 Key 的明文仅在创建时展示一次。请妥善保管；如发现泄露，立即「撤销」并重新生成。
-        </p>
-      </div>
-    </div>
+    </>
   );
 }
 
-/* ═══════════════════ 创建/编辑：页内全屏双栏（弹窗形态已废弃 §3.1） ═══════════════════ */
+/* ── 左栏：创建/编辑表单卡（下划线输入 + chips + 浮层选择） ── */
 
-function KeyFormPage({
+function KeyFormCard({
   keyItem,
-  onBack,
+  agents,
+  workflows,
+  apps,
+  onCancelEdit,
   onCreated,
+  onUpdated,
 }: {
   keyItem?: ApiKey;
-  onBack: () => void;
+  agents: PickerItem[];
+  workflows: PickerItem[];
+  apps: { id: string; name: string }[];
+  onCancelEdit: () => void;
   onCreated: (res: ApiKeyCreated) => void;
+  onUpdated: () => void;
 }) {
-  const qc = useQueryClient();
   const isEdit = !!keyItem;
 
   const [name, setName] = useState(keyItem?.name ?? '');
@@ -485,31 +516,20 @@ function KeyFormPage({
   const [boundWorkflows, setBoundWorkflows] = useState<Set<string>>(new Set(keyItem?.bindings.workflows ?? []));
   const [formIntrospectUrl, setFormIntrospectUrl] = useState(keyItem?.introspect_url ?? '');
   const [formAppId, setFormAppId] = useState(keyItem?.app_id ?? '');
-  // 有效期 seg 仅创建模式提供（编辑沿用既有能力边界：不改有效期）
+  // 有效期仅创建模式提供（编辑沿用既有能力边界：不改有效期）
   const [expiry, setExpiry] = useState<'never' | '90' | '30'>('never');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onBack();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onBack]);
+  // 浮层：锚定触发钮 + 当前 tab
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<PickerTab>('agent');
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const openPicker = (t: PickerTab) => {
+    setPickerTab(t);
+    setPickerOpen(true);
+  };
 
-  const { data: agentsData } = useQuery({
-    queryKey: ['api-keys', 'agent-options'],
-    queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'all' }),
-  });
-  const { data: workflowsData } = useQuery({
-    queryKey: ['api-keys', 'workflow-options'],
-    queryFn: () => workflowsApi.list({ page: 1, page_size: 100 }),
-  });
-  const { data: appsData } = useQuery({
-    queryKey: applicationKeys.lists(),
-    queryFn: () => applicationApi.list(),
-  });
-
+  const qc = useQueryClient();
   const saveMutation = useMutation<ApiKeyCreated | ApiKey, Error, ApiKeyCreateInput | ApiKeyUpdateInput>({
     mutationFn: async (payload) => {
       if (isEdit) return apiKeyApi.update(keyItem!.id, payload as ApiKeyUpdateInput);
@@ -517,8 +537,20 @@ function KeyFormPage({
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: apiKeyKeys.lists() });
-      if (!isEdit && 'key' in res) onCreated(res as ApiKeyCreated);
-      else onBack();
+      if (!isEdit && 'key' in res) {
+        onCreated(res as ApiKeyCreated);
+        // 表单复位，回到创建态
+        setName('');
+        setScopes(new Set(['agents:read', 'agents:invoke']));
+        setRateLimit(60);
+        setBoundAgents(new Set());
+        setBoundWorkflows(new Set());
+        setFormIntrospectUrl('');
+        setFormAppId('');
+        setExpiry('never');
+      } else {
+        onUpdated();
+      }
     },
     onError: (e) => setError(getErrorMessage(e, isEdit ? '保存失败，请重试' : '创建失败，请重试')),
   });
@@ -543,209 +575,305 @@ function KeyFormPage({
     });
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="max-w-5xl">
-      {/* 头部：返回 + 面包屑 + 操作 */}
-      <div className="flex items-center gap-3 pb-4 border-b border-line">
-        <button
-          type="button"
-          onClick={onBack}
-          className="p-1.5 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer"
-          aria-label="返回"
+  /** 已选 chips 行：chips（可×）+ ＋选择虚线钮 */
+  const chipRow = (
+    selected: Set<string>,
+    toggle: (id: string) => void,
+    items: PickerItem[],
+    tab: PickerTab,
+    emptyText: string,
+  ) => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {items.filter((it) => selected.has(it.id)).map((it) => (
+        <span
+          key={it.id}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-brand-soft text-brand font-medium"
         >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div className="text-xs text-ink-dim">
-          外部接入 / <span className="text-ink font-semibold">{isEdit ? `编辑 ${keyItem!.name}` : '创建新 Key'}</span>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <button type="button" onClick={onBack} className="af-btn af-btn-ghost">
-            取消
+          {it.name}
+          <button type="button" onClick={() => toggle(it.id)} className="hover:opacity-70 cursor-pointer" title="移除">
+            <X className="w-3 h-3" />
           </button>
-          <button type="submit" disabled={saveMutation.isPending} className="af-btn af-btn-primary">
-            {isEdit ? '保存修改' : '创建 Key'}
+        </span>
+      ))}
+      <button
+        type="button"
+        ref={tab === 'agent' ? anchorRef : undefined}
+        onClick={() => openPicker(tab)}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] border border-dashed border-line-strong text-ink-dim hover:text-brand hover:border-brand transition cursor-pointer"
+      >
+        <Plus className="w-3 h-3" />
+        {selected.size === 0 ? `选择${tab === 'agent' ? '智能体' : '工作流'}` : '添加'}
+      </button>
+      {selected.size === 0 && <span className="text-[11px] text-ink-faint">{emptyText}</span>}
+    </div>
+  );
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5 space-y-5"
+    >
+      {/* 编辑态提示条 */}
+      {isEdit && (
+        <div className="flex items-center gap-2 pb-3 border-b border-line">
+          <Pencil className="w-3.5 h-3.5 text-brand shrink-0" />
+          <span className="text-xs text-ink font-semibold truncate">编辑：{keyItem!.name}</span>
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="ml-auto text-[11px] text-ink-dim hover:text-ink cursor-pointer flex items-center gap-0.5"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            返回创建
           </button>
         </div>
-      </div>
+      )}
 
-      {/* 双栏主体 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-8 pt-5">
-        {/* 左：基础与权限 */}
-        <div>
-          <Kicker>BASIC · 基础</Kicker>
+      <div>
+        <Kicker>BASIC · 基础</Kicker>
 
-          <div className="mb-5">
-            <FieldLabel label="名称" required hint="标识调用方" />
-            <LineInput
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="如 产线 MES 系统、官网访客"
-              maxLength={100}
-            />
-          </div>
+        <div className="mb-4">
+          <FieldLabel label="名称" required hint="标识调用方" />
+          <LineInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="如 产线 MES 系统、官网访客"
+            maxLength={100}
+          />
+        </div>
 
-          <div className="mb-5">
-            <FieldLabel label="权限范围" required hint="至少一项" />
-            <div className="flex flex-wrap gap-2">
-              {ALL_API_KEY_SCOPES.map((s) => {
-                const active = scopes.has(s);
-                return (
-                  <button
-                    type="button"
-                    key={s}
-                    onClick={() => setScopes((prev) => toggleInSet(prev, s))}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition cursor-pointer ${
-                      active
-                        ? 'bg-brand-soft border-brand text-brand font-semibold'
-                        : 'bg-panel border-line text-ink-dim hover:border-line-strong hover:text-ink'
-                    }`}
-                  >
-                    {active && <Check className="w-3 h-3 inline mr-1" />}
-                    {SCOPE_LABELS[s]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <FieldLabel label="限流" hint="每分钟调用上限（默认 60，超限 429）" />
-            <LineInput
-              type="number"
-              min={1}
-              max={10000}
-              value={rateLimit}
-              onChange={(e) => setRateLimit(Math.max(1, Math.min(10000, Number(e.target.value) || 60)))}
-              className="font-mono w-24!"
-            />
-          </div>
-
-          {!isEdit && (
-            <div className="mb-5">
-              <FieldLabel label="有效期" hint="可选" />
-              <div className="inline-flex items-center rounded-lg bg-raise p-0.5">
-                {([['never', '永不过期'], ['90', '90 天'], ['30', '30 天']] as const).map(([v, label]) => (
-                  <button
-                    type="button"
-                    key={v}
-                    onClick={() => setExpiry(v)}
-                    className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-                      expiry === v
-                        ? 'bg-panel text-ink shadow-[var(--shadow-card)]'
-                        : 'text-ink-dim hover:text-ink'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-start gap-1.5 text-[11px] text-sig-wait">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-            创建后仅展示一次完整 Key——请立即复制保存，此后只显示掩码
+        <div className="mb-4">
+          <FieldLabel label="权限范围" required hint="至少一项" />
+          <div className="flex flex-wrap gap-2">
+            {ALL_API_KEY_SCOPES.map((s) => {
+              const active = scopes.has(s);
+              return (
+                <button
+                  type="button"
+                  key={s}
+                  onClick={() => setScopes((prev) => toggleInSet(prev, s))}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition cursor-pointer ${
+                    active
+                      ? 'bg-brand-soft border-brand text-brand font-semibold'
+                      : 'bg-panel border-line text-ink-dim hover:border-line-strong hover:text-ink'
+                  }`}
+                >
+                  {active && <Check className="w-3 h-3 inline mr-1" />}
+                  {SCOPE_LABELS[s]}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* 右：资源绑定 + 认证 */}
-        <div>
-          <Kicker>RESOURCE BINDING · 资源绑定</Kicker>
+        <div className="mb-4">
+          <FieldLabel label="限流" hint="每分钟调用上限（默认 60，超限 429）" />
+          <LineInput
+            type="number"
+            min={1}
+            max={10000}
+            value={rateLimit}
+            onChange={(e) => setRateLimit(Math.max(1, Math.min(10000, Number(e.target.value) || 60)))}
+            className="font-mono w-24!"
+          />
+        </div>
 
-          <div className="mb-5">
-            <FieldLabel label={`可访问的智能体（${boundAgents.size}）`} hint="不选 = 访问全部" />
-            <div className="max-h-32 overflow-y-auto flex flex-wrap gap-1.5">
-              {(agentsData?.items ?? []).map((a) => {
-                const active = boundAgents.has(a.id);
-                return (
-                  <button
-                    type="button"
-                    key={a.id}
-                    onClick={() => setBoundAgents((prev) => toggleInSet(prev, a.id))}
-                    className={`px-2 py-0.5 rounded text-[11px] border transition cursor-pointer ${
-                      active
-                        ? 'bg-brand-soft border-brand text-brand font-semibold'
-                        : 'bg-panel border-line text-ink-dim hover:border-line-strong hover:text-ink'
-                    }`}
-                  >
-                    {a.name}
-                  </button>
-                );
-              })}
-              {(agentsData?.items ?? []).length === 0 && (
-                <span className="text-[11px] text-ink-faint">暂无智能体</span>
-              )}
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <FieldLabel label={`可访问的工作流（${boundWorkflows.size}）`} hint="不选 = 访问全部" />
-            <div className="max-h-32 overflow-y-auto flex flex-wrap gap-1.5">
-              {(workflowsData?.items ?? []).map((w) => {
-                const active = boundWorkflows.has(w.id);
-                return (
-                  <button
-                    type="button"
-                    key={w.id}
-                    onClick={() => setBoundWorkflows((prev) => toggleInSet(prev, w.id))}
-                    className={`px-2 py-0.5 rounded text-[11px] border transition cursor-pointer ${
-                      active
-                        ? 'bg-brand-soft border-brand text-brand font-semibold'
-                        : 'bg-panel border-line text-ink-dim hover:border-line-strong hover:text-ink'
-                    }`}
-                  >
-                    {w.name}
-                  </button>
-                );
-              })}
-              {(workflowsData?.items ?? []).length === 0 && (
-                <span className="text-[11px] text-ink-faint">暂无工作流</span>
-              )}
-            </div>
-          </div>
-
-          <Kicker>AUTH · 绑定应用与认证回调</Kicker>
-
-          <div className="mb-5">
-            <FieldLabel label="绑定应用" hint="接入方系统——终端用户身份的命名空间" />
-            <select
-              value={formAppId}
-              onChange={(e) => setFormAppId(e.target.value)}
-              className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-2 text-[13px] text-ink focus:outline-none focus:border-brand transition cursor-pointer"
-            >
-              <option value="">不绑定</option>
-              {(appsData?.items ?? []).map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+        {!isEdit && (
+          <div>
+            <FieldLabel label="有效期" hint="可选" />
+            <div className="inline-flex items-center rounded-lg bg-raise p-0.5">
+              {([['never', '永不过期'], ['90', '90 天'], ['30', '30 天']] as const).map(([v, label]) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => setExpiry(v)}
+                  className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                    expiry === v
+                      ? 'bg-panel text-ink shadow-[var(--shadow-card)]'
+                      : 'text-ink-dim hover:text-ink'
+                  }`}
+                >
+                  {label}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
+        )}
+      </div>
 
-          <div className="mb-5">
-            <FieldLabel label="用户认证回调" hint={formAppId ? undefined : '配置用户身份校验时必填'} />
-            <LineInput
-              value={formIntrospectUrl}
-              onChange={(e) => setFormIntrospectUrl(e.target.value)}
-              placeholder="https://partner.example.com/oauth/introspect"
-              maxLength={500}
-              className="font-mono text-xs"
-            />
-            <p className="text-[11px] text-ink-faint mt-1.5 leading-relaxed">
-              RFC 7662 introspection 端点——外部终端用户请求携带 X-User-Token，平台回调此端点验证身份
-            </p>
-          </div>
+      <div>
+        <Kicker>RESOURCE BINDING · 资源绑定</Kicker>
 
-          <div className="bg-raise rounded-[10px] p-3 text-[11px] text-ink-dim leading-relaxed flex items-start gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-0.5 text-ink-dim" />
-            <span>
-              Key 值 bcrypt 哈希存储（平台不保存明文）· 创建后仅展示一次完整 Key · 吊销后调用立即 401
-            </span>
-          </div>
+        <div className="mb-4">
+          <FieldLabel label="可访问的智能体" hint={`已选 ${boundAgents.size} · 不选 = 访问全部`} />
+          {chipRow(boundAgents, (id) => setBoundAgents((prev) => toggleInSet(prev, id)), agents, 'agent', '不选 = 可访问全部智能体')}
+        </div>
+
+        <div>
+          <FieldLabel label="可访问的工作流" hint={`已选 ${boundWorkflows.size} · 不选 = 访问全部`} />
+          {chipRow(boundWorkflows, (id) => setBoundWorkflows((prev) => toggleInSet(prev, id)), workflows, 'workflow', '不选 = 可访问全部工作流')}
         </div>
       </div>
 
-      {error && (
-        <p className="text-[11px] text-sig-fail mt-4">{error}</p>
+      <div>
+        <Kicker>AUTH · 绑定应用与认证回调</Kicker>
+
+        <div className="mb-4">
+          <FieldLabel label="绑定应用" hint="接入方系统——终端用户身份的命名空间" />
+          <select
+            value={formAppId}
+            onChange={(e) => setFormAppId(e.target.value)}
+            className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-2 text-[13px] text-ink focus:outline-none focus:border-brand transition cursor-pointer"
+          >
+            <option value="">不绑定</option>
+            {apps.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <FieldLabel label="用户认证回调" hint={formAppId ? undefined : '配置用户身份校验时必填'} />
+          <LineInput
+            value={formIntrospectUrl}
+            onChange={(e) => setFormIntrospectUrl(e.target.value)}
+            placeholder="https://partner.example.com/oauth/introspect"
+            maxLength={500}
+            className="font-mono text-xs"
+          />
+          <p className="text-[11px] text-ink-faint mt-1.5 leading-relaxed">
+            RFC 7662 introspection 端点——外部终端用户请求携带 X-User-Token，平台回调此端点验证身份
+          </p>
+        </div>
+      </div>
+
+      {error && <p className="text-[11px] text-sig-fail">{error}</p>}
+
+      <div className="pt-1 border-t border-line flex items-center gap-3">
+        <span className="flex items-center gap-1.5 text-[10.5px] text-ink-faint flex-1 min-w-0">
+          <ShieldAlert className="w-3 h-3 shrink-0" />
+          <span className="truncate">明文仅创建时展示一次 · 吊销后调用立即 401</span>
+        </span>
+        <button type="submit" disabled={saveMutation.isPending} className="af-btn af-btn-primary shrink-0">
+          <Plus className="w-3.5 h-3.5" />
+          {saveMutation.isPending ? (isEdit ? '保存中…' : '创建中…') : isEdit ? '保存修改' : '创建 Key'}
+        </button>
+      </div>
+
+      {pickerOpen && (
+        <ResourcePickerOverlay
+          anchorEl={anchorRef.current}
+          tab={pickerTab}
+          onTabChange={setPickerTab}
+          agents={agents}
+          workflows={workflows}
+          selectedAgents={boundAgents}
+          selectedWorkflows={boundWorkflows}
+          onToggleAgent={(id) => setBoundAgents((prev) => toggleInSet(prev, id))}
+          onToggleWorkflow={(id) => setBoundWorkflows((prev) => toggleInSet(prev, id))}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </form>
+  );
+}
+
+/* ═══════════════════════ 全局参数（独立设置 Tab） ═══════════════════════ */
+
+/**
+ * RuntimeParamsPage — 全局运行参数。
+ *
+ * 分组分区形态（kicker + set-rows），后续参数按组扩容。
+ * 注意：当前条目为 mock（本地 state 无持久化），接后端后替换。
+ */
+export function RuntimeParamsPage() {
+  const [timeout, setTimeoutVal] = useState(30);
+  const [detailedAnimation, setDetailedAnimation] = useState(true);
+  const [autoClearCache, setAutoClearCache] = useState(false);
+  const [strictSchema, setStrictSchema] = useState(true);
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <p className="text-xs text-ink-dim">
+        平台全局运行参数（引擎级默认值，作用于所有工作流执行）
+      </p>
+
+      {/* 执行 · EXECUTION */}
+      <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5">
+        <Kicker hint="LLM 事务与执行链路">EXECUTION · 执行</Kicker>
+
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs">
+            <span className="text-ink-dim font-medium">最大 LLM 事务超时时长 (Timeout)</span>
+            <span className="text-ink font-mono font-bold">{timeout}s</span>
+          </div>
+          <input
+            type="range"
+            min="5"
+            max="120"
+            step="5"
+            value={timeout}
+            onChange={(e) => setTimeoutVal(parseInt(e.target.value))}
+            className="w-full focus:outline-none accent-brand"
+          />
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-line flex items-start justify-between gap-4 text-xs">
+          <div className="space-y-0.5">
+            <span className="font-semibold text-ink-soft">严格模型执行 Schema 校验</span>
+            <p className="text-[11px] text-ink-dim leading-normal">
+              对每一个 Agent worker 输出的 JSON payload 实施强制格式和数据类型校正，出错则自动重试打回。
+            </p>
+          </div>
+          <Toggle state={strictSchema} onChange={setStrictSchema} />
+        </div>
+      </div>
+
+      {/* 渲染 · RENDERING */}
+      <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5">
+        <Kicker hint="画布与运行时视觉">RENDERING · 渲染</Kicker>
+
+        <div className="flex items-start justify-between gap-4 text-xs">
+          <div className="space-y-0.5">
+            <span className="font-semibold text-ink-soft">启用图 Dashing 流转连线动效</span>
+            <p className="text-[11px] text-ink-dim leading-normal">
+              在测试运行工作流时，实时渲染连线的高精度流动虚线轨迹。建议始终开启。
+            </p>
+          </div>
+          <Toggle state={detailedAnimation} onChange={setDetailedAnimation} />
+        </div>
+      </div>
+
+      {/* 资源 · RESOURCE */}
+      <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5">
+        <Kicker hint="内存与缓存治理">RESOURCE · 资源</Kicker>
+
+        <div className="flex items-start justify-between gap-4 text-xs">
+          <div className="space-y-0.5">
+            <span className="font-semibold text-ink-soft">会话闭环后自清理内存临时变量</span>
+            <p className="text-[11px] text-ink-dim leading-normal">
+              为了安全性。一旦整个流程图完美流至 END 节点，一键释放在内存中的任务草纲与文件缓存。
+            </p>
+          </div>
+          <Toggle state={autoClearCache} onChange={setAutoClearCache} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 开关（实色靛蓝 on 态） */
+function Toggle({ state, onChange }: { state: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!state)}
+      className="shrink-0 w-11 h-6 rounded-full transition relative flex items-center p-0.5 cursor-pointer"
+      style={{ backgroundColor: state ? 'var(--color-brand)' : 'var(--color-raise)' }}
+    >
+      <span
+        className="w-5 h-5 rounded-full bg-white shadow-md block transition-transform duration-200"
+        style={{ transform: state ? 'translateX(20px)' : 'translateX(0)' }}
+      />
+    </button>
   );
 }
