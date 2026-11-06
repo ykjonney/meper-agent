@@ -707,9 +707,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     let sessionId = activeSessionId;
     if (!sessionId) {
       try {
-        // Pass empty title — backend sets it from the first user message
-        // (truncated to 30 chars + ellipsis). See session_service.add_message.
-        const sess = await sessionApi.create(agent.id, '');
+        // 传入用户输入作标题（截断规则与后端 add_message 的一致：30 字 + …）。
+        // 后端仅在标题为空时才从首条消息生成——直接带上真标题，侧栏创建
+        // 即显示最终标题，消除流结束后"标题回填"的两段式变化。
+        const sess = await sessionApi.create(agent.id, prompt.slice(0, 30) + (prompt.length > 30 ? '…' : ''));
         sessionId = sess._id;
         createdSessionIdRef.current = sess._id;
         // 发送即确定会话：侧栏立即出现新会话（不等流结束），契合"用户回车
