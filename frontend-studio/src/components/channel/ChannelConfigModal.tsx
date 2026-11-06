@@ -153,7 +153,7 @@ export default function ChannelConfigModal({
               <Loader2 size={13} className="animate-spin" /> 加载智能体...
             </div>
           ) : agents.length === 0 ? (
-            <p className="text-[11px] text-amber-400">
+            <p className="text-[11px] text-sig-wait">
               暂无已发布的智能体，请先在「智能体」页创建并发布后再接入。
             </p>
           ) : (
