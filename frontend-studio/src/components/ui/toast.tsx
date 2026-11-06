@@ -67,9 +67,9 @@ export const toast = {
 
 /** 每种类型的图标 + 图标色 */
 const TYPE_STYLE: Record<ToastType, { icon: typeof CheckCircle2; color: string }> = {
-  success: { icon: CheckCircle2, color: 'text-emerald-400' },
-  error: { icon: XCircle, color: 'text-rose-400' },
-  warning: { icon: AlertTriangle, color: 'text-amber-400' },
+  success: { icon: CheckCircle2, color: 'text-sig-ok' },
+  error: { icon: XCircle, color: 'text-sig-fail' },
+  warning: { icon: AlertTriangle, color: 'text-sig-wait' },
   info: { icon: Info, color: 'text-indigo-400' },
 }
 

@@ -156,7 +156,7 @@ function InputInner({ size = 'middle', status, variant = 'boxed', className = ''
       {...rest}
       className={`w-full rounded-md border bg-page text-ink placeholder:text-ink-dim
         focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors
-        ${status === 'error' ? 'border-red-400' : 'border-line'}
+        ${status === 'error' ? 'border-sig-fail' : 'border-line'}
         ${SIZE_CLASS[size]} ${className}`}
     />
   )
@@ -674,17 +674,17 @@ interface TagProps {
 }
 
 const TAG_PRESETS: Record<string, string> = {
-  blue: 'bg-blue-500/10 text-blue-400',
-  processing: 'bg-blue-500/10 text-blue-400',
-  success: 'bg-green-500/10 text-green-400',
-  green: 'bg-green-500/10 text-green-400',
-  warning: 'bg-amber-500/10 text-amber-400',
-  error: 'bg-red-500/10 text-red-400',
-  red: 'bg-red-500/10 text-red-400',
-  orange: 'bg-orange-500/10 text-orange-400',
-  purple: 'bg-purple-500/10 text-purple-400',
-  cyan: 'bg-cyan-500/10 text-cyan-400',
-  default: 'bg-panel text-slate-400',
+  blue: 'bg-brand-soft text-brand',
+  processing: 'bg-brand-soft text-brand',
+  success: 'bg-sig-ok-soft text-sig-ok',
+  green: 'bg-sig-ok-soft text-sig-ok',
+  warning: 'bg-sig-wait-soft text-sig-wait',
+  error: 'bg-sig-fail-soft text-sig-fail',
+  red: 'bg-sig-fail-soft text-sig-fail',
+  orange: 'bg-sig-wait-soft text-sig-wait',
+  purple: 'bg-[#EEEBF8] text-[#6C4FC4]',
+  cyan: 'bg-[#E3F1F4] text-[#0E7490]',
+  default: 'bg-raise text-ink-dim',
 }
 
 export function Tag({ color, closable, onClose, className = '', children, onClick }: TagProps) {
@@ -695,7 +695,7 @@ export function Tag({ color, closable, onClose, className = '', children, onClic
     <span
       onClick={onClick}
       className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[11px] leading-tight
-        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-panel text-slate-400'} ${className}`}
+        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-raise text-ink-dim'} ${className}`}
       style={
         isHex
           ? { backgroundColor: `${color}1A`, color }
