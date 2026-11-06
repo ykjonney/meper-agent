@@ -142,6 +142,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   // 空白态发送时新创建的会话 id：流式期间不绑定 activeSessionId（避免消息加载
   // effect 清空流式占位），done/流终止时再绑定并加载权威数据。
   const createdSessionIdRef = useRef<string | null>(null);
+  // 已创建但尚未绑定（流结束才 setActiveSessionId）的新会话 id：仅供侧栏
+  // 高亮兜底——发送时侧栏条目立即出现且选中，输出结束不发生"灰→亮"跳变
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   // 前端记录的工具耗时（toolCallId → 时间）：落库 timeline 无时间戳，而消息加载
   // effect 会先清空 liveMessages 再拉取，state 途径取不到——用 ref 跨阶段兜底。
   const toolTimesRef = useRef(new Map<string, { startedAt?: number; endedAt?: number }>());
@@ -582,6 +585,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const handleStartNewWithAgent = (agent: Agent) => {
     setDraftAgentId(agent.id);
     setActiveSessionId(null);
+    setPendingSessionId(null);
     setInputMode('text');
     setAgentMenuOpen(false);
     // 全局侧栏：从其它功能页点「＋」→ 回到聊天界面空白新对话
@@ -713,6 +717,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         const sess = await sessionApi.create(agent.id, prompt.slice(0, 30) + (prompt.length > 30 ? '…' : ''));
         sessionId = sess._id;
         createdSessionIdRef.current = sess._id;
+        setPendingSessionId(sess._id);
         // 发送即确定会话：侧栏立即出现新会话（不等流结束），契合"用户回车
         // 即会话成立"的心智；activeSessionId 仍流结束绑定（绑定即触发加载）
         refreshSessions();
@@ -906,6 +911,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           // session_id（流式中绑定会触发消息加载 effect 清空流式占位气泡）。
           if (!activeSessionId && (createdSessionIdRef.current ?? evt.session_id)) {
             setActiveSessionId(createdSessionIdRef.current ?? evt.session_id);
+            setPendingSessionId(null);
           }
           refreshSessions();
           filesPanelRef.current?.refresh();
@@ -1248,6 +1254,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       // 消息加载 effect 随之拉取权威数据，占位气泡被持久化内容替换。
       if (createdSessionIdRef.current) {
         setActiveSessionId(createdSessionIdRef.current);
+        setPendingSessionId(null);
         createdSessionIdRef.current = null;
       }
     }
@@ -1386,7 +1393,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       theme={theme}
       activeAgent={activeAgent}
       activeSession={activeSession}
-      activeSessionId={activeSessionId}
+      activeSessionId={activeSessionId ?? pendingSessionId}
       inputMode={inputMode} setInputMode={setInputMode}
       inputText={inputText} setInputText={setInputText}
       inputTextareaRef={inputTextareaRef} fileInputRef={fileInputRef}
@@ -1421,7 +1428,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         navItems={navItems} activeId={activeId} activePage={activePage}
         pinnedNav={pinnedNav} togglePin={togglePin}
         sessions={sessions} sessionsLoading={sessionsLoading}
-        activeSessionId={activeSessionId}
+        activeSessionId={activeSessionId ?? pendingSessionId}
         onSelectSession={handleSelectSession} onDeleteSession={handleDeleteSession}
         activeAgent={activeAgent} agents={agents}
         onStartNewWithAgent={handleStartNewWithAgent}
@@ -1476,7 +1483,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           activeSession={activeSession}
           sessionsLoading={sessionsLoading}
           activeAgent={activeAgent}
-          activeSessionId={activeSessionId}
+          activeSessionId={activeSessionId ?? pendingSessionId}
           isStreaming={isStreaming}
           streamingMsgId={streamingMsgId}
           feedbackMap={feedbackMap}
@@ -1526,7 +1533,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           artifactCount={artifactCount}
           onClose={() => setPanelOpen(false)}
           filesPanelRef={filesPanelRef}
-          activeSessionId={activeSessionId}
+          activeSessionId={activeSessionId ?? pendingSessionId}
         />
       )}
       </>
