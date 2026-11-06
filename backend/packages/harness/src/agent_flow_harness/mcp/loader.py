@@ -11,6 +11,8 @@ harness 提供 McpToolLoader，接收连接配置（不含 DB 依赖），连接
 """
 from __future__ import annotations
 
+import hashlib
+import re
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
@@ -398,6 +400,23 @@ def _cred_to_headers(cred: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+_TOOL_NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _sanitize_tool_name(name: str) -> str:
+    """LLM 协议（OpenAI/Anthropic）工具名仅允许 [a-zA-Z0-9_-]{0,128}。
+
+    MCP server 名/工具名常为中文（如 mcp__OA登录__get_user），不替换会被
+    严格校验端点 400 拒绝。策略：ASCII 非法字符→下划线；纯中文等无法
+    保留语义时用内容 md5 短哈希保唯一（多个中文 server 名不能撞名）。
+    构建与绑定同源，调用回路天然一致。
+    """
+    safe = _TOOL_NAME_SAFE.sub("_", name).strip("_-")
+    # 统一附内容短哈希：不同中文名即便 ASCII 残留相同也零撞名
+    h = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
+    return (f"{safe}_{h}" if safe else f"t_{h}")[:128]
+
+
 def _rename_with_prefix(
     tool: "StructuredTool", server_name: str
 ) -> "StructuredTool":
@@ -412,7 +431,7 @@ def _rename_with_prefix(
     if old_name.startswith(f"{server_name}_"):
         bare = old_name[len(server_name) + 1 :]
 
-    new_name = f"{_MCP_PREFIX}{server_name}__{bare}"
+    new_name = f"{_MCP_PREFIX}{_sanitize_tool_name(server_name)}__{_sanitize_tool_name(bare)}"
     return _clone_tool(tool, new_name)
 
 
