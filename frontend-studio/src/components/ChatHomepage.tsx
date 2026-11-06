@@ -1357,7 +1357,17 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       }
       // 重载完成回到贴底：最新消息就在底部。
       pinnedRef.current = true;
-      setLiveMessages(mapped);
+      // 就地定稿：流结束的无缝绑定场景下（prev 即刚流完的消息），同位置
+      // 同角色沿用原 id —— React key 稳定 → 列表 DOM 原地更新，消除整列
+      // 重挂载造成的"页面刷新感"（头像重载 / Markdown 重渲染 / 动画重放）。
+      // 数据字段仍全部来自后端权威记录；手动切换会话时 prev 配不上对，
+      // 自然退回后端 id 重建（内容全换，重建符合预期）。
+      setLiveMessages((prev) =>
+        mapped.map((m, i) => {
+          const old = prev[i];
+          return old && old.role === m.role ? { ...m, id: old.id } : m;
+        }),
+      );
       const pending = [...mapped].reverse().find((item) => item.isInterrupted);
       pendingInterruptRef.current = pending ? { toolMsgId: pending.id } : null;
     }).catch((error: Error) => {
