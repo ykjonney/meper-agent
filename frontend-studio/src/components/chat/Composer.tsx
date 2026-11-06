@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ChangeEvent, Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
 import {
-  X, FileCode, Loader2, Paperclip, ClipboardList, CheckCircle, Mic, Brain, Check, Send,
+  X, FileCode, Loader2, Paperclip, ClipboardList, CheckCircle, Mic, Brain, Check, Send, ChevronDown,
 } from 'lucide-react';
 import type { Agent, Message } from '../../types';
 import type { Session } from '../../services/session-api';
@@ -272,15 +272,17 @@ export function Composer({
               </div>
             }
           >
+            {/* Codex 式内联选择器：无框文本 + chevron，hover 轻底（对比旧带边框盒子） */}
             <button
               type="button"
               disabled={!activeAgent}
-              className={`hidden sm:flex items-center gap-1.5 bg-page border border-line rounded px-2 py-0.5 text-[11px] font-mono select-none shrink-0 transition cursor-pointer hover:bg-raise disabled:cursor-default ${activeAgent?.model ? 'text-ink-dim' : 'text-sig-wait font-semibold'}`}
+              className="hidden sm:flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-mono select-none shrink-0 transition cursor-pointer text-ink-dim hover:bg-raise hover:text-ink disabled:cursor-default disabled:opacity-60"
               title={activeAgent ? '选择模型与思考强度' : '未选择 Agent'}
             >
               <span>{modelLabel(activeAgent?.model)}</span>
+              <ChevronDown className="w-3 h-3 text-ink-faint" />
               {activeAgent && (
-                <span className="flex items-center gap-0.5" style={{ color: thinkingLevel === 'off' ? undefined : THINK_LEVEL_META[thinkingLevel].color }}>
+                <span className="flex items-center gap-0.5 ml-1" style={{ color: thinkingLevel === 'off' ? undefined : THINK_LEVEL_META[thinkingLevel].color }}>
                   <Brain className="w-3 h-3" />
                   {thinkingLevel === 'off' ? '关' : THINK_LEVEL_META[thinkingLevel].label}
                 </span>
