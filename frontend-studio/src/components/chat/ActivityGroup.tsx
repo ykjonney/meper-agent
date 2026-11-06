@@ -111,9 +111,9 @@ export function ParallelToolBatch({ entries, msgId }: { entries: TimelineEntry[]
       </button>
       {open && (
         <div className="pb-1.5 space-y-0.5">
-          {entries.map((entry) => (
+          {entries.map((entry, ei) => (
             <ToolEntryCard
-              key={entry.id}
+              key={`te-${ei}`}
               entry={entry}
               msgId={msgId}
               interrupted={false}
@@ -248,7 +248,7 @@ export function ActivityGroup({
         if (entry.type === 'thinking') {
           return (
             <ThinkingEntryCard
-              key={entry.id}
+              key={`sl-${si}`}
               entry={{ ...entry, expanded: openThinkings.has(entry.id) }}
               streaming={
                 entry === liveEntries[liveEntries.length - 1] &&
@@ -263,7 +263,7 @@ export function ActivityGroup({
         if (entry.type === 'error') {
           return (
             <div
-              key={entry.id}
+              key={`sl-${si}`}
               className="px-3 py-2 rounded-lg bg-sig-fail-soft text-sig-fail text-[12.5px] font-sans"
             >
               {entry.content}
@@ -273,7 +273,7 @@ export function ActivityGroup({
         if (entry.type === 'text') {
           return (
             <div
-              key={entry.id}
+              key={`sl-${si}`}
               className="px-2.5 py-1 text-[13px] leading-relaxed text-ink-dim font-sans"
             >
               <Markdown content={entry.content} />
@@ -283,7 +283,7 @@ export function ActivityGroup({
         // 单条交互卡 / 单条工具
         return (
           <ToolEntryCard
-            key={entry.id}
+            key={`sl-${si}`}
             entry={entry}
             msgId={msgId}
             interrupted={interrupted}

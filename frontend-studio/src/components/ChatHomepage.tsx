@@ -142,9 +142,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   // 空白态发送时新创建的会话 id：流式期间不绑定 activeSessionId（避免消息加载
   // effect 清空流式占位），done/流终止时再绑定并加载权威数据。
   const createdSessionIdRef = useRef<string | null>(null);
-  // 流结束绑定会话时置位：消息加载 effect 跳过清空、历史到位后直接替换
-  // liveMessages——避免"清空→异步回填"的高度两次跳变（页面抖动）。
-  const seamlessBindRef = useRef(false);
   // 前端记录的工具耗时（toolCallId → 时间）：落库 timeline 无时间戳，而消息加载
   // effect 会先清空 liveMessages 再拉取，state 途径取不到——用 ref 跨阶段兜底。
   const toolTimesRef = useRef(new Map<string, { startedAt?: number; endedAt?: number }>());
@@ -435,10 +432,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       pinnedRef.current = true;
       return;
     }
-    // 流结束无缝绑定时保留 liveMessages（刚流完的内容≈历史），历史到位直接替换；
-    // 手动切换会话内容不同，仍清空防串台。
-    if (!seamlessBindRef.current) setLiveMessages([]);
-    seamlessBindRef.current = false;
+    // 不预清空：保留旧内容直到落库数据就绪一次性替换（stale-while-revalidate
+    // 的 UI 等价物）——"清空→白屏等待→回填"的高度两次跳变才是闪/抖的来源。
+    // 切换会话的旧请求不写回由上方 cancelled 守卫保证；新会话绑定场景 prev
+    // 即刚流完的消息，替换时同位置同角色沿用原 id（见 load 内配对），原地更新。
     // 会话切换/清空后回到贴底初始态：加载完成即定位到最新消息。
     pinnedRef.current = true;
     setStreamError(null);
@@ -715,6 +712,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         const sess = await sessionApi.create(agent.id, '');
         sessionId = sess._id;
         createdSessionIdRef.current = sess._id;
+        // 发送即确定会话：侧栏立即出现新会话（不等流结束），契合"用户回车
+        // 即会话成立"的心智；activeSessionId 仍流结束绑定（绑定即触发加载）
+        refreshSessions();
       } catch (err) {
         setStreamError(`创建会话失败：${(err as Error).message}`);
         return;
@@ -904,7 +904,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           // 无预建会话直接开聊时，后端在首个请求时创建了会话——流结束才绑定
           // session_id（流式中绑定会触发消息加载 effect 清空流式占位气泡）。
           if (!activeSessionId && (createdSessionIdRef.current ?? evt.session_id)) {
-            seamlessBindRef.current = true;
             setActiveSessionId(createdSessionIdRef.current ?? evt.session_id);
           }
           refreshSessions();
@@ -1247,7 +1246,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       // 空白态新建的会话：流结束（无论 done/stop/异常）统一绑定——
       // 消息加载 effect 随之拉取权威数据，占位气泡被持久化内容替换。
       if (createdSessionIdRef.current) {
-        seamlessBindRef.current = true;
         setActiveSessionId(createdSessionIdRef.current);
         createdSessionIdRef.current = null;
       }

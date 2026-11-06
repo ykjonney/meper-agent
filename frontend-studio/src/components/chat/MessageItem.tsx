@@ -108,7 +108,7 @@ export function MessageItem({
               if (head.type === 'error') {
                 return (
                   <div
-                    key={head.id}
+                    key={`rd-${ri}`}
                     className="px-3.5 py-2.5 rounded-lg text-[13px] leading-relaxed font-sans bg-sig-fail-soft text-sig-fail"
                   >
                     {head.content}
@@ -119,7 +119,7 @@ export function MessageItem({
               if (round.group.length > 0) {
                 pieces.push(
                   <ActivityGroup
-                    key={`grp-${round.group[0].id}`}
+                    key={`grp-${ri}`}
                     entries={round.group}
                     msgId={msg.id}
                     interrupted={!!msg.isInterrupted}
@@ -139,7 +139,7 @@ export function MessageItem({
               if (round.text) {
                 pieces.push(
                   <div
-                    key={round.text.id}
+                    key={`tx-${ri}`}
                     className="text-[14px] leading-[1.75] font-sans select-text text-ink"
                   >
                     <Markdown content={round.text.content} />
@@ -158,7 +158,10 @@ export function MessageItem({
                   </div>,
                 );
               }
-              return <Fragment key={`round-${round.group[0]?.id ?? round.text?.id}`}>{pieces}</Fragment>;
+              {/* key 用轮次序号而非 entry id：流式单调追加时序号恒定，落库定稿
+                  替换 timeline 后仍对齐——id 跨两套体系（前端临时/后端落库），
+                  用它做 key 会让活动组/思考块在定稿瞬间全量重建（闪一下） */}
+              return <Fragment key={`round-${ri}`}>{pieces}</Fragment>;
             })}
           </div>
           );
