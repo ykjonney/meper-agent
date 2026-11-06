@@ -15,6 +15,7 @@ import { PermissionTree } from './ui/PermissionTree';
 import { type NormalizedApiError } from '../lib/api-client';
 import type { User } from '../types';
 import type { Role } from '../services/types';
+import { PERMISSION_LABELS } from '../services/types';
 
 /** 首字母圆牌配色（纯色 hex + 白字，亮/暗双主题下都清晰）。按用户名 hash 确定性取色。 */
 const MONOGRAM_COLORS = [
@@ -618,8 +619,8 @@ export function UserManagement() {
                 </p>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {r.permissions.slice(0, 6).map((p) => (
-                    <span key={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-ink-dim font-mono">
-                      {p}
+                    <span key={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-ink-dim">
+                      {PERMISSION_LABELS[p] ?? p}
                     </span>
                   ))}
                   {r.permissions.length > 6 && (
