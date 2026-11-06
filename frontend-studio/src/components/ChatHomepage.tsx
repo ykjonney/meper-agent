@@ -372,6 +372,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     agents[0] ??
     null;
   const voiceAvailable = voiceConfigured && activeAgent?.voiceEnabled === true;
+  // 语音按钮常显，tooltip 按不可用原因给出引导（未选 Agent / 服务未配置 / Agent 未开语音）
+  const voiceHint = !activeAgent
+    ? '选择 Agent 后可语音对话'
+    : !voiceConfigured
+      ? '语音服务未配置（设置 → 语音）'
+      : activeAgent.voiceEnabled
+        ? '切换到语音对话'
+        : '该 Agent 未开启语音能力（智能体编辑页可开启）';
 
   useEffect(() => {
     if (inputMode === 'voice' && !voiceAvailable) setInputMode('text');
@@ -1375,6 +1383,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel}
       modelMenuOpen={modelMenuOpen} setModelMenuOpen={setModelMenuOpen}
       voiceAvailable={voiceAvailable}
+      voiceHint={voiceHint}
       onTranscriptFinal={handleVoiceTranscriptFinal}
       onTurnStarted={handleVoiceTurnStarted}
       onAgentDelta={handleVoiceAgentDelta}
@@ -1401,7 +1410,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         onSelectSession={handleSelectSession} onDeleteSession={handleDeleteSession}
         activeAgent={activeAgent} agents={agents}
         onStartNewWithAgent={handleStartNewWithAgent}
-        userInitial={userInitial}
+        userInitial={userInitial} username={username}
         userMenuOpen={userMenuOpen} setUserMenuOpen={setUserMenuOpen}
         moreMenuOpen={moreMenuOpen} setMoreMenuOpen={setMoreMenuOpen}
         onNavigate={onNavigate} onLogout={onLogout} onNavigateTask={onNavigateTask}

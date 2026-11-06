@@ -43,6 +43,8 @@ interface ComposerProps {
   setModelMenuOpen: Dispatch<SetStateAction<boolean>>;
   // 语音
   voiceAvailable: boolean;
+  /** 语音按钮 tooltip：可用时"切换到语音对话"，否则说明不可用原因 */
+  voiceHint: string;
   onTranscriptFinal: (text: string) => void;
   onTurnStarted: (message: { request_id?: string }) => void;
   onAgentDelta: (delta: string) => void;
@@ -59,7 +61,7 @@ export function Composer({
   fileInputRef, pendingFiles, setPendingFiles, uploading, onUploadFile,
   isStreaming, liveMessages, onSendMessage, onStop,
   planMode, setPlanMode, thinkingLevel, setThinkingLevel, modelMenuOpen, setModelMenuOpen,
-  voiceAvailable, onTranscriptFinal, onTurnStarted, onAgentDelta, onTurnEnd, onInterruptRequest,
+  voiceAvailable, voiceHint, onTranscriptFinal, onTurnStarted, onAgentDelta, onTurnEnd, onInterruptRequest,
   setStreamError,
 }: ComposerProps) {
   const { modelsData, modelLabel } = useModelLabels();
@@ -195,18 +197,17 @@ export function Composer({
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {voiceAvailable && (
-            <button
-              type="button"
-              onClick={() => setInputMode('voice')}
-              disabled={!activeAgent || isStreaming || uploading}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-ink-dim hover:bg-brand-soft hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-colors duration-200"
-              title="切换到语音对话"
-              aria-label="切换到语音对话"
-            >
-              <Mic className="w-3.5 h-3.5" />
-            </button>
-          )}
+          {/* 语音按钮常显：不可用时置灰，tooltip 说明原因（隐藏按钮会让入口不可发现） */}
+          <button
+            type="button"
+            onClick={() => setInputMode('voice')}
+            disabled={!voiceAvailable || !activeAgent || isStreaming || uploading}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-ink-dim hover:bg-brand-soft hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-colors duration-200"
+            title={voiceHint}
+            aria-label={voiceHint}
+          >
+            <Mic className="w-3.5 h-3.5" />
+          </button>
           {/* 模型 + 思考强度选择：选模型回写 default_model；思考为会话级偏好随请求发送。
               模型行显示上下文窗口；底部思考档位直接点选（强度色区分）。 */}
           <Popover
