@@ -620,15 +620,23 @@ export function AgentEditorPage({
           <ArrowLeft className="w-4 h-4" />
         </button>
         {/* 头像：点击换（复用 AvatarField 逻辑由原字段迁移，此处展示 + 触发同 input） */}
-        <div className="relative w-10 h-10 rounded-[11px] overflow-hidden shrink-0 cursor-pointer group" style={{ background: form?.iconColor || 'var(--color-brand)' }}>
-          {form?.avatar ? (
-            <img src={form.avatar} alt="" className="w-full h-full object-cover select-none" draggable={false} />
-          ) : (
-            <span className="w-full h-full flex items-center justify-center text-white font-bold text-sm">
-              {(form?.name ?? '?')[0]}
+        <div title="点击更换头像" className="relative w-10 h-10 shrink-0 cursor-pointer group">
+          <div className="w-full h-full rounded-[11px] overflow-hidden relative border border-line" style={{ background: form?.iconColor || 'var(--color-brand)' }}>
+            {form?.avatar ? (
+              <img src={form.avatar} alt="" className="w-full h-full object-cover select-none" draggable={false} />
+            ) : (
+              <span className="w-full h-full flex items-center justify-center text-white font-bold text-sm">
+                {(form?.name ?? '?')[0]}
+              </span>
+            )}
+            <span className="absolute inset-0 bg-ink/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Pencil className="w-4 h-4" strokeWidth={1.8} />
             </span>
-          )}
-          <span className="absolute inset-0 bg-black/40 text-[9px] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">换头像</span>
+          </div>
+          {/* 常驻编辑角标：不依赖 hover 即可见 */}
+          <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-page">
+            <Pencil className="w-2.5 h-2.5" strokeWidth={2.5} />
+          </span>
         </div>
         <div className="name-edit flex items-center gap-1.5 min-w-0" title="点击编辑名称">
           <input
