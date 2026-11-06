@@ -208,9 +208,9 @@ export function MessageItem({
             <span>生成中…</span>
           </div>
         )}
-        {/* 回答下方：复制 / 重新生成（仅最后一轮）/ 反馈 */}
+        {/* 回答下方：复制 / 重新生成（仅最后一轮）/ 反馈——淡入，避免流结束瞬间突兀弹出 */}
         {!isUser && !isStreaming && (
-          <div className="flex items-center gap-0.5 pt-1">
+          <div className="flex items-center gap-0.5 pt-1 animate-fade-in">
             <button
               title="复制回答"
               onClick={() => {

@@ -109,20 +109,24 @@ export function ParallelToolBatch({ entries, msgId }: { entries: TimelineEntry[]
           className={`w-3 h-3 ml-auto transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}
         />
       </button>
-      {open && (
-        <div className="pb-1.5 space-y-0.5">
-          {entries.map((entry, ei) => (
-            <ToolEntryCard
-              key={`te-${ei}`}
-              entry={entry}
-              msgId={msgId}
-              interrupted={false}
-              theme="dark"
-              planVersion={undefined}
-            />
-          ))}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="pb-1.5 space-y-0.5">
+            {entries.map((entry, ei) => (
+              <ToolEntryCard
+                key={`te-${ei}`}
+                entry={entry}
+                msgId={msgId}
+                interrupted={false}
+                theme="dark"
+                planVersion={undefined}
+              />
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -306,11 +310,10 @@ export function ActivityGroup({
     });
   };
 
-  // 流式中：过程条目直接平铺（用户实时看过程，无组头包装）
-  if (!finished) {
-    return <div className="space-y-1 font-sans">{renderEntries()}</div>;
-  }
-
+  // 统一形态：流式中与完成后都是同一张折叠卡（流式中默认展开）——
+  // 仅组头状态与 open 随运行状态变化。原实现流式中"平铺"、结束瞬间
+  // 切换为折叠卡，整个 DOM 形态重建 → 几百 px 高度瞬间塌缩 = 刷一下。
+  // 明细区用 grid-rows 高度过渡，收起/展开平滑进行（主流 agent UI 做法）。
   return (
     <div className="rounded-[10px] bg-page overflow-hidden font-sans">
       <button
@@ -318,16 +321,24 @@ export function ActivityGroup({
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-raise transition-colors rounded-[10px]"
       >
-        <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
+        {isRunning ? (
+          <Loader2 className="w-3.5 h-3.5 self-center text-sig-wait shrink-0 animate-spin" />
+        ) : hasError ? (
+          <AlertTriangle className="w-3.5 h-3.5 self-center text-sig-fail shrink-0" />
+        ) : (
+          <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
+        )}
         <span className="text-xs font-medium text-ink-dim shrink-0 leading-none">
           执行过程
         </span>
         <span className="text-[11px] text-ink-faint font-mono shrink-0">
           {hasError
             ? '执行出错'
-            : toolCount > 0
-              ? `${toolCount} 个工具调用`
-              : '思考过程'}
+            : isRunning
+              ? '执行中'
+              : toolCount > 0
+                ? `${toolCount} 个工具调用`
+                : '思考过程'}
           {durationLabel ? ` · ${durationLabel}` : ''}
         </span>
         {interrupted && (
@@ -337,11 +348,15 @@ export function ActivityGroup({
           className={`w-3 h-3 text-ink-faint ml-auto transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}
         />
       </button>
-      {open && (
-        <div className="pb-2 space-y-1">
-          {renderEntries()}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="pb-2 space-y-1">
+            {renderEntries()}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
