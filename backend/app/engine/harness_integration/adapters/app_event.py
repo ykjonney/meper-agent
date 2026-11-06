@@ -56,10 +56,16 @@ class TextEvent(_Base):
     ``final_answer``) reflects that the content is any assistant text block —
     a transitional remark before a tool call, a post-tool summary, or the
     terminal answer — not necessarily the final reply.
+
+    ``final=True`` marks the terminal answer: the LLM response carried no
+    tool calls, so the agentic loop routes to END here and this text is the
+    final reply. This is the authoritative signal for the frontend to fold
+    the process card and treat the text as the answer body.
     """
 
     type: Literal["text"] = "text"
     content: str
+    final: bool = False
 
 
 class ToolCallStartEvent(_Base):

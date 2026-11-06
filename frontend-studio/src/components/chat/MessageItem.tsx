@@ -14,6 +14,8 @@ interface MessageItemProps {
   theme: 'dark' | 'light';
   streamingMsgId: string | null;
   isStreaming: boolean;
+  /** 执行过程结束信号（后端 final 标记 / 正文静默启发式）→ 过程卡收起 */
+  answerPhase: boolean;
   activeSessionId: string | null;
   feedbackMap: Record<string, SessionFeedbackItem>;
   inputTextareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -30,7 +32,7 @@ interface MessageItemProps {
 /** 单条聊天消息：user 单气泡 / agent 按 timeline 轮次渲染（活动组+正文），
  *  含附件卡、生成中动效、复制/重新生成、消息级反馈。 */
 export function MessageItem({
-  msg, isLast, theme, streamingMsgId, isStreaming, activeSessionId, feedbackMap,
+  msg, isLast, theme, streamingMsgId, isStreaming, answerPhase, activeSessionId, feedbackMap,
   inputTextareaRef, onAnswer, onRegenerate, onDismissInterrupt, onApprovePlan, onVote, setInputText,
 }: MessageItemProps) {
   const isUser = msg.role === 'user';
@@ -111,6 +113,7 @@ export function MessageItem({
                   /* 最终回答已开始输出 → 过程卡整体收起（组头=执行摘要一行） */
                   hasOwnText={!!finalText}
                   msgStreaming={inFlight}
+                  answerPhase={answerPhase}
                   onAnswer={onAnswer}
                   onDismiss={() => onDismissInterrupt(msg.id)}
                   onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}

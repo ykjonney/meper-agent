@@ -223,10 +223,13 @@ export interface TextDeltaEvent {
   content: string
 }
 
-/** Complete text block from the AI — consolidated */
+/** Complete text block from the AI — consolidated.
+ *  final=true = 本次 LLM 响应无 tool_calls，该文本即最终回答（agent loop
+ *  结束）——前端据此精确收起过程卡。 */
 export interface TextEvent {
   type: 'text'
   content: string
+  final?: boolean
 }
 
 /** Error during execution */
