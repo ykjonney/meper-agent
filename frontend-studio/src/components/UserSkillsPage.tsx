@@ -139,9 +139,7 @@ function MarketplaceTab({ theme, isAdmin }: {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜索技能名称/描述…"
-          className={`flex-1 max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200'
-          }`}
+          className="flex-1 max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none bg-panel border-line text-ink"
         />
       </div>
 
@@ -178,9 +176,9 @@ function MarketCard({ item, theme, isAdmin, onPreview, onInstall, onUninstall, o
   onUninstall: () => void;
   onFork: () => void;
 }) {
-  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
+  const card = 'bg-panel border-line';
+  const textMuted = 'text-ink-dim';
+  const chip = 'bg-raise';
 
   const qc = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
@@ -325,11 +323,11 @@ function PreviewModal({ item, theme, onClose }: {
     queryKey: ['usk-preview', item.id],
     queryFn: () => userSkillsApi.get(item.id),
   });
-  const box = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200 text-slate-800';
+  const box = 'bg-panel border-line text-ink';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-ink/25" />
       <div
         className={`relative w-full max-w-2xl max-h-[80vh] rounded-xl border flex flex-col ${box}`}
       >
@@ -469,9 +467,9 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
     e.currentTarget.value = '';
   };
 
-  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
+  const card = 'bg-panel border-line';
+  const textMuted = 'text-ink-dim';
+  const chip = 'bg-raise';
 
 
   return (
@@ -489,7 +487,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
           <div className="flex items-center gap-2">
             {/* 两种创建入口（admin=官方技能走 /tools/upload；用户=个人技能前端解析后走 /user-skills） */}
             <label
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white shadow transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white transition cursor-pointer"
               title={isAdmin ? '上传一个或多个 .md 文件，创建官方技能' : '上传 .md 文件，创建个人技能'}
             >
               <Plus size={13} /> 上传 Markdown Skill
@@ -502,7 +500,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
               />
             </label>
             <label
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white shadow transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand hover:bg-brand-hover text-white transition cursor-pointer"
               title="上传整个技能目录（个人技能取其中的 SKILL.md）"
             >
               <Plus size={13} /> 上传 Skill 文件夹
@@ -523,9 +521,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
             {(officials.data ?? []).filter((m) => m.kind === 'official').map((m) => (
               <div key={m.id} className={`rounded-xl border p-4 flex flex-col gap-2 ${card}`}>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-                theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
-              }`}>
+                  <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border bg-page border-line">
                 <AvatarRender value={m.avatar ?? ''} className="w-full h-full p-1.5" />
               </div>
                   <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
@@ -543,7 +539,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                   </button>
                   <button
                     onClick={() => handleDeleteOfficial({ id: m.id, name: m.name })}
-                    className="flex items-center gap-0.5 text-xs border-0 bg-transparent text-rose-400 cursor-pointer"
+                    className="flex items-center gap-0.5 text-xs border-0 bg-transparent text-sig-fail cursor-pointer"
                     title="删除该官方技能（若被 Agent 引用将拒绝删除）"
                   >
                     <Trash2 size={12} /> 删除
@@ -559,13 +555,11 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                 <div className="flex items-center gap-3 min-w-0">
                   {s.source === 'own' ? (
                     <label
-                      className="relative w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border cursor-pointer group ${
-                        theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
-                      }"
+                      className="relative w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border cursor-pointer group bg-page border-line"
                       title="点击更换头像（PNG/JPEG/WEBP ≤2MB）"
                     >
                       <AvatarRender value={s.avatar ?? ''} className="w-full h-full p-1.5" />
-                      <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50 text-[11px] text-white">
+                      <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-ink/25 text-[11px] text-white">
                         换头像
                       </span>
                       <input
@@ -576,9 +570,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                       />
                     </label>
                   ) : (
-                    <div className={`w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border ${
-                      theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
-                    }`}>
+                    <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border bg-page border-line">
                       <AvatarRender value={s.avatar ?? ''} className="w-full h-full p-1.5" />
                     </div>
                   )}
@@ -592,7 +584,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                       )}
                     </div>
                     {s.source === 'installed' ? (
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} text-emerald-500 shrink-0`}>已安装</span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} text-sig-ok shrink-0`}>已安装</span>
                     ) : (
                       <span className={`text-[11px] px-1.5 py-0.5 rounded ${chip} ${textMuted} shrink-0`}>
                         {STATUS_LABEL[s.status] ?? s.status}
@@ -614,7 +606,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                     {s.source === 'installed' ? (
                       <button
                         onClick={() => uninstallMineM.mutate(s.id)}
-                        className="flex items-center gap-0.5 border-0 bg-transparent text-rose-400 cursor-pointer"
+                        className="flex items-center gap-0.5 border-0 bg-transparent text-sig-fail cursor-pointer"
                         title="卸载（不影响原作者的技能）"
                       >
                         卸载
@@ -627,7 +619,7 @@ function MySkillsTab({ theme, isAdmin, onOpenOfficial }: {
                             <Send size={11} /> 发布
                           </button>
                         )}
-                        <button onClick={() => deleteM.mutate(s.id)} className="flex items-center gap-0.5 border-0 bg-transparent text-rose-400 cursor-pointer">
+                        <button onClick={() => deleteM.mutate(s.id)} className="flex items-center gap-0.5 border-0 bg-transparent text-sig-fail cursor-pointer">
                           <Trash2 size={12} />
                         </button>
                       </>
@@ -685,14 +677,12 @@ function SkillEditModal({ theme, target, onClose, onSaved }: {
     onError: (e) => toast.error(getErrorMessage(e, '保存失败')),
   });
 
-  const box = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200 text-slate-800';
-  const inputCls = `w-full px-3 py-1.5 rounded-lg text-sm border outline-none ${
-    theme === 'dark' ? 'bg-[#0f0f10] border-line' : 'bg-slate-50 border-slate-200'
-  }`;
+  const box = 'bg-panel border-line text-ink';
+  const inputCls = 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-page border-line text-ink';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-ink/25" />
       <div className={`relative w-full max-w-2xl max-h-[85vh] rounded-xl border flex flex-col ${box}`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
           <span className="text-sm font-semibold truncate max-w-md" title={target.name}>{`编辑：${target.name}`}</span>
@@ -751,11 +741,9 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
   });
 
   const entries = memory?.entries ?? [];
-  const box = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const inputCls = `flex-1 px-3 py-1.5 rounded-lg text-sm border outline-none ${
-    theme === 'dark' ? 'bg-[#0f0f10] border-line text-ink' : 'bg-slate-50 border-slate-200'
-  }`;
+  const box = 'bg-panel border-line';
+  const textMuted = 'text-ink-dim';
+  const inputCls = 'flex-1 px-3 py-1.5 rounded-lg text-sm border outline-none bg-page border-line text-ink';
 
   return (
     <div className="space-y-4 max-w-2xl">
@@ -766,7 +754,7 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
                 const ok = await confirmDialog({ title: '清空全部记忆？', description: '所有持久偏好记录将被删除，对话中的 Agent 将不再记得这些偏好。', okText: '清空', danger: true });
                 if (ok) saveM.mutate([]);
               }}
-          className="flex items-center gap-1 text-xs border-0 bg-transparent text-rose-400 cursor-pointer"
+          className="flex items-center gap-1 text-xs border-0 bg-transparent text-sig-fail cursor-pointer"
         >
           <RefreshCw size={12} /> 清空
         </button>
@@ -802,7 +790,7 @@ function MemoryTab({ theme }: { theme: 'dark' | 'light' }) {
                 <button onClick={() => setEditing({ index: i, text: e })} className="text-xs border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer shrink-0">编辑</button>
                 <button
                   onClick={() => saveM.mutate(entries.filter((_, j) => j !== i))}
-                  className="text-xs border-0 bg-transparent text-rose-400 cursor-pointer shrink-0"
+                  className="text-xs border-0 bg-transparent text-sig-fail cursor-pointer shrink-0"
                 >
                   删除
                 </button>

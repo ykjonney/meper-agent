@@ -75,9 +75,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
     <div className="space-y-4">
       {/* 搜索/Tab 行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片）。
           flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
-      <div className={`sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 ${
-        theme === 'dark' ? 'bg-well' : 'bg-slate-50'
-      }`}>
+      <div className="sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 bg-well">
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
         )}
@@ -85,19 +83,13 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
-          className={`flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200'
-          }`}
+          className="flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none bg-panel border-line text-ink"
         />
         {canCreate && tab === 'library' && (
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setGenOpen(true)}
               title="描述需求，AI 自动生成工具定义草稿"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
-                theme === 'dark'
-                  ? 'border border-brand text-brand hover:bg-brand-soft'
-                  : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
-              }`}>
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition border border-brand text-brand hover:bg-brand-soft">
               <Sparkles size={14} />AI 生成
             </button>
             <button onClick={() => setCreating(true)}
@@ -233,7 +225,7 @@ function LibraryTab({ q, theme, onEditItem }: {
     }).then((ok) => { if (ok) deleteM.mutate(item.id); });
   };
 
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const textMuted = 'text-ink-dim';
 
   return (
     <div className="space-y-4">
@@ -476,9 +468,9 @@ function PreviewModal({ item, theme, onClose }: {
   });
   const d = item.kind === 'user' ? userDetail : officialDetail;
   const overlay = '';
-  const panel = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
+  const panel = 'bg-panel border-line text-ink';
+  const textMuted = 'text-ink-dim';
+  const chip = 'bg-raise';
 
   const ep = (d?.endpoint ?? {}) as Record<string, unknown>;
   const typeLabel: Record<string, string> = { string: '文本', number: '数字', boolean: '布尔', array: '列表' };
@@ -504,9 +496,7 @@ function PreviewModal({ item, theme, onClose }: {
       <div className={`w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden ${panel}`}
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
-        <div className={`flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b ${
-          theme === 'dark' ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b border-line">
           <div>
             <h3 className="text-base font-bold">{item.name}</h3>
             <p className={`text-xs ${textMuted}`}>{item.author_name} · {SOURCE_META[item.source]?.label ?? item.source}</p>
@@ -524,16 +514,12 @@ function PreviewModal({ item, theme, onClose }: {
           </div>
         )}
         {item.source === 'code' && (
-          <pre className={`text-xs p-3 rounded-lg overflow-x-auto ${
-            theme === 'dark' ? 'bg-[#0c0c0e]' : 'bg-slate-50'
-          }`}>{d?.code || '—'}</pre>
+          <pre className="text-xs p-3 rounded-lg overflow-x-auto bg-well">{d?.code || '—'}</pre>
         )}
         {(ep.response_notes as string) && (
           <div className="space-y-1.5">
             <div className={`text-xs font-semibold ${textMuted}`}>返回格式</div>
-            <pre className={`text-xs p-3 rounded-lg overflow-x-auto ${
-              theme === 'dark' ? 'bg-[#0c0c0e]' : 'bg-slate-50'
-            }`}>{ep.response_notes as string}</pre>
+            <pre className="text-xs p-3 rounded-lg overflow-x-auto bg-well">{ep.response_notes as string}</pre>
           </div>
         )}
         <div className="space-y-1.5">
@@ -561,7 +547,7 @@ function ToolToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boo
       onClick={() => onChange(!enabled)}
       title={enabled ? '点击停用（停用后 Agent/工作流不可用）' : '点击开启（校验定义与凭证完整性）'}
       className={`relative rounded-full transition cursor-pointer shrink-0 border ${
-        enabled ? 'bg-emerald-600 border-emerald-500' : 'bg-line border-line-strong'
+        enabled ? 'bg-brand border-brand' : 'bg-raise border-line-strong'
       }`}
       style={{ width: '2rem', height: '1.1rem' }}
     >
@@ -601,7 +587,6 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
   });
   const d = isUserTool ? userDetail : officialDetail;
 
-  const dark = theme === 'dark';
   const props = (((d?.user_args_schema ?? {}) as Record<string, unknown>).properties ?? {}) as Record<
     string, { type?: string; description?: string; sensitive?: boolean }
   >;
@@ -644,38 +629,30 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
     onError: (e) => toast.error(getErrorMessage(e, '保存失败')),
   });
 
-  const inputCls = `w-full px-2 py-1 rounded text-xs font-mono border outline-none ${
-    dark
-      ? 'bg-page border-line text-ink placeholder:text-ink-faint focus:border-brand'
-      : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
-  }`;
+  const inputCls = 'w-full px-2 py-1 rounded text-xs font-mono border outline-none bg-page border-line text-ink placeholder:text-ink-faint focus:border-brand';
 
   return (
     /* 点遮罩不关闭（防误触丢已填配置，与其余 ui Modal 行为一致） */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div className={`w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-          dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
-        }`}
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border border-line bg-panel text-ink overflow-hidden shadow-[var(--shadow-pop)]"
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
-        <div className={`flex items-start justify-between shrink-0 px-5 pt-5 pb-3 border-b ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex items-start justify-between shrink-0 px-5 pt-5 pb-3 border-b border-line">
           <div>
             <h3 className="text-sm font-bold">工具凭证 · {d?.name ?? fallbackName}</h3>
-            <p className={`text-[11px] mt-0.5 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
+            <p className="text-[11px] mt-0.5 text-ink-dim">
               工具级统一配置——Agent 绑定与工作流直调共用；敏感值加密存储。
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
+          <button onClick={onClose} className="cursor-pointer hover:opacity-70 text-ink-dim">✕</button>
         </div>
 
         {/* 内容区滚动 */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {!d ? (
-          <div className={`py-6 text-center text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>加载参数定义…</div>
+          <div className="py-6 text-center text-xs text-ink-dim">加载参数定义…</div>
         ) : propKeys.length === 0 ? (
-          <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+          <p className="text-xs text-ink-dim">
             该工具无需凭证，可直接开启使用。
           </p>
         ) : (
@@ -685,7 +662,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
               const configured = savedArgs[key] != null && String(savedArgs[key]) !== '';
               return (
                 <div key={key} className="flex items-center gap-2">
-                  <label className={`w-28 shrink-0 text-[11px] truncate ${dark ? 'text-ink-dim' : 'text-slate-500'}`} title={key}>
+                  <label className="w-28 shrink-0 text-[11px] truncate text-ink-dim" title={key}>
                     {key}{prop.sensitive ? ' 🔒' : ''}
                   </label>
                   <input
@@ -705,7 +682,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
                     className={`flex-1 ${inputCls}`}
                   />
                   {prop.sensitive && configured && (
-                    <span className={`text-[11px] shrink-0 ${dark ? 'text-emerald-500/80' : 'text-emerald-600'}`}>已配置</span>
+                    <span className="text-[11px] shrink-0 text-sig-ok">已配置</span>
                   )}
                 </div>
               );
@@ -715,9 +692,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
         </div>
 
         {/* 底部按钮固定 */}
-        <div className={`flex justify-end gap-2 shrink-0 px-5 py-4 border-t ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex justify-end gap-2 shrink-0 px-5 py-4 border-t border-line">
           <button onClick={onClose}
             className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${'text-ink-dim hover:text-ink'}`}>
             取消

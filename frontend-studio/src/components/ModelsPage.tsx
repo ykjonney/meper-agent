@@ -600,15 +600,15 @@ export function ModelsPage() {
       {/* ── Test Modal ── */}
       {testingId && (
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-2xl shadow-[var(--shadow-pop)]">
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                <Zap className="w-4 h-4 text-brand" />
                 连通性测试 · {models.find((m) => m.id === testingId)?.name}
               </h3>
               <button
                 onClick={() => setTestingId(null)}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
+                className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -623,9 +623,9 @@ export function ModelsPage() {
 
               {testResult?.success && !testM.isPending && (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span className="font-semibold text-emerald-300">连接成功</span>
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-sig-ok/30 bg-sig-ok-soft">
+                    <CheckCircle2 className="w-4 h-4 text-sig-ok shrink-0" />
+                    <span className="font-semibold text-sig-ok">连接成功</span>
                     <span className="ml-auto text-[11px] text-ink-dim font-mono">
                       延迟 {testResult.latency_ms}ms
                     </span>
@@ -643,11 +643,11 @@ export function ModelsPage() {
 
               {testResult && !testResult.success && !testM.isPending && (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/5">
-                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                    <span className="font-semibold text-rose-300">连接失败</span>
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-sig-fail/30 bg-sig-fail-soft">
+                    <AlertTriangle className="w-4 h-4 text-sig-fail shrink-0" />
+                    <span className="font-semibold text-sig-fail">连接失败</span>
                     {testResult.error_code && (
-                      <span className="ml-auto px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-mono text-[11px]">
+                      <span className="ml-auto px-2 py-0.5 rounded bg-sig-fail-soft text-sig-fail font-mono text-[11px]">
                         {testResult.error_code}
                       </span>
                     )}
@@ -655,13 +655,13 @@ export function ModelsPage() {
                   {testResult.error && (
                     <div>
                       <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-1">错误详情</p>
-                      <pre className="p-3 rounded-lg bg-panel border border-line text-rose-300/80 whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
+                      <pre className="p-3 rounded-lg bg-panel border border-line text-sig-fail whitespace-pre-wrap font-mono text-[11px] max-h-[50vh] overflow-auto">
                         {testResult.error}
                       </pre>
                     </div>
                   )}
                   {testResult.error_code && ERROR_HINTS[testResult.error_code] && (
-                    <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-300">
+                    <div className="flex items-start gap-2 p-3 rounded-lg border border-sig-wait/30 bg-sig-wait-soft text-sig-wait">
                       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                       <span className="font-sans">{ERROR_HINTS[testResult.error_code]}</span>
                     </div>
@@ -670,7 +670,7 @@ export function ModelsPage() {
               )}
 
               {testM.isError && !testM.isPending && (
-                <div className="flex items-start gap-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 text-rose-300">
+                <div className="flex items-start gap-2 p-3 rounded-lg border border-sig-fail/30 bg-sig-fail-soft text-sig-fail">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <span className="font-sans">
                     {getErrorMessage(testM.error, '测试请求失败（网络或鉴权问题）')}
@@ -682,7 +682,7 @@ export function ModelsPage() {
                 <button
                   onClick={() => testingId && testM.mutate(testingId)}
                   disabled={testM.isPending}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2"
+                  className="af-btn af-btn-secondary disabled:opacity-60 flex items-center gap-2"
                 >
                   <Zap className="w-3.5 h-3.5" />
                   重新测试

@@ -679,23 +679,23 @@ function ConnectionTree({
                         <div className="flex items-center justify-end gap-1 shrink-0">
                           {canWrite && (
                             <button onClick={() => onTest(c)} title="测试连接 + 发现工具" disabled={testingId === c.id}
-                              className="p-1.5 rounded-lg text-ink-dim hover:text-amber-400 hover:bg-line transition cursor-pointer disabled:opacity-50">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-sig-wait hover:bg-raise transition cursor-pointer disabled:opacity-50">
                               {testingId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                             </button>
                           )}
                           <button onClick={() => onView(c)} title="查看工具"
-                            className="p-1.5 rounded-lg text-ink-dim hover:text-sky-400 hover:bg-line transition cursor-pointer">
+                            className="p-1.5 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer">
                             <Eye className="w-4 h-4" />
                           </button>
                           {canWrite && (
                             <button onClick={() => onEdit(c)} title="编辑"
-                              className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-brand hover:bg-raise transition cursor-pointer">
                               <Pencil className="w-4 h-4" />
                             </button>
                           )}
                           {canWrite && (
                             <button onClick={() => onDelete(c)} title="删除"
-                              className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer">
+                              className="p-1.5 rounded-lg text-ink-dim hover:text-sig-fail hover:bg-raise transition cursor-pointer">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
@@ -797,10 +797,10 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
+      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-panel border border-line rounded-2xl shadow-[var(--shadow-pop)]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-panel z-10">
           <h3 className="text-sm font-bold text-ink flex items-center gap-2">
-            <Folder className="w-4 h-4 text-indigo-400" />
+            <Folder className="w-4 h-4 text-brand" />
             MCP 分组管理
           </h3>
           <button onClick={() => { resetForm(); onClose(); }}
@@ -848,18 +848,18 @@ function McpCategoryModal({ onClose }: { onClose: () => void }) {
             <div className="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
               {categories.map((c) => (
                 <div key={c.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 hover:bg-panel transition">
-                  <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <Folder className="w-4 h-4 text-brand shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-ink truncate">{c.name}</p>
                     {c.description && <p className="text-[11px] text-ink-dim truncate">{c.description}</p>}
                   </div>
                   <span className="text-[11px] text-ink-dim shrink-0">排序 {c.sort ?? 0}</span>
                   <button onClick={() => startEdit(c)} title="编辑"
-                    className="p-1.5 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
+                    className="p-1.5 rounded-lg text-ink-dim hover:text-brand hover:bg-raise transition cursor-pointer">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={() => handleDelete(c)} title="删除" disabled={deleteM.isPending}
-                    className="p-1.5 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer disabled:opacity-40">
+                    className="p-1.5 rounded-lg text-ink-dim hover:text-sig-fail hover:bg-raise transition cursor-pointer disabled:opacity-40">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -880,7 +880,7 @@ function ViewToolsModal({ conn, onClose }: { conn: McpConnection; onClose: () =>
   const tools = data?.items ?? [];
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-page border border-line rounded-2xl shadow-2xl">
+      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-panel border border-line rounded-2xl shadow-[var(--shadow-pop)]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="text-sm font-bold text-ink">MCP 工具列表 — {conn.name}</h3>
           <button onClick={onClose} className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-line transition cursor-pointer">
