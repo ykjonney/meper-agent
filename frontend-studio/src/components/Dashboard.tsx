@@ -453,7 +453,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
             <button
               onClick={() => setHistoryTab('tasks')}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
-                historyTab === 'tasks' ? 'bg-line text-ink' : 'text-ink-dim hover:text-white'
+                historyTab === 'tasks' ? 'bg-line text-ink' : 'text-ink-dim hover:text-ink'
               }`}
             >
               任务运行历史
@@ -462,7 +462,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
               <button
                 onClick={() => setHistoryTab('execs')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
-                  historyTab === 'execs' ? 'bg-line text-ink' : 'text-ink-dim hover:text-white'
+                  historyTab === 'execs' ? 'bg-line text-ink' : 'text-ink-dim hover:text-ink'
                 }`}
               >
                 Agent 执行记录
@@ -471,7 +471,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
           </div>
           {historyTab === 'tasks' ? (
             <div className="relative">
-              <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
               <input
                 type="text"
                 value={filterSearch}
@@ -516,7 +516,7 @@ export function Dashboard({ onSelectTab, onViewTask }: DashboardProps) {
                       <span className="font-semibold text-ink font-mono text-[11px]">{task.workflow_id}</span>
                     </td>
                     <td className="py-3 px-3 text-ink-dim flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-slate-600" />
+                      <Calendar className="w-3 h-3 text-ink-faint" />
                       {formatTimeFull(task.created_at)}
                     </td>
                     <td className="py-3 px-3">
@@ -634,7 +634,7 @@ function StatRow({ name, value, status, desc }: { name: string; value: string; s
     <div className="p-2.5 bg-page/60 rounded-lg border border-line text-[11px]">
       <div className="flex justify-between items-center mb-1">
         <span className="font-semibold text-ink">{name}</span>
-        <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold ${status === 'normal' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+        <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold ${status === 'normal' ? 'bg-sig-ok-soft text-sig-ok' : 'bg-brand-soft text-brand'}`}>
           {value}
         </span>
       </div>
@@ -666,14 +666,14 @@ function build7DayChart(tasks: TaskSummary[]): { label: string; val: number }[] 
 function taskStatusBadge(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-amber-500/10 text-amber-400';
+      return 'bg-sig-wait-soft text-sig-wait';
     case 'waiting_human':
-      return 'bg-emerald-500/10 text-emerald-400';
+      return 'bg-brand-soft text-brand';
     case 'completed':
-      return 'bg-indigo-500/10 text-indigo-400';
+      return 'bg-sig-ok-soft text-sig-ok';
     case 'failed':
     case 'cancelled':
-      return 'bg-red-500/10 text-red-400';
+      return 'bg-sig-fail-soft text-sig-fail';
     default:
       return 'bg-line text-ink-dim';
   }
@@ -682,12 +682,12 @@ function taskStatusBadge(status: string): string {
 function taskStatusDot(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-amber-400 animate-pulse';
+      return 'bg-sig-wait animate-pulse';
     case 'completed':
-      return 'bg-indigo-400';
+      return 'bg-sig-ok';
     case 'failed':
     case 'cancelled':
-      return 'bg-red-400';
+      return 'bg-sig-fail';
     default:
       return 'bg-ink-dim';
   }

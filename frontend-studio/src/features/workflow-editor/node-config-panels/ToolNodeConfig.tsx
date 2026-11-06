@@ -101,7 +101,7 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
             </div>
           ))}
           {hasTemplate && (
-            <p className="text-[11px] text-amber-500 leading-relaxed">
+            <p className="text-[11px] text-sig-wait leading-relaxed">
               参数中含 {'{{ }}'} 模板变量——测试时请改为具体值（模板引用仅在运行时由上游节点解析）
             </p>
           )}
@@ -112,8 +112,8 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
           {out && (
             <div className={`rounded-lg border p-2.5 text-[11px] font-mono whitespace-pre-wrap break-words ${
               out.ok
-                ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
-                : 'border-red-500/30 bg-red-500/5 text-red-300'
+                ? 'border-sig-ok/30 bg-sig-ok-soft text-sig-ok'
+                : 'border-sig-fail/30 bg-sig-fail-soft text-sig-fail'
             }`}>
               {out.ok
                 ? (typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2))
@@ -177,7 +177,7 @@ function JsonField({
         placeholder={placeholder}
         rows={rows}
       />
-      {invalid && <p className="text-xs text-red-500 mt-1">JSON 格式有误，修正后才会保存</p>}
+      {invalid && <p className="text-xs text-sig-fail mt-1">JSON 格式有误，修正后才会保存</p>}
     </div>
   )
 }
@@ -465,7 +465,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
               <div key={key} className="flex items-center gap-2">
                 <label className="w-24 shrink-0 text-xs text-ink-dim truncate" title={key}>
                   {key}
-                  {schemaRequired.has(key) && <span className="text-red-500"> *</span>}
+                  {schemaRequired.has(key) && <span className="text-sig-fail"> *</span>}
                 </label>
                 <div className="flex-1 min-w-0">
                   <VariableSelector

@@ -373,7 +373,7 @@ export default function LoopNodeConfig({
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRemoveStep(id) }}
                       title="删除步骤"
-                      className="p-0.5 rounded text-ink-dim hover:text-red-400 hover:bg-line cursor-pointer"
+                      className="p-0.5 rounded text-ink-dim hover:text-sig-fail hover:bg-line cursor-pointer"
                     >
                       <X size={11} />
                     </button>
@@ -401,7 +401,7 @@ export default function LoopNodeConfig({
         ) : !isBranchy && !editable ? (
           <div className="text-[11px] text-ink-dim mt-2">编辑不可用（请刷新页面重试）</div>
         ) : (
-          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-sig-wait mt-2">
+          <div className="rounded border border-sig-wait/40 bg-sig-wait-soft px-2 py-1.5 text-[11px] text-sig-wait mt-2">
             此循环包含分支/并行结构，步骤只读（调整顺序会破坏分支）
           </div>
         )}
@@ -469,7 +469,7 @@ export default function LoopNodeConfig({
                   type="button"
                   title="删除该条件"
                   onClick={() => removeCondition(i)}
-                  className="absolute top-1.5 right-1.5 p-0.5 rounded text-ink-dim hover:text-red-400 hover:bg-line cursor-pointer"
+                  className="absolute top-1.5 right-1.5 p-0.5 rounded text-ink-dim hover:text-sig-fail hover:bg-line cursor-pointer"
                 >
                   <X size={11} />
                 </button>
@@ -535,7 +535,7 @@ export default function LoopNodeConfig({
 
         {body.length > 0 && isCustomExpr && (
           <div className="space-y-1">
-            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-sig-wait">
+            <div className="rounded border border-sig-wait/40 bg-sig-wait-soft px-2 py-1.5 text-[11px] text-sig-wait">
               当前为自定义表达式（含表单不支持的结构，如且/或混用），表单不覆盖、仅展示原文
             </div>
             <div className="text-[11px] text-ink-dim font-mono break-all" title={convergeExpr}>

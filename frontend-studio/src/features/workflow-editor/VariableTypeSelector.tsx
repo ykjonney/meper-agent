@@ -185,17 +185,17 @@ export default function VariableTypeSelector({
         <>
           <div>
             <label className="block text-xs text-ink-dim mb-1">
-              变量名 <span className="text-red-400">*</span>
+              变量名 <span className="text-sig-fail">*</span>
             </label>
             <Input
               value={value?.name ?? ''}
               onChange={(e) => onChange({ ...value, name: e.target.value })}
               placeholder="如 user_query"
-              className={`!text-xs ${nameError ? '!border-red-400' : ''}`}
+              className={`!text-xs ${nameError ? '!border-sig-fail' : ''}`}
               status={nameError ? 'error' : undefined}
             />
             {nameError && (
-              <p className="text-[11px] text-red-400 mt-0.5">{nameError}</p>
+              <p className="text-[11px] text-sig-fail mt-0.5">{nameError}</p>
             )}
           </div>
           <div>
