@@ -140,7 +140,7 @@ export default function ChannelConfigModal({
       <div className="space-y-4">
         {/* 平台准备步骤引导 */}
         {PROVIDER_GUIDES[provider] && (
-          <div className="rounded-md border border-line bg-page px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+          <div className="rounded-md border border-line bg-page px-3 py-2 text-[11px] leading-relaxed text-ink-dim">
             {PROVIDER_GUIDES[provider]}
           </div>
         )}
@@ -181,6 +181,7 @@ export default function ChannelConfigModal({
               <div key={f.key} className="space-y-1.5">
                 <div className="text-xs font-medium text-ink">{f.label}</div>
                 <Input
+                  variant="line"
                   type={f.type === 'secret' ? 'password' : 'text'}
                   autoComplete="new-password"
                   value={credValues[f.key] ?? ''}

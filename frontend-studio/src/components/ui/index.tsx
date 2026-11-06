@@ -129,6 +129,8 @@ function usePanelPosition(
 interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   size?: 'small' | 'middle' | 'large'
   status?: 'error' | undefined
+  /** boxed=圆角边框（搜索框等）；line=下划线无边框（弹窗表单，禁 SaaS 边框堆叠） */
+  variant?: 'boxed' | 'line'
 }
 
 const SIZE_CLASS: Record<NonNullable<InputProps['size']>, string> = {
@@ -137,7 +139,18 @@ const SIZE_CLASS: Record<NonNullable<InputProps['size']>, string> = {
   large: 'h-10 text-sm px-3',
 }
 
-function InputInner({ size = 'middle', status, className = '', ...rest }: InputProps) {
+function InputInner({ size = 'middle', status, variant = 'boxed', className = '', ...rest }: InputProps) {
+  if (variant === 'line') {
+    return (
+      <input
+        {...rest}
+        className={`w-full border-0 border-b bg-transparent px-0 text-ink placeholder:text-ink-faint
+          focus:outline-none transition-colors
+          ${status === 'error' ? 'border-sig-fail' : 'border-line-strong focus:border-brand'}
+          ${SIZE_CLASS[size]} ${className}`}
+      />
+    )
+  }
   return (
     <input
       {...rest}
@@ -592,7 +605,7 @@ export function Modal({
     >
       <div
         style={{ width, maxWidth: 'calc(100vw - 2rem)' }}
-        className="bg-panel rounded-xl shadow-2xl max-h-[85vh] flex flex-col border border-line"
+        className="bg-panel rounded-xl shadow-[var(--shadow-pop)] max-h-[85vh] flex flex-col border border-line"
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
           <span className="text-sm font-medium text-ink truncate min-w-0">{title}</span>

@@ -8,7 +8,7 @@ import { roleApi, type RoleUpdatePayload } from '../services/role-api';
 import { toStudioUser } from '../services/adapters';
 import { usePermission } from '../hooks/use-permission';
 import { useAuthStore } from '../stores/auth-store';
-import { Select, Popover } from './ui';
+import { Select, Popover, Input } from './ui';
 import { confirmDialog } from './ui/confirm';
 import { toast } from './ui/toast';
 import { PermissionTree } from './ui/PermissionTree';
@@ -663,29 +663,26 @@ export function UserManagement() {
 
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans">成员用户名</label>
-                <input type="text" required value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如: chenming"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand transition font-sans" />
+                <Input type="text" required variant="line" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如: chenming"
+                  className="py-1.5" />
               </div>
 
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans">邮箱 (Email)</label>
-                <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="如: chen.ming@linkgraph.ai"
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand transition font-sans" />
+                <Input type="email" required variant="line" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="如: chen.ming@linkgraph.ai"
+                  className="py-1.5" />
               </div>
 
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans flex items-center justify-between">
                   <span>初始密码</span>
-                  <span className={`text-[11px] font-mono ${newPassword.length > 0 && newPassword.length < 8 ? 'text-rose-400' : 'text-ink-faint'}`}>
+                  <span className={`text-[11px] font-mono ${newPassword.length > 0 && newPassword.length < 8 ? 'text-sig-fail' : 'text-ink-faint'}`}>
                     {newPassword.length}/8 位
                   </span>
                 </label>
-                <input type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="至少 8 位"
-                  className={`w-full px-3 py-2 bg-page rounded-lg text-ink focus:outline-none transition font-sans ${
-                    newPassword.length > 0 && newPassword.length < 8
-                      ? 'border border-sig-fail/50 focus:border-sig-fail'
-                      : 'border border-line focus:border-brand'
-                  }`} />
+                <Input type="password" required minLength={8} variant="line" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="至少 8 位"
+                  status={newPassword.length > 0 && newPassword.length < 8 ? 'error' : undefined}
+                  className="py-1.5" />
                 {newPassword.length > 0 && newPassword.length < 8 && (
                   <p className="text-[11px] text-sig-fail font-sans">密码至少需要 8 个字符</p>
                 )}
@@ -758,25 +755,23 @@ export function UserManagement() {
                   </span>
                 </label>
                 <div className="flex gap-2">
-                  <input
+                  <Input
                     type="text"
                     required
                     minLength={8}
                     autoFocus
+                    variant="line"
                     value={resetPwdValue}
                     onChange={(e) => setResetPwdValue(e.target.value)}
                     placeholder="至少 8 位，可点右侧随机生成"
-                    className={`flex-1 px-3 py-2 bg-page rounded-lg text-ink focus:outline-none transition font-mono ${
-                      resetPwdValue.length > 0 && resetPwdValue.length < 8
-                        ? 'border border-sig-fail/50 focus:border-sig-fail'
-                        : 'border border-line focus:border-brand'
-                    }`}
+                    status={resetPwdValue.length > 0 && resetPwdValue.length < 8 ? 'error' : undefined}
+                    className={`flex-1 py-1.5 font-mono`}
                   />
                   <button
                     type="button"
                     onClick={() => setResetPwdValue(generatePassword())}
                     title="重新生成 12 位随机强密码"
-                    className="px-3 py-2 border border-line rounded-lg text-ink-dim hover:text-ink hover:bg-page transition cursor-pointer shrink-0 flex items-center gap-1.5"
+                    className="px-3 py-2 border border-line rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer shrink-0 flex items-center gap-1.5"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> 随机
                   </button>
@@ -832,41 +827,44 @@ export function UserManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-ink-dim font-medium font-sans">角色 key (小写)</label>
-                  <input
+                  <Input
                     type="text"
                     required
+                    variant="line"
                     pattern="[a-z][a-z0-9_]*"
                     value={roleName}
                     onChange={(e) => setRoleName(e.target.value)}
                     readOnly={roleModalMode === 'edit'}
                     placeholder="如: content_editor"
-                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-mono read-only:opacity-60 read-only:cursor-not-allowed"
+                    className="py-1.5 font-mono read-only:opacity-60 read-only:cursor-not-allowed"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-ink-dim font-medium font-sans">
                     显示名{isEditingSystemRole ? '（系统角色不可改）' : ''}
                   </label>
-                  <input
+                  <Input
                     type="text"
                     required
+                    variant="line"
                     value={roleDisplay}
                     onChange={(e) => setRoleDisplay(e.target.value)}
                     disabled={isEditingSystemRole}
                     placeholder="如: 内容编辑"
-                    className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-sans disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="py-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans">描述{isEditingSystemRole ? '（系统角色不可改）' : ''}</label>
-                <input
+                <Input
                   type="text"
+                  variant="line"
                   value={roleDesc}
                   onChange={(e) => setRoleDesc(e.target.value)}
                   disabled={isEditingSystemRole}
-                  className="w-full px-3 py-2 bg-page border border-line rounded-lg text-ink focus:outline-none focus:border-brand font-sans disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="py-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                 />
               </div>
 
