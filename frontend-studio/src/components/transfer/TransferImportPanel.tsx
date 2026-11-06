@@ -69,7 +69,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
         className={`border-2 border-dashed rounded-xl p-8 text-center transition ${
           busy || phase === 'done'
             ? 'border-line cursor-default'
-            : 'border-line-strong hover:border-indigo-600 cursor-pointer'
+            : 'border-line-strong hover:border-brand cursor-pointer'
         }`}
       >
         <input
@@ -90,7 +90,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
         ) : file ? (
           <div className="space-y-1">
             <p className="text-sm text-ink-dim flex items-center justify-center gap-1.5">
-              <FileArchive className="w-4 h-4 text-indigo-400" />
+              <FileArchive className="w-4 h-4 text-brand" />
               {file.name}（{(file.size / 1024 / 1024).toFixed(2)} MB）
             </p>
             {(phase === 'select' || phase === 'report') && (
@@ -114,7 +114,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
               type="checkbox"
               checked={reuseExisting}
               onChange={(e) => setReuseExisting(e.target.checked)}
-              className="mt-0.5 accent-indigo-600"
+              className="mt-0.5 accent-brand"
             />
             <span className="text-xs text-ink-dim leading-relaxed">
               复用已有同名资源
@@ -131,8 +131,8 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
                   onClick={() => setConflict(c)}
                   className={`px-2.5 py-1 rounded border text-xs transition cursor-pointer ${
                     conflict === c
-                      ? 'border-indigo-600 bg-indigo-950/30 text-white'
-                      : 'border-line text-ink-dim hover:text-white'
+                      ? 'border-brand bg-brand-soft text-brand'
+                      : 'border-line text-ink-dim hover:text-ink'
                   }`}
                 >
                   {c === 'rename' ? '自动改名' : '跳过该项'}
@@ -142,7 +142,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
             <p className="text-[11px] text-ink-dim">自动改名生成「原名-imported」；模型的技术标识冲突时始终跳过</p>
           </div>
           {phase === 'report' && (
-            <p className="sm:col-span-2 text-[11px] text-amber-400/80">
+            <p className="sm:col-span-2 text-[11px] text-sig-wait">
               修改选项后请点击下方「重新预检」以获得准确的报告。
             </p>
           )}
@@ -153,7 +153,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
       {report && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="px-2 py-1 rounded bg-indigo-950/40 border border-indigo-700/40 text-indigo-300 font-semibold">
+            <span className="px-2 py-1 rounded bg-brand-soft border border-brand/30 text-brand font-semibold">
               {phase === 'done' ? '已新建' : '将新建'} {report.summary.created}
             </span>
             <span className="px-2 py-1 rounded bg-line text-zinc-300 font-semibold">复用 {report.summary.reused}</span>
@@ -161,12 +161,12 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
               <span className="px-2 py-1 rounded bg-line text-zinc-400 font-semibold">跳过 {report.summary.skipped}</span>
             )}
             {report.summary.warnings > 0 && (
-              <span className="px-2 py-1 rounded bg-amber-950/40 border border-amber-700/40 text-amber-300 font-semibold flex items-center gap-1">
+              <span className="px-2 py-1 rounded bg-sig-wait-soft border border-sig-wait/30 text-sig-wait font-semibold flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> 提示 {report.summary.warnings}
               </span>
             )}
             {report.summary.errors > 0 && (
-              <span className="px-2 py-1 rounded bg-rose-950/40 border border-rose-700/40 text-rose-300 font-semibold flex items-center gap-1">
+              <span className="px-2 py-1 rounded bg-sig-fail-soft border border-sig-fail/30 text-sig-fail font-semibold flex items-center gap-1">
                 <XCircle className="w-3 h-3" /> 失败 {report.summary.errors}
               </span>
             )}
@@ -182,17 +182,17 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
                   {report[section].map((it, i) => (
                     <li key={`${section}-${i}`} className="px-3 py-1.5 flex items-center gap-2 text-xs">
                       {section === 'created' ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <CheckCircle2 className="w-3 h-3 text-sig-ok shrink-0" />
                       ) : (
                         <span className="w-3 h-3 shrink-0" />
                       )}
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold shrink-0">
                         {kindLabel(it.kind)}
                       </span>
-                      <span className="text-white truncate">
+                      <span className="text-ink truncate">
                         {it.name}
                         {it.renamed_from && (
-                          <span className="text-[11px] text-amber-400 ml-1">（由 {it.renamed_from} 改名）</span>
+                          <span className="text-[11px] text-sig-wait ml-1">（由 {it.renamed_from} 改名）</span>
                         )}
                       </span>
                     </li>
@@ -203,11 +203,11 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
           )}
 
           {report.warnings.length > 0 && (
-            <div className="rounded-lg border border-amber-700/40 bg-amber-950/20 overflow-hidden">
-              <div className="px-3 py-1.5 border-b border-amber-700/30 text-[11px] font-bold uppercase tracking-wide text-amber-400 flex items-center gap-1">
+            <div className="rounded-lg border border-sig-wait/30 bg-sig-wait-soft/50 overflow-hidden">
+              <div className="px-3 py-1.5 border-b border-sig-wait/20 text-[11px] font-bold uppercase tracking-wide text-sig-wait flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> 需要注意（敏感凭证不随包迁移，导入后请补填）
               </div>
-              <ul className="divide-y divide-amber-700/20 max-h-48 overflow-y-auto">
+              <ul className="divide-y divide-sig-wait/20 max-h-48 overflow-y-auto">
                 {report.warnings.map((w, i) => (
                   <li key={i} className="px-3 py-1.5 text-xs text-ink-soft leading-relaxed">
                     <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold mr-1.5">
@@ -221,11 +221,11 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
           )}
 
           {report.errors.length > 0 && (
-            <div className="rounded-lg border border-rose-700/40 bg-rose-950/20 overflow-hidden">
-              <div className="px-3 py-1.5 border-b border-rose-700/30 text-[11px] font-bold uppercase tracking-wide text-rose-400 flex items-center gap-1">
+            <div className="rounded-lg border border-sig-fail/30 bg-sig-fail-soft/50 overflow-hidden">
+              <div className="px-3 py-1.5 border-b border-sig-fail/20 text-[11px] font-bold uppercase tracking-wide text-sig-fail flex items-center gap-1">
                 <XCircle className="w-3 h-3" /> 导入失败项
               </div>
-              <ul className="divide-y divide-rose-700/20">
+              <ul className="divide-y divide-sig-fail/20">
                 {report.errors.map((er, i) => (
                   <li key={i} className="px-3 py-1.5 text-xs text-ink-soft leading-relaxed">
                     <span className="text-[11px] px-1.5 py-0.5 rounded bg-line text-zinc-300 font-semibold mr-1.5">
@@ -251,7 +251,7 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
         {phase === 'done' ? (
           <button
             onClick={() => { setPhase('select'); setFile(null); setReport(null) }}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold cursor-pointer"
+            className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg text-xs font-semibold cursor-pointer"
           >
             继续导入下一个包
           </button>
@@ -260,14 +260,14 @@ export function TransferImportPanel({ onImported }: { onImported: () => void }) 
             <button
               onClick={() => file && runPreview(file)}
               disabled={busy}
-              className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60"
+              className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60"
             >
               重新预检
             </button>
             <button
               onClick={runImport}
               disabled={busy || !report || report.summary.created + report.summary.reused === 0}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2"
+              className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2"
             >
               确认导入
             </button>

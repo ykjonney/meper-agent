@@ -64,20 +64,18 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
     changePassword.mutate({ current_password: currentPassword, new_password: newPassword })
   }
 
-  const cardCls = theme === 'dark'
-    ? 'bg-panel border-line'
-    : 'bg-white border-slate-200'
-  const labelCls = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500'
-  const valueCls = theme === 'dark' ? 'text-ink' : 'text-slate-800'
-  const subCls = theme === 'dark' ? 'text-ink-dim' : 'text-slate-600'
-  const headingCls = theme === 'dark' ? 'text-ink' : 'text-slate-900'
+  const cardCls = 'bg-panel border-line'
+  const labelCls = 'text-ink-dim'
+  const valueCls = 'text-ink'
+  const subCls = 'text-ink-dim'
+  const headingCls = 'text-ink'
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-6 max-w-2xl mx-auto">
       {/* 页面标题 */}
       <div className="shrink-0">
         <h1 className={`text-lg font-bold ${headingCls} flex items-center gap-2`}>
-          <User className="w-5 h-5 text-indigo-400" />
+          <User className="w-5 h-5 text-brand" />
           个人设置
         </h1>
       </div>
@@ -87,7 +85,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
       {/* 只读：账户信息 */}
       <section className={`rounded-xl border p-5 space-y-4 ${cardCls}`}>
         <h2 className={`text-sm font-bold ${headingCls} flex items-center gap-1.5`}>
-          <Shield className="w-4 h-4 text-emerald-400" />
+          <Shield className="w-4 h-4 text-brand" />
           账户信息
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -109,7 +107,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
                 <span
                   key={p}
                   className={`px-2 py-0.5 rounded text-[11px] font-mono ${
-                    theme === 'dark' ? 'bg-page text-ink-dim border border-line' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    'bg-page text-ink-dim border border-line'
                   }`}
                 >
                   {p}
@@ -128,8 +126,8 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
         </h2>
 
         {done ? (
-          <div className="flex items-start gap-2 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 p-3 rounded-lg border border-sig-ok/30 bg-sig-ok-soft">
+            <CheckCircle2 className="w-4 h-4 text-sig-ok shrink-0 mt-0.5" />
             <div className="text-xs text-ink-soft">
               密码已修改成功，即将跳转到登录页重新登录…
             </div>
@@ -168,7 +166,7 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
             </div>
 
             {formError && (
-              <div className="flex items-center gap-2 p-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5 text-rose-400 text-xs">
+              <div className="flex items-center gap-2 p-2.5 rounded-lg border border-sig-fail/30 bg-sig-fail-soft text-sig-fail text-xs">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 {formError}
               </div>
@@ -183,14 +181,14 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
                   setConfirmPassword('')
                   setFormError(null)
                 }}
-                className="inline-flex items-center justify-center h-8 px-3 text-xs font-medium rounded-md border border-line bg-panel text-ink hover:border-[#1E5EFF] hover:text-link transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center h-8 px-3 text-xs font-medium rounded-md border border-line bg-panel text-ink hover:border-brand hover:text-brand transition-colors cursor-pointer"
               >
                 重置
               </button>
               <button
                 type="submit"
                 disabled={changePassword.isPending || !currentPassword || !newPassword || !confirmPassword}
-                className="inline-flex items-center justify-center gap-1.5 h-8 px-4 text-xs font-medium rounded-md bg-[#1E5EFF] border border-[#1E5EFF] text-white hover:bg-[#1a4fd6] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-lg bg-brand border border-brand text-white hover:bg-brand-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {changePassword.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 确认修改

@@ -270,14 +270,14 @@ export function ExternalAuthPage() {
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Blocks className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+            <Blocks className="w-5 h-5 text-brand" />
             外部授权
           </h2>
         </div>
         {canManage && (
           <button onClick={openCreateApp}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition cursor-pointer shadow-md shadow-indigo-600/20">
+            className="flex items-center gap-2 px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg text-sm font-semibold transition cursor-pointer">
             <Plus className="w-4 h-4" /> 创建应用
           </button>
         )}
@@ -311,16 +311,16 @@ export function ExternalAuthPage() {
             return (
               <div
                 key={app.id}
-                className="min-w-0 p-4 rounded-xl border border-line bg-panel transition-colors hover:border-indigo-500/40"
+                className="min-w-0 p-4 rounded-xl border border-line bg-panel transition-colors hover:border-line-strong"
               >
                 {/* Header */}
                 <div className="flex justify-between items-start gap-2 mb-3">
                   <div className="flex gap-2.5 items-center min-w-0">
-                    <span className="flex-shrink-0 w-10 h-10 grid place-items-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                    <span className="flex-shrink-0 w-10 h-10 grid place-items-center rounded-lg bg-brand-soft text-brand">
                       <Plug className="w-5 h-5" />
                     </span>
                     <div className="min-w-0">
-                      <strong className="block text-[13px] text-white truncate">{app.name}</strong>
+                      <strong className="block text-[13px] text-ink truncate">{app.name}</strong>
                       {app.description && (
                         <span className="block mt-0.5 text-[11px] text-ink-dim truncate">{app.description}</span>
                       )}
@@ -329,7 +329,7 @@ export function ExternalAuthPage() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     {app.configured ? (
                       <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${
-                        bound ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10'
+                        bound ? 'text-sig-ok bg-sig-ok-soft' : 'text-sig-wait bg-sig-wait-soft'
                       }`}>
                         {bound ? '已授权' : '未授权'}
                       </span>
@@ -344,11 +344,11 @@ export function ExternalAuthPage() {
                           const raw = adminAppMap.get(app.id);
                           if (raw) openEditApp(raw);
                         }} title="编辑"
-                          className="p-1 rounded-lg text-ink-dim hover:text-indigo-400 hover:bg-line transition cursor-pointer">
+                          className="p-1 rounded-lg text-ink-dim hover:text-brand hover:bg-line transition cursor-pointer">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => handleDeleteApp(app)} title="删除" disabled={deleteAppM.isPending}
-                          className="p-1 rounded-lg text-ink-dim hover:text-rose-400 hover:bg-line transition cursor-pointer disabled:opacity-40">
+                          className="p-1 rounded-lg text-ink-dim hover:text-sig-fail hover:bg-raise transition cursor-pointer disabled:opacity-40">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>
@@ -360,17 +360,17 @@ export function ExternalAuthPage() {
                 <div className="grid gap-1.5 my-3 p-2.5 rounded-lg bg-page">
                   <div className="grid grid-cols-[64px_1fr] gap-2 text-[11px] leading-relaxed">
                     <span className="text-ink-dim">包含 MCP</span>
-                    <strong className="text-white font-medium">{app.mcp_count} 个服务</strong>
+                    <strong className="text-ink font-medium">{app.mcp_count} 个服务</strong>
                   </div>
                   <div className="grid grid-cols-[64px_1fr] gap-2 text-[11px] leading-relaxed">
                     <span className="text-ink-dim">外部账号</span>
-                    <strong className="text-white font-medium overflow-hidden text-ellipsis whitespace-nowrap">
+                    <strong className="text-ink font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                       {bound ? (binding!.username || '—') : '尚未绑定'}
                     </strong>
                   </div>
                   <div className="grid grid-cols-[64px_1fr] gap-2 text-[11px] leading-relaxed">
                     <span className="text-ink-dim">凭证状态</span>
-                    <strong className={`font-medium ${bound ? 'text-emerald-400' : 'text-ink-dim'}`}>
+                    <strong className={`font-medium ${bound ? 'text-sig-ok' : 'text-ink-dim'}`}>
                       {bound ? (binding!.password_masked || '已加密') : '—'}
                     </strong>
                   </div>
@@ -384,8 +384,8 @@ export function ExternalAuthPage() {
                       disabled={revokeMutation.isPending}
                       className={`w-full min-h-[36px] rounded-lg text-[11px] font-bold transition disabled:opacity-40 cursor-pointer ${
                         bound
-                          ? 'border border-indigo-500/40 text-indigo-400 bg-transparent hover:bg-indigo-500/10'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-500'
+                          ? 'border border-brand/40 text-brand bg-transparent hover:bg-brand-soft'
+                          : 'bg-brand text-white hover:bg-brand-hover'
                       }`}
                     >
                       {bound ? '重新认证' : `连接 ${app.name}`}
@@ -394,7 +394,7 @@ export function ExternalAuthPage() {
                       <button
                         onClick={() => handleRevoke(app)}
                         disabled={revokeMutation.isPending}
-                        className="w-full mt-1.5 min-h-[28px] rounded-lg text-[11px] text-ink-dim hover:text-rose-400 hover:bg-rose-500/5 transition-colors cursor-pointer disabled:opacity-40"
+                        className="w-full mt-1.5 min-h-[28px] rounded-lg text-[11px] text-ink-dim hover:text-sig-fail hover:bg-sig-fail-soft transition-colors cursor-pointer disabled:opacity-40"
                       >
                         取消授权
                       </button>
@@ -416,18 +416,18 @@ export function ExternalAuthPage() {
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="w-full max-w-sm bg-page border border-line rounded-2xl shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-ink">
                 {bindingMap.has(bindModalApp.id) ? '重新授权' : '授权应用'}
               </h3>
               <button onClick={closeBindModal}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
+                className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleAuthorize} className="p-5 space-y-3 text-xs">
               <div className="rounded-lg bg-panel px-3 py-2">
                 <div className="text-ink-dim">
-                  应用：<span className="text-white font-medium">{bindModalApp.name}</span>
+                  应用：<span className="text-ink font-medium">{bindModalApp.name}</span>
                 </div>
               </div>
               <Field label="用户名 *">
@@ -454,9 +454,9 @@ export function ExternalAuthPage() {
               </p>
               <div className="flex justify-end gap-3 pt-3 border-t border-line">
                 <button type="button" onClick={closeBindModal}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold">取消</button>
+                  className="af-btn af-btn-secondary">取消</button>
                 <button type="submit" disabled={bindMutation.isPending || !formUsername.trim() || !formPassword.trim()}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2">
+                  className="af-btn af-btn-primary flex items-center gap-2">
                   {bindMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   授权
                 </button>
@@ -471,11 +471,11 @@ export function ExternalAuthPage() {
         <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-page border border-line rounded-2xl shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-line sticky top-0 bg-page z-10">
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-ink">
                 {editingApp ? `编辑应用 — ${editingApp.name}` : '创建应用'}
               </h3>
               <button onClick={closeAppModal}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
+                className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -524,9 +524,9 @@ export function ExternalAuthPage() {
 
               <div className="flex justify-end gap-3 pt-4 border-t border-line">
                 <button type="button" onClick={closeAppModal}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-white rounded-lg cursor-pointer font-semibold">取消</button>
+                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold">取消</button>
                 <button type="submit" disabled={saveAppM.isPending || !formName.trim()}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2">
+                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-semibold disabled:opacity-60 flex items-center gap-2">
                   {saveAppM.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {editingApp ? '保存' : '创建'}
                 </button>
@@ -611,17 +611,17 @@ function McpBindingEditor({ selected, onChange }: { selected: string[]; onChange
               <button
                 type="button"
                 onClick={() => setCollapsed((s) => ({ ...s, [bucket.key]: !s[bucket.key] }))}
-                className="flex items-center gap-1.5 text-white hover:text-indigo-400 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 text-ink hover:text-brand transition-colors cursor-pointer"
               >
                 {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                <Folder className="text-indigo-400 w-3.5 h-3.5" />
+                <Folder className="text-brand w-3.5 h-3.5" />
                 <span className="text-xs font-medium">{bucket.name}</span>
                 <span className="text-[11px] text-ink-dim">（{selectedCount}/{groupIds.length}）</span>
               </button>
               <button
                 type="button"
                 onClick={() => toggleGroup(groupIds, !allSelected)}
-                className="text-[11px] text-indigo-400 hover:underline cursor-pointer"
+                className="text-[11px] text-brand hover:underline cursor-pointer"
               >
                 {allSelected ? '移除整组' : '添加整组'}
               </button>
@@ -637,14 +637,14 @@ function McpBindingEditor({ selected, onChange }: { selected: string[]; onChange
                           type="checkbox"
                           checked={checked}
                           onChange={(e) => toggleOne(c.id, e.target.checked)}
-                          className="accent-indigo-500"
+                          className="accent-brand"
                         />
-                        <Plug className="text-emerald-400 w-3.5 h-3.5" />
-                        <span className="text-xs text-white truncate">{c.name}</span>
+                        <Plug className="text-brand w-3.5 h-3.5" />
+                        <span className="text-xs text-ink truncate">{c.name}</span>
                       </div>
                       <span className={`text-[11px] shrink-0 ${
-                        c.status === 'connected' ? 'text-emerald-400' :
-                        c.status === 'error' ? 'text-rose-400' : 'text-ink-dim'
+                        c.status === 'connected' ? 'text-sig-ok' :
+                        c.status === 'error' ? 'text-sig-fail' : 'text-ink-dim'
                       }`}>
                         {c.status === 'connected' ? '已连接' : c.status === 'error' ? '异常' : '已断开'}
                       </span>
@@ -660,12 +660,12 @@ function McpBindingEditor({ selected, onChange }: { selected: string[]; onChange
   );
 }
 
-const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-white placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 transition text-xs font-sans';
+const inputCls = 'w-full px-3 py-2 bg-page border border-line rounded-lg text-ink placeholder:text-ink-dim focus:outline-none focus:border-brand transition text-xs font-sans';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-slate-400 font-medium font-sans">{label}</label>
+      <label className="text-ink-dim font-medium font-sans">{label}</label>
       {children}
       {hint && <p className="text-[11px] text-ink-dim leading-relaxed">{hint}</p>}
     </div>
