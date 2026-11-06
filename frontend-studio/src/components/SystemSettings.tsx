@@ -269,10 +269,10 @@ export function ExternalAccessPage() {
           />
         </div>
 
-        {/* 右：stats + Key 列表（col-span-7） */}
-        <div className="lg:col-span-7 min-w-0 space-y-4">
+        {/* 右：stats + Key 列表（col-span-7）——列表区内滚，左表单不被滚走 */}
+        <div className="lg:col-span-7 min-w-0 space-y-4 flex flex-col lg:max-h-[calc(100vh-230px)]">
           {/* stats 条（真实数据 + 接入端点） */}
-          <div className="flex bg-panel border border-line rounded-xl divide-x divide-line shadow-[var(--shadow-card)]">
+          <div className="flex bg-panel border border-line rounded-xl divide-x divide-line shadow-[var(--shadow-card)] shrink-0">
             <div className="flex-1 px-4 py-3">
               <div className="text-[22px] font-bold text-ink leading-tight">{activeCount}</div>
               <div className="text-[11px] text-ink-dim mt-0.5">活跃 Key · 共 {apiKeys.length} 个</div>
@@ -283,8 +283,9 @@ export function ExternalAccessPage() {
             </div>
           </div>
 
-          {/* Key 列表 — cfg-row 配置行（无边框行 + hairline 分隔） */}
-          <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)]">
+          {/* Key 列表 — cfg-row 配置行（无边框行 + hairline 分隔）；超高内滚（min-h-0
+              允许 flex 收缩，内容少时自然高度、撑满 max-h 后压缩滚动） */}
+          <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] min-h-0 overflow-y-auto scrollbar-custom">
             {isLoading && (
               <p className="text-xs text-ink-faint font-sans text-center py-8">加载中…</p>
             )}
@@ -357,7 +358,7 @@ export function ExternalAccessPage() {
           </div>
 
           {/* 底部 mono 说明（设计稿 pane-apikey 脚注） */}
-          <p className="text-[10.5px] text-ink-faint font-mono">
+          <p className="text-[10.5px] text-ink-faint font-mono shrink-0">
             Key 创建后仅展示一次完整值（复制保存），此后只显示掩码 · 权限范围与资源绑定在详情中查看
           </p>
         </div>
@@ -575,7 +576,7 @@ function KeyFormCard({
     });
   };
 
-  /** 已选 chips 行：chips（可×）+ ＋选择虚线钮 */
+  /** 已选 chips 行：chips（可×，超 3 行内滚）+ ＋选择虚线钮 */
   const chipRow = (
     selected: Set<string>,
     toggle: (id: string) => void,
@@ -583,7 +584,7 @@ function KeyFormCard({
     tab: PickerTab,
     emptyText: string,
   ) => (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 max-h-[88px] overflow-y-auto scrollbar-custom">
       {items.filter((it) => selected.has(it.id)).map((it) => (
         <span
           key={it.id}
