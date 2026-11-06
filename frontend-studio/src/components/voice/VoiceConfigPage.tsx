@@ -221,27 +221,22 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
     }
   }
 
-  const dark = theme === 'dark'
-  const card = dark ? 'bg-panel border-line' : 'bg-white border-slate-200'
-  const inputCls = `px-2 py-1.5 rounded border text-sm outline-none focus:border-indigo-500 ${
-    dark ? 'bg-well border-line text-ink' : 'bg-slate-50 border-slate-200'
-  }`
+  const card = 'bg-panel border-line shadow-[var(--shadow-card)]'
+  const inputCls = 'px-2 py-1.5 rounded border bg-well border-line-strong text-ink text-sm outline-none focus:border-brand transition'
 
   const Field = ({ label, value, onChange, placeholder, type = 'text' }: {
     label: string; value: string | number; onChange: (v: string) => void; placeholder?: string; type?: string
   }) => (
     <label className="flex flex-col gap-1 text-xs">
-      <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>{label}</span>
+      <span className="text-ink-dim">{label}</span>
       <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={inputCls} />
     </label>
   )
 
   const FixedValue = ({ label, value }: { label: string; value: string }) => (
     <div className="flex flex-col gap-1 text-xs">
-      <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>{label}</span>
-      <code className={`px-2 py-1.5 rounded border break-all ${
-        dark ? 'bg-well border-line text-ink-soft' : 'bg-slate-50 border-slate-200 text-slate-600'
-      }`}>{value}</code>
+      <span className="text-ink-dim">{label}</span>
+      <code className="px-2 py-1.5 rounded border bg-well border-line text-ink-soft break-all font-mono">{value}</code>
     </div>
   )
 
@@ -263,14 +258,14 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
   if (isLoading) return <div className="text-sm opacity-60">加载语音配置…</div>
 
   return (
-    <div className={`space-y-4 ${dark ? 'text-ink' : 'text-slate-800'}`}>
+    <div className="space-y-4 text-ink">
       {/* 页面标题由系统设置 Tab 承担；这里保留说明 + 上次测试徽标 */}
       <div className="flex items-center justify-between gap-4">
-        <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+        <p className="text-xs text-ink-dim">
           选择语音供应商后配置对应 API Key。凭证加密存储，切换后保存生效。
         </p>
         {cfg?.last_test_at && (
-          <span className={`text-xs shrink-0 ${cfg.last_test_success ? 'text-emerald-500' : 'text-rose-500'}`}>
+          <span className={`text-xs shrink-0 ${cfg.last_test_success ? 'text-sig-ok' : 'text-sig-fail'}`}>
             上次测试：{cfg.last_test_success ? '通过' : '失败'}
           </span>
         )}
@@ -282,21 +277,17 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
           role="switch"
           aria-checked={ttsEnabled}
           onClick={() => setTtsEnabled((enabled) => !enabled)}
-          className="flex min-h-11 w-full items-center justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+          className="flex min-h-11 w-full items-center justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand cursor-pointer"
         >
           <span className="min-w-0">
             <span className="block text-sm font-medium">语音播报</span>
-            <span className={`mt-1 block text-xs leading-relaxed ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+            <span className="mt-1 block text-xs leading-relaxed text-ink-dim">
               关闭后语音对话仅做语音识别，智能体回复以文字显示，不再合成播报。
             </span>
           </span>
           <span
             className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
-              ttsEnabled
-                ? 'border-indigo-400 bg-indigo-500'
-                : dark
-                  ? 'border-line-strong bg-line'
-                  : 'border-slate-300 bg-slate-200'
+              ttsEnabled ? 'border-brand bg-brand' : 'border-line-strong bg-raise'
             }`}
             aria-hidden="true"
           >
@@ -312,7 +303,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
       <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
         <h3 className="text-sm font-medium">语音供应商</h3>
         <label className="flex flex-col gap-1 text-xs">
-          <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>当前供应商</span>
+          <span className="text-ink-dim">当前供应商</span>
           <select value={activeProvider} onChange={(e) => onProviderChange(e.target.value as VoiceProvider)} className={`${inputCls} h-10`}>
             {PROVIDERS.map((provider) => (
               <option key={provider.id} value={provider.id}>{provider.label} - {provider.detail}</option>
@@ -326,7 +317,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
           <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
             <div>
               <h3 className="text-sm font-medium">Agent Plan 凭证</h3>
-              <p className={`text-xs mt-1 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+              <p className="text-xs mt-1 text-ink-dim">
                 无需 App ID 或 Access Token；ASR 与 TTS 共用一个专属 API Key。
               </p>
             </div>
@@ -337,7 +328,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
               placeholder={cfg?.api_key_masked ? `已配置：${cfg.api_key_masked}（留空不改）` : 'Agent Plan 专属 API Key'}
               type="password"
             />
-            <a href="https://console.volcengine.com/ark/region:cn-beijing/openManagement?LLM=%7B%7D&OpenModelVisible=false&advancedActiveKey=agentPlan" target="_blank" rel="noreferrer" className="inline-block text-xs text-indigo-500 hover:text-indigo-400">
+            <a href="https://console.volcengine.com/ark/region:cn-beijing/openManagement?LLM=%7B%7D&OpenModelVisible=false&advancedActiveKey=agentPlan" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
               前往火山方舟获取专属 API Key
             </a>
           </section>
@@ -361,12 +352,12 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
           <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
             <div>
               <h3 className="text-sm font-medium">智谱凭证</h3>
-              <p className={`text-xs mt-1 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+              <p className="text-xs mt-1 text-ink-dim">
                 ASR 与 TTS 共用智谱开放平台 API Key。
               </p>
             </div>
             <Field label="智谱 API Key" value={zhipuApiKey} onChange={setZhipuApiKey} placeholder={cfg?.zhipu.api_key_masked ? `已配置：${cfg.zhipu.api_key_masked}（留空不改）` : '智谱 API Key'} type="password" />
-            <a href="https://bigmodel.cn/console/modelcenter/square" target="_blank" rel="noreferrer" className="inline-block text-xs text-indigo-500 hover:text-indigo-400">
+            <a href="https://bigmodel.cn/console/modelcenter/square" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
               前往智谱模型广场
             </a>
           </section>
@@ -375,7 +366,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
             <h3 className="text-sm font-medium">语音识别 ASR</h3>
             <Field label="模型" value={zhipuAsrModel} onChange={setZhipuAsrModel} />
             <Field label="HTTP URL" value={zhipuAsrUrl} onChange={setZhipuAsrUrl} />
-            <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>智谱 ASR 第一版在松开说话后提交本段录音识别。</p>
+            <p className="text-xs text-ink-dim">智谱 ASR 第一版在松开说话后提交本段录音识别。</p>
           </section>
 
           <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
@@ -383,7 +374,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
             <Field label="模型" value={zhipuTtsModel} onChange={setZhipuTtsModel} />
             <Field label="HTTP URL" value={zhipuTtsUrl} onChange={setZhipuTtsUrl} />
             <label className="flex flex-col gap-1 text-xs">
-              <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>系统音色</span>
+              <span className="text-ink-dim">系统音色</span>
               <select value={zhipuVoice} onChange={(e) => setZhipuVoice(e.target.value)} className={inputCls}>
                 {ZHIPU_VOICES.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}（{voice.id}）</option>)}
               </select>
@@ -402,12 +393,12 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
           <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
             <div>
               <h3 className="text-sm font-medium">阿里百炼凭证</h3>
-              <p className={`text-xs mt-1 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+              <p className="text-xs mt-1 text-ink-dim">
                 ASR 与 TTS 共用百炼 API Key。北京地域模型请使用北京地域 API Key。
               </p>
             </div>
             <Field label="百炼 API Key" value={aliyunApiKey} onChange={setAliyunApiKey} placeholder={cfg?.aliyun.api_key_masked ? `已配置：${cfg.aliyun.api_key_masked}（留空不改）` : '阿里百炼 API Key'} type="password" />
-            <a href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/model-market" target="_blank" rel="noreferrer" className="inline-block text-xs text-indigo-500 hover:text-indigo-400">
+            <a href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/model-market" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
               前往阿里百炼模型广场
             </a>
           </section>
@@ -416,7 +407,7 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
             <h3 className="text-sm font-medium">语音识别 ASR</h3>
             <Field label="模型" value={aliyunAsrModel} onChange={setAliyunAsrModel} />
             <Field label="HTTP URL" value={aliyunAsrUrl} onChange={setAliyunAsrUrl} />
-            <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>阿里百炼 ASR 第一版在松开说话后提交本段录音识别。</p>
+            <p className="text-xs text-ink-dim">阿里百炼 ASR 第一版在松开说话后提交本段录音识别。</p>
           </section>
 
           <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
@@ -424,14 +415,14 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
             <Field label="模型" value={aliyunTtsModel} onChange={setAliyunTtsModel} />
             <Field label="HTTP URL" value={aliyunTtsUrl} onChange={setAliyunTtsUrl} />
             <label className="flex flex-col gap-1 text-xs">
-              <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>系统音色</span>
+              <span className="text-ink-dim">系统音色</span>
               <select value={aliyunVoice} onChange={(e) => setAliyunVoice(e.target.value)} className={inputCls}>
                 {ALIYUN_VOICES.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
               </select>
             </label>
             <Field label="自定义/当前 voice" value={aliyunVoice} onChange={setAliyunVoice} />
             <label className="flex flex-col gap-1 text-xs">
-              <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>语言</span>
+              <span className="text-ink-dim">语言</span>
               <select value={aliyunLanguage} onChange={(e) => setAliyunLanguage(e.target.value)} className={inputCls}>
                 <option value="Chinese">Chinese</option>
                 <option value="English">English</option>
@@ -444,10 +435,10 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
 
       <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
         <label className="flex flex-col gap-1 text-xs">
-          <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>试听文本</span>
+          <span className="text-ink-dim">试听文本</span>
           <div className="relative">
             <input value={previewText} onChange={(event) => setPreviewText(event.target.value.slice(0, 120))} placeholder="输入一小段用于试听的文字" className={`${inputCls} h-10 w-full pr-14`} />
-            <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>{previewText.length}/120</span>
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-ink-faint">{previewText.length}/120</span>
           </div>
         </label>
         {activeProvider === 'volcano' ? (
@@ -465,21 +456,21 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
           />
         ) : (
           <div className="flex items-center gap-3">
-            <button onClick={() => playPreview(previewVoice)} disabled={previewDisabled} className="px-4 py-2 rounded-lg border border-slate-400/40 text-sm font-medium cursor-pointer hover:bg-slate-500/10 disabled:opacity-50">
+            <button onClick={() => playPreview(previewVoice)} disabled={previewDisabled} className="px-4 py-2 rounded-lg border border-line-strong text-sm font-medium text-ink cursor-pointer hover:bg-raise disabled:opacity-50 transition">
               {preview?.voiceType === previewVoice && preview.phase === 'playing' ? '停止试听' : '试听音色'}
             </button>
-            <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>当前：{previewVoice}</span>
+            <span className="text-xs text-ink-dim">当前：{previewVoice}</span>
           </div>
         )}
-        {previewDisabled && <p className={`text-xs ${dark ? 'text-amber-400' : 'text-amber-700'}`}>保存当前供应商的 API Key 后即可试听音色。</p>}
-        {previewError && <p className="text-xs text-rose-500">{previewError}</p>}
+        {previewDisabled && <p className="text-xs text-sig-wait">保存当前供应商的 API Key 后即可试听音色。</p>}
+        {previewError && <p className="text-xs text-sig-fail">{previewError}</p>}
       </section>
 
       <section className={`rounded-lg border p-4 grid grid-cols-2 md:grid-cols-3 gap-3 ${card}`}>
         <Field label="上行采样率" value={inputRate} onChange={(v) => setInputRate(Number(v) || 16000)} type="number" />
         <Field label="下行采样率" value={outputRate} onChange={(v) => setOutputRate(Number(v) || 24000)} type="number" />
         <label className="flex flex-col gap-1 text-xs">
-          <span className={dark ? 'text-ink-dim' : 'text-slate-500'}>VAD 模式</span>
+          <span className="text-ink-dim">VAD 模式</span>
           <select value={vadMode} onChange={(e) => setVadMode(e.target.value)} className={inputCls}>
             <option value="energy">energy（无依赖）</option>
             <option value="silero">silero（更准，需装库）</option>
@@ -491,13 +482,13 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
       </section>
 
       <div className="flex items-center gap-3">
-        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium cursor-pointer disabled:opacity-50">
+        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-sm font-semibold cursor-pointer disabled:opacity-50 transition">
           {saving ? '保存中…' : '保存配置'}
         </button>
-        <button onClick={test} className="px-4 py-2 rounded-lg border border-slate-400/40 text-sm font-medium cursor-pointer hover:bg-slate-500/10">测试连通</button>
-        {status && <span className={`text-xs ${status.type === 'success' ? 'text-emerald-500' : status.type === 'error' ? 'text-rose-500' : 'text-amber-500'}`}>{status.msg}</span>}
+        <button onClick={test} className="px-4 py-2 rounded-lg border border-line-strong text-sm font-medium text-ink cursor-pointer hover:bg-raise transition">测试连通</button>
+        {status && <span className={`text-xs ${status.type === 'success' ? 'text-sig-ok' : status.type === 'error' ? 'text-sig-fail' : 'text-sig-wait'}`}>{status.msg}</span>}
       </div>
-      <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>切换供应商后需保存配置；已保存的其他供应商凭证会保留，方便随时切回。</p>
+      <p className="text-xs text-ink-dim">切换供应商后需保存配置；已保存的其他供应商凭证会保留，方便随时切回。</p>
     </div>
   )
 }
