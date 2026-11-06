@@ -309,7 +309,7 @@ export function ActivityGroup({
           <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
         )}
         <span className="text-xs font-medium text-ink-dim shrink-0 leading-none">
-          执行过程
+          执行了
         </span>
         <span className={`text-[11px] font-mono shrink-0 ${isRunning ? 'text-sig-wait' : 'text-ink-faint'}`}>
           {hasError
