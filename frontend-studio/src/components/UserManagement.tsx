@@ -691,6 +691,7 @@ export function UserManagement() {
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans">赋予初始角色</label>
                 <Select
+                  showSearch={false}
                   value={newRole}
                   onChange={(v) => setNewRole(v ?? 'viewer')}
                   placeholder="选择角色"
@@ -700,11 +701,11 @@ export function UserManagement() {
 
               <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4">
                 <button type="button" onClick={() => { setCreateFormError(null); setIsAdding(false); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold">
+                  className="af-btn af-btn-secondary">
                   取消
                 </button>
                 <button type="submit" disabled={createM.isPending}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60">
+                  className="af-btn af-btn-primary">
                   {createM.isPending ? '创建中…' : '挂载该成员'}
                 </button>
               </div>
@@ -785,14 +786,14 @@ export function UserManagement() {
                 <button
                   type="button"
                   onClick={() => { setResetPwdError(null); setResetPwdTarget(null); }}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold"
+                  className="af-btn af-btn-secondary"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
                   disabled={resetPwdM.isPending}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60"
+                  className="af-btn af-btn-primary"
                 >
                   {resetPwdM.isPending ? '重置中…' : '重置密码'}
                 </button>
@@ -875,11 +876,11 @@ export function UserManagement() {
 
               <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4">
                 <button type="button" onClick={closeRoleModal}
-                  className="px-4 py-2 border border-line hover:bg-panel text-ink-dim hover:text-ink rounded-lg cursor-pointer font-semibold">
+                  className="af-btn af-btn-secondary">
                   取消
                 </button>
                 <button type="submit" disabled={roleFormPending}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg cursor-pointer font-sans disabled:opacity-60">
+                  className="af-btn af-btn-primary">
                   {roleFormPending
                     ? roleModalMode === 'edit' ? '保存中…' : '创建中…'
                     : roleModalMode === 'edit' ? '保存修改' : '创建角色'}

@@ -521,16 +521,17 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
 
 const BTN_SIZE: Record<NonNullable<ButtonProps['size']>, string> = {
   small: 'h-7 text-[11px] px-2 gap-1',
-  middle: 'h-8 text-xs px-3 gap-1.5',
+  middle: 'h-[30px] text-[12.5px] px-[13px] gap-1.5',
   large: 'h-10 text-sm px-4 gap-1.5',
 }
 
+/* 形态对齐 af-btn 规范（设计系统 §3 圆角 7-9px / 主钮实色 / 次钮描边） */
 const BTN_TYPE: Record<NonNullable<ButtonProps['type']>, string> = {
-  default: 'bg-panel border border-line text-ink hover:border-brand hover:text-brand',
-  primary: 'bg-brand border border-brand text-white hover:bg-brand-hover',
+  default: 'bg-panel border border-line-strong text-ink hover:bg-panel-hover',
+  primary: 'bg-brand border-0 text-white hover:bg-brand-hover',
   dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-brand hover:text-link',
-  link: 'bg-transparent border-0 text-link hover:underline px-1',
-  text: 'bg-transparent border-0 text-slate-400 hover:bg-page/60 px-1.5',
+  link: 'bg-transparent border-0 text-brand hover:underline px-1',
+  text: 'bg-transparent border-0 text-ink-dim hover:bg-raise hover:text-ink px-1.5',
 }
 
 export function Button({
@@ -546,14 +547,14 @@ export function Button({
 }: ButtonProps) {
   const dangerClass = danger
     ? type === 'text' || type === 'link'
-      ? 'text-red-500 hover:text-red-600'
-      : 'bg-red-500 border-red-500 text-white hover:bg-red-600 border-red-600'
+      ? 'text-sig-fail hover:opacity-75'
+      : 'bg-sig-fail border-0 text-white hover:opacity-90'
     : ''
   return (
     <button
       {...rest}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center rounded-md font-medium cursor-pointer transition-colors
+      className={`inline-flex items-center justify-center rounded-lg font-semibold cursor-pointer transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed select-none
         ${BTN_SIZE[size]} ${danger ? dangerClass : BTN_TYPE[type]} ${className}`}
     >
