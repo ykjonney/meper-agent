@@ -4,7 +4,7 @@
  * 导航入口权限 = 各 Tab 权限的并集（App.tsx 的 settings 导航项
  * permission: ['settings:manage', 'channel:read']，任一满足即可见），
  * 页内每个 Tab 独立门控（判 permission 不判 role，PERMISSIONS.md）：
- * - 通用 / 语音设置 → settings:manage（后端 apikey/settings/voice_config 同键）
+ * - 外部接入 / 语音设置 → settings:manage（后端 apikey/settings/voice_config 同键）
  * - 消息渠道 → channel:read（后端 channels 路由级同键；
  *   写操作另需 channel:write，在 ChannelsPage 内门控）
  * developer 默认无 settings:manage 但有 channel 读写——仍能从导航进入
@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { Key, Mic, MessagesSquare } from 'lucide-react';
 import { usePermission } from '../hooks/use-permission';
 import { SegmentedTabs, type SegmentedTabItem } from './ui/tabs';
-import { SystemSettings } from './SystemSettings';
+import { ExternalAccessPage } from './SystemSettings';
 import { VoiceConfigPage } from './voice/VoiceConfigPage';
 import { ChannelsPage } from './ChannelsPage';
 
@@ -30,7 +30,7 @@ export function SettingsPage({ theme }: Props) {
   const [tab, setTab] = useState<Tab>('general');
 
   const allTabs: SegmentedTabItem<Tab>[] = [
-    { id: 'general', label: '通用', icon: Key },
+    { id: 'general', label: '外部接入', icon: Key },
     { id: 'voice', label: '语音设置', icon: Mic },
     { id: 'channels', label: '消息渠道', icon: MessagesSquare },
   ];
@@ -50,7 +50,7 @@ export function SettingsPage({ theme }: Props) {
 
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
         <div className={active === 'voice' ? 'max-w-3xl' : undefined}>
-          {active === 'general' && <SystemSettings />}
+          {active === 'general' && <ExternalAccessPage />}
           {active === 'voice' && <VoiceConfigPage theme={theme} />}
           {active === 'channels' && <ChannelsPage />}
         </div>
