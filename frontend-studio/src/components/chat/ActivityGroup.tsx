@@ -288,6 +288,13 @@ export function ActivityGroup({
       );
     });
 
+  // 单工具/纯思考段：不包卡壳，条目直接平铺（自带状态与交互）——
+  // 组头「执行了 N 个工具」只对多工具段的完成态才有信息量
+  const plain = realTools.length <= 1 && !hasError && !hasOpenInteractive;
+  if (plain) {
+    return <div className="space-y-1 font-sans">{renderEntries()}</div>;
+  }
+
   // 统一形态：流式中与完成后都是同一张折叠卡（流式中默认展开）——
   // 仅组头状态与 open 随运行状态变化。原实现流式中"平铺"、结束瞬间
   // 切换为折叠卡，整个 DOM 形态重建 → 几百 px 高度瞬间塌缩 = 刷一下。
@@ -308,17 +315,16 @@ export function ActivityGroup({
         ) : (
           <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
         )}
-        <span className="text-xs font-medium text-ink-dim shrink-0 leading-none">
-          执行了
-        </span>
-        <span className={`text-[11px] font-mono shrink-0 ${isRunning ? 'text-sig-wait' : 'text-ink-faint'}`}>
+        <span className={`text-xs font-medium shrink-0 leading-none ${isRunning ? 'text-sig-wait' : 'text-ink-dim'}`}>
           {hasError
             ? '执行出错'
             : isRunning
-              ? '执行中'
+              ? '正在执行工具'
               : toolCount > 0
-                ? `${toolCount} 个工具调用`
-                : '思考过程'}
+                ? `执行了 ${toolCount} 个工具`
+                : '思考完成'}
+        </span>
+        <span className="text-[11px] text-ink-faint font-mono shrink-0">
           {durationLabel ? ` · ${durationLabel}` : ''}
         </span>
         {interrupted && (

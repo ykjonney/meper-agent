@@ -540,6 +540,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     const el = chatScrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
     else messageEndRef.current?.scrollIntoView();
+    // 跳底 = 回到最新：浮标必隐。兜底程序跳底后内容收缩时浏览器 clamp
+    // scrollTop 触发的 scroll 事件被上翻判定误读（收起动画期间高发）。
+    setShowJumpToBottom(false);
   }, [liveMessages]);
 
   const refreshSessions = useCallback(() => {
