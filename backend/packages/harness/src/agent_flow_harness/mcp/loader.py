@@ -401,6 +401,7 @@ def _cred_to_headers(cred: dict[str, Any]) -> dict[str, str]:
 
 
 _TOOL_NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]")
+_TOOL_NAME_LEGAL = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _sanitize_tool_name(name: str) -> str:
@@ -411,8 +412,11 @@ def _sanitize_tool_name(name: str) -> str:
     保留语义时用内容 md5 短哈希保唯一（多个中文 server 名不能撞名）。
     构建与绑定同源，调用回路天然一致。
     """
+    # 本就合法的名字原样保留（可读性）；非法名转下划线 + 内容短哈希
+    # 防撞名（不同中文名的 ASCII 残留可能相同）。
+    if _TOOL_NAME_LEGAL.match(name) and len(name) <= 128:
+        return name
     safe = _TOOL_NAME_SAFE.sub("_", name).strip("_-")
-    # 统一附内容短哈希：不同中文名即便 ASCII 残留相同也零撞名
     h = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
     return (f"{safe}_{h}" if safe else f"t_{h}")[:128]
 

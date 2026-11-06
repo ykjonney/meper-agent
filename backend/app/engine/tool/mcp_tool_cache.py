@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_flow_harness.mcp.loader import _sanitize_tool_name
 from langchain_core.tools import StructuredTool
 from loguru import logger
 
@@ -306,7 +307,9 @@ def _rename_tool_to_mcp_prefix(tool: StructuredTool, server_names: set[str]) -> 
         prefix = f"{sn}_"
         if original_name.startswith(prefix):
             bare_name = original_name[len(prefix):]
-            prefixed_name = f"mcp__{sn}__{bare_name}"
+            # sanitize：连接名常为中文，LLM 协议工具名仅允许 [a-zA-Z0-9_-]
+            # （与 harness loader 同款策略：ASCII 转下划线 + 内容哈希防撞名）
+            prefixed_name = f"mcp__{_sanitize_tool_name(sn)}__{_sanitize_tool_name(bare_name)}"
 
             original_func = tool.func
             original_coroutine = tool.coroutine
