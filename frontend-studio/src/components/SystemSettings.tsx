@@ -576,7 +576,7 @@ function KeyFormCard({
     });
   };
 
-  /** 已选 chips 行：chips（可×，超 3 行内滚）+ ＋选择虚线钮 */
+  /** 已选 chips 行：最多两行（超出内滚），卡高不随绑定数量增长 */
   const chipRow = (
     selected: Set<string>,
     toggle: (id: string) => void,
@@ -584,7 +584,7 @@ function KeyFormCard({
     tab: PickerTab,
     emptyText: string,
   ) => (
-    <div className="flex flex-wrap items-center gap-1.5 max-h-[88px] overflow-y-auto scrollbar-custom">
+    <div className="flex flex-wrap items-center gap-1.5 max-h-[50px] overflow-y-auto scrollbar-custom">
       {items.filter((it) => selected.has(it.id)).map((it) => (
         <span
           key={it.id}
@@ -612,11 +612,11 @@ function KeyFormCard({
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] flex flex-col lg:max-h-[calc(100vh-230px)]"
+      className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5 space-y-5"
     >
-      {/* 编辑态提示条（固定卡顶） */}
+      {/* 编辑态提示条 */}
       {isEdit && (
-        <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-line shrink-0">
+        <div className="flex items-center gap-2 pb-3 border-b border-line">
           <Pencil className="w-3.5 h-3.5 text-brand shrink-0" />
           <span className="text-xs text-ink font-semibold truncate">编辑：{keyItem!.name}</span>
           <button
@@ -630,8 +630,6 @@ function KeyFormCard({
         </div>
       )}
 
-      {/* 滚动区：表单字段（小屏自然流，lg 起限高内滚） */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-5 space-y-5">
       <div>
         <Kicker>BASIC · 基础</Kicker>
 
@@ -751,10 +749,8 @@ function KeyFormCard({
       </div>
 
       {error && <p className="text-[11px] text-sig-fail">{error}</p>}
-      </div>{/* /滚动区 */}
 
-      {/* 底部操作行：固定卡底，提交钮常驻可见（§3.1） */}
-      <div className="border-t border-line px-5 py-3 flex items-center gap-3 shrink-0">
+      <div className="pt-1 border-t border-line flex items-center gap-3">
         <span className="flex items-center gap-1.5 text-[10.5px] text-ink-faint flex-1 min-w-0">
           <ShieldAlert className="w-3 h-3 shrink-0" />
           <span className="truncate">明文仅创建时展示一次 · 吊销后调用立即 401</span>
