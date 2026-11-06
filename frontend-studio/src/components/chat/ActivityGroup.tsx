@@ -203,9 +203,11 @@ export function ActivityGroup({
   })();
   // 纯思考动效判据：消息流式中 && 本轮正文未开始
   const isLive = !!msgStreaming && !hasOwnText;
-  // 本轮已结束（正文开始输出，或流已终止）→ 折叠为一行摘要；
-  // 流式中 → 条目直接平铺（无组头包装），用户实时看到过程。
-  const finished = !!hasOwnText || !msgStreaming;
+  // 收起时机 = 流结束（done）。中间小结与最终回答走同一 text 管道、无类型
+  // 区分，无法预知小结后面是否还有工具——若用"出现正文"猜测性收起，会
+  // 造成"碰到文本就收、工具来了又展开"的反复抖动。done 是执行过程结束
+  // 的唯一可靠信号；正文输出期间卡保持展开（过程内容已就绪，不干扰阅读）。
+  const finished = !msgStreaming;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
   const prevFinished = useRef(finished);
   const prevRunning = useRef(isRunning);
