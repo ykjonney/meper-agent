@@ -1,4 +1,4 @@
-import { type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react';
 import { Copy, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { toast } from '../ui/toast';
 import AvatarRender from '../AvatarRender';
@@ -14,8 +14,6 @@ interface MessageItemProps {
   theme: 'dark' | 'light';
   streamingMsgId: string | null;
   isStreaming: boolean;
-  /** 执行过程结束信号（后端 final 标记 / 正文静默启发式）→ 过程卡收起 */
-  answerPhase: boolean;
   activeSessionId: string | null;
   feedbackMap: Record<string, SessionFeedbackItem>;
   inputTextareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -32,7 +30,7 @@ interface MessageItemProps {
 /** 单条聊天消息：user 单气泡 / agent 按 timeline 轮次渲染（活动组+正文），
  *  含附件卡、生成中动效、复制/重新生成、消息级反馈。 */
 export function MessageItem({
-  msg, isLast, theme, streamingMsgId, isStreaming, answerPhase, activeSessionId, feedbackMap,
+  msg, isLast, theme, streamingMsgId, isStreaming, activeSessionId, feedbackMap,
   inputTextareaRef, onAnswer, onRegenerate, onDismissInterrupt, onApprovePlan, onVote, setInputText,
 }: MessageItemProps) {
   const isUser = msg.role === 'user';
@@ -81,64 +79,68 @@ export function MessageItem({
           ) : null}
         </div>
         {hasTimeline ? (() => {
-          /* 主流形态：过程 = 最终文本之外的一切（thinking/工具/中间正文），
-             全部收进【一张】过程卡；最后一个 text = 最终回答，在卡外独立
-             流式输出。正文开始 → 整卡收起；之后又有工具运行 → 卡重新
-             展开（ActivityGroup 内部驱动）。纯正文消息（无过程）只渲染
-             正文本身，与无 timeline 分支自然一致。 */
+          /* 方案 1（对齐 ChatGPT/Claude.ai）：所有 text 一律卡外，按时序、
+             正文样式平铺（中间小结与最终回答同款式）；卡 = 连续的
+             thinking/tool 段（被 text 切开即新卡）。段后出现 text = 该段
+             过程确定结束 → 该卡收起为摘要行；最后一段由流结束（done）收起。
+             收起信号是确定性的段边界，无任何启发式猜测。 */
           const tl = msg.timeline!;
           let lastTextIdx = -1;
           tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
-          // 最终回答 = 最后 text 且其后【再无任何条目】——中间小结后面若
-          // 又出现 thinking/工具，它就吸回卡内按位置排序（时序不能乱），
-          // 卡外底部的"最终回答"身份随之移交给新的活跃 text。
-          const isTailText = lastTextIdx >= 0 && lastTextIdx === tl.length - 1;
-          const finalText = isTailText ? tl[lastTextIdx] : null;
-          const processEntries = finalText ? tl.filter((_, i) => i !== lastTextIdx) : tl;
-          const hasProcess = processEntries.some((e) =>
-            (e.type === 'thinking' && !!(e.content ?? '').trim()) ||
-            (e.type === 'tool' && !!e.toolName) ||
-            e.type === 'error' ||
-            e.type === 'text',
-          );
-          return (
-            <div className="space-y-2">
-              {hasProcess && (
-                <ActivityGroup
-                  entries={processEntries}
-                  msgId={msg.id}
-                  interrupted={!!msg.isInterrupted}
-                  theme={theme}
-                  thinkingActive={msg.status === 'thinking'}
-                  /* 最终回答已开始输出 → 过程卡整体收起（组头=执行摘要一行） */
-                  hasOwnText={!!finalText}
-                  msgStreaming={inFlight}
-                  answerPhase={answerPhase}
-                  onAnswer={onAnswer}
-                  onDismiss={() => onDismissInterrupt(msg.id)}
-                  onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
-                  planVersion={undefined}
-                />
-              )}
-              {finalText && (
-                <div className="text-[14px] leading-[1.75] font-sans select-text text-ink">
-                  <Markdown content={finalText.content} />
-                  {/* 产出附件挂正文后面 */}
-                  {msg.attachments && msg.attachments.length > 0 && (
+          const pieces: ReactNode[] = [];
+          let cur: TimelineEntry[] = [];
+          let segIdx = 0;
+          const flush = (hasTextAfter: boolean) => {
+            if (!cur.length) return;
+            const seg = cur;
+            cur = [];
+            pieces.push(
+              <ActivityGroup
+                key={`seg-${segIdx++}`}
+                entries={seg}
+                msgId={msg.id}
+                interrupted={!!msg.isInterrupted}
+                theme={theme}
+                thinkingActive={msg.status === 'thinking'}
+                /* 段后出现 text → 该段过程确定结束 → 收起为摘要行 */
+                hasOwnText={hasTextAfter}
+                msgStreaming={inFlight}
+                onAnswer={onAnswer}
+                onDismiss={() => onDismissInterrupt(msg.id)}
+                onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
+                planVersion={undefined}
+              />,
+            );
+          };
+          tl.forEach((entry, i) => {
+            if (entry.type === 'text') {
+              flush(true);
+              pieces.push(
+                <div
+                  key={`tx-${i}`}
+                  className="text-[14px] leading-[1.75] font-sans select-text text-ink"
+                >
+                  <Markdown content={entry.content} />
+                  {/* 产出附件挂最终正文（最后一段 text）后面 */}
+                  {i === lastTextIdx && msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
-                      {msg.attachments.map((att, i) => (
+                      {msg.attachments.map((att, ai) => (
                         <ChatAttachmentCard
-                          key={`${msg.id}-att-${i}-${att.ref}`}
+                          key={`${msg.id}-att-${ai}-${att.ref}`}
                           att={att}
                           sessionId={activeSessionId}
                         />
                       ))}
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-          );
+                </div>,
+              );
+            } else {
+              cur.push(entry);
+            }
+          });
+          flush(false);
+          return <div className="space-y-2">{pieces}</div>;
         })() : (
         <div
           className={`font-sans select-text ${

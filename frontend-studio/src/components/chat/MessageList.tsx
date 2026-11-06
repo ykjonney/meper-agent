@@ -14,8 +14,6 @@ interface MessageListProps {
   activeAgent: Agent | null;
   activeSessionId: string | null;
   isStreaming: boolean;
-  /** 执行过程结束信号（后端 final 标记 / 正文静默启发式）→ 过程卡收起 */
-  answerPhase: boolean;
   streamingMsgId: string | null;
   feedbackMap: Record<string, SessionFeedbackItem>;
   chatScrollRef: RefObject<HTMLDivElement | null>;
@@ -36,7 +34,7 @@ interface MessageListProps {
 /** 聊天流滚动区：空会话 Agent 介绍 + 消息列表（MessageItem）+ 底部锚点 + 回到底部浮标 */
 export function MessageList({
   messages, activeSession, sessionsLoading, activeAgent, activeSessionId,
-  isStreaming, answerPhase, streamingMsgId, feedbackMap, chatScrollRef, messageEndRef,
+  isStreaming, streamingMsgId, feedbackMap, chatScrollRef, messageEndRef,
   setShowJumpToBottom, showJumpToBottom, theme,
   onAnswer, onEditMessage, inputTextareaRef, onDismissInterrupt, onApprovePlan, onVote, onRegenerate,
 }: MessageListProps) {
@@ -74,7 +72,6 @@ export function MessageList({
           theme={theme}
           streamingMsgId={streamingMsgId}
           isStreaming={isStreaming}
-          answerPhase={answerPhase}
           activeSessionId={activeSessionId}
           feedbackMap={feedbackMap}
           inputTextareaRef={inputTextareaRef}

@@ -238,18 +238,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   // Live messages for the active session (history + in-flight stream deltas).
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
-  // 执行过程结束信号：驱动过程卡收起。两个来源：
-  // 1) 后端 text 事件 final=true（LLM 响应无 tool_calls，权威判定）
-  // 2) 活跃正文静默 1.5s 无新过程条目（启发式，先于 final 到达）
-  // 过程条目（thinking/tool）到达即清除并展开过程卡。
-  const [answerPhase, setAnswerPhase] = useState(false);
-  const answerPhaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearAnswerPhaseTimer = useCallback(() => {
-    if (answerPhaseTimerRef.current) {
-      clearTimeout(answerPhaseTimerRef.current);
-      answerPhaseTimerRef.current = null;
-    }
-  }, []);
   const artifactCount = useMemo(
     () => liveMessages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0),
     [liveMessages],
@@ -709,9 +697,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     // overrideText 来自 ask_clarification 卡片的选项/内联回答（走 /resume）。
     const prompt = (overrideText ?? inputText).trim();
     if ((!prompt && pendingFiles.length === 0) || !agent || isStreaming) return;
-    // 新一轮流式：重置上一轮的过程卡收起信号
-    clearAnswerPhaseTimer();
-    setAnswerPhase(false);
     // 未配置默认模型的 Agent 不允许发起会话（后端无从选择 LLM）
     if (!agent.model) {
       toast.error(`「${agent.name}」未配置默认模型，请先在智能体编辑页选择模型`);
@@ -916,22 +901,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
       for await (const evt of parseSSEStream(res)) {
         if (controller.signal.aborted) break;
-        // 过程卡收起信号分流：过程条目到达 → 立即展开并撤回静默判定；
-        // 正文 delta 到达 → 启动 1.5s 静默计时（无新过程条目即视为执行
-        // 过程结束，先于后端 final 标记到达——正文开始输出很快收起）。
-        if ('type' in evt) {
-          if (evt.type === 'text_delta') {
-            clearAnswerPhaseTimer();
-            answerPhaseTimerRef.current = setTimeout(() => setAnswerPhase(true), 1500);
-          } else if (
-            evt.type === 'thinking' || evt.type === 'thinking_delta' ||
-            evt.type === 'tool_call_start' || evt.type === 'tool_call' ||
-            evt.type === 'tool_result' || evt.type === 'error' || evt.type === 'interrupt'
-          ) {
-            clearAnswerPhaseTimer();
-            setAnswerPhase(false);
-          }
-        }
         // StreamDoneEvent has no `type` field (it carries `done: true`); every
         // other event has one. Handle the done-event first so the switch below
         // narrows the discriminated union cleanly on `evt.type`.
@@ -1163,12 +1132,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             break;
           case 'text': {
             // 权威全文：覆盖最后一个 text entry，没有就 push。
-            // final=true = 后端权威判定"无 tool_calls → 最终回答"——
-            // 立即收起过程卡（比 1.5s 静默启发式更早更准）。
-            if (evt.final) {
-              clearAnswerPhaseTimer();
-              setAnswerPhase(true);
-            }
             const content = evt.content;
             if (content) {
               if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
@@ -1286,8 +1249,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         prev.map((m) => (m.id === agentMsgId && m.status === 'thinking' ? { ...m, status: undefined } : m)),
       );
       abortRef.current = null;
-      clearAnswerPhaseTimer();
-      setAnswerPhase(false);
       refreshSessions();
       // 空白态新建的会话：流结束（无论 done/stop/异常）统一绑定——
       // 消息加载 effect 随之拉取权威数据，占位气泡被持久化内容替换。
@@ -1524,7 +1485,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           activeAgent={activeAgent}
           activeSessionId={activeSessionId ?? pendingSessionId}
           isStreaming={isStreaming}
-          answerPhase={answerPhase}
           streamingMsgId={streamingMsgId}
           feedbackMap={feedbackMap}
           chatScrollRef={chatScrollRef}

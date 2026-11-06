@@ -145,7 +145,6 @@ export function ActivityGroup({
   thinkingActive,
   hasOwnText,
   msgStreaming,
-  answerPhase,
   onAnswer,
   onDismiss,
   onApprovePlan,
@@ -161,8 +160,6 @@ export function ActivityGroup({
   hasOwnText?: boolean;
   /** 消息整体是否仍在流式输出（inFlight） */
   msgStreaming?: boolean;
-  /** 执行过程结束信号（后端 final 标记 / 正文静默启发式）→ 视同过程已结束 */
-  answerPhase?: boolean;
   onAnswer?: (answer: string) => void;
   onDismiss?: () => void;
   onApprovePlan?: (plan: string) => void;
@@ -206,11 +203,9 @@ export function ActivityGroup({
   })();
   // 纯思考动效判据：消息流式中 && 本轮正文未开始
   const isLive = !!msgStreaming && !hasOwnText;
-  // 收起时机 = 流结束（done）。中间小结与最终回答走同一 text 管道、无类型
-  // 区分，无法预知小结后面是否还有工具——若用"出现正文"猜测性收起，会
-  // 造成"碰到文本就收、工具来了又展开"的反复抖动。done 是执行过程结束
-  // 的唯一可靠信号；正文输出期间卡保持展开（过程内容已就绪，不干扰阅读）。
-  const finished = !msgStreaming || !!answerPhase;
+  // 收起时机：① 本段过程后出现 text（段边界确定，由 hasOwnText 驱动——
+  // 方案 1 分段卡架构）；② 流结束（done）。无任何启发式猜测。
+  const finished = !!hasOwnText || !msgStreaming;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
   const prevFinished = useRef(finished);
   const prevRunning = useRef(isRunning);
