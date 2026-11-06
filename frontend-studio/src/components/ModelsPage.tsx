@@ -464,7 +464,7 @@ export function ModelsPage() {
             ),
           }}
         >
-          <form onSubmit={handleSubmit}>
+          <form id="model-form" onSubmit={handleSubmit}>
             {/* 厂商网格：选厂商 → 官方端点/协议/模型预设自动带出（主流模式） */}
             <Field label="厂商" required hint="选厂商自动带出官方端点与兼容协议；端点可改为自建网关">
               <div className="grid grid-cols-8 gap-2">
