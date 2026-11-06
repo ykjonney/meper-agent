@@ -1428,7 +1428,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           </div>
         )}
 
-        {!activeSession ? (
+        {/* 新会话首条消息的流式期间 activeSession 仍为 null（流结束才绑定，
+            见 handleSendMessage 的 createdSessionIdRef 注释）——此时按
+            liveMessages 判定，直接进入会话视图展示占位气泡与流式输出 */}
+        {(!activeSession && liveMessages.length === 0) ? (
         <EmptySession
           composerEl={composerEl}
           agents={agents}
@@ -1483,7 +1486,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           }}
         />
 
-        {activeSession && (
+        {/* composer 同理：流式期间（activeSession 未绑定）也要保持输入框可见 */}
+        {(activeSession || liveMessages.length > 0) && (
           <div
             ref={(el) => {
               if (!el) return;
