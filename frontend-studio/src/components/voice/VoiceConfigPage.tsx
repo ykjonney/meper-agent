@@ -3,9 +3,13 @@
  *
  * Providers keep independent credentials and settings. Switching the active
  * provider only changes which saved provider is used by the unified voice path.
+ *
+ * 形态：纸墨×靛蓝设置分区（Kicker + panel 卡 + 行式配置/下划线输入 +
+ * 供应商类型卡），与外部接入 / 全局参数 Tab 同语言。
  */
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Flame, Sparkles, Cloud } from 'lucide-react'
 import {
   voiceConfigApi,
   voiceConfigKeys,
@@ -13,6 +17,7 @@ import {
 } from '../../services/voice-config-api'
 import { VoicePicker } from './VoicePicker'
 import { getErrorMessage } from '../../lib/api-client'
+import { Kicker } from '../SystemSettings'
 
 const ZHIPU_VOICES = [
   { id: 'tongtong', name: '彤彤' },
@@ -37,6 +42,12 @@ const PROVIDERS: Array<{ id: VoiceProvider; label: string; detail: string }> = [
   { id: 'zhipu', label: '智谱 GLM', detail: 'GLM-ASR-2512 + GLM-TTS' },
   { id: 'aliyun', label: '阿里百炼', detail: 'Qwen ASR + Qwen TTS' },
 ]
+
+const PROVIDER_ICONS: Record<VoiceProvider, typeof Flame> = {
+  volcano: Flame,
+  zhipu: Sparkles,
+  aliyun: Cloud,
+}
 
 export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
   const qc = useQueryClient()
@@ -221,25 +232,6 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
     }
   }
 
-  const card = 'bg-panel border-line shadow-[var(--shadow-card)]'
-  const inputCls = 'px-2 py-1.5 rounded border bg-well border-line-strong text-ink text-sm outline-none focus:border-brand transition'
-
-  const Field = ({ label, value, onChange, placeholder, type = 'text' }: {
-    label: string; value: string | number; onChange: (v: string) => void; placeholder?: string; type?: string
-  }) => (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-ink-dim">{label}</span>
-      <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={inputCls} />
-    </label>
-  )
-
-  const FixedValue = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex flex-col gap-1 text-xs">
-      <span className="text-ink-dim">{label}</span>
-      <code className="px-2 py-1.5 rounded border bg-well border-line text-ink-soft break-all font-mono">{value}</code>
-    </div>
-  )
-
   const onProviderChange = (provider: VoiceProvider) => {
     stopPreview()
     setPreviewError('')
@@ -255,240 +247,356 @@ export function VoiceConfigPage({ theme }: { theme: 'dark' | 'light' }) {
       : !!cfg?.api_key_masked
   const previewDisabled = !providerSaved || !keyConfigured || !previewText.trim()
 
-  if (isLoading) return <div className="text-sm opacity-60">加载语音配置…</div>
+  /* ── 行式配置件（label 左 + 控件右，行间 hairline）────────────── */
+
+  const panel = 'bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] px-4 py-1'
+
+  const FieldRow = ({ label, value, onChange, placeholder, type = 'text' }: {
+    label: string; value: string | number; onChange: (v: string) => void; placeholder?: string; type?: string
+  }) => (
+    <label className="flex items-center gap-3 py-2.5 border-b border-line last:border-0">
+      <span className="text-xs text-ink-dim shrink-0 w-32">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 min-w-0 border-0 border-b border-transparent bg-transparent px-0 py-0.5 text-[13px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition"
+      />
+    </label>
+  )
+
+  const FixedRow = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex items-center gap-3 py-2.5 border-b border-line last:border-0">
+      <span className="text-xs text-ink-dim shrink-0 w-32">{label}</span>
+      <code className="flex-1 min-w-0 text-xs text-ink-soft font-mono truncate" title={value}>{value}</code>
+    </div>
+  )
+
+  const SelectRow = ({ label, value, onChange, children }: {
+    label: string; value: string; onChange: (v: string) => void; children: React.ReactNode
+  }) => (
+    <label className="flex items-center gap-3 py-2.5 border-b border-line last:border-0">
+      <span className="text-xs text-ink-dim shrink-0 w-32">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 min-w-0 border-0 border-b border-transparent bg-transparent px-0 py-0.5 text-[13px] text-ink focus:outline-none focus:border-brand transition cursor-pointer"
+      >
+        {children}
+      </select>
+    </label>
+  )
+
+  /** 网格参数字段（窄格上下排列：label 上 + 下划线输入下） */
+  const GridField = ({ label, value, onChange, type = 'text' }: {
+    label: string; value: string | number; onChange: (v: string) => void; type?: string
+  }) => (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] text-ink-dim">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-1 text-[13px] text-ink focus:outline-none focus:border-brand transition"
+      />
+    </label>
+  )
+
+  if (isLoading) return <div className="text-sm text-ink-dim">加载语音配置…</div>
 
   return (
-    <div className="space-y-4 text-ink">
-      {/* 页面标题由系统设置 Tab 承担；这里保留说明 + 上次测试徽标 */}
+    <div className="space-y-5 max-w-3xl text-ink">
+      {/* 说明 + 上次测试徽标 */}
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-ink-dim">
           选择语音供应商后配置对应 API Key。凭证加密存储，切换后保存生效。
         </p>
         {cfg?.last_test_at && (
-          <span className={`text-xs shrink-0 ${cfg.last_test_success ? 'text-sig-ok' : 'text-sig-fail'}`}>
+          <span className={`text-xs shrink-0 font-medium ${cfg.last_test_success ? 'text-sig-ok' : 'text-sig-fail'}`}>
             上次测试：{cfg.last_test_success ? '通过' : '失败'}
           </span>
         )}
       </div>
 
-      <section className={`rounded-lg border p-4 ${card}`}>
+      {/* 语音播报开关行 */}
+      <div className={panel}>
         <button
           type="button"
           role="switch"
           aria-checked={ttsEnabled}
           onClick={() => setTtsEnabled((enabled) => !enabled)}
-          className="flex min-h-11 w-full items-center justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand cursor-pointer"
+          className="flex w-full items-center justify-between gap-4 py-3 text-left focus-visible:outline-none cursor-pointer"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium">语音播报</span>
-            <span className="mt-1 block text-xs leading-relaxed text-ink-dim">
+            <span className="block text-[13px] font-semibold text-ink">语音播报</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-dim">
               关闭后语音对话仅做语音识别，智能体回复以文字显示，不再合成播报。
             </span>
           </span>
           <span
-            className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
-              ttsEnabled ? 'border-brand bg-brand' : 'border-line-strong bg-raise'
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 flex items-center p-0.5 ${
+              ttsEnabled ? 'bg-brand' : 'bg-raise'
             }`}
             aria-hidden="true"
           >
             <span
-              className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                ttsEnabled ? 'translate-x-5' : 'translate-x-0.5'
+              className={`w-5 h-5 rounded-full bg-white shadow-sm block transition-transform duration-200 ${
+                ttsEnabled ? 'translate-x-5' : 'translate-x-0'
               }`}
             />
           </span>
         </button>
-      </section>
+      </div>
 
-      <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-        <h3 className="text-sm font-medium">语音供应商</h3>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-ink-dim">当前供应商</span>
-          <select value={activeProvider} onChange={(e) => onProviderChange(e.target.value as VoiceProvider)} className={`${inputCls} h-10`}>
-            {PROVIDERS.map((provider) => (
-              <option key={provider.id} value={provider.id}>{provider.label} - {provider.detail}</option>
-            ))}
-          </select>
-        </label>
-      </section>
+      {/* 供应商类型卡（单选，参照 resource-create-edit 类型卡形态） */}
+      <div>
+        <Kicker hint="切换后需保存生效">PROVIDER · 语音供应商</Kicker>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {PROVIDERS.map((p) => {
+            const on = activeProvider === p.id
+            const Icon = PROVIDER_ICONS[p.id]
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onProviderChange(p.id)}
+                className={`text-left rounded-xl border-[1.5px] px-3.5 py-3 transition cursor-pointer ${
+                  on ? 'border-brand bg-brand-soft' : 'border-line bg-panel hover:border-line-strong'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-[22px] h-[22px] rounded-[7px] flex items-center justify-center shrink-0 ${
+                    on ? 'bg-brand-soft text-brand' : 'bg-raise text-ink-dim'
+                  }`}>
+                    <Icon size={12} />
+                  </span>
+                  <span className={`text-[13px] font-bold ${on ? 'text-brand' : 'text-ink'}`}>{p.label}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-[11px] text-ink-faint leading-relaxed">{p.detail}</span>
+                </div>
+                {cfg?.active_provider === p.id && (
+                  <span className="af-pill af-pill-ok mt-2">使用中</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       {activeProvider === 'volcano' && (
         <>
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <div>
-              <h3 className="text-sm font-medium">Agent Plan 凭证</h3>
-              <p className="text-xs mt-1 text-ink-dim">
-                无需 App ID 或 Access Token；ASR 与 TTS 共用一个专属 API Key。
-              </p>
+          <div>
+            <Kicker>CREDENTIAL · Agent Plan 凭证</Kicker>
+            <div className={panel}>
+              <FieldRow
+                label="专属 API Key"
+                value={apiKey}
+                onChange={setApiKey}
+                placeholder={cfg?.api_key_masked ? `已配置：${cfg.api_key_masked}（留空不改）` : 'Agent Plan 专属 API Key'}
+                type="password"
+              />
             </div>
-            <Field
-              label="专属 API Key"
-              value={apiKey}
-              onChange={setApiKey}
-              placeholder={cfg?.api_key_masked ? `已配置：${cfg.api_key_masked}（留空不改）` : 'Agent Plan 专属 API Key'}
-              type="password"
-            />
-            <a href="https://console.volcengine.com/ark/region:cn-beijing/openManagement?LLM=%7B%7D&OpenModelVisible=false&advancedActiveKey=agentPlan" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
-              前往火山方舟获取专属 API Key
-            </a>
-          </section>
+            <p className="text-[11px] text-ink-faint mt-2">
+              无需 App ID 或 Access Token；ASR 与 TTS 共用一个专属 API Key ·{' '}
+              <a href="https://console.volcengine.com/ark/region:cn-beijing/openManagement?LLM=%7B%7D&OpenModelVisible=false&advancedActiveKey=agentPlan" target="_blank" rel="noreferrer" className="text-brand hover:opacity-75">前往火山方舟获取</a>
+            </p>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音识别 ASR</h3>
-            <FixedValue label="Resource-Id（固定）" value={cfg?.asr.resource_id ?? 'volc.seedasr.sauc.duration'} />
-            <FixedValue label="WebSocket URL（双流）" value={cfg?.asr.url ?? 'wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async'} />
-          </section>
+          <div>
+            <Kicker>ASR · 语音识别（平台托管）</Kicker>
+            <div className={panel}>
+              <FixedRow label="Resource-Id" value={cfg?.asr.resource_id ?? 'volc.seedasr.sauc.duration'} />
+              <FixedRow label="WebSocket URL" value={cfg?.asr.url ?? 'wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async'} />
+            </div>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音合成 TTS</h3>
-            <FixedValue label="Resource-Id（固定）" value={cfg?.tts.resource_id ?? 'seed-tts-2.0'} />
-            <FixedValue label="WebSocket URL（双向流式）" value={cfg?.tts.url ?? 'wss://openspeech.bytedance.com/api/v3/plan/tts/bidirection'} />
-          </section>
+          <div>
+            <Kicker>TTS · 语音合成（平台托管）</Kicker>
+            <div className={panel}>
+              <FixedRow label="Resource-Id" value={cfg?.tts.resource_id ?? 'seed-tts-2.0'} />
+              <FixedRow label="WebSocket URL" value={cfg?.tts.url ?? 'wss://openspeech.bytedance.com/api/v3/plan/tts/bidirection'} />
+            </div>
+          </div>
         </>
       )}
 
       {activeProvider === 'zhipu' && (
         <>
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <div>
-              <h3 className="text-sm font-medium">智谱凭证</h3>
-              <p className="text-xs mt-1 text-ink-dim">
-                ASR 与 TTS 共用智谱开放平台 API Key。
-              </p>
+          <div>
+            <Kicker>CREDENTIAL · 智谱凭证</Kicker>
+            <div className={panel}>
+              <FieldRow
+                label="智谱 API Key"
+                value={zhipuApiKey}
+                onChange={setZhipuApiKey}
+                placeholder={cfg?.zhipu.api_key_masked ? `已配置：${cfg.zhipu.api_key_masked}（留空不改）` : '智谱 API Key'}
+                type="password"
+              />
             </div>
-            <Field label="智谱 API Key" value={zhipuApiKey} onChange={setZhipuApiKey} placeholder={cfg?.zhipu.api_key_masked ? `已配置：${cfg.zhipu.api_key_masked}（留空不改）` : '智谱 API Key'} type="password" />
-            <a href="https://bigmodel.cn/console/modelcenter/square" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
-              前往智谱模型广场
-            </a>
-          </section>
+            <p className="text-[11px] text-ink-faint mt-2">
+              ASR 与 TTS 共用智谱开放平台 API Key ·{' '}
+              <a href="https://bigmodel.cn/console/modelcenter/square" target="_blank" rel="noreferrer" className="text-brand hover:opacity-75">前往智谱模型广场</a>
+            </p>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音识别 ASR</h3>
-            <Field label="模型" value={zhipuAsrModel} onChange={setZhipuAsrModel} />
-            <Field label="HTTP URL" value={zhipuAsrUrl} onChange={setZhipuAsrUrl} />
-            <p className="text-xs text-ink-dim">智谱 ASR 第一版在松开说话后提交本段录音识别。</p>
-          </section>
+          <div>
+            <Kicker>ASR · 语音识别</Kicker>
+            <div className={panel}>
+              <FieldRow label="模型" value={zhipuAsrModel} onChange={setZhipuAsrModel} />
+              <FieldRow label="HTTP URL" value={zhipuAsrUrl} onChange={setZhipuAsrUrl} />
+            </div>
+            <p className="text-[11px] text-ink-faint mt-2">智谱 ASR 第一版在松开说话后提交本段录音识别。</p>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音合成 TTS</h3>
-            <Field label="模型" value={zhipuTtsModel} onChange={setZhipuTtsModel} />
-            <Field label="HTTP URL" value={zhipuTtsUrl} onChange={setZhipuTtsUrl} />
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="text-ink-dim">系统音色</span>
-              <select value={zhipuVoice} onChange={(e) => setZhipuVoice(e.target.value)} className={inputCls}>
+          <div>
+            <Kicker>TTS · 语音合成</Kicker>
+            <div className={panel}>
+              <FieldRow label="模型" value={zhipuTtsModel} onChange={setZhipuTtsModel} />
+              <FieldRow label="HTTP URL" value={zhipuTtsUrl} onChange={setZhipuTtsUrl} />
+              <SelectRow label="系统音色" value={zhipuVoice} onChange={setZhipuVoice}>
                 {ZHIPU_VOICES.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}（{voice.id}）</option>)}
-              </select>
-            </label>
-            <Field label="自定义/当前 voice" value={zhipuVoice} onChange={setZhipuVoice} />
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="语速" value={zhipuSpeed} onChange={(v) => setZhipuSpeed(Number(v) || 1)} type="number" />
-              <Field label="音量" value={zhipuVolume} onChange={(v) => setZhipuVolume(Number(v) || 1)} type="number" />
+              </SelectRow>
+              <FieldRow label="自定义/当前 voice" value={zhipuVoice} onChange={setZhipuVoice} />
             </div>
-          </section>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 mt-3">
+              <GridField label="语速" value={zhipuSpeed} onChange={(v) => setZhipuSpeed(Number(v) || 1)} type="number" />
+              <GridField label="音量" value={zhipuVolume} onChange={(v) => setZhipuVolume(Number(v) || 1)} type="number" />
+            </div>
+          </div>
         </>
       )}
 
       {activeProvider === 'aliyun' && (
         <>
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <div>
-              <h3 className="text-sm font-medium">阿里百炼凭证</h3>
-              <p className="text-xs mt-1 text-ink-dim">
-                ASR 与 TTS 共用百炼 API Key。北京地域模型请使用北京地域 API Key。
-              </p>
+          <div>
+            <Kicker>CREDENTIAL · 阿里百炼凭证</Kicker>
+            <div className={panel}>
+              <FieldRow
+                label="百炼 API Key"
+                value={aliyunApiKey}
+                onChange={setAliyunApiKey}
+                placeholder={cfg?.aliyun.api_key_masked ? `已配置：${cfg.aliyun.api_key_masked}（留空不改）` : '阿里百炼 API Key'}
+                type="password"
+              />
             </div>
-            <Field label="百炼 API Key" value={aliyunApiKey} onChange={setAliyunApiKey} placeholder={cfg?.aliyun.api_key_masked ? `已配置：${cfg.aliyun.api_key_masked}（留空不改）` : '阿里百炼 API Key'} type="password" />
-            <a href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/model-market" target="_blank" rel="noreferrer" className="inline-block text-xs text-brand hover:opacity-75">
-              前往阿里百炼模型广场
-            </a>
-          </section>
+            <p className="text-[11px] text-ink-faint mt-2">
+              ASR 与 TTS 共用百炼 API Key，北京地域模型请使用北京地域 API Key ·{' '}
+              <a href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/model-market" target="_blank" rel="noreferrer" className="text-brand hover:opacity-75">前往阿里百炼模型广场</a>
+            </p>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音识别 ASR</h3>
-            <Field label="模型" value={aliyunAsrModel} onChange={setAliyunAsrModel} />
-            <Field label="HTTP URL" value={aliyunAsrUrl} onChange={setAliyunAsrUrl} />
-            <p className="text-xs text-ink-dim">阿里百炼 ASR 第一版在松开说话后提交本段录音识别。</p>
-          </section>
+          <div>
+            <Kicker>ASR · 语音识别</Kicker>
+            <div className={panel}>
+              <FieldRow label="模型" value={aliyunAsrModel} onChange={setAliyunAsrModel} />
+              <FieldRow label="HTTP URL" value={aliyunAsrUrl} onChange={setAliyunAsrUrl} />
+            </div>
+            <p className="text-[11px] text-ink-faint mt-2">阿里百炼 ASR 第一版在松开说话后提交本段录音识别。</p>
+          </div>
 
-          <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-            <h3 className="text-sm font-medium">语音合成 TTS</h3>
-            <Field label="模型" value={aliyunTtsModel} onChange={setAliyunTtsModel} />
-            <Field label="HTTP URL" value={aliyunTtsUrl} onChange={setAliyunTtsUrl} />
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="text-ink-dim">系统音色</span>
-              <select value={aliyunVoice} onChange={(e) => setAliyunVoice(e.target.value)} className={inputCls}>
+          <div>
+            <Kicker>TTS · 语音合成</Kicker>
+            <div className={panel}>
+              <FieldRow label="模型" value={aliyunTtsModel} onChange={setAliyunTtsModel} />
+              <FieldRow label="HTTP URL" value={aliyunTtsUrl} onChange={setAliyunTtsUrl} />
+              <SelectRow label="系统音色" value={aliyunVoice} onChange={setAliyunVoice}>
                 {ALIYUN_VOICES.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
-              </select>
-            </label>
-            <Field label="自定义/当前 voice" value={aliyunVoice} onChange={setAliyunVoice} />
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="text-ink-dim">语言</span>
-              <select value={aliyunLanguage} onChange={(e) => setAliyunLanguage(e.target.value)} className={inputCls}>
+              </SelectRow>
+              <FieldRow label="自定义/当前 voice" value={aliyunVoice} onChange={setAliyunVoice} />
+              <SelectRow label="语言" value={aliyunLanguage} onChange={setAliyunLanguage}>
                 <option value="Chinese">Chinese</option>
                 <option value="English">English</option>
                 <option value="Auto">Auto</option>
-              </select>
-            </label>
-          </section>
+              </SelectRow>
+            </div>
+          </div>
         </>
       )}
 
-      <section className={`rounded-lg border p-4 space-y-3 ${card}`}>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-ink-dim">试听文本</span>
-          <div className="relative">
-            <input value={previewText} onChange={(event) => setPreviewText(event.target.value.slice(0, 120))} placeholder="输入一小段用于试听的文字" className={`${inputCls} h-10 w-full pr-14`} />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-ink-faint">{previewText.length}/120</span>
-          </div>
-        </label>
-        {activeProvider === 'volcano' ? (
-          <VoicePicker
-            value={ttsVoice}
-            onChange={(voiceType) => {
-              stopPreview()
-              setPreviewError('')
-              setTtsVoice(voiceType)
-            }}
-            theme={theme}
-            preview={preview}
-            previewDisabled={previewDisabled}
-            onPreview={playPreview}
-          />
-        ) : (
-          <div className="flex items-center gap-3">
-            <button onClick={() => playPreview(previewVoice)} disabled={previewDisabled} className="px-4 py-2 rounded-lg border border-line-strong text-sm font-medium text-ink cursor-pointer hover:bg-raise disabled:opacity-50 transition">
-              {preview?.voiceType === previewVoice && preview.phase === 'playing' ? '停止试听' : '试听音色'}
-            </button>
-            <span className="text-xs text-ink-dim">当前：{previewVoice}</span>
-          </div>
-        )}
-        {previewDisabled && <p className="text-xs text-sig-wait">保存当前供应商的 API Key 后即可试听音色。</p>}
-        {previewError && <p className="text-xs text-sig-fail">{previewError}</p>}
-      </section>
+      {/* 试听 */}
+      <div>
+        <Kicker>PREVIEW · 试听</Kicker>
+        <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] px-4 py-3 space-y-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] text-ink-dim flex items-center justify-between">
+              试听文本
+              <span className="text-ink-faint font-mono">{previewText.length}/120</span>
+            </span>
+            <input
+              value={previewText}
+              onChange={(event) => setPreviewText(event.target.value.slice(0, 120))}
+              placeholder="输入一小段用于试听的文字"
+              className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-1 text-[13px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition"
+            />
+          </label>
+          {activeProvider === 'volcano' ? (
+            <VoicePicker
+              value={ttsVoice}
+              onChange={(voiceType) => {
+                stopPreview()
+                setPreviewError('')
+                setTtsVoice(voiceType)
+              }}
+              theme={theme}
+              preview={preview}
+              previewDisabled={previewDisabled}
+              onPreview={playPreview}
+            />
+          ) : (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => playPreview(previewVoice)}
+                disabled={previewDisabled}
+                className="af-btn af-btn-secondary"
+              >
+                {preview?.voiceType === previewVoice && preview.phase === 'playing' ? '停止试听' : '试听音色'}
+              </button>
+              <span className="text-xs text-ink-dim">当前：{previewVoice}</span>
+            </div>
+          )}
+          {previewDisabled && <p className="text-[11px] text-sig-wait">保存当前供应商的 API Key 后即可试听音色。</p>}
+          {previewError && <p className="text-[11px] text-sig-fail">{previewError}</p>}
+        </div>
+      </div>
 
-      <section className={`rounded-lg border p-4 grid grid-cols-2 md:grid-cols-3 gap-3 ${card}`}>
-        <Field label="上行采样率" value={inputRate} onChange={(v) => setInputRate(Number(v) || 16000)} type="number" />
-        <Field label="下行采样率" value={outputRate} onChange={(v) => setOutputRate(Number(v) || 24000)} type="number" />
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-ink-dim">VAD 模式</span>
-          <select value={vadMode} onChange={(e) => setVadMode(e.target.value)} className={inputCls}>
-            <option value="energy">energy（无依赖）</option>
-            <option value="silero">silero（更准，需装库）</option>
-            <option value="off">off（仅 ASR 端点）</option>
-          </select>
-        </label>
-        <Field label="VAD 阈值" value={vadThreshold} onChange={(v) => setVadThreshold(Number(v) || 0.12)} type="number" />
-        <Field label="静音时长(ms)" value={vadSilence} onChange={(v) => setVadSilence(Number(v) || 600)} type="number" />
-      </section>
+      {/* 音频参数 */}
+      <div>
+        <Kicker hint="采样率与断句检测">AUDIO · 音频参数</Kicker>
+        <div className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] px-4 py-3 grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+          <GridField label="上行采样率" value={inputRate} onChange={(v) => setInputRate(Number(v) || 16000)} type="number" />
+          <GridField label="下行采样率" value={outputRate} onChange={(v) => setOutputRate(Number(v) || 24000)} type="number" />
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] text-ink-dim">VAD 模式</span>
+            <select
+              value={vadMode}
+              onChange={(e) => setVadMode(e.target.value)}
+              className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-1 text-[13px] text-ink focus:outline-none focus:border-brand transition cursor-pointer"
+            >
+              <option value="energy">energy（无依赖）</option>
+              <option value="silero">silero（更准，需装库）</option>
+              <option value="off">off（仅 ASR 端点）</option>
+            </select>
+          </label>
+          <GridField label="VAD 阈值" value={vadThreshold} onChange={(v) => setVadThreshold(Number(v) || 0.12)} type="number" />
+          <GridField label="静音时长(ms)" value={vadSilence} onChange={(v) => setVadSilence(Number(v) || 600)} type="number" />
+        </div>
+      </div>
 
-      <div className="flex items-center gap-3">
-        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-sm font-semibold cursor-pointer disabled:opacity-50 transition">
+      {/* 操作行 */}
+      <div className="flex items-center gap-3 pt-1">
+        <button onClick={save} disabled={saving} className="af-btn af-btn-primary">
           {saving ? '保存中…' : '保存配置'}
         </button>
-        <button onClick={test} className="px-4 py-2 rounded-lg border border-line-strong text-sm font-medium text-ink cursor-pointer hover:bg-raise transition">测试连通</button>
-        {status && <span className={`text-xs ${status.type === 'success' ? 'text-sig-ok' : status.type === 'error' ? 'text-sig-fail' : 'text-sig-wait'}`}>{status.msg}</span>}
+        <button onClick={test} className="af-btn af-btn-secondary">测试连通</button>
+        {status && (
+          <span className={`text-xs ${status.type === 'success' ? 'text-sig-ok' : status.type === 'error' ? 'text-sig-fail' : 'text-sig-wait'}`}>
+            {status.msg}
+          </span>
+        )}
       </div>
-      <p className="text-xs text-ink-dim">切换供应商后需保存配置；已保存的其他供应商凭证会保留，方便随时切回。</p>
+      <p className="text-[11px] text-ink-faint">切换供应商后需保存配置；已保存的其他供应商凭证会保留，方便随时切回。</p>
     </div>
   )
 }

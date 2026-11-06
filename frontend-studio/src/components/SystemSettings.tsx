@@ -56,7 +56,7 @@ function toggleInSet<T>(set: Set<T>, value: T): Set<T> {
 
 /* ── 设计稿小件：kicker 分节标题 / 下划线输入 / 字段标签 ───────────── */
 
-function Kicker({ children, hint }: { children: string; hint?: string }) {
+export function Kicker({ children, hint }: { children: string; hint?: string }) {
   return (
     <div className="af-label mb-2">
       {children}
@@ -77,7 +77,7 @@ function FieldLabel({ label, required, hint }: { label: string; required?: boole
 }
 
 /** 下划线输入（设计稿 fld input 形态——禁用 SaaS 边框堆叠） */
-function LineInput(props: InputHTMLAttributes<HTMLInputElement>) {
+export function LineInput(props: InputHTMLAttributes<HTMLInputElement>) {
   const { className, ...rest } = props;
   return (
     <input
