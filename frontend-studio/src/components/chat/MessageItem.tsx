@@ -87,8 +87,12 @@ export function MessageItem({
           const tl = msg.timeline!;
           let lastTextIdx = -1;
           tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
-          const finalText = lastTextIdx >= 0 ? tl[lastTextIdx] : null;
-          const processEntries = lastTextIdx >= 0 ? tl.filter((_, i) => i !== lastTextIdx) : tl;
+          // 最终回答 = 最后 text 且其后【再无任何条目】——中间小结后面若
+          // 又出现 thinking/工具，它就吸回卡内按位置排序（时序不能乱），
+          // 卡外底部的"最终回答"身份随之移交给新的活跃 text。
+          const isTailText = lastTextIdx >= 0 && lastTextIdx === tl.length - 1;
+          const finalText = isTailText ? tl[lastTextIdx] : null;
+          const processEntries = finalText ? tl.filter((_, i) => i !== lastTextIdx) : tl;
           const hasProcess = processEntries.some((e) =>
             (e.type === 'thinking' && !!(e.content ?? '').trim()) ||
             (e.type === 'tool' && !!e.toolName) ||

@@ -280,10 +280,12 @@ export function ActivityGroup({
           );
         }
         if (entry.type === 'text') {
+          // 卡内中间小结：与最终回答同款式（模型文本输出的类型一致），
+          // 只是身处过程卡内、按发生时序排在工具卡之间
           return (
             <div
               key={`sl-${si}`}
-              className="px-2.5 py-1 text-[13px] leading-relaxed text-ink-dim font-sans"
+              className="px-2.5 py-1 text-[14px] leading-[1.75] text-ink font-sans"
             >
               <Markdown content={entry.content} />
             </div>
