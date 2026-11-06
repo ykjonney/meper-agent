@@ -58,7 +58,7 @@ function toggleInSet<T>(set: Set<T>, value: T): Set<T> {
 
 function Kicker({ children, hint }: { children: string; hint?: string }) {
   return (
-    <div className="af-label mb-3">
+    <div className="af-label mb-2">
       {children}
       {hint && <span className="normal-case tracking-normal font-medium text-ink-faint ml-2">{hint}</span>}
     </div>
@@ -68,7 +68,7 @@ function Kicker({ children, hint }: { children: string; hint?: string }) {
 /** 字段标签：主标签 + 可选说明（淡色、常规字重） */
 function FieldLabel({ label, required, hint }: { label: string; required?: boolean; hint?: string }) {
   return (
-    <div className="text-[12px] font-semibold text-ink mb-1.5">
+    <div className="text-[12px] font-semibold text-ink mb-1">
       {label}
       {required && <span className="text-sig-fail ml-0.5">*</span>}
       {hint && <span className="text-ink-faint font-normal text-[11px] ml-2">{hint}</span>}
@@ -82,7 +82,7 @@ function LineInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...rest}
-      className={`w-full border-0 border-b border-line-strong bg-transparent px-0 py-2 text-[13px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition ${className ?? ''}`}
+      className={`w-full border-0 border-b border-line-strong bg-transparent px-0 py-1.5 text-[13px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition ${className ?? ''}`}
     />
   );
 }
@@ -612,7 +612,7 @@ function KeyFormCard({
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-5 space-y-5"
+      className="bg-panel border border-line rounded-xl shadow-[var(--shadow-card)] p-4 space-y-4"
     >
       {/* 编辑态提示条 */}
       {isEdit && (
@@ -633,7 +633,7 @@ function KeyFormCard({
       <div>
         <Kicker>BASIC · 基础</Kicker>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <FieldLabel label="名称" required hint="标识调用方" />
           <LineInput
             value={name}
@@ -643,7 +643,7 @@ function KeyFormCard({
           />
         </div>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <FieldLabel label="权限范围" required hint="至少一项" />
           <div className="flex flex-wrap gap-2">
             {ALL_API_KEY_SCOPES.map((s) => {
@@ -667,7 +667,7 @@ function KeyFormCard({
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <FieldLabel label="限流" hint="每分钟调用上限（默认 60，超限 429）" />
           <LineInput
             type="number"
@@ -705,7 +705,7 @@ function KeyFormCard({
       <div>
         <Kicker>RESOURCE BINDING · 资源绑定</Kicker>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <FieldLabel label="可访问的智能体" hint={`已选 ${boundAgents.size} · 不选 = 访问全部`} />
           {chipRow(boundAgents, (id) => setBoundAgents((prev) => toggleInSet(prev, id)), agents, 'agent', '不选 = 可访问全部智能体')}
         </div>
@@ -719,7 +719,7 @@ function KeyFormCard({
       <div>
         <Kicker>AUTH · 绑定应用与认证回调</Kicker>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <FieldLabel label="绑定应用" hint="接入方系统——终端用户身份的命名空间" />
           <select
             value={formAppId}
@@ -742,7 +742,7 @@ function KeyFormCard({
             maxLength={500}
             className="font-mono text-xs"
           />
-          <p className="text-[11px] text-ink-faint mt-1.5 leading-relaxed">
+          <p className="text-[11px] text-ink-faint mt-1 leading-relaxed">
             RFC 7662 introspection 端点——外部终端用户请求携带 X-User-Token，平台回调此端点验证身份
           </p>
         </div>
@@ -750,7 +750,7 @@ function KeyFormCard({
 
       {error && <p className="text-[11px] text-sig-fail">{error}</p>}
 
-      <div className="pt-1 border-t border-line flex items-center gap-3">
+      <div className="pt-2 border-t border-line flex items-center gap-3">
         <span className="flex items-center gap-1.5 text-[10.5px] text-ink-faint flex-1 min-w-0">
           <ShieldAlert className="w-3 h-3 shrink-0" />
           <span className="truncate">明文仅创建时展示一次 · 吊销后调用立即 401</span>
