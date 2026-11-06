@@ -3,10 +3,10 @@ import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../../t
 import {
   Send, Plus, Trash2, FileCode, CheckCircle, Check,
   Bot, Terminal, Loader2, Paperclip, Brain, X, ClipboardList, ShieldAlert,
-  Wrench, AlertTriangle, ChevronRight, ChevronDown, User, Download, FileText, Image as ImageIcon, Mic, Copy, RotateCcw,
+  Wrench, AlertTriangle, ChevronRight, ChevronDown, User, Download, FileText, Image as ImageIcon, Copy, RotateCcw,
   PenLine, SquarePen, FolderSearch, Search, Globe, Link2, BarChart3, FileSearch, BookOpen,
   ThumbsUp, ThumbsDown, PanelRight, Workflow,
-  FolderOpen, LayoutDashboard, Shield, ArrowLeftRight, Key,
+  FolderOpen, LayoutDashboard, Shield, ArrowLeftRight,
 } from 'lucide-react';
 import { toast } from '../ui/toast'
 import { IconAgent, IconTask, IconFlow, IconResource } from '../IndigoIcons'
@@ -58,13 +58,12 @@ export const fmtContextWindow = (n?: number): string => {
   return `${Math.round(n / 1000)}k`;
 };
 
-export const MORE_ICONS: Record<string, typeof Mic> = {
-  voice: Mic,
+export const MORE_ICONS: Record<string, typeof LayoutDashboard> = {
   dashboard: LayoutDashboard,
   users: Shield,
   'external-auth': Link2,
   transfer: ArrowLeftRight,
-  settings: Key,
+  // 系统设置：改版后由侧栏底部独立齿轮承担（lucide Settings），不再进「更多」菜单
 }
 
 /** 侧栏主要功能 4 项（其余导航项收纳进「··· 更多」）；语义图标按 id 映射。 */

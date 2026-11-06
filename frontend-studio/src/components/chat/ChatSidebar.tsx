@@ -1,5 +1,5 @@
 import type { Dispatch, MouseEvent as ReactMouseEvent, ReactNode, RefObject, SetStateAction } from 'react';
-import { Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pin, Settings, Trash2, X } from 'lucide-react';
 import type { Agent } from '../../types';
 import type { Session } from '../../services/session-api';
 import { NotificationCenter } from '../notification-center';
@@ -23,6 +23,8 @@ interface ChatSidebarProps {
   agents: Agent[];
   onStartNewWithAgent: (ag: Agent) => void;
   userInitial?: string;
+  /** 用户名（底部用户条展示，点头像/用户名上弹账户菜单）。 */
+  username?: string;
   userMenuOpen: boolean;
   setUserMenuOpen: Dispatch<SetStateAction<boolean>>;
   moreMenuOpen: boolean;
@@ -39,11 +41,15 @@ export function ChatSidebar({
   navItems, activeId, activePage, pinnedNav, togglePin,
   sessions, sessionsLoading, activeSessionId, onSelectSession, onDeleteSession,
   activeAgent, agents, onStartNewWithAgent,
-  userInitial, userMenuOpen, setUserMenuOpen, moreMenuOpen, setMoreMenuOpen,
+  userInitial, username, userMenuOpen, setUserMenuOpen, moreMenuOpen, setMoreMenuOpen,
   onNavigate, onLogout, onNavigateTask,
 }: ChatSidebarProps) {
+  // 「更多」菜单可见项（系统设置已移出——由底部齿轮承担）；无可见项则不渲染入口
+  const moreIds = ['dashboard', 'users', 'external-auth', 'transfer']
+    .filter((id) => navItems?.some((n) => n.id === id));
   return (
-    <div style={{ width: 'var(--sess-w)' }} className="min-h-0 border-r border-line bg-well flex flex-col justify-between h-full shrink-0">
+    /* id 供 notification-center 定位「主目录右侧展开」的面板锚点，勿删 */
+    <div id="af-sidebar" style={{ width: 'var(--sess-w)' }} className="min-h-0 border-r border-line bg-well flex flex-col justify-between h-full shrink-0">
       {/* 右缘拖拽手标：左右拉伸会话列表 */}
       <div
         onMouseDown={(e) => {
@@ -60,14 +66,17 @@ export function ChatSidebar({
         title="拖拽调整宽度"
       />
       <div className="flex flex-col h-full min-h-0 relative">
-        {/* logo：产品图标 + 衬线字标，点击回到聊天主页 */}
-        <div onClick={() => onNavigate?.('chat')} title="回到会话"
-          className="px-4 pt-4 pb-3 cursor-pointer select-none w-fit flex items-center gap-2">
-          <img src="/AFLogo.png" alt="MEPER Agent"
-            className="w-[26px] h-[26px] rounded-[7px] object-contain select-none" draggable={false} />
-          <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 14, fontWeight: 700 }}>
-            agent<span className="text-brand" style={{ fontStyle: 'normal' }}>·</span>flow
-          </span>
+        {/* logo 行：左产品图标 + 衬线字标，右通知铃铛（改版：通知自底部上移，面板在主目录右侧展开） */}
+        <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+          <div onClick={() => onNavigate?.('chat')} title="回到会话"
+            className="cursor-pointer select-none w-fit flex items-center gap-2">
+            <img src="/AFLogo.png" alt="MEPER Agent"
+              className="w-[26px] h-[26px] rounded-[7px] object-contain select-none" draggable={false} />
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 14, fontWeight: 700 }}>
+              agent<span className="text-brand" style={{ fontStyle: 'normal' }}>·</span>flow
+            </span>
+          </div>
+          <NotificationCenter onNavigateTask={onNavigateTask} />
         </div>
         {/* ── 功能入口（主 4 项；按 App 权限过滤，无权限的不显示）── */}
         <div className="px-4 pb-1" style={{ fontSize: 9, letterSpacing: '.16em', color: 'var(--color-ink-faint)' }}>功能</div>
@@ -83,25 +92,107 @@ export function ChatSidebar({
               </button>
             );
           })}
-          {/* 图钉固定项（设计稿 sidebar-more）：📌 固定的导航追加在主功能之后，hover ✕ 取消 */}
-          {pinnedNav.map((id) => {
+          {/* 图钉固定项（设计稿 sidebar-more）：固定的导航追加在主功能之后（与主导航同款
+              图标样式），hover ✕ 取消；系统设置由底部齿轮承担，不再可固定 */}
+          {pinnedNav.filter((id) => id !== 'settings').map((id) => {
             const n = navItems?.find((x) => x.id === id)
             if (!n) return null
             const isActive = activePage != null && id === activeId
+            const Ic = MORE_ICONS[id]
             return (
               <div key={`pin-${id}`}
-                className="w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer hover:bg-panel rounded-lg group/pin"
+                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer hover:bg-panel rounded-lg group/pin ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : ''}`}
                 onClick={() => onNavigate?.(id)}>
+                <span className="opacity-70 shrink-0">{Ic && <Ic size={15} />}</span>
                 <span className={`truncate ${isActive ? 'text-brand font-semibold' : 'text-ink'}`}>{n.label}</span>
                 <span className="ml-auto font-mono text-[9.5px] text-ink-faint shrink-0">{n.badge ?? ''}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); togglePin(id) }}
                   title="取消固定"
-                  className="ml-1 w-4 h-4 rounded flex items-center justify-center text-ink-faint opacity-0 group-hover/pin:opacity-100 hover:text-sig-fail cursor-pointer text-[10px] shrink-0"
-                >✕</button>
+                  className="ml-1 w-4 h-4 rounded flex items-center justify-center text-ink-faint opacity-0 group-hover/pin:opacity-100 hover:text-sig-fail cursor-pointer shrink-0"
+                ><X size={10} /></button>
               </div>
             )
           })}
+          {/* 「更多」（改版：自底部上移至功能列表末位，向下弹分组菜单） */}
+          {moreIds.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => { setMoreMenuOpen(v => !v); setUserMenuOpen(false) }}
+                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors ${
+                  moreMenuOpen
+                    ? 'bg-panel text-brand font-bold shadow-[var(--shadow-card)]'
+                    : 'text-ink-dim hover:bg-panel hover:text-ink'
+                }`}
+              >
+                <MoreHorizontal size={15} className="opacity-70" />更多
+              </button>
+              {moreMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
+                  {/* more-pop（设计稿 sidebar-more / global-sidebar-redesign）：下弹 + 箭头尾巴 + 分组图标 + 图钉固定 */}
+                  <div className="absolute top-full left-0 mt-2 w-[236px] bg-panel border border-line rounded-[14px] shadow-[var(--shadow-pop)] z-40">
+                    <div className="absolute -top-1.5 left-[22px] w-2.5 h-2.5 bg-panel border-l border-t border-line rotate-45" />
+                    <div className="px-3.5 pt-3 pb-1 text-[9.5px] font-bold tracking-[.2em] text-ink-faint">工作台</div>
+                    {(['dashboard'] as const).map((id) => {
+                      const n = (navItems ?? []).find((x) => x.id === id)
+                      if (!n) return null
+                      const pinned = pinnedNav.includes(id)
+                      const Ic = MORE_ICONS[id]
+                      return (
+                        <div key={id} className="flex items-center gap-2.5 mx-1.5 px-2 py-1.5 rounded-lg text-[12.5px] text-ink-dim hover:bg-raise hover:text-ink cursor-pointer group/mp">
+                          <span className="w-[17px] flex items-center justify-center shrink-0 text-ink-dim">{Ic && <Ic size={16} />}</span>
+                          <button type="button" className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                            onClick={() => { setMoreMenuOpen(false); onNavigate?.(id) }}>
+                            {n.label}
+                            {pinned && <span className="ml-auto text-[9px] text-brand font-bold tracking-[.05em] shrink-0">已固定</span>}
+                          </button>
+                          <button
+                            type="button"
+                            title={pinned ? '取消固定' : '固定到侧栏'}
+                            onClick={(e) => { e.stopPropagation(); togglePin(id) }}
+                            className={`shrink-0 w-[18px] h-[18px] rounded-[5px] flex items-center justify-center cursor-pointer transition-opacity ${pinned ? 'text-brand opacity-100' : 'text-ink-faint opacity-0 group-hover/mp:opacity-100 hover:text-brand hover:bg-brand-soft'}`}
+                          >
+                            <Pin size={11} strokeWidth={2} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                    <div className="h-px bg-line mx-3.5 my-1.5" />
+                    <div className="px-3.5 pb-1 text-[9.5px] font-bold tracking-[.2em] text-ink-faint">管理</div>
+                    {(['users', 'external-auth', 'transfer'] as const).map((id) => {
+                      const n = (navItems ?? []).find((x) => x.id === id)
+                      if (!n) return null
+                      const pinned = pinnedNav.includes(id)
+                      const Ic = MORE_ICONS[id]
+                      return (
+                        <div key={id} className="flex items-center gap-2.5 mx-1.5 px-2 py-1.5 rounded-lg text-[12.5px] text-ink-dim hover:bg-raise hover:text-ink cursor-pointer group/mp">
+                          <span className="w-[17px] flex items-center justify-center shrink-0 text-ink-dim">{Ic && <Ic size={16} />}</span>
+                          <button type="button" className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                            onClick={() => { setMoreMenuOpen(false); onNavigate?.(id) }}>
+                            {n.label}
+                            {pinned && <span className="ml-auto text-[9px] text-brand font-bold tracking-[.05em] shrink-0">已固定</span>}
+                          </button>
+                          <button
+                            type="button"
+                            title={pinned ? '取消固定' : '固定到侧栏'}
+                            onClick={(e) => { e.stopPropagation(); togglePin(id) }}
+                            className={`shrink-0 w-[18px] h-[18px] rounded-[5px] flex items-center justify-center cursor-pointer transition-opacity ${pinned ? 'text-brand opacity-100' : 'text-ink-faint opacity-0 group-hover/mp:opacity-100 hover:text-brand hover:bg-brand-soft'}`}
+                          >
+                            <Pin size={11} strokeWidth={2} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                    <div className="h-px bg-line mx-3.5 my-1.5" />
+                    <div className="px-3.5 py-2 text-[9.5px] text-ink-faint border-t border-line mt-1">
+                      悬停条目出现图钉，可固定到侧栏
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-2 space-y-1">
@@ -185,17 +276,19 @@ export function ChatSidebar({
           })()}
         </div>
 
-        <div className="relative px-3 py-2.5 border-t border-line flex items-center gap-1.5">
-          {/* ① 通知（未读徽章 + 通知中心浮层） */}
-          <NotificationCenter onNavigateTask={onNavigateTask} />
-          {/* ② 用户（brand 圆头像 → 账户菜单；遮罩点击关闭） */}
-          <div className="relative">
+        {/* 底部用户行（改版 global-sidebar-redesign）：去 border-t 分割线；
+            大头像（36px）最左 + 用户名，点击上弹账户菜单；右端系统设置独立齿轮（按权限显隐） */}
+        <div className="px-3 pt-2.5 pb-3 flex items-center gap-2">
+          <div className="relative flex items-center min-w-0">
             <button
               onClick={() => { setUserMenuOpen(v => !v); setMoreMenuOpen(false) }}
               title="账户菜单"
-              className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold cursor-pointer hover:opacity-85 transition shrink-0"
+              className="flex items-center gap-2.5 pl-0.5 pr-2.5 py-0.5 rounded-[12px] cursor-pointer hover:bg-panel hover:shadow-[var(--shadow-card)] transition-all min-w-0"
             >
-              {userInitial ?? 'U'}
+              <span className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center text-[13px] font-bold shrink-0">
+                {userInitial ?? 'U'}
+              </span>
+              {username && <span className="text-[13px] font-medium text-ink truncate">{username}</span>}
             </button>
             {userMenuOpen && (
               <>
@@ -209,83 +302,16 @@ export function ChatSidebar({
               </>
             )}
           </div>
-          {/* ③ 更改（··· 更多 → 功能分组 + 图钉固定；条目带图标） */}
-          <div className="relative flex-1 min-w-0">
+          {/* 系统设置独立入口（改版：自「更多」菜单移出；无权限不渲染） */}
+          {navItems?.some((n) => n.id === 'settings') && (
             <button
-              onClick={() => { setMoreMenuOpen(v => !v); setUserMenuOpen(false) }}
-              className={`w-full flex items-center justify-center gap-2 px-2.5 py-2 rounded-[9px] cursor-pointer transition-all ${
-                moreMenuOpen
-                  ? 'bg-panel text-brand font-bold shadow-[var(--shadow-card)]'
-                  : 'text-ink-dim hover:bg-panel hover:text-ink'
-              }`}
+              onClick={() => onNavigate?.('settings')}
+              title="系统设置"
+              className="ml-auto w-8 h-8 rounded-[9px] flex items-center justify-center text-ink-dim hover:bg-panel hover:text-ink hover:shadow-[var(--shadow-card)] cursor-pointer transition-all shrink-0"
             >
-              更改
+              <Settings size={16} />
             </button>
-            {moreMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
-                {/* more-pop（设计稿 sidebar-more）：上弹 + 箭头尾巴 + 分组图标 + 图钉固定 */}
-                <div className="absolute bottom-full right-0 mb-3 w-[236px] bg-panel border border-line rounded-[14px] shadow-[var(--shadow-pop)] z-40">
-                  <div className="absolute -bottom-1.5 right-8 w-2.5 h-2.5 bg-panel border-l border-b border-line rotate-45" />
-                  <div className="px-3.5 pt-3 pb-1 text-[9.5px] font-bold tracking-[.2em] text-ink-faint">工作台</div>
-                  {(['voice', 'dashboard'] as const).map((id) => {
-                    const n = (navItems ?? []).find((x) => x.id === id)
-                    if (!n) return null
-                    const pinned = pinnedNav.includes(id)
-                    const Ic = MORE_ICONS[id]
-                    return (
-                      <div key={id} className="flex items-center gap-2.5 mx-1.5 px-2 py-1.5 rounded-lg text-[12.5px] text-ink-dim hover:bg-raise hover:text-ink cursor-pointer group/mp">
-                        <span className="w-[17px] flex items-center justify-center shrink-0 text-ink-dim">{Ic && <Ic size={16} />}</span>
-                        <button type="button" className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
-                          onClick={() => { setMoreMenuOpen(false); onNavigate?.(id) }}>
-                          {n.label}
-                          {pinned && <span className="ml-auto text-[9px] text-brand font-bold tracking-[.05em] shrink-0">已固定</span>}
-                        </button>
-                        <button
-                          type="button"
-                          title={pinned ? '取消固定' : '固定到侧栏'}
-                          onClick={(e) => { e.stopPropagation(); togglePin(id) }}
-                          className={`shrink-0 w-[18px] h-[18px] rounded-[5px] flex items-center justify-center text-[10px] cursor-pointer transition-opacity ${pinned ? 'text-brand opacity-100' : 'text-ink-faint opacity-0 group-hover/mp:opacity-100 hover:text-brand hover:bg-brand-soft'}`}
-                        >
-                          📌
-                        </button>
-                      </div>
-                    )
-                  })}
-                  <div className="h-px bg-line mx-3.5 my-1.5" />
-                  <div className="px-3.5 pb-1 text-[9.5px] font-bold tracking-[.2em] text-ink-faint">管理</div>
-                  {(['users', 'external-auth', 'transfer', 'settings'] as const).map((id) => {
-                    const n = (navItems ?? []).find((x) => x.id === id)
-                    if (!n) return null
-                    const pinned = pinnedNav.includes(id)
-                    const Ic = MORE_ICONS[id]
-                    return (
-                      <div key={id} className="flex items-center gap-2.5 mx-1.5 px-2 py-1.5 rounded-lg text-[12.5px] text-ink-dim hover:bg-raise hover:text-ink cursor-pointer group/mp">
-                        <span className="w-[17px] flex items-center justify-center shrink-0 text-ink-dim">{Ic && <Ic size={16} />}</span>
-                        <button type="button" className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
-                          onClick={() => { setMoreMenuOpen(false); onNavigate?.(id) }}>
-                          {n.label}
-                          {pinned && <span className="ml-auto text-[9px] text-brand font-bold tracking-[.05em] shrink-0">已固定</span>}
-                        </button>
-                        <button
-                          type="button"
-                          title={pinned ? '取消固定' : '固定到侧栏'}
-                          onClick={(e) => { e.stopPropagation(); togglePin(id) }}
-                          className={`shrink-0 w-[18px] h-[18px] rounded-[5px] flex items-center justify-center text-[10px] cursor-pointer transition-opacity ${pinned ? 'text-brand opacity-100' : 'text-ink-faint opacity-0 group-hover/mp:opacity-100 hover:text-brand hover:bg-brand-soft'}`}
-                        >
-                          📌
-                        </button>
-                      </div>
-                    )
-                  })}
-                  <div className="h-px bg-line mx-3.5 my-1.5" />
-                  <div className="px-3.5 py-2 text-[9.5px] text-ink-faint border-t border-line mt-1">
-                    悬停条目图钉 📌 可固定到侧栏
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>

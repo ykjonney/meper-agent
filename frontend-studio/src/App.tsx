@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Bot, LayoutDashboard, Layers, Key,
   ListTodo, Shield,
-  Clock, Mic,
+  Clock,
   Link2, ArrowLeftRight, Store,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
@@ -17,7 +17,6 @@ import { AuthInitializer } from './components/AuthInitializer';
 import { Toaster } from './components/ui/toast';
 import { ConfirmHost } from './components/ui/confirm';
 import { ChatHomepage } from './components/ChatHomepage';
-import { VoiceHomepage } from './components/voice/VoiceHomepage';
 import { TaskBoard } from './components/TaskBoard';
 import { TaskDetailPage } from './components/task/TaskDetailPage';
 import { Dashboard } from './components/Dashboard';
@@ -62,7 +61,6 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'voice', label: '语音对话', icon: Mic },
   // 任务看板 badge 由下方 activeTaskCount 实时注入（执行中 + 等待人工）。
   { id: 'board', label: '任务看板', icon: ListTodo },
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, permission: 'execution:read:own' },
@@ -276,7 +274,6 @@ export default function App() {
   // 非聊天路由的右侧内容：license 条 + 页面 stage。组装后交给全局壳层
   // （ChatHomepage 的融合侧栏在所有页面保持不变，仅右侧区域切换）。
   const stageClass =
-    activeTab === 'voice' ? 'h-full flex flex-col p-0 overflow-hidden' :
     activeTab === 'board' ? 'h-full flex flex-col p-6 pb-0 overflow-hidden' :
     activeTab === 'workflows' && openWorkflow ? 'h-full flex flex-col p-6 overflow-hidden' :
     // Agent 编辑器自带贴底 footer 与内部滚动，stage 去 padding 由页面控制留白
@@ -305,10 +302,6 @@ export default function App() {
             </div>
           )}
           <div id="content_stage" className={stageClass}>
-            {activeTab === 'voice' && (
-              <VoiceHomepage agents={studioAgents} theme={theme} />
-            )}
-
             {activeTab === 'board' && (
               <TaskBoard theme={theme} onOpenTaskDetail={(id) => setActiveTaskDetail({ id, mode: 'full' })} />
             )}
@@ -372,11 +365,13 @@ export default function App() {
         agents={studioAgents}
         theme={theme}
         userInitial={displayName[0]}
+        username={displayName}
         navItems={visibleNav}
         activeId={activeTab}
         onNavigate={(tab) => { setActiveTab(tab); setActiveTaskDetail(null); setOpenAgent(null); }}
         onLogout={handleLogout}
         activePage={activePage}
+        onNavigateTask={(id) => { setActiveTab('board'); setActiveTaskDetail({ id, mode: 'full' }); }}
       />
 
       {/* 全局消息提醒：Toast + 统一确认弹窗（内联渲染，继承 theme-${theme} 主题） */}
