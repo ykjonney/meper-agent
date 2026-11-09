@@ -206,11 +206,14 @@ export function ActivityGroup({
   })();
   // 纯思考动效判据：消息流式中 && 本轮正文未开始
   const isLive = !!msgStreaming && !hasOwnText;
-  // 收起时机：① 本段过程后出现 text（段边界确定，由 hasOwnText 驱动——
-  // 方案 1 分段卡架构）；② 流结束（done）。无任何启发式猜测。
+  // 收起时机：仅段边界（本段过程后出现 text）。流结束不再触发收起——
+  // 结束瞬间「最后一段组塌缩几百 px + 生成中动效消失 + 操作区出现」
+  // 多事件叠加 = 页面闪一下；最后一组保持展开（手动可收，历史加载本就是收起态）。
+  // finished（含流结束）仅作组头完成态展示判据；segEnded 才驱动开合。
   const finished = !!hasOwnText || !msgStreaming;
+  const segEnded = !!hasOwnText;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
-  const prevFinished = useRef(finished);
+  const prevSegEnded = useRef(segEnded);
   const prevRunning = useRef(isRunning);
   // 组内 thinking 块的展开态（本地管理，不回写消息树）
   const [openThinkings, setOpenThinkings] = useState<Set<string>>(new Set());
@@ -227,15 +230,15 @@ export function ActivityGroup({
   };
   useEffect(() => {
     // 状态跃迁驱动展开/收起（用户手动操作后仅在跃迁时跟随一次）：
-    // - 过程未结束（最终正文未开始）或有工具在跑 → 展开（过程=实时进度）
+    // - 段未结束（正文未开始）或有工具在跑 → 展开（过程=实时进度）
     // - 正文已开始且无工具在跑 → 收起为摘要行（出错/待答交互卡不藏）
-    if (prevFinished.current !== finished || prevRunning.current !== isRunning) {
-      prevFinished.current = finished;
+    if (prevSegEnded.current !== segEnded || prevRunning.current !== isRunning) {
+      prevSegEnded.current = segEnded;
       prevRunning.current = isRunning;
-      if (!finished || isRunning) setOpen(true);
+      if (!segEnded || isRunning) setOpen(true);
       else if (!hasError && !interrupted && !hasOpenInteractive) setOpen(false);
     }
-  }, [finished, isRunning, hasError, interrupted, hasOpenInteractive]);
+  }, [segEnded, isRunning, hasError, interrupted, hasOpenInteractive]);
 
   // 过程条目：按时序直接平铺（thinking/工具/小结/错误各自渲染）——
   // 不再做「执行了 N 个工具」的内部折叠批：外层卡组头已有计数汇总，
@@ -318,20 +321,29 @@ export function ActivityGroup({
         }}
         className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-raise transition-colors rounded-[10px]"
       >
-        {/* 组头不放置动效——spinner 只出现在正在执行的工具条目上，
-            避免"内外两层同时转圈"的重复动效 */}
-        {isRunning ? (
-          <Wrench className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
-        ) : hasError ? (
+        {/* 组头状态按段级判据（finished）切换：段内纹丝不动，只在段边界
+            切一次——若按 isRunning 判，每个工具间隙（模型生成下个 tool call）
+            都会在「正在执行工具」↔「执行了 N 个」间高频跳变 = 闪屏感。
+            仍不放动效——spinner 只出现在正在执行的工具条目上（动效重心），
+            避免"内外两层同时转圈"的重复动效。 */}
+        {hasError ? (
           <AlertTriangle className="w-3.5 h-3.5 self-center text-sig-fail shrink-0" />
+        ) : !finished ? (
+          toolCount > 0 ? (
+            <Wrench className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
+          ) : (
+            <Brain className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
+          )
         ) : (
           <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
         )}
-        <span className={`text-xs font-medium shrink-0 leading-none ${isRunning ? 'text-sig-wait' : 'text-ink-dim'}`}>
+        <span className={`text-xs font-medium shrink-0 leading-none ${hasError || finished ? 'text-ink-dim' : 'text-sig-wait'}`}>
           {hasError
             ? '执行出错'
-            : isRunning
-              ? '正在执行工具'
+            : !finished
+              ? toolCount > 0
+                ? '正在执行工具'
+                : '思考中'
               : toolCount > 0
                 ? `执行了 ${toolCount} 个工具`
                 : '思考完成'}

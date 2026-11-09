@@ -219,7 +219,7 @@ export function MessageItem({
         )}
         {/* 回答下方：消息级反馈（§8.2 v2）——赞回复→本轮技能派生加分 */}
         {!isUser && !isStreaming && msg.requestId && (
-          <div className="flex items-center gap-0.5 pt-1">
+          <div className="flex items-center gap-0.5 pt-1 animate-fade-in">
             <button
               aria-label="msg-vote-up"
               title={feedbackMap[msg.requestId]?.value === 1 ? '已点过赞' : '这轮回复有帮助'}
