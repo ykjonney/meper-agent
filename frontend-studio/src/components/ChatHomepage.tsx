@@ -528,6 +528,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           const status = (e as { response?: { status?: number } })?.response?.status;
           const msg = (e as Error).message ?? '';
           if (status === 404 || /不存在|not found/i.test(msg)) {
+            // 列表缓存可能仍含已删除条目（点击后详情 404）——静默回欢迎页
+            // 会让用户莫名其妙；明确提示 + 刷新列表剔除死条目。
+            toast.error('会话不存在或已被删除');
+            qc.invalidateQueries({ queryKey: sessionKeys.lists() });
             setActiveSessionId(null);
             setLiveMessages([]);
             pinnedRef.current = true;
