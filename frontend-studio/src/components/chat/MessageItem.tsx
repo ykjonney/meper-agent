@@ -215,31 +215,31 @@ export function MessageItem({
                 <RotateCcw size={15} />
               </button>
             )}
-          </div>
-        )}
-        {/* 回答下方：消息级反馈（§8.2 v2）——赞回复→本轮技能派生加分 */}
-        {!isUser && !isStreaming && msg.requestId && (
-          <div className="flex items-center gap-0.5 pt-1 animate-fade-in">
-            <button
-              aria-label="msg-vote-up"
-              title={feedbackMap[msg.requestId]?.value === 1 ? '已点过赞' : '这轮回复有帮助'}
-              onClick={() => onVote(msg.requestId!, 1)}
-              className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                feedbackMap[msg.requestId]?.value === 1 ? 'text-brand' : 'text-ink-dim hover:text-brand'
-              }`}
-            >
-              <ThumbsUp size={15} />
-            </button>
-            <button
-              aria-label="msg-vote-down"
-              title={feedbackMap[msg.requestId]?.value === -1 ? '已点过踩' : '这轮回复没帮助'}
-              onClick={() => onVote(msg.requestId!, -1)}
-              className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                feedbackMap[msg.requestId]?.value === -1 ? 'text-sig-fail' : 'text-ink-dim hover:text-sig-fail'
-              }`}
-            >
-              <ThumbsDown size={15} />
-            </button>
+            {/* 消息级反馈（§8.2 v2）——赞回复→本轮技能派生加分；与复制同行 */}
+            {msg.requestId && (
+              <button
+                aria-label="msg-vote-up"
+                title={feedbackMap[msg.requestId]?.value === 1 ? '已点过赞' : '这轮回复有帮助'}
+                onClick={() => onVote(msg.requestId!, 1)}
+                className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
+                  feedbackMap[msg.requestId]?.value === 1 ? 'text-brand' : 'text-ink-dim hover:text-brand'
+                }`}
+              >
+                <ThumbsUp size={15} />
+              </button>
+            )}
+            {msg.requestId && (
+              <button
+                aria-label="msg-vote-down"
+                title={feedbackMap[msg.requestId]?.value === -1 ? '已点过踩' : '这轮回复没帮助'}
+                onClick={() => onVote(msg.requestId!, -1)}
+                className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
+                  feedbackMap[msg.requestId]?.value === -1 ? 'text-sig-fail' : 'text-ink-dim hover:text-sig-fail'
+                }`}
+              >
+                <ThumbsDown size={15} />
+              </button>
+            )}
           </div>
         )}
       </div>
