@@ -311,7 +311,11 @@ export function ActivityGroup({
     <div className="rounded-[10px] bg-page overflow-hidden font-sans">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // 手动展开/收起组栏 = 原地查看 → 解除贴底锁（防 RO 跳底拽走视口）
+          if (pinnedRef) pinnedRef.current = false;
+          setOpen((v) => !v);
+        }}
         className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-raise transition-colors rounded-[10px]"
       >
         {/* 组头不放置动效——spinner 只出现在正在执行的工具条目上，

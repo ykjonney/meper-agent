@@ -59,6 +59,9 @@ export function MessageList({
   }, [chatScrollRef]);
   return (
     <>
+    {/* overflow-anchor:none：禁用浏览器滚动锚定——展开/收起卡片时锚点元素
+        被推挤会触发自动补偿滚动，视口跟着内容窜走（用户要的是原地静止；
+        贴底跟随由 ResizeObserver 显式控制，不依赖锚定）。 */}
     <div
       ref={chatScrollRef}
       onScroll={(e) => {
@@ -73,7 +76,7 @@ export function MessageList({
           setShowJumpToBottom(false);
         }
       }}
-      className="flex-1 min-h-0 overflow-y-auto scrollbar-custom px-4 lg:px-6 pt-5 pb-3"
+      className="flex-1 min-h-0 overflow-y-auto scrollbar-custom [overflow-anchor:none] px-4 lg:px-6 pt-5 pb-3"
     >
       <div className="max-w-[840px] mx-auto space-y-5">
       {/* 空会话欢迎界面：已选 Agent 但还没有消息 */}
