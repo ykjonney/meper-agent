@@ -95,6 +95,7 @@ export function MessageList({
         <MessageItem
           key={msg.id}
           msg={msg}
+          pinnedRef={pinnedRef}
           isLast={mi === messages.length - 1}
           theme={theme}
           streamingMsgId={streamingMsgId}

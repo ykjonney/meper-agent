@@ -10,6 +10,9 @@ import { ChatAttachmentCard } from './ChatAttachmentCard';
 
 interface MessageItemProps {
   msg: Message;
+  /** 贴底跟随锁（ChatHomepage 维护）：用户手动展开/收起卡片时解锁，
+   *  避免高度变化触发贴底跳转把视口拽走 */
+  pinnedRef?: RefObject<boolean>;
   isLast: boolean;
   theme: 'dark' | 'light';
   streamingMsgId: string | null;
@@ -30,7 +33,7 @@ interface MessageItemProps {
 /** 单条聊天消息：user 单气泡 / agent 按 timeline 轮次渲染（活动组+正文），
  *  含附件卡、生成中动效、复制/重新生成、消息级反馈。 */
 export function MessageItem({
-  msg, isLast, theme, streamingMsgId, isStreaming, activeSessionId, feedbackMap,
+  msg, pinnedRef, isLast, theme, streamingMsgId, isStreaming, activeSessionId, feedbackMap,
   inputTextareaRef, onAnswer, onRegenerate, onDismissInterrupt, onApprovePlan, onVote, setInputText,
 }: MessageItemProps) {
   const isUser = msg.role === 'user';
@@ -99,6 +102,7 @@ export function MessageItem({
                 key={`seg-${segIdx++}`}
                 entries={seg}
                 msgId={msg.id}
+                pinnedRef={pinnedRef}
                 interrupted={!!msg.isInterrupted}
                 theme={theme}
                 thinkingActive={msg.status === 'thinking'}

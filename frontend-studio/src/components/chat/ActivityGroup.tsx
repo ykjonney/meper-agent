@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEvent, useCallback, type MouseEvent, type ChangeEvent, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEvent, useCallback, type MouseEvent, type ChangeEvent, type ReactNode, type RefObject } from 'react';
 import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../../types'
 import {
   Send, Plus, Trash2, FileCode, CheckCircle, Check,
@@ -140,6 +140,7 @@ export function ParallelToolBatch({ entries, msgId }: { entries: TimelineEntry[]
 export function ActivityGroup({
   entries,
   msgId,
+  pinnedRef,
   interrupted,
   theme,
   thinkingActive,
@@ -152,6 +153,8 @@ export function ActivityGroup({
 }: {
   entries: TimelineEntry[];
   msgId: string;
+  /** 贴底跟随锁：用户手动展开/收起卡片时置 false，防止高度变化被贴底跳转拽走视口 */
+  pinnedRef?: RefObject<boolean>;
   interrupted: boolean;
   theme: 'dark' | 'light';
   /** 消息是否仍处于思考态（空 thinking 保留动效的判据） */
@@ -211,13 +214,17 @@ export function ActivityGroup({
   const prevRunning = useRef(isRunning);
   // 组内 thinking 块的展开态（本地管理，不回写消息树）
   const [openThinkings, setOpenThinkings] = useState<Set<string>>(new Set());
-  const toggleThinking = (id: string) =>
+  const toggleThinking = (id: string) => {
+    // 用户主动展开/收起思考卡 = 想原地查看 → 解除贴底锁，后续流式更新
+    // 经 updateLiveMessages 重新按几何距离检测、自动恢复正确状态。
+    if (pinnedRef) pinnedRef.current = false;
     setOpenThinkings((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
   useEffect(() => {
     // 状态跃迁驱动展开/收起（用户手动操作后仅在跃迁时跟随一次）：
     // - 过程未结束（最终正文未开始）或有工具在跑 → 展开（过程=实时进度）
@@ -278,6 +285,7 @@ export function ActivityGroup({
           key={`en-${i}`}
           entry={entry}
           msgId={msgId}
+          pinnedRef={pinnedRef}
           interrupted={interrupted}
           theme={theme}
           onAnswer={onAnswer}

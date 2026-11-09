@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEvent, useCallback, type MouseEvent, type ChangeEvent, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEvent, useCallback, type MouseEvent, type ChangeEvent, type ReactNode, type RefObject } from 'react';
 import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../../types'
 import {
   Send, Plus, Trash2, FileCode, CheckCircle, Check,
@@ -116,6 +116,7 @@ export function ThinkingEntryCard({
 export function ToolEntryCard({
   entry,
   msgId,
+  pinnedRef,
   interrupted,
   onAnswer,
   onDismiss,
@@ -125,6 +126,8 @@ export function ToolEntryCard({
 }: {
   entry: TimelineEntry;
   msgId: string;
+  /** 贴底跟随锁：用户手动展开/收起卡片时置 false，防止高度变化被贴底跳转拽走视口 */
+  pinnedRef?: RefObject<boolean>;
   interrupted: boolean;
   onAnswer?: (answer: string) => void;
   onDismiss?: () => void;
@@ -247,7 +250,12 @@ export function ToolEntryCard({
       {/* 单行摘要：点击展开原始参数与结果 */}
       <button
         type="button"
-        onClick={() => hasDetail && setExpanded((v) => !v)}
+        onClick={() => {
+          // 手动展开/收起 = 原地查看 → 解除贴底锁（防 RO 跳底拽走视口）
+          if (!hasDetail) return;
+          if (pinnedRef) pinnedRef.current = false;
+          setExpanded((v) => !v);
+        }}
         className={`w-full flex items-center gap-2 px-2.5 py-1.5 bg-transparent border-0 text-left transition-colors rounded-lg ${
           hasDetail ? `cursor-pointer ${cfg.hover}` : 'cursor-default'
         }`}
@@ -374,7 +382,10 @@ export function ToolEntryCard({
               {resultTooLong && (
                 <button
                   type="button"
-                  onClick={() => setResultExpanded((v) => !v)}
+                  onClick={() => {
+                    if (pinnedRef) pinnedRef.current = false;
+                    setResultExpanded((v) => !v);
+                  }}
                   className={`mt-1 text-[11px] underline ${cfg.icon} opacity-80 hover:opacity-100 cursor-pointer`}
                 >
                   {resultExpanded ? '收起结果' : `展开全部 (${countZi(result.text)} 字)`}
