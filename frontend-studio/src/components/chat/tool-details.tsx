@@ -160,10 +160,10 @@ export function toolSummary(entry: TimelineEntry): { verb: string; detail: strin
     return '';
   };
   if (name === 'bash' || name === 'run_command' || name === 'execute') {
-    const cmd = pick('command', 'cmd', 'script');
-    // 多行命令（heredoc 等）取首行示意，完整命令在详情里
-    const firstLine = cmd.split('\n')[0];
-    return { verb: '执行命令', detail: firstLine + (cmd.includes('\n') ? ' …' : '') };
+    // 多行命令（heredoc 等）压平为单行示意：截断交给摘要行 CSS truncate
+    // （到行尾才出省略号，而非 JS 首行截断），完整命令在详情里
+    const cmd = pick('command', 'cmd', 'script').replace(/\s*\n\s*/g, ' ').trim();
+    return { verb: '执行命令', detail: cmd };
   }
   if (name === 'read_file' || name === 'read')
     return { verb: '读取文件', detail: pick('path', 'file_path', 'file_id', 'file') };

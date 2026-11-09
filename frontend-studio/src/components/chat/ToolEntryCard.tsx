@@ -276,14 +276,6 @@ export function ToolEntryCard({
             {formatToolDuration(entry.endedAt - entry.startedAt)}
           </span>
         )}
-        {!running && (
-          <span className="shrink-0 text-[10.5px] text-ink-faint font-mono">{cfg.label}</span>
-        )}
-        {hasDetail && (
-          <ChevronRight
-            className={`w-3 h-3 shrink-0 text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`}
-          />
-        )}
       </button>
 
       {/* Detail pane */}
