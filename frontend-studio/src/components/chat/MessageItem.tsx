@@ -66,10 +66,7 @@ export function MessageItem({
       <div className="space-y-1 min-w-0 flex-1">
         <div className={`flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-ink-faint ${isUser ? 'justify-end' : ''}`}>
           {!isUser && (
-            <span className="font-bold text-ink-dim font-sans">
-              {msg.senderName}
-              {msg.status === 'thinking' && <span className="text-brand ml-1">· 思考中</span>}
-            </span>
+            <span className="font-bold text-ink-dim font-sans">{msg.senderName}</span>
           )}
           <span className="text-ink-dim font-mono">{msg.timestamp}</span>
           {!isUser && msg.usage?.total_tokens ? (

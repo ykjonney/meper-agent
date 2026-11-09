@@ -468,30 +468,44 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           }
           // 会话加载完成回到贴底：最新消息就在底部。
           pinnedRef.current = true;
-          // 落库 timeline 无工具耗时：从 ref 里把前端记录的 startedAt/endedAt
-          // 按 toolCallId 回填（否则 done 后绑定会话触发本加载，收起态组头的
-          // 执行耗时会闪一下就消失——effect 先行清空了 liveMessages，state
-          // 途径取不到流式数据）。
-          setLiveMessages(() => {
+          setLiveMessages((prev) => {
+            // 位置+角色配对沿用流式占位 id：落库 rec._id 替换占位 id 会让
+            // 全列表 MessageItem key 变化 → 重挂载 → animate-fade-in 重播 +
+            // ActivityGroup open 状态归零（最后一段组被打回收起态塌缩）
+            // = done 绑定会话后整页闪一下。沿用旧 id 时 React 按 key 原地
+            // 更新，数据仍是权威落库内容。
+            const paired =
+              prev.length > 0
+                ? mapped.map((m, i) => {
+                    const old = prev[i];
+                    return old && old.role === m.role ? { ...m, id: old.id } : m;
+                  })
+                : mapped;
+            // 落库 timeline 无工具耗时：从 ref 里把前端记录的 startedAt/endedAt
+            // 按 toolCallId 回填（否则收起态组头的执行耗时会闪一下就消失——
+            // state 途径取不到流式数据，只能靠 ref 跨阶段兜底）。
             const times = toolTimesRef.current;
-            if (!times.size) return mapped;
-            return mapped.map((m) =>
-              m.timeline?.some((e) => e.type === 'tool' && e.toolCallId && times.has(e.toolCallId))
-                ? {
-                    ...m,
-                    timeline: m.timeline.map((e) =>
-                      e.type === 'tool' && e.toolCallId && times.has(e.toolCallId)
-                        ? { ...e, ...times.get(e.toolCallId) }
-                        : e,
-                    ),
-                  }
-                : m,
-            );
+            const filled = !times.size
+              ? paired
+              : paired.map((m) =>
+                  m.timeline?.some((e) => e.type === 'tool' && e.toolCallId && times.has(e.toolCallId))
+                    ? {
+                        ...m,
+                        timeline: m.timeline.map((e) =>
+                          e.type === 'tool' && e.toolCallId && times.has(e.toolCallId)
+                            ? { ...e, ...times.get(e.toolCallId) }
+                            : e,
+                        ),
+                      }
+                    : m,
+                );
+            // 检测未答的 interrupt（ask_clarification/confirm_workflow）：页面跳转后
+            // SSE 中断导致 pendingInterruptRef 丢失，从历史恢复（与渲染列表同 id），
+            // 使下次发送走 /resume。赋值幂等，updater 双跑（StrictMode）无副作用。
+            const pending = [...filled].reverse().find((m) => m.isInterrupted);
+            if (pending) pendingInterruptRef.current = { toolMsgId: pending.id };
+            return filled;
           });
-          // 检测未答的 interrupt（ask_clarification/confirm_workflow）：页面跳转后
-          // SSE 中断导致 pendingInterruptRef 丢失，从历史恢复，使下次发送走 /resume。
-          const pending = [...mapped].reverse().find((m) => m.isInterrupted);
-          if (pending) pendingInterruptRef.current = { toolMsgId: pending.id };
 
           if (pendingBackgroundSessionsRef.current.has(sid)) {
             const lastIsAgent =
