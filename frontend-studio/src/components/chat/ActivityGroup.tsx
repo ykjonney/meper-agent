@@ -44,6 +44,7 @@ import { voiceConfigApi, voiceConfigKeys } from '../../services/voice-config-api
 // 思考档位元数据：label=档位文字，color=强度色（信号色 token，明暗主题自适应；
 // off=灰 / low=绿 / medium=黄 / high=橙红）。
 import { ThinkingEntryCard, ToolEntryCard } from './ToolEntryCard';
+import { formatToolDuration } from './tool-details';
 import { isInteractiveTool } from './tool-details';
 
 export function StreamingDots() {
@@ -209,6 +210,15 @@ export function ActivityGroup({
   const finished = !!hasOwnText || !msgStreaming;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
   const prevFinished = useRef(finished);
+  // 执行中实时计时：组挂载即过程开始（首个过程条目出现），每秒跳动；
+  // finished 后停表，组头换静态 execDurationLabel（后端 usage 口径）。
+  const mountAtRef = useRef(Date.now());
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (finished && !isRunning) return;
+    const timer = setInterval(() => setTick((v) => v + 1), 1000);
+    return () => clearInterval(timer);
+  }, [finished, isRunning]);
   const prevRunning = useRef(isRunning);
   // 组内 thinking 块的展开态（本地管理，不回写消息树）
   const [openThinkings, setOpenThinkings] = useState<Set<string>>(new Set());
@@ -325,25 +335,24 @@ export function ActivityGroup({
             避免"内外两层同时转圈"的重复动效。 */}
         {hasError ? (
           <AlertTriangle className="w-3.5 h-3.5 self-center text-sig-fail shrink-0" />
-        ) : !finished ? (
-          toolCount > 0 ? (
-            <Wrench className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
-          ) : (
-            <Brain className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
-          )
+        ) : !finished || isRunning ? (
+          <Wrench className="w-3.5 h-3.5 self-center text-sig-wait shrink-0" />
         ) : (
           <CheckCircle className="w-3.5 h-3.5 self-center text-ink-faint shrink-0" />
         )}
         <span className={`text-xs font-medium shrink-0 leading-none ${hasError || finished ? 'text-ink-dim' : 'text-sig-wait'}`}>
           {hasError
             ? '执行出错'
-            : !finished
-              ? toolCount > 0
-                ? '正在执行工具'
-                : '思考中'
+            : !finished || isRunning
+              ? '执行中'
               : '已完成'}
         </span>
-        {finished && execDurationLabel && (
+        {!hasError && (!finished || isRunning) && (
+          <span className="text-[11px] text-ink-faint font-mono shrink-0">
+            · {formatToolDuration(Date.now() - mountAtRef.current)}
+          </span>
+        )}
+        {finished && !isRunning && execDurationLabel && (
           <span className="text-[11px] text-ink-faint font-mono shrink-0">
             · 用时 {execDurationLabel}
           </span>
