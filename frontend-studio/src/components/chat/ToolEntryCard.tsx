@@ -3,7 +3,7 @@ import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../../t
 import {
   Send, Plus, Trash2, FileCode, CheckCircle, Check,
   Bot, Terminal, Loader2, Paperclip, Brain, X, ClipboardList, ShieldAlert,
-  Wrench, AlertTriangle, ChevronRight, ChevronDown, User, Download, FileText, Image as ImageIcon, Mic, Copy, RotateCcw,
+  Wrench, AlertTriangle, ChevronDown, User, Download, FileText, Image as ImageIcon, Mic, Copy, RotateCcw,
   PenLine, SquarePen, FolderSearch, Search, Globe, Link2, BarChart3, FileSearch, BookOpen,
   ThumbsUp, ThumbsDown, PanelRight, Workflow,
   FolderOpen, LayoutDashboard, Shield, ArrowLeftRight, Key,
@@ -93,8 +93,6 @@ export function ThinkingEntryCard({
             <span className="text-[11px] text-ink-faint font-mono">{countZi(entry.content)} 字</span>
           )
         )}
-        <span className="text-[11px] text-ink-faint ml-auto">{expanded ? '收起' : '展开'}</span>
-        <ChevronRight className={`w-3 h-3 text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
       {expanded && (
         <div
