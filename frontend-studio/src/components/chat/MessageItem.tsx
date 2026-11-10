@@ -7,6 +7,7 @@ import type { Message, TimelineEntry } from '../../types';
 import type { SessionFeedbackItem } from '../../services/user-skills-api';
 import { ActivityGroup, StreamingDots } from './ActivityGroup';
 import { ChatAttachmentCard } from './ChatAttachmentCard';
+import { ToolEntryCard } from './ToolEntryCard';
 import { formatToolDuration, isChartResultEntry } from './tool-details';
 
 interface MessageItemProps {
@@ -123,26 +124,42 @@ export function MessageItem({
                   <Markdown content={entry.result ?? ''} />
                 </div>
               ))}
-              {finalTexts.map((entry, i) => (
-                <div
-                  key={`tx-${i}`}
-                  className="text-[14px] leading-[1.75] font-sans select-text text-ink"
-                >
-                  <Markdown content={entry.content} />
-                  {/* 产出附件挂最终正文（最后一段 text）后面 */}
-                  {i === finalTexts.length - 1 && msg.attachments && msg.attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
-                      {msg.attachments.map((att, ai) => (
-                        <ChatAttachmentCard
-                          key={`${msg.id}-att-${ai}-${att.ref}`}
-                          att={att}
-                          sessionId={activeSessionId}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {finalTexts.map((entry, i) =>
+                entry.type === 'text' ? (
+                  <div
+                    key={`tx-${i}`}
+                    className="text-[14px] leading-[1.75] font-sans select-text text-ink"
+                  >
+                    <Markdown content={entry.content} />
+                    {/* 产出附件挂最终正文（最后一段 text）后面 */}
+                    {i === finalTexts.length - 1 && msg.attachments && msg.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
+                        {msg.attachments.map((att, ai) => (
+                          <ChatAttachmentCard
+                            key={`${msg.id}-att-${ai}-${att.ref}`}
+                            att={att}
+                            sessionId={activeSessionId}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* 挂起的 HITL 交互卡（ask_clarification 等位于最后 text 之后）：
+                     必须以交互卡渲染——吞进 text 平铺会让澄清卡凭空消失 */
+                  <ToolEntryCard
+                    key={`tool-${i}`}
+                    entry={entry}
+                    msgId={msg.id}
+                    pinnedRef={pinnedRef}
+                    interrupted={!!msg.isInterrupted}
+                    theme={theme}
+                    onAnswer={onAnswer}
+                    onDismiss={() => onDismissInterrupt(msg.id)}
+                    onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
+                  />
+                ),
+              )}
             </div>
           );
         })() : (
