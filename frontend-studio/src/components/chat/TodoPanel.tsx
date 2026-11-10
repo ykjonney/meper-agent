@@ -43,6 +43,7 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
       <button
         type="button"
         onClick={toggle}
+        aria-expanded={open}
         className="h-8 flex items-center gap-1.5 px-2.5 bg-panel border border-line rounded-full shadow-[var(--shadow-card)] cursor-pointer transition hover:border-line-strong"
         title="任务清单"
       >
