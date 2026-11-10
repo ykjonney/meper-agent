@@ -3,11 +3,12 @@ import { Copy, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { toast } from '../ui/toast';
 import AvatarRender from '../AvatarRender';
 import { Markdown } from '../Markdown';
-import type { Message } from '../../types';
+import type { Message, TimelineEntry } from '../../types';
 import type { SessionFeedbackItem } from '../../services/user-skills-api';
 import { ActivityGroup, StreamingDots } from './ActivityGroup';
 import { ChatAttachmentCard } from './ChatAttachmentCard';
-import { formatToolDuration } from './tool-details';
+import { formatToolDuration, isChartResultEntry } from './tool-details';
+import { ToolEntryCard } from './ToolEntryCard';
 
 interface MessageItemProps {
   msg: Message;
@@ -95,8 +96,15 @@ export function MessageItem({
           /* 单组合并形态（用户模型「除最终输出外都是过程」）：最终回答之前的全部
              条目（thinking/工具/中间小结 text）打包为一个过程组——流式中组自动展开
              （进度与小结实时可见），最终回答 text 出现或流结束即 finished → 收起为
-             「已完成 · 用时X」。同一种 DOM 形态只变 open，无形态重建闪屏。 */
-          const procEntries = lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl;
+             「已完成 · 用时X」。同一种 DOM 形态只变 open，无形态重建闪屏。
+             图表例外：render_chart 成品从组内抽出平铺（产出与最终回答并列，
+             收起后仍可见——图表不该藏在折叠里）。 */
+          const procEntries: TimelineEntry[] = [];
+          const chartEntries: TimelineEntry[] = [];
+          (lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl).forEach((e) => {
+            if (isChartResultEntry(e)) chartEntries.push(e);
+            else procEntries.push(e);
+          });
           const finalTexts = lastTextIdx >= 0 ? tl.slice(lastTextIdx) : [];
           return (
             <div className="space-y-2">
@@ -116,6 +124,15 @@ export function MessageItem({
                 onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
                 planVersion={undefined}
               />
+              {chartEntries.map((entry, i) => (
+                <ToolEntryCard
+                  key={`chart-${i}`}
+                  entry={entry}
+                  msgId={msg.id}
+                  interrupted={!!msg.isInterrupted}
+                  theme={theme}
+                />
+              ))}
               {finalTexts.map((entry, i) => (
                 <div
                   key={`tx-${i}`}

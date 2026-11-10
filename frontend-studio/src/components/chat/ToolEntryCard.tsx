@@ -43,7 +43,7 @@ import { voiceConfigApi, voiceConfigKeys } from '../../services/voice-config-api
 
 // 思考档位元数据：label=档位文字，color=强度色（信号色 token，明暗主题自适应；
 // off=灰 / low=绿 / medium=黄 / high=橙红）。
-import { RESULT_COLLAPSE_THRESHOLD, TOOL_STATUS_CFG, ToolTypeIcon, formatToolArgs, formatToolDuration, formatToolResult, toolDetail, toolSummary } from './tool-details';
+import { RESULT_COLLAPSE_THRESHOLD, TOOL_STATUS_CFG, ToolTypeIcon, formatToolArgs, formatToolDuration, formatToolResult, isChartResultEntry, toolDetail, toolSummary } from './tool-details';
 import { ClarificationCard } from './ClarificationCard';
 import { GuardRedirectNote, PlanCard } from './PlanCard';
 
@@ -232,8 +232,7 @@ export function ToolEntryCard({
   const cfg = TOOL_STATUS_CFG[status];
   // render_chart：结果含 ```echarts fenced block → 详情区走 Markdown 自动出图，
   // 且默认展开（图表是工具的核心产出，不该藏在折叠里）。
-  const isChartResult =
-    entry.toolName === 'render_chart' && /```(?:echarts|chart)\s*\n/i.test(entry.result ?? '');
+  const isChartResult = isChartResultEntry(entry);
   // parse_file：成功解析（返回 markdown 首行 "# 文件名（类型，摘要）"）→ 专属
   // 文件卡片（FileText 图标 + 文件名标题 + 元信息徽标），详情区 Markdown 渲染，
   // 默认折叠（提取内容通常较长）。失败（[parse_file] 前缀错误文本）走通用卡片。

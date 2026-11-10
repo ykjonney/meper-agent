@@ -148,6 +148,16 @@ export function formatToolResult(raw?: string): { text: string; isJson: boolean 
 
 export const RESULT_COLLAPSE_THRESHOLD = 800;
 
+/** render_chart 且结果含 echarts/chart fenced block → 图表是核心产出：
+ *  MessageItem 将其从过程组抽出平铺（收起后仍可见），ToolEntryCard 据此
+ *  详情区走 Markdown 自动出图且默认展开。两处共用同一判定。 */
+export function isChartResultEntry(entry: TimelineEntry): boolean {
+  return (
+    entry.toolName === 'render_chart' &&
+    /```(?:echarts|chart)\s*\n/i.test(entry.result ?? '')
+  );
+}
+
 /** 流式执行中三点跳动（消息级动效）。与 ThinkingEntryCard 头部圆点同款
  *  （animate-thinking-dot + 0.18s stagger），对齐 client streaming-dots：
  *  放在消息末尾、不碰 markdown 内部，稳定不抖。 */
