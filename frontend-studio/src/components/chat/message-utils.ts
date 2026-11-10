@@ -131,6 +131,45 @@ export function parseOutputAttachments(text: string): ChatAttachment[] {
   return out;
 }
 
+export interface TodoItem {
+  content: string;
+  status: string;
+}
+
+/** 解析 todo_write 的 args → 清单项（非法项过滤）。
+ *  自 ToolEntryCard.parseTodoItems 迁入（会话流内不再渲染 todo 卡）。 */
+export function parseTodoItems(args: unknown): TodoItem[] {
+  const todos = (args as { todos?: unknown } | undefined)?.todos;
+  if (!Array.isArray(todos)) return [];
+  return todos
+    .filter(
+      (t): t is { content?: unknown; status?: unknown } =>
+        typeof t === 'object' && t !== null,
+    )
+    .map((t) => ({
+      content: String(t.content ?? ''),
+      status: String(t.status ?? 'pending'),
+    }));
+}
+
+/** 最新任务清单快照（顶栏 TodoPanel 数据源）：倒序找最后一条 todo_write
+ *  的 timeline 条目；清空调用（todos=[]，任务闭环）或无记录 → null。
+ *  仅扫 tool_call 条目的 args（全量替换语义，最后一次调用即当前清单）。 */
+export function extractLatestTodos(messages: Message[]): TodoItem[] | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const tl = messages[mi].timeline;
+    if (!tl) continue;
+    for (let i = tl.length - 1; i >= 0; i--) {
+      const e = tl[i];
+      if (e.type === 'tool' && e.toolName === 'todo_write') {
+        const items = parseTodoItems(e.args);
+        return items.length ? items : null;
+      }
+    }
+  }
+  return null;
+}
+
 /** done 事件的权威终态 timeline（与落库同源）→ 展示 entries。流结束时整体
  *  替换流式累加结果——无论流过程发生何种漂移（resume 重放/事件重复），
  *  流结束瞬间与刷新后加载的持久化消息必然一致。旧后端不带 timeline 时
