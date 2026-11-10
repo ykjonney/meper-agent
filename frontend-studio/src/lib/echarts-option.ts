@@ -174,9 +174,51 @@ export function validateOption(option: ChartOption): ValidationResult {
   return { ok: true, option };
 }
 
-/** 端到端：解析 + 安全校验 + 契约校验。 */
+/**
+ * 布局规范化（LLM 高风险输入的防御层）：
+ * 直角坐标系（含 xAxis）下 legend 落在底部（bottom / top:"bottom"）会与
+ * X 轴标签撞层（实测重叠错乱）——统一移到顶部；有 title 时下移让位，
+ * grid.top 同步预留 legend 高度。pie 等无 xAxis 的图表不动。
+ */
+function normalizeLayout(option: ChartOption): ChartOption {
+  if (!option.xAxis) return option;
+  const legend = option.legend;
+  if (!legend || typeof legend !== 'object' || Array.isArray(legend)) return option;
+  const l = legend as Record<string, unknown>;
+  const legendAtBottom = l.bottom != null || l.top === 'bottom';
+  if (!legendAtBottom) return option;
+
+  // title 在顶部（默认位置）→ legend 下移让位，否则贴顶
+  const title = option.title;
+  const titleTop =
+    title && typeof title === 'object' && !Array.isArray(title)
+      ? (title as Record<string, unknown>).top
+      : undefined;
+  const hasTopTitle =
+    title != null &&
+    (titleTop == null || titleTop === 'top' || titleTop === 0 || (typeof titleTop === 'number' && titleTop < 32));
+  const fixedLegend: Record<string, unknown> = { ...l };
+  delete fixedLegend.bottom;
+  fixedLegend.top = hasTopTitle ? 36 : 0;
+
+  // grid.top 预留 legend + title 的垂直空间（echarts 默认 60，撞 legend）
+  const grid = option.grid;
+  const gridTop = hasTopTitle ? 84 : 56;
+  if (grid && typeof grid === 'object' && !Array.isArray(grid)) {
+    const g = grid as Record<string, unknown>;
+    if (g.top == null || (typeof g.top === 'number' && g.top < gridTop)) {
+      return { ...option, legend: fixedLegend, grid: { ...g, top: gridTop } };
+    }
+    return { ...option, legend: fixedLegend };
+  }
+  return { ...option, legend: fixedLegend, grid: { ...(grid as object), top: gridTop } };
+}
+
+/** 端到端：解析 + 安全校验 + 契约校验 + 布局规范化。 */
 export function validateChartOptionString(raw: string): ValidationResult {
   const parsed = parseOption(raw);
   if (!parsed.ok) return parsed;
-  return validateOption(parsed.option);
+  const validated = validateOption(parsed.option);
+  if (!validated.ok) return validated;
+  return { ok: true, option: normalizeLayout(validated.option) };
 }
