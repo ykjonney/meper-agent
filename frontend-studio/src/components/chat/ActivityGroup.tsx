@@ -306,13 +306,6 @@ export function ActivityGroup({
       );
     });
 
-  // 单工具/纯思考段：不包卡壳，条目直接平铺（自带状态与交互）——
-  // 组头「执行了 N 个工具」只对多工具段的完成态才有信息量
-  const plain = realTools.length <= 1 && !hasError && !hasOpenInteractive;
-  if (plain) {
-    return <div className="space-y-1 font-sans">{renderEntries()}</div>;
-  }
-
   // 统一形态：流式中与完成后都是同一张折叠卡（流式中默认展开）——
   // 仅组头状态与 open 随运行状态变化。原实现流式中"平铺"、结束瞬间
   // 切换为折叠卡，整个 DOM 形态重建 → 几百 px 高度瞬间塌缩 = 刷一下。

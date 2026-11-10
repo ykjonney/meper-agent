@@ -129,6 +129,7 @@ export function MessageItem({
                   key={`chart-${i}`}
                   entry={entry}
                   msgId={msg.id}
+                  pinnedRef={pinnedRef}
                   interrupted={!!msg.isInterrupted}
                   theme={theme}
                 />
