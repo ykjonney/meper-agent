@@ -1,12 +1,13 @@
-import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react';
+import { type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { Copy, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { toast } from '../ui/toast';
 import AvatarRender from '../AvatarRender';
 import { Markdown } from '../Markdown';
-import type { Message, TimelineEntry } from '../../types';
+import type { Message } from '../../types';
 import type { SessionFeedbackItem } from '../../services/user-skills-api';
 import { ActivityGroup, StreamingDots } from './ActivityGroup';
 import { ChatAttachmentCard } from './ChatAttachmentCard';
+import { formatToolDuration } from './tool-details';
 
 interface MessageItemProps {
   msg: Message;
@@ -85,45 +86,44 @@ export function MessageItem({
              过程确定结束 → 该卡收起为摘要行；最后一段由流结束（done）收起。
              收起信号是确定性的段边界，无任何启发式猜测。 */
           const tl = msg.timeline!;
+          // 消息级执行用时（LLM+工具累计，秒→ms）。老消息 usage 无 duration 字段 → 0 → 不显示用时。
+          const execMs =
+            ((msg.usage?.llm_duration ?? 0) + (msg.usage?.tool_duration ?? 0)) * 1000;
+          const execDurationLabel = execMs > 0 ? formatToolDuration(execMs) : '';
           let lastTextIdx = -1;
           tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
-          const pieces: ReactNode[] = [];
-          let cur: TimelineEntry[] = [];
-          let segIdx = 0;
-          const flush = (hasTextAfter: boolean) => {
-            if (!cur.length) return;
-            const seg = cur;
-            cur = [];
-            pieces.push(
+          /* 单组合并形态（用户模型「除最终输出外都是过程」）：最终回答之前的全部
+             条目（thinking/工具/中间小结 text）打包为一个过程组——流式中组自动展开
+             （进度与小结实时可见），最终回答 text 出现或流结束即 finished → 收起为
+             「已完成 · 用时X」。同一种 DOM 形态只变 open，无形态重建闪屏。 */
+          const procEntries = lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl;
+          const finalTexts = lastTextIdx >= 0 ? tl.slice(lastTextIdx) : [];
+          return (
+            <div className="space-y-2">
               <ActivityGroup
-                key={`seg-${segIdx++}`}
-                entries={seg}
+                entries={procEntries}
                 msgId={msg.id}
                 pinnedRef={pinnedRef}
                 interrupted={!!msg.isInterrupted}
                 theme={theme}
                 thinkingActive={msg.status === 'thinking'}
-                /* 段后出现 text → 该段过程确定结束 → 收起为摘要行 */
-                hasOwnText={hasTextAfter}
+                /* 最终回答已出现在 timeline → 过程确定结束 → 收起为摘要行 */
+                hasOwnText={lastTextIdx >= 0}
                 msgStreaming={inFlight}
+                execDurationLabel={execDurationLabel}
                 onAnswer={onAnswer}
                 onDismiss={() => onDismissInterrupt(msg.id)}
                 onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
                 planVersion={undefined}
-              />,
-            );
-          };
-          tl.forEach((entry, i) => {
-            if (entry.type === 'text') {
-              flush(true);
-              pieces.push(
+              />
+              {finalTexts.map((entry, i) => (
                 <div
                   key={`tx-${i}`}
                   className="text-[14px] leading-[1.75] font-sans select-text text-ink"
                 >
                   <Markdown content={entry.content} />
                   {/* 产出附件挂最终正文（最后一段 text）后面 */}
-                  {i === lastTextIdx && msg.attachments && msg.attachments.length > 0 && (
+                  {i === finalTexts.length - 1 && msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
                       {msg.attachments.map((att, ai) => (
                         <ChatAttachmentCard
@@ -134,14 +134,10 @@ export function MessageItem({
                       ))}
                     </div>
                   )}
-                </div>,
-              );
-            } else {
-              cur.push(entry);
-            }
-          });
-          flush(false);
-          return <div className="space-y-2">{pieces}</div>;
+                </div>
+              ))}
+            </div>
+          );
         })() : (
         <div
           className={`font-sans select-text ${

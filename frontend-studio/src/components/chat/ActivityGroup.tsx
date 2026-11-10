@@ -150,6 +150,7 @@ export function ActivityGroup({
   onDismiss,
   onApprovePlan,
   planVersion,
+  execDurationLabel,
 }: {
   entries: TimelineEntry[];
   msgId: string;
@@ -167,6 +168,8 @@ export function ActivityGroup({
   onDismiss?: () => void;
   onApprovePlan?: (plan: string) => void;
   planVersion?: number;
+  /** 消息级执行用时文本（llm+tool 累计）——仅最后一段传入，finished 态组头显示 */
+  execDurationLabel?: string;
 }) {
   // 空条目过滤：模型没有实际输出时（如请求即报错），流式路径会残留
   // content 为空的 thinking / 占位 tool——这些不该渲染出"执行过程 思考"空组。
@@ -198,25 +201,14 @@ export function ActivityGroup({
   const hasOpenInteractive = toolEntries.some(
     (e) => isInteractiveTool(e) && !e.result,
   );
-  // 组耗时：前端流式记录的工具时间跨度（历史数据无时间戳 → 不显示）
-  const durationLabel = (() => {
-    const timed = toolEntries.filter((e) => e.startedAt != null);
-    if (!timed.length) return '';
-    const ends = timed.filter((e) => e.endedAt != null);
-    if (ends.length < timed.length) return ''; // 仍有工具在跑或数据不全
-    const ms = Math.max(...timed.map((e) => e.endedAt!)) - Math.min(...timed.map((e) => e.startedAt!));
-    return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)}s`;
-  })();
   // 纯思考动效判据：消息流式中 && 本轮正文未开始
   const isLive = !!msgStreaming && !hasOwnText;
-  // 收起时机：仅段边界（本段过程后出现 text）。流结束不再触发收起——
-  // 结束瞬间「最后一段组塌缩几百 px + 生成中动效消失 + 操作区出现」
-  // 多事件叠加 = 页面闪一下；最后一组保持展开（手动可收，历史加载本就是收起态）。
-  // finished（含流结束）仅作组头完成态展示判据；segEnded 才驱动开合。
+  // 收起时机：finished = 正文已开始 或 流已结束（done）→ 全部过程组收起。
+  // 流结束收起覆盖最后一组（用户预期「任务结束只剩已完成摘要行」），
+  // 明细区 grid-rows 300ms 过渡兜底平滑，无硬切闪屏。
   const finished = !!hasOwnText || !msgStreaming;
-  const segEnded = !!hasOwnText;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
-  const prevSegEnded = useRef(segEnded);
+  const prevFinished = useRef(finished);
   const prevRunning = useRef(isRunning);
   // 组内 thinking 块的展开态（本地管理，不回写消息树）
   const [openThinkings, setOpenThinkings] = useState<Set<string>>(new Set());
@@ -233,15 +225,16 @@ export function ActivityGroup({
   };
   useEffect(() => {
     // 状态跃迁驱动展开/收起（用户手动操作后仅在跃迁时跟随一次）：
-    // - 段未结束（正文未开始）或有工具在跑 → 展开（过程=实时进度）
-    // - 正文已开始且无工具在跑 → 收起为摘要行（出错/待答交互卡不藏）
-    if (prevSegEnded.current !== segEnded || prevRunning.current !== isRunning) {
-      prevSegEnded.current = segEnded;
+    // - 未 finished（正文未开始且流未结束）或有工具在跑 → 展开（过程=实时进度）
+    // - finished（正文已开始或流已结束）且无工具在跑 → 收起为「已完成」摘要行
+    //   （出错/中断/待答交互卡不藏）
+    if (prevFinished.current !== finished || prevRunning.current !== isRunning) {
+      prevFinished.current = finished;
       prevRunning.current = isRunning;
-      if (!segEnded || isRunning) setOpen(true);
+      if (!finished || isRunning) setOpen(true);
       else if (!hasError && !interrupted && !hasOpenInteractive) setOpen(false);
     }
-  }, [segEnded, isRunning, hasError, interrupted, hasOpenInteractive]);
+  }, [finished, isRunning, hasError, interrupted, hasOpenInteractive]);
 
   // 过程条目：按时序直接平铺（thinking/工具/小结/错误各自渲染）——
   // 不再做「执行了 N 个工具」的内部折叠批：外层卡组头已有计数汇总，
@@ -348,13 +341,13 @@ export function ActivityGroup({
               ? toolCount > 0
                 ? '正在执行工具'
                 : '思考中'
-              : toolCount > 0
-                ? `执行了 ${toolCount} 个工具`
-                : '思考完成'}
+              : '已完成'}
         </span>
-        <span className="text-[11px] text-ink-faint font-mono shrink-0">
-          {durationLabel ? ` · ${durationLabel}` : ''}
-        </span>
+        {finished && execDurationLabel && (
+          <span className="text-[11px] text-ink-faint font-mono shrink-0">
+            · 用时 {execDurationLabel}
+          </span>
+        )}
         {interrupted && (
           <span className="text-[11px] text-sig-fail shrink-0">· 已中断</span>
         )}

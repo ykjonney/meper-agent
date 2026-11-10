@@ -127,6 +127,9 @@ export interface TokenUsage {
   output_tokens?: number;
   llm_calls?: number;
   tool_calls?: number;
+  /** 累计执行时长（秒）：LLM 与工具阶段（后端 usage 落库字段，历史消息可用） */
+  llm_duration?: number;
+  tool_duration?: number;
 }
 
 /** Timeline entry types for agent messages (mirrors frontend chat-panel). */
