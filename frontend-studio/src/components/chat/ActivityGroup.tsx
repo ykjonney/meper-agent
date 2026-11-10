@@ -246,8 +246,9 @@ export function ActivityGroup({
   // 过程条目：按时序直接平铺（thinking/工具/小结/错误各自渲染）——
   // 不再做「执行了 N 个工具」的内部折叠批：外层卡组头已有计数汇总，
   // 内层再包一层是重复信息；执行动效只出现在正在执行的工具条目上。
+  // 遍历过滤后的 liveEntries——todo_write 等被排除的条目不进明细区
   const renderEntries = () =>
-    entries.map((entry, i) => {
+    liveEntries.map((entry, i) => {
       if (entry.type === 'thinking') {
         return (
           <ThinkingEntryCard
