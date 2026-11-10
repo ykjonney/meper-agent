@@ -302,7 +302,7 @@ export function ActivityGroup({
           pinnedRef={pinnedRef}
           interrupted={interrupted}
           theme={theme}
-          suppressChartBody={chartsInProducts}
+          suppressChartBody={chartsInProducts && entry.toolName === 'render_chart'}
           onAnswer={onAnswer}
           onDismiss={onDismiss}
           onApprovePlan={onApprovePlan}
