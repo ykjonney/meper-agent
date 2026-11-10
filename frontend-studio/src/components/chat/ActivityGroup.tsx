@@ -331,7 +331,8 @@ export function ActivityGroup({
           if (pinnedRef) pinnedRef.current = false;
           setOpen((v) => !v);
         }}
-        className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-raise transition-colors rounded-[10px]"
+        className={`w-full flex items-center gap-2 px-3 py-2 border-0 cursor-pointer text-left transition-colors rounded-[10px] ${open ? 'bg-raise' : 'bg-transparent hover:bg-raise'}`}
+        title={open ? '点击收起执行过程' : '点击展开执行过程'}
       >
         {/* 组头状态按段级判据（finished）切换：段内纹丝不动，只在段边界
             切一次——若按 isRunning 判，每个工具间隙（模型生成下个 tool call）
@@ -365,8 +366,10 @@ export function ActivityGroup({
         {interrupted && (
           <span className="text-[11px] text-sig-fail shrink-0">· 已中断</span>
         )}
-        <ChevronRight
-          className={`w-3 h-3 text-ink-faint ml-auto transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}
+        {/* 垂直 chevron 语义：展开朝上（可收起）/ 收起朝下（可展开），
+            加重颜色提升可点击性的可见度 */}
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-ink-dim ml-auto transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}
         />
       </button>
       <div
