@@ -262,8 +262,9 @@ export function ToolEntryCard({
 
   const argsText = formatToolArgs(entry.args);
   const result = formatToolResult(entry.result);
-  // suppressChartBody：图表成品在产物层渲染，detail 不再重复展示 result 原文
-  const hasDetail = Boolean(argsText) || (!suppressChartBody && Boolean(result.text));
+  // suppressChartBody：组内图表调用行是纯展示行（成品已在产物层），
+  // 不可点击展开、无 detail 区
+  const hasDetail = !suppressChartBody && (Boolean(argsText) || Boolean(result.text));
   const resultTooLong = countZi(result.text) > RESULT_COLLAPSE_THRESHOLD;
   const shownResult =
     !resultExpanded && resultTooLong
