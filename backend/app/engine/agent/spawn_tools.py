@@ -61,11 +61,24 @@ def _is_platform_user() -> bool:
     return not is_channel_user(user_id)
 
 
-async def _list_capabilities() -> str:
-    """盘点平台当前可用的全部能力，供设计新 agent 时做能力分配。"""
+async def _list_capabilities(query: str = "") -> str:
+    """盘点平台当前可用的能力，供设计新 agent 时做能力分配。
+
+    MCP 按连接聚合呈现（绑定粒度=整连接，工具明细不逐条列出）——
+    MCP 工具数百个时全量逐条清单会挤占 agent 上下文（285 个实测 ≈28KB）。
+    query 提供时按关键词过滤（匹配名称/描述，大小写不敏感）；连接行内
+    附注命中的工具名，供 LLM 判断该连接是否覆盖所需能力。
+    """
     from app.db.mongodb import get_database
 
     db = get_database()
+    q = (query or "").strip().lower()
+
+    def matched(*texts: object) -> bool:
+        if not q:
+            return True
+        return any(q in str(t).lower() for t in texts if t)
+
     lines: list[str] = []
 
     # 1) 内置工具（与运行时注入同源：_INJECTED_BUILTIN_TOOL_NAMES 查找链）
@@ -90,11 +103,13 @@ async def _list_capabilities() -> str:
             )
             if tool is None:
                 continue
-            flag = "" if name in _CONFIGURABLE_BUILTIN_TOOL_NAMES else "（始终启用）"
             first = (tool.description or "").split("\n")[0][:80]
-            desc = first + "…" if len((tool.description or "").split("\n")[0]) > 80 else first
-            entries.append(f"- {name}{flag}：{desc}")
-        lines.append("## 内置工具（builtin_config 可配）\n" + "\n".join(entries))
+            if not matched(name, first):
+                continue
+            flag = "" if name in _CONFIGURABLE_BUILTIN_TOOL_NAMES else "（始终启用）"
+            entries.append(f"- {name}{flag}：{first}")
+        if entries:
+            lines.append("## 内置工具（builtin_config 可配）\n" + "\n".join(entries))
     except Exception:
         pass
 
@@ -110,54 +125,75 @@ async def _list_capabilities() -> str:
              "mcp_connection_id": 1},
         ).limit(300)
         docs = await cursor.to_list(length=200)
+
+        def _desc(d: dict, limit: int) -> str:
+            raw = (d.get("description") or "").strip().replace("\n", " ")
+            return raw[:limit] + "…" if len(raw) > limit else raw
+
         custom = [
             d
             for d in docs
             if d.get("source") not in ("mcp", "markdown")
             and (d.get("status") or "active") == "active"
+            and matched(d.get("name"), d.get("description"))
         ]
+        if custom:
+            lines.append("## 自定义工具（tool_ids 绑定）\n" + "\n".join(
+                f"- {d.get('name','')}（id={d.get('_id','')}）：{_desc(d, 120)}"
+                for d in custom[:40]
+            ))
+
+        # MCP：连接级聚合——连接行 = 名称/id/工具数/连接描述；query 命中
+        # 连接下某工具时行内附命中工具名（不展开全量工具清单）。
         mcp_docs = [d for d in docs if d.get("source") == "mcp"]
         skills = [d for d in docs if d.get("source") == "markdown"]
-        # 描述分档截断 + 省略号（裸切会让描述看起来"坏了"）：
-        # skill 描述承载"何时用"语义且数量少 → 放宽到 200；MCP 工具
-        # 数量多（264 个实测）且中位 62 字符 → 120 控制清单总体积。
-        def _desc(d: dict, limit: int) -> str:
-            raw = (d.get("description") or "").strip().replace("\n", " ")
-            return raw[:limit] + "…" if len(raw) > limit else raw
-
-        def fmt(ds: list, limit: int = 120) -> str:
-            return "\n".join(
-                f"- {d.get('name','')}（id={d.get('_id','')}）：{_desc(d, limit)}"
-                for d in ds[:40]
-            )
-        if custom:
-            lines.append("## 自定义工具（tool_ids 绑定）\n" + fmt(custom))
         if mcp_docs:
-            # 绑定粒度=连接（绑上=该连接全部工具注入）——按连接分组呈现，
-            # id 给连接 id（可直接填 mcp_connection_ids），工具名列内联。
-            conn_names: dict = {}
-            try:
-                async for c in db["mcp_connections"].find({}, {"name": 1}):
-                    conn_names[c["_id"]] = c.get("name", "")
-            except Exception:
-                pass
             by_conn: dict[str, list] = {}
             for d in mcp_docs:
                 by_conn.setdefault(d.get("mcp_connection_id", ""), []).append(d)
+            conn_meta: dict = {}
+            async for c in db["mcp_connections"].find({}, {"name": 1, "description": 1}):
+                conn_meta[c["_id"]] = c
             mcp_lines = []
             for cid, tools in by_conn.items():
-                mcp_lines.append(
-                    f"- 连接「{conn_names.get(cid, cid[:16])}」（id={cid}，"
-                    f"{len(tools)} 个工具；绑定后全部可用）："
+                meta = conn_meta.get(cid) or {}
+                conn_hit = matched(meta.get("name"), meta.get("description"), cid)
+                tool_hits = (
+                    [t.get("name", "") for t in tools if matched(t.get("name"))]
+                    if q
+                    else []
                 )
-                for t in tools:
-                    mcp_lines.append(f"    - {t.get('name','')}：{_desc(t, 80)}")
-            lines.append(
-                "## MCP 连接（绑定粒度=整连接，mcp_connection_ids 填连接 id；"
-                "绑定后该连接全部工具可用）\n" + "\n".join(mcp_lines)
-            )
-        if skills:
-            lines.append("## 技能（skill_ids 绑定）\n" + fmt(skills, limit=200))
+                if q and not conn_hit and not tool_hits:
+                    continue
+                hit_note = (
+                    f"；命中工具：{'、'.join(tool_hits[:8])}{'…' if len(tool_hits) > 8 else ''}"
+                    if tool_hits and not conn_hit
+                    else ""
+                )
+                # 连接描述常为空（建连接时未填）——退化为前几个工具名，
+                # 让 LLM 能从工具名判断连接用途（不展开全部工具清单）
+                desc = _desc(meta, 100)
+                if not desc:
+                    names = "、".join(t.get("name", "") for t in tools[:6] if t.get("name"))
+                    desc = f"工具：{names}{'…' if len(tools) > 6 else ''}"
+                mcp_lines.append(
+                    f"- 连接「{meta.get('name') or cid[:16]}」（id={cid}，"
+                    f"{len(tools)} 个工具，绑定后全部可用）：{desc}{hit_note}"
+                )
+            if mcp_lines:
+                lines.append(
+                    "## MCP 连接（mcp_connection_ids 绑定整连接，绑定后该连接全部工具可用）\n"
+                    + "\n".join(mcp_lines[:40])
+                )
+
+        skill_hits = [
+            d for d in skills if matched(d.get("name"), d.get("description"))
+        ]
+        if skill_hits:
+            lines.append("## 技能（skill_ids 绑定）\n" + "\n".join(
+                f"- {d.get('name','')}（id={d.get('_id','')}）：{_desc(d, 200)}"
+                for d in skill_hits[:40]
+            ))
     except Exception:
         pass
 
@@ -165,20 +201,27 @@ async def _list_capabilities() -> str:
     try:
         cursor = db["models"].find({}, {"name": 1, "model_id": 1}).limit(50)
         models = await cursor.to_list(length=50)
-        if models:
+        hits = [m for m in models if matched(m.get("name"), m.get("model_id"))]
+        if hits:
             lines.append(
                 "## 可用模型（model_ref）\n"
                 + "\n".join(
                     f"- {m.get('name','')}（id={m.get('_id','')}，{m.get('model_id','')}）"
-                    for m in models
+                    for m in hits
                 )
             )
     except Exception:
         pass
 
     if not lines:
+        if q:
+            return (
+                f"（关键词「{query}」无命中能力——换更宽泛的关键词重试，"
+                "或不带 query 获取全量概览）"
+            )
         return "（能力盘点为空或查询失败——请直接告知用户平台暂无可用能力清单）"
-    return "\n\n".join(lines)
+    head = f"（按关键词「{query}」过滤的结果）\n\n" if q else ""
+    return head + "\n\n".join(lines)
 
 
 async def _create_agent(
@@ -313,9 +356,10 @@ list_capabilities = StructuredTool.from_function(
     _list_capabilities,
     name="list_capabilities",
     description=(
-        "盘点平台当前可用的全部能力：内置工具、自定义工具、MCP 工具、技能、"
-        "可用模型。设计或创建新 agent 前必须先调用本工具做能力"
-        "分配——不要臆造不存在的工具或模型 id。"
+        "盘点平台当前可用的能力：内置工具、自定义工具、MCP 连接（按连接聚合）、"
+        "技能、可用模型。设计或创建新 agent 前必须先调用本工具做能力分配——"
+        "不要臆造不存在的工具或模型 id。能力源较多时建议带 query 关键词过滤"
+        "（匹配工具/连接/技能/模型的名称与描述），避免全量清单过长。"
     ),
     coroutine=_list_capabilities,
 )
