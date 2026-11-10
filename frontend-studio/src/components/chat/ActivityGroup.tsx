@@ -174,6 +174,9 @@ export function ActivityGroup({
   // 消息级"正在响应"动效兜底；thinkingActive 不作为保留例外（错误后 status 残留）。
   const meaningful = entries.filter((e) => {
     if (e.type === 'thinking' && !(e.content ?? '').trim()) return false;
+    // todo_write 走顶栏 TodoPanel（最新快照），会话流内不再渲染——
+    // 入口过滤保证组头计数与展开行数自动一致。
+    if (e.type === 'tool' && e.toolName === 'todo_write') return false;
     if (e.type === 'tool') return Boolean(e.toolName);
     return true;
   });

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEv
 import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../../types'
 import {
   Send, Plus, Trash2, FileCode, CheckCircle, Check,
-  Bot, Terminal, Loader2, Paperclip, Brain, X, ClipboardList, ShieldAlert,
+  Bot, Terminal, Loader2, Paperclip, Brain, X, ShieldAlert,
   Wrench, AlertTriangle, ChevronDown, User, Download, FileText, Image as ImageIcon, Mic, Copy, RotateCcw,
   PenLine, SquarePen, FolderSearch, Search, Globe, Link2, BarChart3, FileSearch, BookOpen,
   ThumbsUp, ThumbsDown, PanelRight, Workflow,
@@ -151,12 +151,6 @@ export function ToolEntryCard({
         onDismiss={onDismiss}
       />
     );
-  }
-  // todo_write：任务清单卡片（checkbox 清单快照；全量替换语义下每次调用
-  // 展示当次的完整清单）。解析失败落通用工具卡。
-  if (entry.toolName === 'todo_write') {
-    const todoItems = parseTodoItems(entry.args);
-    if (todoItems.length) return <TodoListCard todos={todoItems} theme={theme} />;
   }
   // confirm_workflow：工作流确认卡片（从 tool_call args 渲染，tool_result 决定终态）。
   if (entry.toolName === 'propose_plan') {
@@ -391,83 +385,6 @@ export function ToolEntryCard({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/** 解析 todo_write 的 args → 清单项（非法项过滤，空数组走通用卡片）。 */
-function parseTodoItems(args: unknown): Array<{ content: string; status: string }> {
-  const todos = (args as { todos?: unknown } | undefined)?.todos;
-  if (!Array.isArray(todos)) return [];
-  return todos
-    .filter(
-      (t): t is { content?: unknown; status?: unknown } =>
-        typeof t === "object" && t !== null,
-    )
-    .map((t) => ({
-      content: String(t.content ?? ""),
-      status: String(t.status ?? "pending"),
-    }));
-}
-
-const TODO_GLYPHS: Record<string, string> = {
-  pending: "☐",
-  in_progress: "◐",
-  completed: "☑",
-};
-
-/** todo_write 专属卡片：checkbox 清单快照 + 完成度摘要（☐ 待办 / ◐ 进行中 / ☑ 完成）。 */
-function TodoListCard({
-  todos,
-  theme,
-}: {
-  todos: Array<{ content: string; status: string }>;
-  theme: "dark" | "light";
-}) {
-  const done = todos.filter((t) => t.status === "completed").length;
-  return (
-    <div
-      className={`rounded-xl rounded-tl-none border overflow-hidden font-sans text-sm ${
-        theme === "dark"
-          ? "border-white/10 bg-white/[0.03]"
-          : "border-black/10 bg-black/[0.02]"
-      }`}
-    >
-      <div className="flex items-center gap-2 px-3.5 py-2.5">
-        <ClipboardList className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-        <span className="font-medium">任务清单</span>
-        <span className="ml-auto text-xs opacity-60">
-          {done}/{todos.length} 完成
-        </span>
-      </div>
-      <ul className="px-3.5 pb-2.5 flex flex-col gap-1">
-        {todos.map((t, i) => (
-          <li key={i} className="flex items-baseline gap-2 leading-6">
-            <span
-              className={`w-4 text-center shrink-0 ${
-                t.status === "completed"
-                  ? "text-green-500"
-                  : t.status === "in_progress"
-                    ? "text-blue-400"
-                    : "opacity-60"
-              }`}
-            >
-              {TODO_GLYPHS[t.status] ?? "☐"}
-            </span>
-            <span
-              className={
-                t.status === "completed"
-                  ? "line-through opacity-50"
-                  : t.status === "in_progress"
-                    ? "font-medium"
-                    : ""
-              }
-            >
-              {t.content}
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
