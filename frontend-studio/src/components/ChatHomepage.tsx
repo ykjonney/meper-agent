@@ -49,7 +49,7 @@ import { useModelLabels } from './chat/useModelLabels';
 import { ArtifactsPanel } from './chat/ArtifactsPanel';
 import { EmptySession } from './chat/EmptySession';
 import { SessionHeader } from './chat/SessionHeader';
-import { userMessageToDisplay, agentMessageToDisplay, doneTimelineToEntries, formatSessionTime, isInterruptTool, parseOutputAttachments } from './chat/message-utils';
+import { userMessageToDisplay, agentMessageToDisplay, doneTimelineToEntries, formatSessionTime, isInterruptTool, parseOutputAttachments, extractLatestTodos } from './chat/message-utils';
 
 interface ChatHomepageProps {
   /** Studio agents already adapted to the view model; if absent we fetch. */
@@ -238,6 +238,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   // Live messages for the active session (history + in-flight stream deltas).
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
+  // 顶栏任务清单：timeline 派生最新快照（流式 tool_call 写入 timeline 后自动更新，
+  // done 后 getDetail 重载自然接管——单数据源，无独立状态通道）。
+  const currentTodos = useMemo(() => extractLatestTodos(liveMessages), [liveMessages]);
   const artifactCount = useMemo(
     () => liveMessages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0),
     [liveMessages],
@@ -1497,6 +1500,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen((v) => !v)}
           modelLabel={modelLabel}
+          todos={currentTodos}
         />
 
         <MessageList
