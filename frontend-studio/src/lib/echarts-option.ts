@@ -215,9 +215,12 @@ function normalizeLayout(option: ChartOption): ChartOption {
 }
 
 /**
- * 轴名防御：axis.name 默认渲染在轴末端外（xAxis 右端 / yAxis 顶端），
- * containLabel 只含 label 不含 name → 超出容器被裁（实测「评估维度」被切）。
- * 统一改 middle 居中布局 + grid 对应边距预留（label 与 name 一起容纳）。
+ * 轴名防御：xAxis.name 默认渲染在轴右端外，containLabel 只含 label 不含
+ * name → 超出容器右缘被裁（实测「评估维度」被切）→ 改 middle 居中于标签
+ * 下方 + grid.bottom 预留。
+ * yAxis.name 不动：默认顶端（end）横排是安全的——顶部空间已由 legend
+ * 规范化预留；若改 middle 会竖排在轴左侧，与 containLabel 自动扩展的长
+ * 类目标签撞层（实测「加权总分」叠在「B 极简编辑风」上）。
  */
 function normalizeAxisNames(option: ChartOption): void {
   const grid = option.grid;
@@ -225,26 +228,20 @@ function normalizeAxisNames(option: ChartOption): void {
     grid && typeof grid === 'object' && !Array.isArray(grid)
       ? (grid as Record<string, unknown>)
       : null;
-  const specs: Array<[string, number, 'bottom' | 'left', number]> = [
-    ['xAxis', 24, 'bottom', 44],
-    ['yAxis', 48, 'left', 56],
-  ];
-  for (const [key, nameGap, marginKey, marginVal] of specs) {
-    const axis = option[key];
-    if (!axis || typeof axis !== 'object' || Array.isArray(axis)) continue;
-    const a = axis as Record<string, unknown>;
-    if (a.name == null || a.name === '') continue;
-    if (a.nameLocation == null || a.nameLocation === 'end') {
-      a.nameLocation = 'middle';
-      if (a.nameGap == null) a.nameGap = nameGap;
-    }
-    const cur = g?.[marginKey];
-    if (
-      g &&
-      (cur == null || (typeof cur === 'string' && cur.includes('%')) || (typeof cur === 'number' && cur < marginVal))
-    ) {
-      g[marginKey] = marginVal;
-    }
+  const axis = option.xAxis;
+  if (!axis || typeof axis !== 'object' || Array.isArray(axis)) return;
+  const a = axis as Record<string, unknown>;
+  if (a.name == null || a.name === '') return;
+  if (a.nameLocation == null || a.nameLocation === 'end') {
+    a.nameLocation = 'middle';
+    if (a.nameGap == null) a.nameGap = 24;
+  }
+  const cur = g?.bottom;
+  if (
+    g &&
+    (cur == null || (typeof cur === 'string' && cur.includes('%')) || (typeof cur === 'number' && cur < 44))
+  ) {
+    g.bottom = 44;
   }
 }
 
