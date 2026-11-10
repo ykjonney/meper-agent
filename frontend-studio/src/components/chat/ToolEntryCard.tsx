@@ -121,6 +121,7 @@ export function ToolEntryCard({
   onApprovePlan,
   planVersion,
   theme,
+  suppressChartBody,
 }: {
   entry: TimelineEntry;
   msgId: string;
@@ -135,6 +136,9 @@ export function ToolEntryCard({
   /** 明暗主题——计划书卡片等使用实色底的组件必须感知（prose-chat 的
    *  正文色随主题切换，深色卡片在浅色主题下会深字深底看不清）。 */
   theme: 'dark' | 'light';
+  /** 组内图表调用行：图表成品已由 MessageItem 产物层渲染（组外常驻），
+   *  本条目退化为普通工具行——不默认展开、不出图、detail 不重复展示 result。 */
+  suppressChartBody?: boolean;
 }) {
   // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
   if (entry.toolName === 'ask_clarification') {
@@ -231,8 +235,9 @@ export function ToolEntryCard({
   const status = entry.toolStatus ?? 'running';
   const cfg = TOOL_STATUS_CFG[status];
   // render_chart：结果含 ```echarts fenced block → 详情区走 Markdown 自动出图，
-  // 且默认展开（图表是工具的核心产出，不该藏在折叠里）。
-  const isChartResult = isChartResultEntry(entry);
+  // 且默认展开（图表是工具的核心产出）。suppressChartBody（组内调用行）时
+  // 退化为普通工具行——成品在产物层渲染，不重复出图、detail 不含 result。
+  const isChartResult = !suppressChartBody && isChartResultEntry(entry);
   // parse_file：成功解析（返回 markdown 首行 "# 文件名（类型，摘要）"）→ 专属
   // 文件卡片（FileText 图标 + 文件名标题 + 元信息徽标），详情区 Markdown 渲染，
   // 默认折叠（提取内容通常较长）。失败（[parse_file] 前缀错误文本）走通用卡片。
@@ -257,7 +262,8 @@ export function ToolEntryCard({
 
   const argsText = formatToolArgs(entry.args);
   const result = formatToolResult(entry.result);
-  const hasDetail = Boolean(argsText || result.text);
+  // suppressChartBody：图表成品在产物层渲染，detail 不再重复展示 result 原文
+  const hasDetail = Boolean(argsText) || (!suppressChartBody && Boolean(result.text));
   const resultTooLong = countZi(result.text) > RESULT_COLLAPSE_THRESHOLD;
   const shownResult =
     !resultExpanded && resultTooLong
@@ -386,7 +392,7 @@ export function ToolEntryCard({
               </div>
             );
           })()}
-          {result.text && (
+          {!suppressChartBody && result.text && (
             <div>
               <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon} flex items-center gap-1.5`}>
                 返回结果

@@ -152,6 +152,7 @@ export function ActivityGroup({
   onApprovePlan,
   planVersion,
   execDurationLabel,
+  chartsInProducts,
 }: {
   entries: TimelineEntry[];
   msgId: string;
@@ -171,6 +172,9 @@ export function ActivityGroup({
   planVersion?: number;
   /** 消息级执行用时文本（llm+tool 累计）——仅最后一段传入，finished 态组头显示 */
   execDurationLabel?: string;
+  /** 图表成品由 MessageItem 产物层渲染（组外常驻）：组内 render_chart 调用行
+   *  退化为普通工具行（不出图），按执行顺序原位保留。 */
+  chartsInProducts?: boolean;
 }) {
   // 空条目过滤：模型没有实际输出时（如请求即报错），流式路径会残留
   // content 为空的 thinking / 占位 tool——这些不该渲染出"执行过程 思考"空组。
@@ -298,6 +302,7 @@ export function ActivityGroup({
           pinnedRef={pinnedRef}
           interrupted={interrupted}
           theme={theme}
+          suppressChartBody={chartsInProducts}
           onAnswer={onAnswer}
           onDismiss={onDismiss}
           onApprovePlan={onApprovePlan}
@@ -305,6 +310,13 @@ export function ActivityGroup({
         />
       );
     });
+
+  // 单工具/纯思考段：不包卡壳，条目直接平铺（自带状态与交互）——
+  // 简单问答（纯思考/单工具）不需要「执行中/已完成」组头行
+  const plain = realTools.length <= 1 && !hasError && !hasOpenInteractive;
+  if (plain) {
+    return <div className="space-y-1 font-sans">{renderEntries()}</div>;
+  }
 
   // 统一形态：流式中与完成后都是同一张折叠卡（流式中默认展开）——
   // 仅组头状态与 open 随运行状态变化。原实现流式中"平铺"、结束瞬间

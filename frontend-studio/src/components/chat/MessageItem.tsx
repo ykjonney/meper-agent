@@ -8,7 +8,6 @@ import type { SessionFeedbackItem } from '../../services/user-skills-api';
 import { ActivityGroup, StreamingDots } from './ActivityGroup';
 import { ChatAttachmentCard } from './ChatAttachmentCard';
 import { formatToolDuration, isChartResultEntry } from './tool-details';
-import { ToolEntryCard } from './ToolEntryCard';
 
 interface MessageItemProps {
   msg: Message;
@@ -93,18 +92,12 @@ export function MessageItem({
           const execDurationLabel = execMs > 0 ? formatToolDuration(execMs) : '';
           let lastTextIdx = -1;
           tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
-          /* 单组合并形态（用户模型「除最终输出外都是过程」）：最终回答之前的全部
-             条目（thinking/工具/中间小结 text）打包为一个过程组——流式中组自动展开
-             （进度与小结实时可见），最终回答 text 出现或流结束即 finished → 收起为
-             「已完成 · 用时X」。同一种 DOM 形态只变 open，无形态重建闪屏。
-             图表例外：render_chart 成品从组内抽出平铺（产出与最终回答并列，
-             收起后仍可见——图表不该藏在折叠里）。 */
-          const procEntries: TimelineEntry[] = [];
-          const chartEntries: TimelineEntry[] = [];
-          (lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl).forEach((e) => {
-            if (isChartResultEntry(e)) chartEntries.push(e);
-            else procEntries.push(e);
-          });
+          /* 三层形态（用户模型）：① 执行过程组（最终回答前全部条目按原序，含
+             图表调用行，可收起）；② 产物层（render_chart 成品，组外常驻不收起，
+             Markdown 识别 echarts 出图）；③ 最终回答平铺。流式中组自动展开、
+             finished（最终回答出现或流结束）→ 收起为「已完成 · 用时X」。 */
+          const procEntries = lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl;
+          const chartProducts = tl.filter(isChartResultEntry);
           const finalTexts = lastTextIdx >= 0 ? tl.slice(lastTextIdx) : [];
           return (
             <div className="space-y-2">
@@ -119,20 +112,16 @@ export function MessageItem({
                 hasOwnText={lastTextIdx >= 0}
                 msgStreaming={inFlight}
                 execDurationLabel={execDurationLabel}
+                chartsInProducts
                 onAnswer={onAnswer}
                 onDismiss={() => onDismissInterrupt(msg.id)}
                 onApprovePlan={(plan) => onApprovePlan(msg.id, plan)}
                 planVersion={undefined}
               />
-              {chartEntries.map((entry, i) => (
-                <ToolEntryCard
-                  key={`chart-${i}`}
-                  entry={entry}
-                  msgId={msg.id}
-                  pinnedRef={pinnedRef}
-                  interrupted={!!msg.isInterrupted}
-                  theme={theme}
-                />
+              {chartProducts.map((entry, i) => (
+                <div key={`chart-${i}`} className="rounded-[10px] bg-page border border-line px-3 py-2.5">
+                  <Markdown content={entry.result ?? ''} />
+                </div>
               ))}
               {finalTexts.map((entry, i) => (
                 <div
