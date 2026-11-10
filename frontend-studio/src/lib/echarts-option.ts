@@ -214,11 +214,47 @@ function normalizeLayout(option: ChartOption): ChartOption {
   return { ...option, legend: fixedLegend, grid: { ...(grid as object), top: gridTop } };
 }
 
+/**
+ * 轴名防御：axis.name 默认渲染在轴末端外（xAxis 右端 / yAxis 顶端），
+ * containLabel 只含 label 不含 name → 超出容器被裁（实测「评估维度」被切）。
+ * 统一改 middle 居中布局 + grid 对应边距预留（label 与 name 一起容纳）。
+ */
+function normalizeAxisNames(option: ChartOption): void {
+  const grid = option.grid;
+  const g =
+    grid && typeof grid === 'object' && !Array.isArray(grid)
+      ? (grid as Record<string, unknown>)
+      : null;
+  const specs: Array<[string, number, 'bottom' | 'left', number]> = [
+    ['xAxis', 24, 'bottom', 44],
+    ['yAxis', 48, 'left', 56],
+  ];
+  for (const [key, nameGap, marginKey, marginVal] of specs) {
+    const axis = option[key];
+    if (!axis || typeof axis !== 'object' || Array.isArray(axis)) continue;
+    const a = axis as Record<string, unknown>;
+    if (a.name == null || a.name === '') continue;
+    if (a.nameLocation == null || a.nameLocation === 'end') {
+      a.nameLocation = 'middle';
+      if (a.nameGap == null) a.nameGap = nameGap;
+    }
+    const cur = g?.[marginKey];
+    if (
+      g &&
+      (cur == null || (typeof cur === 'string' && cur.includes('%')) || (typeof cur === 'number' && cur < marginVal))
+    ) {
+      g[marginKey] = marginVal;
+    }
+  }
+}
+
 /** 端到端：解析 + 安全校验 + 契约校验 + 布局规范化。 */
 export function validateChartOptionString(raw: string): ValidationResult {
   const parsed = parseOption(raw);
   if (!parsed.ok) return parsed;
   const validated = validateOption(parsed.option);
   if (!validated.ok) return validated;
-  return { ok: true, option: normalizeLayout(validated.option) };
+  const option = validated.option;
+  normalizeAxisNames(option);
+  return { ok: true, option: normalizeLayout(option) };
 }
