@@ -69,6 +69,11 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
       .finally(() => {
         if (!cancelled) {
           setInitializing(false)
+          // 静默恢复成功后若仍停在 /login URL（redirectToLogin 遗留），
+          // 回到主界面——否则 URL 与认证状态永久错位，形成登录循环。
+          if (window.location.pathname === '/login') {
+            window.location.replace('/')
+          }
         }
       })
 
@@ -79,11 +84,10 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
 
   // Full-screen spinner during the refresh-check window. Avoids a white flash
   // of the Login page for authenticated users. Reads the persisted theme so the
-  // splash matches the resolved palette (dark → #09090b, light → slate-50),
-  // mirroring how Login.tsx resolves its own theme.
+  // splash matches the resolved palette (v3.2: 亮色为默认).
   if (isInitializing) {
     const theme =
-      (localStorage.getItem('agentflow_theme') as 'dark' | 'light') || 'dark'
+      (localStorage.getItem('agentflow_theme') as 'dark' | 'light') || 'light'
     const isDark = theme === 'dark'
     return (
       <div

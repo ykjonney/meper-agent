@@ -209,9 +209,14 @@ async def stream_events_to_app_events(
                     reasoning = extract_thinking_text(output)
                     if reasoning:
                         await on_event(ThinkingEvent(content=reasoning))
+                # 最终回答判定：本次 LLM 响应无 tool_calls → agent loop 的
+                # 条件边路由 END，该文本即最终回答（final 标记供前端精确
+                # 收起过程卡，免启发式猜测）。tool_calls 的响应文本是
+                # 工具前的过渡说明，final=False。
+                has_tool_calls = bool(_iter_tool_calls(output))
                 content = extract_answer_text(getattr(output, "content", None))
                 if content:
-                    await on_event(TextEvent(content=content))
+                    await on_event(TextEvent(content=content, final=not has_tool_calls))
                 # 直接发出所有 tool_call 事件（不再缓冲到 on_tool_start）。
                 # on_chat_model_end 是 tool_call 的唯一来源，保证每个工具调用
                 # 只发出一次。LangGraph 的 astream_events(v2) 会在多个嵌套层级

@@ -14,7 +14,7 @@ export default function ParallelNodeConfig({ config, onChange }: Props) {
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-slate-400 mb-1">合并策略</label>
+        <label className="block text-xs text-ink-dim mb-1">合并策略</label>
         <Select
           className="w-full"
           value={joinStrategy}
@@ -28,7 +28,7 @@ export default function ParallelNodeConfig({ config, onChange }: Props) {
       </div>
       {joinStrategy === 'n-of-m' && (
         <div>
-          <label className="block text-xs text-slate-400 mb-1">完成数量 N</label>
+          <label className="block text-xs text-ink-dim mb-1">完成数量 N</label>
           <Input
             type="number"
             value={String((config.join_count as number) ?? 1)}
@@ -37,7 +37,7 @@ export default function ParallelNodeConfig({ config, onChange }: Props) {
         </div>
       )}
       <div>
-        <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
+        <label className="block text-xs text-ink-dim mb-1 flex items-center gap-1">
           变量作用域
           <HelpHint text="隔离作用域暂未实现，所有分支共享同一变量池。" />
         </label>
@@ -49,7 +49,7 @@ export default function ParallelNodeConfig({ config, onChange }: Props) {
         />
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1">分支配置 (JSON)</label>
+        <label className="block text-xs text-ink-dim mb-1">分支配置 (JSON)</label>
         <Input.TextArea
           value={JSON.stringify(config.branches ?? [], null, 2)}
           onChange={(e) => {

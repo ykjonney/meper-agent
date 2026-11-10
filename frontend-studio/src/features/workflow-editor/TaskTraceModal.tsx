@@ -53,10 +53,10 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
         </div>
 
         {task.error && (
-          <div className="mx-5 mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px]">
-            <div className="text-red-400 font-medium mb-1">执行失败：{task.error.error_code}</div>
-            <div className="text-red-400 font-mono break-all">{task.error.error_message}</div>
-            {task.error.node_id && <div className="text-red-400/70 mt-1">失败节点：{task.error.node_id}</div>}
+          <div className="mx-5 mt-3 p-3 rounded-lg bg-sig-fail-soft border border-red-500/20 text-[11px]">
+            <div className="text-sig-fail font-medium mb-1">执行失败：{task.error.error_code}</div>
+            <div className="text-sig-fail font-mono break-all">{task.error.error_message}</div>
+            {task.error.node_id && <div className="text-sig-fail/70 mt-1">失败节点：{task.error.node_id}</div>}
           </div>
         )}
 
@@ -73,11 +73,11 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                   <span
                     className={`shrink-0 w-2 h-2 rounded-full mt-1.5 ${
                       evt.event_type === 'node_failed' || evt.event_type === 'error'
-                        ? 'bg-red-500'
+                        ? 'bg-sig-fail'
                         : evt.event_type === 'node_complete' || evt.event_type === 'workflow_completed'
-                          ? 'bg-green-500'
+                          ? 'bg-sig-ok'
                           : evt.event_type === 'node_start'
-                            ? 'bg-blue-500'
+                            ? 'bg-brand'
                             : 'bg-line-strong'
                     }`}
                   />
@@ -85,7 +85,7 @@ export function TaskTraceModal({ task, onClose }: { task: TaskDetail | null; onC
                     <span className="text-link font-mono">{evt.event_type}</span>
                     {evt.actor && <span className="text-ink-dim"> · {evt.actor}</span>}
                     {evt.data && Object.keys(evt.data).length > 0 && (
-                      <pre className="text-[11px] text-slate-400 mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
+                      <pre className="text-[11px] text-ink-dim mt-0.5 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
                         {JSON.stringify(evt.data)}
                       </pre>
                     )}

@@ -98,7 +98,7 @@ const timeStr = (hour: number, minute: number) =>
 
 const timeInputCls =
   'h-8 px-2.5 rounded-md border border-line bg-page text-ink text-xs ' +
-  'focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
+  'focus:outline-none focus:border-brand focus:ring-1 focus:ring-[#1E5EFF]/30 [color-scheme:dark]'
 
 export default function TriggerSchedulePicker({ value, onChange, disabled = false }: Props) {
   const [state, setState] = useState<InternalState>(() => parseCron(value))
@@ -129,7 +129,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
 
   const renderTimePicker = () => (
     <div className="flex items-center gap-2 text-xs">
-      <span className="text-slate-400">时间：</span>
+      <span className="text-ink-dim">时间：</span>
       <input
         type="time"
         value={timeStr(state.hour, state.minute)}
@@ -157,8 +157,8 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
               onClick={() => updateState({ frequency: f.value })}
               className={`h-7 px-3 rounded-md text-xs font-medium transition-colors border cursor-pointer
                 ${active
-                  ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
-                  : 'bg-panel border-line text-slate-300 hover:border-[#1E5EFF] hover:text-link'}
+                  ? 'bg-brand border-brand text-white'
+                  : 'bg-panel border-line text-ink-soft hover:border-brand hover:text-link'}
                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {f.label}
@@ -171,7 +171,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
       <div className="flex flex-wrap items-center gap-3">
         {state.frequency === 'hourly' && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400">分钟：</span>
+            <span className="text-ink-dim">分钟：</span>
             <Select
               value={String(state.minute)}
               onChange={(v) => updateState({ minute: Number(v) ?? 0 })}
@@ -187,7 +187,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
         {state.frequency === 'weekly' && (
           <>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-400">星期：</span>
+              <span className="text-xs text-ink-dim">星期：</span>
               {WEEKDAY_LABELS.map((label, idx) => {
                 const dayNum = idx + 1
                 const selected = state.days.includes(dayNum)
@@ -204,8 +204,8 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
                     }}
                     className={`w-7 h-7 rounded text-xs border transition-colors cursor-pointer
                       ${selected
-                        ? 'bg-[#1E5EFF] text-white border-[#1E5EFF]'
-                        : 'bg-panel text-slate-300 border-line hover:border-[#1E5EFF]'}
+                        ? 'bg-brand text-white border-brand'
+                        : 'bg-panel text-ink-soft border-line hover:border-brand'}
                       ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {label}
@@ -220,7 +220,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
         {state.frequency === 'monthly' && (
           <>
             <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-400">日期：</span>
+              <span className="text-ink-dim">日期：</span>
               <Select
                 value={String(state.dayOfMonth)}
                 onChange={(v) => updateState({ dayOfMonth: Number(v) ?? 1 })}
@@ -235,7 +235,7 @@ export default function TriggerSchedulePicker({ value, onChange, disabled = fals
 
         {state.frequency === 'custom' && (
           <div className="flex items-center gap-2 text-xs w-full">
-            <span className="text-slate-400">Cron 表达式：</span>
+            <span className="text-ink-dim">Cron 表达式：</span>
             <Input
               value={state.customCron}
               onChange={(e) => updateState({ customCron: e.target.value })}

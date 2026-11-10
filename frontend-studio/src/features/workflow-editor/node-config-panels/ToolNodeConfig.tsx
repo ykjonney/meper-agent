@@ -70,7 +70,7 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
     }
   }
 
-  const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600 font-mono'
+  const inputCls = 'w-full px-2 py-1.5 rounded text-xs border outline-none bg-page border-line text-ink placeholder:text-ink-dim focus:border-brand font-mono'
 
   return (
     /* 点遮罩不关闭（防误触丢已填参数，与其余 ui Modal 行为一致） */
@@ -91,7 +91,7 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
           )}
           {paramKeys.map((key) => (
             <div key={key} className="flex items-center gap-2">
-              <label className="w-24 shrink-0 text-xs text-slate-400 truncate" title={key}>{key}</label>
+              <label className="w-24 shrink-0 text-xs text-ink-dim truncate" title={key}>{key}</label>
               <input
                 value={values[key] ?? ''}
                 onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
@@ -101,19 +101,19 @@ function SavedToolTestModal({ toolId, toolName, initialParams, paramKeys, onClos
             </div>
           ))}
           {hasTemplate && (
-            <p className="text-[11px] text-amber-500 leading-relaxed">
+            <p className="text-[11px] text-sig-wait leading-relaxed">
               参数中含 {'{{ }}'} 模板变量——测试时请改为具体值（模板引用仅在运行时由上游节点解析）
             </p>
           )}
           <button onClick={() => void run()} disabled={busy}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white cursor-pointer transition disabled:opacity-50">
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-brand hover:bg-brand-hover text-ink cursor-pointer transition disabled:opacity-50">
             {busy ? '运行中…' : '运行'}
           </button>
           {out && (
             <div className={`rounded-lg border p-2.5 text-[11px] font-mono whitespace-pre-wrap break-words ${
               out.ok
-                ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
-                : 'border-red-500/30 bg-red-500/5 text-red-300'
+                ? 'border-sig-ok/30 bg-sig-ok-soft text-sig-ok'
+                : 'border-sig-fail/30 bg-sig-fail-soft text-sig-fail'
             }`}>
               {out.ok
                 ? (typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2))
@@ -157,7 +157,7 @@ function JsonField({
 
   return (
     <div>
-      <label className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+      <label className="flex items-center gap-1 text-xs text-ink-dim mb-1">
         {label}
         {helpText && <HelpHint text={helpText} />}
       </label>
@@ -177,7 +177,7 @@ function JsonField({
         placeholder={placeholder}
         rows={rows}
       />
-      {invalid && <p className="text-xs text-red-500 mt-1">JSON 格式有误，修正后才会保存</p>}
+      {invalid && <p className="text-xs text-sig-fail mt-1">JSON 格式有误，修正后才会保存</p>}
     </div>
   )
 }
@@ -245,8 +245,8 @@ function ToolPicker({
   const rowCls = (active: boolean) =>
     `w-full text-left px-2.5 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
       active
-        ? 'bg-blue-600/15 text-blue-400'
-        : 'text-slate-300 hover:bg-panel-hover'
+        ? 'bg-brand/15 text-brand'
+        : 'text-ink-faint hover:bg-panel-hover'
     }`
 
   return (
@@ -264,8 +264,8 @@ function ToolPicker({
                 onClick={() => { setTab(key); setSearch('') }}
                 className={`flex-1 px-3 py-2 text-xs font-medium cursor-pointer border-b-2 -mb-px transition-colors ${
                   tab === key
-                    ? 'border-blue-600 text-blue-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                    ? 'border-blue-600 text-brand'
+                    : 'border-transparent text-ink-dim hover:text-ink-faint'
                 }`}
               >
                 {label}
@@ -275,12 +275,12 @@ function ToolPicker({
 
           {/* 搜索 */}
           <div className="relative p-2">
-            <Search size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-dim" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`搜索${tab === 'library' ? '工具库' : 'MCP 工具'}…`}
-              className="w-full pl-7 pr-2 py-1.5 rounded-md text-xs border border-line bg-page text-slate-200 outline-none focus:border-blue-500"
+              className="w-full pl-7 pr-2 py-1.5 rounded-md text-xs border border-line bg-page text-ink outline-none focus:border-brand"
             />
           </div>
 
@@ -288,29 +288,29 @@ function ToolPicker({
             {loading && <div className="py-6 flex justify-center"><Spin size="small" /></div>}
             {!loading && tab === 'library' && (
               filteredLibrary.length === 0
-                ? <p className="py-6 text-center text-xs text-slate-400">暂无已开启的工具</p>
+                ? <p className="py-6 text-center text-xs text-ink-dim">暂无已开启的工具</p>
                 : filteredLibrary.map((t) => (
                   <button key={t.id} onClick={() => { onSelect(t.id); setOpen(false) }}
                     className={rowCls(value === t.id)}>
                     <span className="font-medium">{t.name}</span>
                     {t.description && (
-                      <span className="block text-[11px] text-slate-400 truncate">{t.description}</span>
+                      <span className="block text-[11px] text-ink-dim truncate">{t.description}</span>
                     )}
                   </button>
                 ))
             )}
             {!loading && tab === 'mcp' && (
               filteredGroups.length === 0
-                ? <p className="py-6 text-center text-xs text-slate-400">暂无 MCP 工具</p>
+                ? <p className="py-6 text-center text-xs text-ink-dim">暂无 MCP 工具</p>
                 : filteredGroups.map((g) => (
                   <div key={g.connId}>
                     <button
                       onClick={() => toggleConn(g.connId)}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:bg-panel-hover cursor-pointer"
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium text-ink-dim hover:bg-panel-hover cursor-pointer"
                     >
                       <ChevronRight size={12} className={`transition-transform ${expandedConns.has(g.connId) ? 'rotate-90' : ''}`} />
                       {g.label}
-                      <span className="ml-auto text-[11px] text-slate-400">{g.tools.length}</span>
+                      <span className="ml-auto text-[11px] text-ink-dim">{g.tools.length}</span>
                     </button>
                     {expandedConns.has(g.connId) && (
                       <div className="ml-4 space-y-0.5">
@@ -319,7 +319,7 @@ function ToolPicker({
                             className={rowCls(value === t.id)}>
                             <span className="font-medium">{t.name}</span>
                             {t.description && (
-                              <span className="block text-[11px] text-slate-400 truncate">{t.description}</span>
+                              <span className="block text-[11px] text-ink-dim truncate">{t.description}</span>
                             )}
                           </button>
                         ))}
@@ -334,10 +334,10 @@ function ToolPicker({
     >
       {/* 触发器（样式对齐 Select） */}
       <div className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs border border-line bg-page cursor-pointer hover:border-blue-500 transition-colors">
-        <span className={value && selectedName(value) ? 'text-slate-100' : 'text-slate-500'}>
+        <span className={value && selectedName(value) ? 'text-ink' : 'text-ink-dim'}>
           {value && selectedName(value) ? selectedName(value) : '选择工具…'}
         </span>
-        <ChevronDown size={13} className="text-slate-400 shrink-0" />
+        <ChevronDown size={13} className="text-ink-dim shrink-0" />
       </div>
     </Popover>
   )
@@ -421,7 +421,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
   return (
     <div className="space-y-3">
       <div>
-        <label className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+        <label className="flex items-center gap-1 text-xs text-ink-dim mb-1">
           工具
           <HelpHint text="「工具库」为组织治理工具（已开启可直接调用）；「MCP 工具」按外部连接分组（点击连接展开）。技能类由 Agent 节点绑定使用，不在工具节点选择" />
         </label>
@@ -439,7 +439,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
         <div className="flex justify-end">
           <button onClick={() => setTestOpen(true)}
             title="按节点配置的参数试跑该工具（凭证使用组织配置，不影响工作流）"
-            className="px-2.5 py-1 rounded text-[11px] font-medium border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 cursor-pointer transition">
+            className="px-2.5 py-1 rounded text-[11px] font-medium border border-brand/40 text-brand hover:bg-brand-soft cursor-pointer transition">
             测试工具
           </button>
         </div>
@@ -456,16 +456,16 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
 
       {paramKeys.length > 0 ? (
         <div>
-          <label className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+          <label className="flex items-center gap-1 text-xs text-ink-dim mb-1">
             参数（{paramKeys.length} 项）
             <HelpHint text="按工具定义的运行参数填写；值可输入固定文本或 {{ node.field }} 引用上游节点输出" />
           </label>
           <div className="space-y-1.5">
             {paramKeys.map((key) => (
               <div key={key} className="flex items-center gap-2">
-                <label className="w-24 shrink-0 text-xs text-slate-400 truncate" title={key}>
+                <label className="w-24 shrink-0 text-xs text-ink-dim truncate" title={key}>
                   {key}
-                  {schemaRequired.has(key) && <span className="text-red-500"> *</span>}
+                  {schemaRequired.has(key) && <span className="text-sig-fail"> *</span>}
                 </label>
                 <div className="flex-1 min-w-0">
                   <VariableSelector
@@ -495,7 +495,7 @@ export default function ToolNodeConfig({ config, onChange, currentNodeId, allNod
         )
       )}
       <div>
-        <label className="block text-xs text-slate-400 mb-1">超时 (ms)</label>
+        <label className="block text-xs text-ink-dim mb-1">超时 (ms)</label>
         <Input
           type="number"
           value={(config.timeout_ms as number) ?? 30000}

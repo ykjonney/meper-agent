@@ -3,7 +3,7 @@
  * ParamListEditor / FormSection。试跑（草稿定义直接测）与 AI 修改在此集成；
  * 关闭即自动保存草稿（未开启前可随时改/删），无独立保存按钮。 */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, Play, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { ChevronDown, Play, Plus, Sparkles, Trash2, Wand2, Wrench } from 'lucide-react'
 import { getErrorMessage } from '../../lib/api-client'
 import { useAuthStore } from '../../stores/auth-store'
 import { toast } from '../ui/toast'
@@ -24,30 +24,27 @@ function CodeHelpPanel({ onInsertExample, dark }: {
   onInsertExample: () => void; dark: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const item = `flex gap-2 ${dark ? 'text-ink-dim' : 'text-slate-600'}`;
+  const item = 'flex gap-2 text-ink-dim';
   return (
-    <div className={`rounded-lg border text-[11px] leading-relaxed ${
-      dark ? 'border-line bg-page/60' : 'border-slate-200 bg-slate-50/70'
-    }`}>
+    <div className="rounded-lg border border-line bg-page/60 text-[11px] leading-relaxed">
       <button onClick={() => setOpen(!open)}
-        className={`flex w-full items-center gap-1 px-2.5 py-1.5 cursor-pointer font-semibold ${
-          dark ? 'text-ink-soft hover:text-white' : 'text-slate-700 hover:text-slate-900'
-        }`}>
+        className="flex w-full items-center gap-1 px-2.5 py-1.5 cursor-pointer font-semibold text-ink-soft hover:text-ink"
+      >
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
         代码怎么写？查看格式要求与可用依赖
       </button>
       {open && (
-        <div className={`px-3 pb-3 pt-0.5 space-y-1.5 border-t ${dark ? 'border-line' : 'border-slate-200'}`}>
-          <div className={item}><span className="text-blue-400 shrink-0">入口</span>
-            定义 <code className="font-mono text-blue-300">def run(...)</code>，参数名与「③ 运行参数」一致，调用时按名传入。</div>
-          <div className={item}><span className="text-amber-400 shrink-0">凭证</span>
-            「④ 凭证参数」通过环境变量读取：token → <code className="font-mono text-amber-300">os.environ["USER_token"]</code>。敏感值加密存储，管理员统一配置。</div>
-          <div className={item}><span className="text-emerald-500 shrink-0">返回</span>
+        <div className="px-3 pb-3 pt-0.5 space-y-1.5 border-t border-line">
+          <div className={item}><span className="text-brand shrink-0">入口</span>
+            定义 <code className="font-mono text-brand">def run(...)</code>，参数名与「③ 运行参数」一致，调用时按名传入。</div>
+          <div className={item}><span className="text-sig-wait shrink-0">凭证</span>
+            「④ 凭证参数」通过环境变量读取：token → <code className="font-mono text-sig-wait">os.environ["USER_token"]</code>。敏感值加密存储，管理员统一配置。</div>
+          <div className={item}><span className="text-sig-ok shrink-0">返回</span>
             return 字符串或 dict / list（自动转 JSON）；抛出异常时错误信息会返回给 AI 便于重试。</div>
-          <div className={item}><span className="text-purple-400 shrink-0">依赖</span>
+          <div className={item}><span className="text-cat-flow shrink-0" style={{ color: 'var(--color-cat-flow)' }}>依赖</span>
             可使用 Python 标准库和一些常用库（如 requests、httpx、pandas、numpy 等）；部分依赖可能被禁止安装，保存时会有提示。</div>
           <button onClick={onInsertExample}
-            className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[11px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 cursor-pointer">
+            className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-[11px] text-blue-400 hover:text-brand hover:bg-blue-500/10 cursor-pointer">
             <Wand2 size={12} />填入完整示例（天气查询）
           </button>
         </div>
@@ -86,22 +83,22 @@ function ParamsTableEditor({ rows, onChange, inputCls, selectCls }: {
             className={`w-full ${inputCls}`} />
           <label className="flex items-center justify-center cursor-pointer" title="凭证：值由管理员统一配置（加密存储），调用时自动带上">
             <input type="checkbox" checked={r.credential} onChange={(e) => update(i, { credential: e.target.checked })}
-              className="w-3.5 h-3.5 accent-amber-500 cursor-pointer" />
+              className="w-3.5 h-3.5 accent-[#B07D1A] cursor-pointer" />
           </label>
           <label className="flex items-center justify-center cursor-pointer" title={r.credential ? '凭证参数强制必填（必须配置后才能开启工具）' : '调用时该参数必须提供'}>
             {/* 凭证行必填被强制——禁用时如实显示为勾选，避免「没勾必填却必须填」的误导 */}
             <input type="checkbox" checked={r.credential || r.required} disabled={r.credential}
               onChange={(e) => update(i, { required: e.target.checked })}
-              className="w-3.5 h-3.5 accent-blue-600 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed" />
+              className="w-3.5 h-3.5 accent-[var(--color-brand)] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed" />
           </label>
           <button onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
-            className="p-1 rounded text-red-400/70 hover:text-red-400 cursor-pointer justify-self-center" title="删除此参数">
+            className="p-1 rounded text-sig-fail/60 hover:text-sig-fail cursor-pointer justify-self-center" title="删除此参数">
             <Trash2 size={13} />
           </button>
         </div>
       ))}
       <button onClick={() => onChange([...rows, { name: '', in: 'query', description: '', required: false, credential: false }])}
-        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
+        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-brand hover:text-brand-hover cursor-pointer">
         <Plus size={13} />添加参数
       </button>
     </div>
@@ -135,12 +132,12 @@ function OutputFieldsTree({ fields, onChange, inputCls, selectCls, depth = 0 }: 
         </select>
         <label className="flex items-center justify-center cursor-pointer" title="列表（下游 .0 下标取值）">
           <input type="checkbox" checked={!!f.is_list} onChange={(e) => update(i, { is_list: e.target.checked })}
-            className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" />
+            className="w-3.5 h-3.5 accent-[var(--color-brand)] cursor-pointer" />
         </label>
         <input value={f.description} onChange={(e) => update(i, { description: e.target.value })}
           placeholder="处理状态，success / failed" className={`w-full ${inputCls}`} />
         <button onClick={() => onChange(fields.filter((_, idx) => idx !== i))}
-          className="p-1 rounded text-red-400/70 hover:text-red-400 cursor-pointer justify-self-center" title="删除此字段">
+          className="p-1 rounded text-sig-fail/60 hover:text-sig-fail cursor-pointer justify-self-center" title="删除此字段">
           <Trash2 size={13} />
         </button>
       </div>
@@ -162,7 +159,7 @@ function OutputFieldsTree({ fields, onChange, inputCls, selectCls, depth = 0 }: 
       )}
       {fields.map(row)}
       <button onClick={() => onChange([...fields, { name: '', type: 'string', description: '', is_list: false }])}
-        className={`flex items-center gap-1 px-2 py-1 rounded text-xs text-blue-400 hover:text-blue-300 cursor-pointer ${depth > 0 ? 'pl-0' : ''}`}>
+        className={`flex items-center gap-1 px-2 py-1 rounded text-xs text-brand hover:text-brand-hover cursor-pointer ${depth > 0 ? 'pl-0' : ''}`}>
         <Plus size={13} />{depth > 0 ? '添加子字段' : '添加返回字段'}
       </button>
     </div>
@@ -202,16 +199,16 @@ function ParamListEditor({ fields, onChange, mode, inputCls, selectCls }: {  fie
           <label className="flex items-center justify-center cursor-pointer" title={labelTitle}>
             <input type="checkbox" checked={mode === 'llm' ? f.required : f.sensitive}
               onChange={(e) => update(i, mode === 'llm' ? { required: e.target.checked } : { sensitive: e.target.checked })}
-              className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" />
+              className="w-3.5 h-3.5 accent-[var(--color-brand)] cursor-pointer" />
           </label>
           <button onClick={() => onChange(fields.filter((_, idx) => idx !== i))}
-            className="p-1 rounded text-red-400/70 hover:text-red-400 cursor-pointer justify-self-center" title="删除此参数">
+            className="p-1 rounded text-sig-fail/60 hover:text-sig-fail cursor-pointer justify-self-center" title="删除此参数">
             <Trash2 size={13} />
           </button>
         </div>
       ))}
       <button onClick={() => onChange([...fields, { key: '', type: 'string', description: '', required: false, sensitive: false }])}
-        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
+        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-brand hover:text-brand-hover cursor-pointer">
         <Plus size={13} />添加参数
       </button>
     </div>
@@ -219,19 +216,17 @@ function ParamListEditor({ fields, onChange, mode, inputCls, selectCls }: {  fie
 }
 
 /** 分区标题（步骤式引导） */
-function FormSection({ step, title, hint, dark, children }: {
-  step: string; title: string; hint?: string; dark: boolean; children: ReactNode;
+function FormSection({ step, title, hint, children }: {
+  step: string; title: string; hint?: string; children: ReactNode;
 }) {
   return (
-    <div className={`rounded-xl border p-4 space-y-3 ${
-      dark ? 'border-line bg-page/60' : 'border-slate-200 bg-slate-50/60'
-    }`}>
+    <div className="rounded-xl border border-line bg-page/60 p-4 space-y-3">
       <div className="space-y-0.5">
         <div className="flex items-center gap-2">
-          <span className="w-5 h-5 rounded-full bg-blue-600/20 text-blue-500 text-[11px] font-bold flex items-center justify-center shrink-0">{step}</span>
-          <span className={`text-sm font-bold ${dark ? 'text-white' : 'text-slate-900'}`}>{title}</span>
+          <span className="w-5 h-5 rounded-full bg-brand-soft text-brand text-[11px] font-bold flex items-center justify-center shrink-0">{step}</span>
+          <span className="text-sm font-bold text-ink">{title}</span>
         </div>
-        {hint && <p className={`text-[11px] leading-relaxed pl-7 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>{hint}</p>}
+        {hint && <p className="text-[11px] leading-relaxed pl-7 text-ink-dim">{hint}</p>}
       </div>
       {children}
     </div>
@@ -306,20 +301,15 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
   };
 
   const dark = theme === 'dark';
-  // 控件基础样式（无 w-full——flex 行内按 w-full 抢占空间会把兄弟元素挤成 0 宽）
-  const ctlBase = `px-2 py-1 rounded text-xs border outline-none ${
-    dark
-      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
-      : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
-  }`;
+  // 控件基础样式（语义 token：theme-indigo 作用域自动换值；无 w-full——flex 行内
+  // 按 w-full 抢占空间会把兄弟元素挤成 0 宽）
+  const ctlBase = 'px-2 py-1 rounded text-xs border border-line bg-page text-ink placeholder:text-ink-faint outline-none focus:border-brand transition-colors';
   const inputCls = `w-full ${ctlBase}`;
   const monoInputCls = `${inputCls} font-mono`;
   const selectCls = `${inputCls} cursor-pointer px-1`;
   const methodCls = `w-24 shrink-0 py-1.5 font-mono cursor-pointer ${ctlBase}`;
-  const chipCls = dark ? 'bg-line' : 'bg-slate-100';
-  const plainInputCls = dark
-    ? 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
-    : 'w-full px-3 py-1.5 rounded-lg text-sm border outline-none bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500';
+  const chipCls = 'bg-raise';
+  const plainInputCls = 'w-full px-3 py-1.5 rounded-lg text-sm border border-line bg-page text-ink placeholder:text-ink-faint outline-none focus:border-brand transition-colors';
 
   /** 当前表单状态 → 工具定义（保存与试跑共用同一构造，防两路漂移） */
   const buildDefinition = (): ToolDefinitionPayload => {
@@ -420,44 +410,43 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
   return (
     /* 点遮罩不关闭（防误触丢表单，与其余 ui Modal 行为一致）：只能经 头部✕/底部取消/保存 关闭 */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div className={`w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden ${
-          dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
-        }`}
+      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-line bg-panel text-ink overflow-hidden"
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
-        <div className={`flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
-          <div>
-            <h3 className="text-base font-bold flex items-center gap-2">
-              {isEdit ? '编辑工具' : '创建工具'}
-              {isEdit && (
-                <button onClick={() => setAiOpen(true)}
-                  title="AI 修改：以当前保存的工具定义为起点对话式打磨，应用后回填本表单"
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition ${
-                    dark
-                      ? 'border border-blue-500/40 text-blue-400 hover:bg-blue-500/10'
-                      : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
-                  }`}>
-                  <Sparkles size={12} />AI 修改
-                </button>
-              )}
-            </h3>
-            <p className={`text-[11px] mt-0.5 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
-              {isAdmin && !isEdit
-                ? '管理员创建即发布（免审）；配置凭证并开启后即可被 Agent 与工作流使用。'
-                : '创建后提交发布，经管理员审查、开启后才能被 Agent 与工作流使用。'}
-            </p>
+        <div className="flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b border-line">
+          <div className="flex items-center gap-2.5">
+            <div className="w-[34px] h-[34px] rounded-[10px] flex items-center justify-center shrink-0 bg-[#E9EDF7] text-cat-tool">
+              <Wrench size={17} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[16px] font-extrabold text-ink tracking-[-0.01em]">{isEdit ? '编辑工具' : '创建工具'}</h3>
+                {isEdit && (
+                  <button onClick={() => setAiOpen(true)}
+                    title="AI 修改：以当前保存的工具定义为起点对话式打磨，应用后回填本表单"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium text-brand border border-brand hover:bg-brand-soft cursor-pointer transition">
+                    <Sparkles size={12} />AI 修改
+                  </button>
+                )}
+              </div>
+              <p className="font-mono text-[10.5px] text-ink-faint mt-0.5 tracking-[.08em]">
+                {isEdit ? 'TOOL · EDIT' : 'TOOL · CREATE'}
+              </p>
+            </div>
           </div>
-          <button onClick={busy ? undefined : handleDone} className={`cursor-pointer hover:opacity-70 ${busy ? 'opacity-50' : ''} ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
+          <button onClick={busy ? undefined : handleDone} className={`cursor-pointer hover:opacity-70 text-ink-faint hover:text-ink text-[16px] leading-none ${busy ? 'opacity-50' : ''}`}>✕</button>
         </div>
+        <p className="px-6 pt-2 pb-1 text-[11px] text-ink-dim">
+          {isAdmin && !isEdit
+            ? '管理员创建即发布（免审）；配置凭证并开启后即可被 Agent 与工作流使用。'
+            : '创建后提交发布，经管理员审查、开启后才能被 Agent 与工作流使用。'}
+        </p>
 
         {/* 内容区滚动 */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
         {/* ① 基本信息 */}
-        <FormSection step="1" title="基本信息" dark={dark}
-          hint="给工具起个名字、说清楚它做什么。">
+        <FormSection step="1" title="基本信息"          hint="给工具起个名字、说清楚它做什么。">
           <div className="grid grid-cols-1 gap-3 pl-7">
             <div className="flex gap-2">
               {(['openapi', 'code'] as const).map((s) => {
@@ -467,24 +456,22 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
                   <button key={s} disabled={isEdit} onClick={() => setSource(s)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition ${
                       source === s
-                        ? 'bg-blue-600/20 border-blue-600/60 text-blue-500'
-                        : dark
-                          ? 'border-line bg-transparent text-ink-dim hover:text-white'
-                          : 'border-slate-200 bg-transparent text-slate-500 hover:text-slate-900'
+                        ? 'bg-brand-soft border-brand text-brand font-semibold'
+                        : 'border-line bg-transparent text-ink-dim hover:text-ink'
                     }`}>
                     <meta.icon size={13} className={meta.cls} />
                     <span className="font-semibold">{meta.label}</span>
-                    <span className={`text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>{desc}</span>
+                    <span className="text-[11px] text-ink-faint">{desc}</span>
                   </button>
                 );
               })}
             </div>
             <label className="space-y-1 block">
-              <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>工具名称（字母数字开头，可含 - _，组织内唯一）</span>
+              <span className="text-xs text-ink-dim">工具名称（字母数字开头，可含 - _，组织内唯一）</span>
               <input value={name} onChange={(e) => setName(e.target.value)} className={plainInputCls} placeholder="weather-query" />
             </label>
             <label className="space-y-1 block">
-              <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>工具描述</span>
+              <span className="text-xs text-ink-dim">工具描述</span>
               <input value={description} onChange={(e) => setDescription(e.target.value)} className={plainInputCls} placeholder="查询指定城市的实时天气" />
             </label>
           </div>
@@ -492,8 +479,7 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
 
         {/* ② 调用方式 */}
         {source === 'openapi' ? (
-          <FormSection step="2" title="要调用的接口" dark={dark}
-            hint="填一个 HTTP 接口 + 参数表。参数写在哪就发到哪（Query / 请求头 / URL 路径 / Body）：调用时 AI 填值，勾「凭证」的由管理员配置真值（加密存储）。">
+          <FormSection step="2" title="要调用的接口"            hint="填一个 HTTP 接口 + 参数表。参数写在哪就发到哪（Query / 请求头 / URL 路径 / Body）：调用时 AI 填值，勾「凭证」的由管理员配置真值（加密存储）。">
             <div className="space-y-3 pl-7">
               <div className="flex gap-2">
                 <select value={method} onChange={(e) => setMethod(e.target.value)}
@@ -504,31 +490,30 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
                   placeholder="https://api.example.com/v1/weather（路径参数写 {city}）" />
               </div>
               <button onClick={applyExample}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 cursor-pointer">
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-blue-400 hover:text-brand hover:bg-blue-500/10 cursor-pointer">
                 <Wand2 size={12} />填入完整示例（天气查询）
               </button>
 
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>参数表——写一次，按位置发送</span>
+                <span className="text-xs text-ink-dim">参数表——写一次，按位置发送</span>
                 <ParamsTableEditor rows={apiParams} onChange={setApiParams}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
+                <span className="text-xs text-ink-dim">返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
                 <OutputFieldsTree fields={outputFields} onChange={setOutputFields}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
             </div>
           </FormSection>
         ) : (
-          <FormSection step="2" title="Python 代码" dark={dark}
-            hint="在隔离环境中安全运行。定义一个 run 函数（入参即「③ 运行参数」），返回字符串或可 JSON 化的结果。">
+          <FormSection step="2" title="Python 代码"            hint="在隔离环境中安全运行。定义一个 run 函数（入参即「③ 运行参数」），返回字符串或可 JSON 化的结果。">
             <div className="space-y-2 pl-7">
               <CodeHelpPanel dark={dark} onInsertExample={applyExample} />
               <CodeEditor value={code} onChange={setCode}
                 placeholder={'import math\n\ndef run(radius: str) -> str:\n    """计算圆的面积"""\n    return str(math.pi * float(radius) ** 2)'} />
               <div className="space-y-1.5">
-                <span className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
+                <span className="text-xs text-ink-dim">返回结构（可选）——声明后下游节点可直接调用 {'{{node.result.字段}}'}（对象类型可声明子字段）</span>
                 <OutputFieldsTree fields={outputFields} onChange={setOutputFields}
                   inputCls={inputCls} selectCls={selectCls} />
               </div>
@@ -538,8 +523,7 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
 
         {/* ③ 运行参数——仅 code 模式（openapi 的参数在②参数表里） */}
         {source === 'code' && (
-          <FormSection step="3" title="运行参数" dark={dark}
-            hint="每次调用时动态变化的信息（如城市名、搜索词），由 AI 或工作流节点在调用时填写。">
+          <FormSection step="3" title="运行参数"            hint="每次调用时动态变化的信息（如城市名、搜索词），由 AI 或工作流节点在调用时填写。">
             <div className="pl-7">
               <ParamListEditor fields={llmFields} onChange={setLlmFields} mode="llm"
                 inputCls={inputCls} selectCls={selectCls} />
@@ -549,8 +533,7 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
 
         {/* ④ 凭证参数——仅 code 模式（openapi 凭证勾在②参数表里） */}
         {source === 'code' && (
-          <FormSection step="4" title="凭证参数" dark={dark}
-            hint="固定不变的配置或凭证（如 API Key）。发布后由管理员在工具上统一配置（勾选「敏感」的值加密存储），所有使用点共用。代码中通过 USER_ 前缀环境变量读取。">
+          <FormSection step="4" title="凭证参数"            hint="固定不变的配置或凭证（如 API Key）。发布后由管理员在工具上统一配置（勾选「敏感」的值加密存储），所有使用点共用。代码中通过 USER_ 前缀环境变量读取。">
             <div className="pl-7">
               <ParamListEditor fields={userFields} onChange={setUserFields} mode="user"
                 inputCls={inputCls} selectCls={selectCls} />
@@ -560,23 +543,17 @@ export function ToolEditModal({ theme, initial, onClose, onSaved, onExternalSave
         </div>
 
         {/* 底部按钮固定——关闭即保存草稿，试跑随时可用 */}
-        <div className={`flex items-center justify-between shrink-0 px-6 py-4 border-t ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
-          <span className={`text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
+        <div className="flex items-center justify-between shrink-0 px-6 py-4 border-t border-line">
+          <span className="text-[11px] text-ink-dim">
             关闭时自动保存草稿，可随时回来修改
           </span>
           <div className="flex gap-2">
             <button onClick={handleTest} disabled={busy}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border cursor-pointer disabled:opacity-50 ${
-                dark
-                  ? 'border-line-strong text-ink-soft hover:border-blue-500/60 hover:text-blue-400'
-                  : 'border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600'
-              }`}>
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-line-strong text-ink-soft hover:border-brand hover:text-brand cursor-pointer disabled:opacity-50">
               <Play size={13} />试跑
             </button>
             <button onClick={handleDone} disabled={busy}
-              className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50">
+              className="px-4 py-1.5 rounded-lg text-sm bg-brand hover:bg-brand-hover text-white cursor-pointer disabled:opacity-50">
               {busy ? '保存中…' : '完成'}
             </button>
           </div>

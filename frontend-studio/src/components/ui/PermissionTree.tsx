@@ -8,12 +8,11 @@
  * - 父节点（模块）可展开/折叠，checkbox 父子联动：
  *     勾父 → 全选子；子全选 → 父选中；子部分选 → 父半选(indeterminate)。
  * - 受控：selected: Set<string> / onChange(next)。
- * - 配色复用项目暗色 hex 体系（#121214/#18181b/#27272a/slate-*），index.css
- *   的 .theme-light 覆写自动适配亮色；选中态用项目蓝 #1E5EFF + 白字。
+ * - 叶子显示权限点中文标签（PERMISSION_LABELS），未知 key 回退原文。
  */
 import { useState } from 'react'
 import { ChevronRight, Check, Minus } from 'lucide-react'
-import { PERMISSION_GROUPS } from '../../services/types'
+import { PERMISSION_GROUPS, PERMISSION_LABELS } from '../../services/types'
 
 interface PermissionTreeProps {
   selected: Set<string>
@@ -38,7 +37,7 @@ function TriState({
       aria-checked={checked}
       className={`w-3.5 h-3.5 rounded-[4px] border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
         on
-          ? 'bg-[#1E5EFF] border-[#1E5EFF] text-white'
+          ? 'bg-brand border-brand text-white'
           : 'bg-page border-line hover:border-line-strong'
       }`}
     >
@@ -80,7 +79,7 @@ function ModuleNode({
         <button
           type="button"
           onClick={toggleParent}
-          className="flex-1 text-left text-[11px] font-semibold text-slate-300 cursor-pointer hover:text-ink transition-colors"
+          className="flex-1 text-left text-[11px] font-semibold text-ink-soft cursor-pointer hover:text-ink transition-colors"
         >
           {label}
         </button>
@@ -93,15 +92,15 @@ function ModuleNode({
             return (
               <label
                 key={k}
-                className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer hover:text-slate-300 transition-colors"
+                className="flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer hover:text-ink transition-colors"
               >
                 <input
                   type="checkbox"
                   checked={on}
                   onChange={() => onToggleMany([k], !on)}
-                  className="accent-[#1E5EFF] cursor-pointer w-3 h-3"
+                  className="accent-brand cursor-pointer w-3 h-3"
                 />
-                <span className="font-mono truncate">{k}</span>
+                <span className="truncate">{PERMISSION_LABELS[k] ?? k}</span>
               </label>
             )
           })}

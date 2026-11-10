@@ -27,7 +27,8 @@ export interface Model {
   model_id: string
   name: string
   base_url: string
-  api_key: string // Masked (e.g. 'sk-****abcd')
+  /** 加密落库；更新时省略 = 保持原密钥 */
+  api_key?: string // Masked (e.g. 'sk-****abcd')
   compatibility_type: CompatibilityType
   auth_type: AuthType
   auth_header_format?: string
@@ -47,7 +48,8 @@ export interface ModelCreateInput {
   model_id: string
   name: string
   base_url: string
-  api_key: string // Plaintext input
+  /** Plaintext；更新时省略 = 保持原密钥 */
+  api_key?: string
   compatibility_type?: CompatibilityType
   auth_type?: AuthType
   auth_header_format?: string

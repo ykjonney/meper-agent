@@ -26,9 +26,9 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 const STATUS_META: Record<string, { text: string; cls: string }> = {
-  success: { text: '成功', cls: 'bg-green-500/10 text-green-500 border-green-500/20' },
-  error: { text: '失败', cls: 'bg-red-500/10 text-red-500 border-red-500/20' },
-  cancelled: { text: '已取消', cls: 'bg-slate-500/10 text-slate-400 border-slate-500/20' },
+  success: { text: '成功', cls: 'bg-sig-ok-soft text-sig-ok border-sig-ok/20' },
+  error: { text: '失败', cls: 'bg-sig-fail-soft text-sig-fail border-sig-fail/20' },
+  cancelled: { text: '已取消', cls: 'bg-raise text-ink-dim border-line' },
 }
 
 /** 可选分页数（任务/执行记录两个 tab 共用）。 */
@@ -91,15 +91,15 @@ export function PagerBar({
 /* ─── 过程事件渲染（紧凑键 → 可读行） ─── */
 
 const EVENT_DOT_CLS: Record<string, string> = {
-  tools_resolved: 'bg-indigo-500',
-  request_begin: 'bg-blue-500',
-  request_end: 'bg-blue-500',
-  tool_call: 'bg-zinc-500',
-  tool_result: 'bg-green-500',
-  compaction: 'bg-amber-500',
-  interrupt: 'bg-orange-500',
-  error: 'bg-red-500',
-  events_truncated: 'bg-amber-500',
+  tools_resolved: 'bg-brand',
+  request_begin: 'bg-brand',
+  request_end: 'bg-brand',
+  tool_call: 'bg-ink-faint',
+  tool_result: 'bg-sig-ok',
+  compaction: 'bg-sig-wait',
+  interrupt: 'bg-sig-wait',
+  error: 'bg-sig-fail',
+  events_truncated: 'bg-sig-wait',
 }
 
 function EventLabel({ ev }: { ev: ExecutionEvent }) {
@@ -107,24 +107,24 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
     case 'tools_resolved':
       return (
         <span>
-          <span className="text-indigo-400">工具装配</span>
+          <span className="text-brand">工具装配</span>
           {ev.ctx && <span className="opacity-60"> · {ev.ctx} / {ev.model || '—'}</span>}
           {ev.tools && ev.tools.length > 0 && (
             <span className="opacity-75"> · {ev.tools.join(', ')}</span>
           )}
           {(ev.load_errors ?? []).map((le, i) => (
-            <div key={i} className="text-red-400 font-mono text-[11px] break-all mt-0.5">
+            <div key={i} className="text-sig-fail font-mono text-[11px] break-all mt-0.5">
               加载失败 {le.tool}: {le.error}
             </div>
           ))}
         </span>
       )
     case 'request_begin':
-      return <span className="text-blue-400">LLM 请求 #{ev.i ?? '?'}</span>
+      return <span className="text-brand">LLM 请求 #{ev.i ?? '?'}</span>
     case 'request_end':
       return (
         <span>
-          <span className="text-blue-400">LLM 请求 #{ev.i ?? '?'} 完成</span>
+          <span className="text-brand">LLM 请求 #{ev.i ?? '?'} 完成</span>
           <span className="opacity-75">
             {' '}· {fmtMs(ev.dur)} · ↑{fmtTok(ev.in_tok)} ↓{fmtTok(ev.out_tok)}
           </span>
@@ -141,16 +141,16 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
       )
     case 'tool_result':
       return (
-        <span className={ev.ok === false ? 'text-red-400' : 'text-green-500'}>
+        <span className={ev.ok === false ? 'text-sig-fail' : 'text-sig-ok'}>
           {(ev.ok === false ? '✕ ' : '') + (ev.n || ev.id) + ' 返回'}
           <span className="opacity-75"> · {fmtMs(ev.dur)} · {ev.size ?? 0} 字符</span>
         </span>
       )
     case 'interrupt':
-      return <span className="text-orange-400">中断 · {ev.kind || '—'}</span>
+      return <span className="text-sig-wait">中断 · {ev.kind || '—'}</span>
     case 'compaction':
       return (
-        <span className="text-amber-500">
+        <span className="text-sig-wait">
           上下文压缩 · {ev.level || '—'}
           {ev.before != null && (
             <span className="opacity-75"> · 原文 {ev.before} 字符已归档（可 recall 回取）</span>
@@ -159,14 +159,14 @@ function EventLabel({ ev }: { ev: ExecutionEvent }) {
       )
     case 'error':
       return (
-        <span className="text-red-400">
+        <span className="text-sig-fail">
           错误 · {ev.source || '—'}
           {ev.msg && <pre className="text-[11px] opacity-80 whitespace-pre-wrap break-all font-mono mt-0.5">{ev.msg}</pre>}
         </span>
       )
     case 'events_truncated':
       return (
-        <span className="text-amber-500">
+        <span className="text-sig-wait">
           过程事件超限截断 · 丢弃 {ev.dropped ?? 0} 条中段工具事件
         </span>
       )
@@ -199,7 +199,7 @@ function EventTimeline({ events }: { events: ExecutionEvent[] }) {
 export function DetailModal({
   logId, theme, onClose,
 }: { logId: string; theme: Theme; onClose: () => void }) {
-  const dark = theme === 'dark'
+  void theme
   const { data: log, isLoading } = useQuery({
     queryKey: executionLogKeys.detail(logId),
     queryFn: () => executionLogApi.get(logId),
@@ -219,16 +219,14 @@ export function DetailModal({
     : []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/25" onClick={onClose}>
       <div
-        className={`rounded-xl shadow-2xl w-[720px] max-w-[calc(100vw-2rem)] max-h-[82vh] flex flex-col border ${
-          dark ? 'bg-panel border-line' : 'bg-white border-slate-200'
-        }`}
+        className="rounded-xl shadow-[var(--shadow-pop)] w-[720px] max-w-[calc(100vw-2rem)] max-h-[82vh] flex flex-col border border-line bg-panel"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-line' : 'border-slate-200'}`}>
-          <div className={`flex items-center gap-2 text-sm font-medium ${dark ? 'text-ink' : 'text-slate-800'}`}>
-            <Activity size={14} className="text-indigo-400" />
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
+          <div className="flex items-center gap-2 text-sm font-medium text-ink">
+            <Activity size={14} className="text-brand" />
             执行详情
             {log && (
               <span className={`text-[11px] px-1.5 py-0.5 rounded border ${STATUS_META[log.status]?.cls ?? ''}`}>
@@ -240,14 +238,14 @@ export function DetailModal({
         </div>
 
         {isLoading || !log ? (
-          <div className={`px-5 py-10 text-center text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>加载中…</div>
+          <div className="px-5 py-10 text-center text-xs text-ink-dim">加载中…</div>
         ) : (
           <>
-            <div className={`px-5 py-3 border-b grid grid-cols-2 gap-x-6 gap-y-2 text-[11px] ${dark ? 'border-line' : 'border-slate-200'}`}>
+            <div className="px-5 py-3 border-b grid grid-cols-2 gap-x-6 gap-y-2 text-[11px] border-line">
               {metaRows.map(([k, v]) => (
                 <div key={k} className="min-w-0">
-                  <div className={dark ? 'text-ink-dim' : 'text-slate-400'}>{k}</div>
-                  <div className={`font-mono break-all ${dark ? 'text-ink' : 'text-slate-800'}`}>{v}</div>
+                  <div className="text-ink-dim">{k}</div>
+                  <div className="font-mono break-all text-ink">{v}</div>
                 </div>
               ))}
             </div>
@@ -317,7 +315,7 @@ export function ExecFilterBar({
       />
       <button
         onClick={onApply}
-        className="flex items-center gap-1 rounded-md bg-indigo-500 hover:bg-indigo-600 text-white text-xs px-3 py-1.5 cursor-pointer"
+        className="flex items-center gap-1 rounded-md bg-brand hover:bg-brand-hover text-white text-xs px-3 py-1.5 cursor-pointer"
       >
         <Search size={12} /> 筛选
       </button>
@@ -395,7 +393,7 @@ export function RecentExecutionsTable({ filters }: { filters: ExecFilters }) {
                   <td className="py-3 px-3 text-right">
                     <button
                       onClick={() => setOpenLogId(it._id)}
-                      className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer"
+                      className="text-brand hover:opacity-75 font-bold hover:underline cursor-pointer"
                     >
                       详情
                     </button>

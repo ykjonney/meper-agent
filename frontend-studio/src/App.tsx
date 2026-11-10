@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Bot, BookOpen, LayoutDashboard, Layers, Key, Server,
-  Sun, Moon, MessageSquare, ListTodo, Sparkles, Shield,
-  Plug, UserCog, LogOut, ChevronDown,
-  PanelLeftClose, PanelLeftOpen, Clock, Mic,
+  Bot, LayoutDashboard, Layers, Key,
+  ListTodo, Shield,
+  Clock,
   Link2, ArrowLeftRight, Store,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
@@ -16,31 +15,20 @@ import { workflowsApi, workflowKeys } from './services/workflows-api';
 import Login from './components/Login';
 import { AuthInitializer } from './components/AuthInitializer';
 import { Toaster } from './components/ui/toast';
-import { Tooltip } from './components/ui';
 import { ConfirmHost } from './components/ui/confirm';
 import { ChatHomepage } from './components/ChatHomepage';
-import { VoiceHomepage } from './components/voice/VoiceHomepage';
 import { TaskBoard } from './components/TaskBoard';
 import { TaskDetailPage } from './components/task/TaskDetailPage';
 import { Dashboard } from './components/Dashboard';
 import { AgentSpace } from './components/AgentSpace';
-import { AgentDetailPage } from './components/AgentDetailPage';
 import { AgentEditorPage } from './components/AgentEditorPage';
 import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { WorkflowSpace } from './components/WorkflowSpace';
-import { UserSkillsPage } from './components/UserSkillsPage';
-import { ToolMarketPage } from './components/ToolMarketPage';
-import { McpManagePage } from './components/McpManagePage';
-import { SkillDetailPage } from './components/SkillDetailPage';
-import { KnowledgeBasePage } from './components/KnowledgeBasePage';
-import { KbDetailPage } from './components/KbDetailPage';
-import { KbVectorDetailPage } from './components/KbVectorDetailPage';
+import { ResourceHubPage } from './components/ResourceHubPage';
 import { UserManagement } from './components/UserManagement';
 import { TransferManagementPage } from './components/transfer/TransferManagementPage';
 import { ExternalAuthPage } from './components/ExternalAuthPage';
 import { SettingsPage } from './components/SettingsPage';
-import { ModelsPage } from './components/ModelsPage';
-import { TriggersPage } from './components/TriggersPage';
 import { ProfilePage } from './components/ProfilePage';
 import { NotificationCenter } from './components/notification-center';
 import { ActivationWizard } from './components/ActivationWizard';
@@ -56,6 +44,10 @@ import type { Agent } from './types';
  * AppLayout NAV_GROUPS permission gating in frontend/src/layouts/AppLayout.tsx).
  *
  * `permission: undefined` means "always visible" (e.g. the home board).
+ *
+ * v3.2 Workbench：侧栏按「工作台 / 资产 / 管理」三组分区渲染（NAV_GROUPS）；
+ * 知识库/模型配置/技能/工具库四个"创建配置资源"性质的功能合并为「资源库」
+ * 单一入口（ResourceHubPage 页内 Tab 切换）。
  */
 interface NavItem {
   id: string;
@@ -69,43 +61,32 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'chat', label: '会话记录', icon: MessageSquare, badge: 'HP' },
-  { id: 'voice', label: '语音对话', icon: Mic },
-  // 任务协作看板 badge 由下方 activeTaskCount 实时注入（执行中 + 等待人工）。
-  { id: 'board', label: '任务协作看板', icon: ListTodo },
+  // 任务看板 badge 由下方 activeTaskCount 实时注入（执行中 + 等待人工）。
+  { id: 'board', label: '任务看板', icon: ListTodo },
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, permission: 'execution:read:own' },
   { id: 'agents', label: '智能体', icon: Bot, permission: 'agent:read' },
-  { id: 'models', label: '模型配置', icon: Server, permission: 'model:read' },
-  { id: 'workflows', label: 'AI 工作路线', icon: Layers, permission: 'workflow:read' },
-  { id: 'triggers', label: '定时任务', icon: Clock, permission: 'trigger:read' },
-  { id: 'mcp', label: '外部工具接入', icon: Plug, permission: 'tool:read' },
-  // 工具库（内置 + 组织自定义工具统一目录，页内 Tab 切换）：所有登录用户可见
-  // （创建/安装/发布同技能市场模式；「系统内置」Tab 页内按 tool:read 控制）
-  { id: 'tool-market', label: '工具库', icon: Store },
-  { id: 'skills', label: '技能', icon: Sparkles },
-  { id: 'knowledge', label: '知识库', icon: BookOpen, permission: 'knowledge:read' },
+  { id: 'workflows', label: '工作流', icon: Layers, permission: 'workflow:read' },
+  // 资源库 = 知识库/模型配置/技能/工具库/MCP 接入 合并入口（ResourceHubPage 页内
+  // Tab 各自沿用原权限门控）。入口恒可见，无权限的 Tab 在页内隐藏。
+  // MCP 接入并入资源库第 5 个 tab（设计稿 resource-hub-page.html），不再单独导航。
+  { id: 'resource', label: '资源库', icon: Store },
   // 外部授权：所有登录用户可见；应用管理操作按 application:write 权限在卡片上显示。
   { id: 'external-auth', label: '外部授权', icon: Link2 },
   { id: 'users', label: '用户权限', icon: Shield, permission: 'user:read' },
   // 数据导入导出中心：资源包（afpkg）迁移入口，仅管理员可见（后端 admin/developer 双角色放行）。
   { id: 'transfer', label: '导入导出', icon: ArrowLeftRight, adminOnly: true },
   // 系统设置 = 多权限域容器（SettingsPage 内 Tab 各自门控）：语音/通用走
-  // settings:manage，消息渠道走 channel:read（已从独立导航项归并至此，
-  // 后端 channels API 同为 RBAC）。入口 permission 为数组——任一满足即可见：
-  // developer 无 settings:manage 但有 channel 读写，仍能进入本页管理渠道。
+  // settings:manage，消息渠道走 channel:read。入口 permission 为数组——任一满足即可见。
   { id: 'settings', label: '系统设置', icon: Key, permission: ['settings:manage', 'channel:read'] },
 ];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('chat');
   // Theme persists across reloads via localStorage (key mirrors the existing
-  // `agentflow_` prefix used by auth-store.ts). Falls back to 'dark'.
+  // `agentflow_` prefix used by auth-store.ts). Falls back to 'light'
+  // (v3.2 Workbench: 亮色为默认主题).
   const [theme, setTheme] = useState<'dark' | 'light'>(
-    () => (localStorage.getItem('agentflow_theme') as 'dark' | 'light') || 'dark',
-  );
-  // 侧边栏折叠：默认展开，收起状态持久化到 localStorage（与 theme 同前缀）。
-  const [collapsed, setCollapsed] = useState<boolean>(
-    () => localStorage.getItem('agentflow_sidebar_collapsed') === 'true',
+    () => (localStorage.getItem('agentflow_theme') as 'dark' | 'light') || 'light',
   );
   // 主题 class 同步到 <html>：portal 到 body 的浮层（Modal/Confirm 等）
   // 在下方根 div 的 .theme-* 作用域之外，token 变量会回落暗色默认值
@@ -116,35 +97,10 @@ export default function App() {
     root.classList.add(`theme-${theme}`)
   }, [theme])
 
-  const toggleSidebar = () =>
-    setCollapsed((v) => {
-      const next = !v;
-      localStorage.setItem('agentflow_sidebar_collapsed', String(next));
-      return next;
-    });
-  // Sub-state for the Skill detail view (tools tab → open a Skill's files).
-  const [openSkill, setOpenSkill] = useState<{ id: string; name: string } | null>(null);
-  // Sub-state for the Knowledge Base detail view (list → click card → files).
-  const [openKb, setOpenKb] = useState<{ id: string; name: string; type: 'tree' | 'vector' } | null>(null);
   // Sub-state for the workflow editor (list → click card → editor).
   const [openWorkflow, setOpenWorkflow] = useState<string | null>(null);
   // Sub-state for the Agent detail / live-test split view + editor.
-  const [openAgent, setOpenAgent] = useState<{ id: string; mode: 'edit' | 'view' } | null>(null);
-  // 底部用户头像下拉菜单（个人设置 / 登出）
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-
-  // 点击下拉菜单外部时关闭
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [userMenuOpen]);
+  const [openAgent, setOpenAgent] = useState<{ id: string; mode: 'edit' } | null>(null);
 
   // ── Auth gate ──────────────────────────────────────────────
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -273,18 +229,13 @@ export default function App() {
   }, [permissions, authUser, agentCount, activeTaskCount, workflowCount]);
 
   // If the active tab got filtered out, fall back to the first visible tab.
-  // profile 是非导航项的合法页面（从用户下拉菜单进入），不参与回退判断。
+  // chat（默认主页）与 profile 是非导航项的合法页面，不参与回退判断。
   useEffect(() => {
-    if (activeTab === 'profile') return;
+    if (activeTab === 'chat' || activeTab === 'profile') return;
     if (!visibleNav.some((n) => n.id === activeTab)) {
-      setActiveTab(visibleNav[0]?.id ?? 'chat');
+      setActiveTab('chat');
     }
   }, [visibleNav, activeTab]);
-
-  // 进入工作流编辑器 / 任务详情时自动收缩主菜单，给内容区让出空间（离开不自动恢复）
-  useEffect(() => {
-    if (openWorkflow || activeTaskDetail) setCollapsed(true);
-  }, [openWorkflow, activeTaskDetail]);
 
   // Auth gate: AuthInitializer (mounted in main.tsx) drives the refresh-check
   // window and the initializing spinner; here we only branch on the resolved
@@ -320,331 +271,108 @@ export default function App() {
     }
   };
 
-  return (
-    <div className={`h-dvh flex overflow-hidden theme-${theme} ${theme === 'dark' ? 'bg-well text-ink' : 'bg-slate-50 text-slate-800'} transition-colors duration-200`}>
-
-      {/* 1. LEFT NAVIGATION RAIL BAR */}
-      <aside className={`${collapsed ? 'w-16' : 'w-64'} border-r border-solid flex flex-col justify-between shrink-0 overflow-hidden transition-[width] duration-200 ${
-        theme === 'dark' ? 'bg-page border-line text-ink-dim' : 'bg-white border-slate-200 text-slate-600'
-      }`}>
-        {/* flex-1 + min-h-0：约束导航区高度，超高时自身滚动（scrollbar-custom
-            隐藏式滚动条 + overflow-x-hidden 防横向撑出）。否则侧栏内容会撑破
-            h-dvh 根容器（root 出现溢出），滚轮链式滚动/滚动位置恢复会让整个
-            页面（含各页标题）位移且无法滚回；小高度视口下底部用户区恒可见。 */}
-        <div className="flex flex-col flex-1 min-h-0">
-          <div className={`h-16 ${collapsed ? 'flex flex-col items-center justify-center gap-1' : 'px-4 flex items-center justify-between'} border-b shrink-0 ${theme === 'dark' ? 'border-line' : 'border-slate-100'}`}>
-            {/* Logo：展开态 FullLogo（含 AgentForge 字样）；折叠态 AFLogo（纯图标）。 */}
-            <img
-              src={collapsed ? '/AFLogo.png' : '/FullLogo.png'}
-              alt="AgentForge"
-              className={collapsed ? 'h-6 w-auto object-contain select-none' : 'h-full max-h-full w-auto py-2 object-contain select-none'}
-              draggable={false}
-            />
-            {/* 折叠 / 展开切换：始终在 logo 区可见 */}
-            <button
-              onClick={toggleSidebar}
-              aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-              className={`shrink-0 rounded-md p-1.5 transition-colors cursor-pointer ${
-                theme === 'dark'
-                  ? 'text-ink-dim hover:bg-panel-hover hover:text-white'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-              }`}
-            >
-              {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-            </button>
-          </div>
-
-          <nav className={`${collapsed ? 'flex flex-col items-center p-2' : 'p-4'} flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1 scrollbar-custom`}>
-            {!collapsed && (
-              <p className={`px-2 text-[11px] font-bold uppercase tracking-widest mb-2 ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>Main Navigator</p>
-            )}
-            {visibleNav.map((item) => {
-              const isActive = activeTab === item.id;
-              const btn = (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setActiveTaskDetail(null);
-                  }}
-                  className={`${collapsed ? 'w-10 px-0 justify-center' : 'w-full px-3 justify-between'} py-2 rounded-md flex items-center font-medium transition-all text-sm cursor-pointer select-none ${
-                    isActive
-                      ? theme === 'dark'
-                        ? 'text-indigo-400 border-l-2 border-indigo-500 bg-indigo-500/5'
-                        : 'text-indigo-600 border-l-2 border-indigo-500 bg-indigo-500/10 font-semibold'
-                      : theme === 'dark'
-                        ? 'text-ink-dim hover:bg-panel-hover hover:text-ink'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <div className={`flex items-center ${collapsed ? 'relative' : 'gap-3'}`}>
-                    <item.icon className="w-4 h-4 shrink-0 transition-colors" />
-                    {!collapsed && <span>{item.label}</span>}
-                    {/* 折叠态：有计数的项图标右上角小圆点（具体数字走 tooltip） */}
-                    {collapsed && item.badge && (
-                      <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    )}
-                  </div>
-                  {!collapsed && item.badge && (
-                    <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono leading-none ${
-                      isActive ? 'bg-indigo-500/20 text-indigo-300' : theme === 'dark' ? 'bg-panel text-ink-dim' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-              // 折叠态用 Tooltip 包裹显示「名称（计数）」，hover 可见
-              return collapsed ? (
-                <Tooltip key={item.id} title={`${item.label}${item.badge ? `（${item.badge}）` : ''}`}>
-                  {btn}
-                </Tooltip>
-              ) : (
-                btn
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Footer: 主题切换 + 用户头像下拉菜单 */}
-        <div className={`p-3 border-t ${theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'}`}>
-          <div className={`${collapsed ? 'flex flex-col items-stretch gap-2' : 'flex items-center justify-between gap-2'}`}>
-            {/* 用户头像区：点击弹出下拉菜单（个人设置 / 登出） */}
-            <div ref={userMenuRef} className={`relative ${collapsed ? '' : 'flex-1 min-w-0'}`}>
-              <button
-                onClick={() => setUserMenuOpen((v) => !v)}
-                className={`w-full ${collapsed ? 'flex justify-center' : 'flex items-center gap-2'} p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  userMenuOpen
-                    ? (theme === 'dark' ? 'bg-panel-hover' : 'bg-slate-200')
-                    : (theme === 'dark' ? 'hover:bg-panel-hover' : 'hover:bg-slate-200')
-                }`}
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-orange-400 to-rose-400 text-sm flex items-center justify-center text-white font-bold shrink-0">
-                  {displayName.slice(0, 1).toUpperCase()}
-                </div>
-                {!collapsed && (
-                  <div className="min-w-0 flex-1 text-left">
-                    <span className={`text-xs font-semibold block truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{displayName}</span>
-                    <span className={`text-[11px] truncate block ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`}>{authUser?.role ?? '—'}</span>
-                  </div>
-                )}
-                {!collapsed && (
-                  <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''} ${theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'}`} />
-                )}
-              </button>
-
-              {/* 下拉菜单：展开态向上占满宽度；折叠态从头像右侧弹出（固定宽，避免被 64px 压窄） */}
-              {userMenuOpen && (
-                <div className={`absolute rounded-lg border shadow-2xl overflow-hidden z-50 animate-fade-in ${
-                  collapsed
-                    ? `bottom-0 left-full ml-2 w-48 ${theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'}`
-                    : `bottom-full left-0 right-0 mb-2 ${theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'}`
-                }`}>
-                  <button
-                    onClick={() => { setActiveTab('profile'); setUserMenuOpen(false); }}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs transition-colors cursor-pointer ${
-                      theme === 'dark' ? 'text-ink-soft hover:bg-panel-hover' : 'text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <UserCog className="w-3.5 h-3.5 text-indigo-400" />
-                    个人设置
-                  </button>
-                  <div className={theme === 'dark' ? 'border-t border-line' : 'border-t border-slate-200'} />
-                  <button
-                    onClick={handleLogout}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs transition-colors cursor-pointer ${
-                      theme === 'dark' ? 'text-rose-400 hover:bg-panel-hover' : 'text-rose-600 hover:bg-rose-50'
-                    }`}
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    登出
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 主题切换按钮 */}
-            <button
-              onClick={() => {
-                const next = theme === 'dark' ? 'light' : 'dark';
-                localStorage.setItem('agentflow_theme', next);
-                setTheme(next);
-                // 通知 Toaster（内联渲染，靠 localStorage 读主题）同步主题色
-                window.dispatchEvent(new Event('agentflow-theme-change'));
-              }}
-              className={`${collapsed ? 'w-full flex justify-center' : ''} p-1.5 border rounded-lg transition-colors cursor-pointer shrink-0 ${
-                theme === 'dark' ? 'bg-panel-hover border-line text-ink-dim hover:text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* 2. MAIN WORKSPACE CONTAINER */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {activeTaskDetail ? (
-          <TaskDetailPage
-            taskId={activeTaskDetail.id}
-            mode={activeTaskDetail.mode}
-            onBack={() => setActiveTaskDetail(null)}
-            theme={theme}
-          />
-        ) : (
+  // 非聊天路由的右侧内容：license 条 + 页面 stage。组装后交给全局壳层
+  // （ChatHomepage 的融合侧栏在所有页面保持不变，仅右侧区域切换）。
+  const stageClass =
+    activeTab === 'board' ? 'h-full flex flex-col p-6 pb-0 overflow-hidden' :
+    activeTab === 'workflows' && openWorkflow ? 'h-full flex flex-col p-6 overflow-hidden' :
+    // Agent 编辑器自带贴底 footer 与内部滚动，stage 去 padding 由页面控制留白
+    activeTab === 'agents' && openAgent ? 'h-full flex flex-col p-0 overflow-hidden' :
+    activeTab === 'agents' ? 'h-full flex flex-col px-6 pt-6 overflow-hidden' :
+    activeTab === 'users' ? 'h-full flex flex-col p-6 overflow-hidden' :
+    'overflow-y-auto p-6';
+  // 聊天态（默认主页）传 null → 壳层渲染聊天面板；任务详情覆盖所有页面。
+  const showChat = activeTab === 'chat' && !activeTaskDetail;
+  const activePage = showChat ? null : (
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {activeTaskDetail ? (
+        <TaskDetailPage
+          taskId={activeTaskDetail.id}
+          mode={activeTaskDetail.mode}
+          onBack={() => setActiveTaskDetail(null)}
+          theme={theme}
+        />
+      ) : (
         <>
-        {/* 到期警告条：≤30 天（含永久授权为 null 的豁免） */}
-        {license?.activated && license.days_left != null && license.days_left <= 30 && (
-          <div className="h-9 shrink-0 flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-300 text-xs">
-            <Clock className="w-3.5 h-3.5" />
-            授权将于 {license.expires_at ? new Date(license.expires_at).toLocaleDateString() : '—'} 到期（剩 {license.days_left} 天），请联系供应商续费
-          </div>
-        )}
-        <header className={`h-16 border-b flex items-center justify-between px-8 shrink-0 ${
-          theme === 'dark' ? 'bg-page border-line' : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center gap-3">
-            <h1 className={`text-base font-semibold ${theme === 'dark' ? 'text-ink' : 'text-slate-800'}`}>
-              {activeTab === 'profile' ? '个人设置' : visibleNav.find((n) => n.id === activeTab)?.label}
-            </h1>
-          </div>
-
-          {/* 通知中心：铃铛 + 未读角标 + 下拉面板（点击通知跳转任务协作看板并 highlight） */}
-          <NotificationCenter
-            onNavigateTask={(taskId) => {
-              setActiveTab('board');
-              setActiveTaskDetail({ id: taskId, mode: 'view' });
-            }}
-          />
-        </header>
-
-        <div id="content_stage" className={`flex-1 ${
-          activeTab === 'chat' ? 'h-full flex flex-col p-0 overflow-hidden' :
-          activeTab === 'voice' ? 'h-full flex flex-col p-0 overflow-hidden' :
-          activeTab === 'board' ? 'h-full flex flex-col p-6 overflow-hidden' :
-          // Agent 编辑页自带贴底 footer，stage 需去掉 p-6 由页面内部控制滚动与留白
-          activeTab === 'agents' && openAgent?.mode === 'edit' ? 'h-full flex flex-col p-0 overflow-hidden' :
-          activeTab === 'users' ? 'h-full flex flex-col p-6 overflow-hidden' :
-          'overflow-y-auto p-6'
-        }`}>
-          {activeTab === 'chat' && (
-            <ChatHomepage agents={studioAgents} theme={theme} />
+          {/* 到期警告条：≤30 天（含永久授权为 null 的豁免） */}
+          {license?.activated && license.days_left != null && license.days_left <= 30 && (
+            <div className="h-9 shrink-0 flex items-center justify-center gap-2 bg-sig-wait-soft border-b border-line text-sig-wait text-xs">
+              <Clock className="w-3.5 h-3.5" />
+              授权将于 {license.expires_at ? new Date(license.expires_at).toLocaleDateString() : '—'} 到期（剩 {license.days_left} 天），请联系供应商续费
+            </div>
           )}
+          <div id="content_stage" className={stageClass}>
+            {activeTab === 'board' && (
+              <TaskBoard theme={theme} onOpenTaskDetail={(id) => setActiveTaskDetail({ id, mode: 'full' })} />
+            )}
 
-          {activeTab === 'voice' && (
-            <VoiceHomepage agents={studioAgents} theme={theme} />
-          )}
+            {activeTab === 'dashboard' && (
+              <Dashboard
+                onSelectTab={setActiveTab}
+                onViewTask={(task) => setActiveTaskDetail({ id: task.id, mode: 'view' })}
+              />
+            )}
 
-          {activeTab === 'board' && (
-            <TaskBoard theme={theme} onOpenTaskDetail={(id) => setActiveTaskDetail({ id, mode: 'full' })} />
-          )}
-
-          {activeTab === 'dashboard' && (
-            <Dashboard
-              onSelectTab={setActiveTab}
-              onViewTask={(task) => setActiveTaskDetail({ id: task.id, mode: 'view' })}
-            />
-          )}
-
-          {activeTab === 'agents' && (
-            openAgent ? (
-              openAgent.mode === 'edit' ? (
+            {activeTab === 'agents' && (
+              openAgent ? (
+                /* 配置页即详情页：全字段可编辑（侧栏保留，编辑器渲染在右侧区域
+                   ——所有功能的操作都在右侧完成）。保存后留在编辑器（Toast 反馈），
+                   返回列表由用户点左上返回。 */
                 <AgentEditorPage
                   agentId={openAgent.id}
                   onBack={() => setOpenAgent(null)}
-                  onSaved={(id) => setOpenAgent({ id, mode: 'view' })}
                 />
               ) : (
-                <AgentDetailPage
-                  agentId={openAgent.id}
+                <AgentSpace onOpenEdit={(id) => setOpenAgent({ id, mode: 'edit' })} />
+              )
+            )}
+
+            {activeTab === 'workflows' && (
+              openWorkflow ? (
+                <WorkflowDesigner
                   theme={theme}
-                  onBack={() => setOpenAgent(null)}
-                  onOpenEdit={(id) => setOpenAgent({ id, mode: 'edit' })}
-                />
-              )
-            ) : (
-              <AgentSpace
-                onOpenDetail={(id) => setOpenAgent({ id, mode: 'view' })}
-                onOpenEdit={(id) => setOpenAgent({ id, mode: 'edit' })}
-              />
-            )
-          )}
-
-          {activeTab === 'models' && <ModelsPage />}
-
-          {activeTab === 'workflows' && (
-            openWorkflow ? (
-              <WorkflowDesigner
-                theme={theme}
-                workflowId={openWorkflow}
-                onBack={() => setOpenWorkflow(null)}
-                onCreated={(id) => setOpenWorkflow(id)}
-              />
-            ) : (
-              <WorkflowSpace theme={theme} onOpen={(id) => setOpenWorkflow(id)} />
-            )
-          )}
-
-          {activeTab === 'triggers' && (
-            <TriggersPage
-              onViewTask={(taskId) => {
-                setActiveTab('board');
-                setActiveTaskDetail({ id: taskId, mode: 'view' });
-              }}
-            />
-          )}
-
-          {activeTab === 'mcp' && <McpManagePage />}
-
-          {activeTab === 'tool-market' && <ToolMarketPage theme={theme} />}
-
-          {activeTab === 'skills' && (
-            openSkill ? (
-              <SkillDetailPage
-                toolId={openSkill.id}
-                toolName={openSkill.name}
-                onBack={() => setOpenSkill(null)}
-              />
-            ) : (
-              <UserSkillsPage
-                theme={theme}
-                onOpenOfficial={(id, name) => setOpenSkill({ id, name })}
-              />
-            )
-          )}
-
-          {activeTab === 'knowledge' && (
-            openKb ? (
-              openKb.type === 'vector' ? (
-                <KbVectorDetailPage
-                  kbId={openKb.id}
-                  kbName={openKb.name}
-                  onBack={() => setOpenKb(null)}
+                  workflowId={openWorkflow}
+                  onBack={() => setOpenWorkflow(null)}
+                  onCreated={(id) => setOpenWorkflow(id)}
                 />
               ) : (
-                <KbDetailPage
-                  kbId={openKb.id}
-                  kbName={openKb.name}
-                  onBack={() => setOpenKb(null)}
-                />
+                <WorkflowSpace theme={theme} onOpen={(id) => setOpenWorkflow(id)} />
               )
-            ) : (
-              <KnowledgeBasePage onOpenKb={(kb) => setOpenKb({ id: kb.id, name: kb.name, type: kb.type })} />
-            )
-          )}
+            )}
 
-          {activeTab === 'users' && <UserManagement />}
-          {activeTab === 'transfer' && <TransferManagementPage theme={theme} />}
-          {activeTab === 'external-auth' && <ExternalAuthPage />}
-          {activeTab === 'settings' && <SettingsPage theme={theme} />}
+            {/* 资源库 = 知识库/模型配置/技能/工具库/MCP 接入 合并入口（页内 Tab） */}
+            {activeTab === 'resource' && <ResourceHubPage theme={theme} />}
 
-          {activeTab === 'profile' && (
-            <ProfilePage theme={theme} />
-          )}
-        </div>
+            {activeTab === 'users' && <UserManagement />}
+            {activeTab === 'transfer' && <TransferManagementPage theme={theme} />}
+            {activeTab === 'external-auth' && <ExternalAuthPage />}
+            {activeTab === 'settings' && <SettingsPage theme={theme} />}
+
+            {activeTab === 'profile' && (
+              <ProfilePage theme={theme} />
+            )}
+          </div>
         </>
-        )}
-      </main>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="h-dvh flex overflow-hidden theme-indigo bg-page text-ink transition-colors duration-200">
+      {/* 全局壳层：融合侧栏常驻（功能导航 + 会话历史），右侧按 activePage 切换——
+          点功能/点会话都不再整条更换左侧目录，编辑器等操作全部在右侧区域完成 */}
+      <ChatHomepage
+        agents={studioAgents}
+        theme={theme}
+        userInitial={displayName[0]}
+        username={displayName}
+        navItems={visibleNav}
+        activeId={activeTab}
+        onNavigate={(tab) => { setActiveTab(tab); setActiveTaskDetail(null); setOpenAgent(null); }}
+        onLogout={handleLogout}
+        activePage={activePage}
+        onNavigateTask={(id) => { setActiveTab('board'); setActiveTaskDetail({ id, mode: 'full' }); }}
+      />
 
       {/* 全局消息提醒：Toast + 统一确认弹窗（内联渲染，继承 theme-${theme} 主题） */}
       <Toaster />
@@ -653,3 +381,4 @@ export default function App() {
     </div>
   );
 }
+

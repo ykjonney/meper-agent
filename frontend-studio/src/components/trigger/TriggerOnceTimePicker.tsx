@@ -123,7 +123,7 @@ export default function TriggerOnceTimePicker({ value, onChange, disabled = fals
             disabled={disabled}
             onClick={() => applyPreset(p.build)}
             className={`h-7 px-3 rounded-md text-xs font-medium transition-colors border cursor-pointer
-              bg-panel border-line text-slate-300 hover:border-[#1E5EFF] hover:text-link
+              bg-panel border-line text-ink-dim hover:border-brand hover:text-brand
               ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {p.label}

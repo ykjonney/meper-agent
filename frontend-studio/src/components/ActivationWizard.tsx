@@ -60,14 +60,14 @@ export function ActivationWizard({
 
   return (
     <div className="h-dvh flex items-center justify-center bg-[#09090b] text-[#fafafa] p-6">
-      <div className="w-full max-w-xl rounded-2xl border border-[#27272a] bg-[#121214] shadow-2xl overflow-hidden">
+      <div className="w-full max-w-xl rounded-2xl border border-line bg-[#121214] shadow-2xl overflow-hidden">
         {/* 标题区 */}
-        <div className="px-8 pt-8 pb-6 border-b border-[#27272a]">
+        <div className="px-8 pt-8 pb-6 border-b border-line">
           <div className="flex items-center gap-3">
             {status.activated ? (
-              <BadgeCheck className="w-6 h-6 text-indigo-400 shrink-0" />
+              <BadgeCheck className="w-6 h-6 text-brand shrink-0" />
             ) : (
-              <KeyRound className="w-6 h-6 text-amber-400 shrink-0" />
+              <KeyRound className="w-6 h-6 text-sig-wait shrink-0" />
             )}
             <div>
               <h1 className="text-lg font-semibold">
@@ -83,9 +83,9 @@ export function ActivationWizard({
         <div className="px-8 py-6 space-y-6">
           {/* 当前状态 */}
           {!status.activated && (
-            <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-200/90 leading-relaxed">
+            <div className="flex items-start gap-3 rounded-lg border border-sig-wait/30 bg-sig-wait-soft/50 px-4 py-3">
+              <ShieldAlert className="w-4 h-4 text-sig-wait shrink-0 mt-0.5" />
+              <p className="text-sm text-sig-wait leading-relaxed">
                 {licenseErrorText(status.code)}
               </p>
             </div>
@@ -93,7 +93,7 @@ export function ActivationWizard({
 
           {/* 已有授权信息（失效续期场景可见） */}
           {status.activated && (
-            <div className="rounded-lg border border-[#27272a] bg-[#18181b] px-4 py-3 space-y-1.5 text-sm">
+            <div className="rounded-lg border border-line bg-well px-4 py-3 space-y-1.5 text-sm">
               <InfoRow label="授权方" value={status.licensee ?? '—'} />
               <InfoRow label="版本" value={status.edition ?? '—'} />
               <InfoRow
@@ -113,19 +113,19 @@ export function ActivationWizard({
           <section>
             <StepTitle index={1} title="将本机指纹发送给供应商" />
             <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md border border-[#27272a] bg-[#18181b] px-3 py-2 text-xs font-mono text-indigo-300 select-all">
+              <code className="flex-1 truncate rounded-md border border-line bg-well px-3 py-2 text-xs font-mono text-brand select-all">
                 {status.fingerprint}
               </code>
               <button
                 onClick={copyFingerprint}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-[#27272a] bg-[#18181b] px-3 py-2 text-xs text-[#d4d4d8] hover:bg-[#232326] transition-colors cursor-pointer"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-well px-3 py-2 text-xs text-[#d4d4d8] hover:bg-[#232326] transition-colors cursor-pointer"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-sig-ok" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? '已复制' : '复制'}
               </button>
               <button
                 onClick={downloadRequest}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-[#27272a] bg-[#18181b] px-3 py-2 text-xs text-[#d4d4d8] hover:bg-[#232326] transition-colors cursor-pointer"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-well px-3 py-2 text-xs text-[#d4d4d8] hover:bg-[#232326] transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 申请文件
@@ -147,10 +147,10 @@ export function ActivationWizard({
               placeholder="将 license.key 文件的完整内容粘贴到这里……"
               rows={4}
               spellCheck={false}
-              className="mt-2 w-full rounded-lg border border-[#27272a] bg-[#18181b] px-3 py-2.5 text-xs font-mono text-[#e4e4e7] placeholder:text-[#52525b] focus:outline-none focus:border-indigo-500/60 resize-none"
+              className="mt-2 w-full rounded-lg border border-line bg-well px-3 py-2.5 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand resize-none"
             />
             {install.isError && (
-              <p className="mt-2 text-xs text-rose-400">
+              <p className="mt-2 text-xs text-sig-fail">
                 {(() => {
                   const err = install.error as { code?: string } | null
                   return err?.code
@@ -162,7 +162,7 @@ export function ActivationWizard({
             <button
               onClick={() => keyText.trim() && install.mutate(keyText.trim())}
               disabled={!keyText.trim() || install.isPending}
-              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-medium text-white transition-colors cursor-pointer"
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-medium text-white transition-colors cursor-pointer"
             >
               {install.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
               {install.isPending ? '正在激活…' : '激活'}
@@ -177,7 +177,7 @@ export function ActivationWizard({
 function StepTitle({ index, title }: { index: number; title: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-500/15 text-indigo-400 text-[11px] font-bold">
+      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-brand-soft text-brand text-[11px] font-bold">
         {index}
       </span>
       <h3 className="text-sm font-medium text-[#e4e4e7]">{title}</h3>

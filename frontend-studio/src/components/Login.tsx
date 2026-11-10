@@ -84,6 +84,10 @@ export default function Login() {
           }
         : { id: '', username: username.trim(), role: '', permissions: [] }
       setAuth(access_token, authUser)
+      // 登录成功必须整页跳离 /login：SPA 条件渲染依赖 URL 与状态同步，
+      // URL 停在 /login 时任何整页跳转都会被 AuthInitializer 拉回登录页循环。
+      const redirect = new URLSearchParams(window.location.search).get('redirect')
+      window.location.href = redirect ? decodeURIComponent(redirect) : '/'
     } catch (err) {
       const msg = isNormalizedError(err) ? err.message : '登录失败，请检查网络或凭据'
       const code = isNormalizedError(err) ? err.code : undefined
@@ -102,7 +106,7 @@ export default function Login() {
   return (
     <div
       className={`relative h-screen w-screen flex items-center justify-center overflow-hidden theme-${theme} ${
-        isDark ? 'bg-well text-ink' : 'bg-slate-50 text-slate-800'
+        isDark ? 'bg-well text-ink' : 'bg-page text-ink'
       } transition-colors duration-200`}
     >
       {/* ambient: dotted grid (same utility the canvas maps use) */}
@@ -123,7 +127,7 @@ export default function Login() {
         aria-label="切换主题"
         className={`absolute top-5 right-5 z-10 w-9 h-9 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
           isDark
-            ? 'bg-panel border-line text-ink-dim hover:text-white hover:bg-panel-hover'
+            ? 'bg-panel border-line text-ink-dim hover:text-ink hover:bg-panel-hover'
             : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900'
         }`}
       >
@@ -163,7 +167,7 @@ export default function Login() {
                 autoFocus
                 autoComplete="username"
                 placeholder="admin"
-                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
+                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition"
               />
             </div>
           </div>
@@ -180,13 +184,13 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition"
+                className="w-full bg-well border border-line rounded-xl pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition"
               />
             </div>
           </div>
 
           {error && (
-            <div className="flex items-start gap-2 p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-fade-in">
+            <div className="flex items-start gap-2 p-2.5 rounded-xl bg-sig-fail-soft border border-sig-fail/20 text-sig-fail text-xs animate-fade-in">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span className="leading-relaxed">{error}</span>
             </div>
@@ -195,7 +199,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading || !username.trim() || !password}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-semibold transition shadow-lg shadow-indigo-600/20"
+            className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-semibold transition shadow-[var(--shadow-card)]"
           >
             {loading ? (
               <>

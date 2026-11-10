@@ -16,21 +16,21 @@ import { toolsApi, type BuiltinTool } from '../../services/tools-api';
 function iconFor(name: string): { Icon: LucideIcon; color: string } {
   const n = name.toLowerCase();
   if (n.includes('bash') || n.includes('shell') || n.includes('exec')) {
-    return { Icon: Terminal, color: 'text-emerald-400 bg-emerald-500/10' };
+    return { Icon: Terminal, color: 'text-sig-ok bg-sig-ok-soft' };
   }
   if (n.includes('run_code') || n.includes('code')) {
-    return { Icon: Code, color: 'text-amber-400 bg-amber-500/10' };
+    return { Icon: Code, color: 'text-sig-wait bg-sig-wait-soft' };
   }
   if (n.includes('read') || n.includes('fetch') || n.includes('get')) {
-    return { Icon: BookOpen, color: 'text-sky-400 bg-sky-500/10' };
+    return { Icon: BookOpen, color: 'text-brand bg-brand-soft' };
   }
   if (n.includes('write') || n.includes('edit') || n.includes('create') || n.includes('update')) {
-    return { Icon: FilePen, color: 'text-indigo-400 bg-indigo-500/10' };
+    return { Icon: FilePen, color: 'text-brand bg-brand-soft' };
   }
   if (n.includes('parse') || n.includes('extract')) {
-    return { Icon: FileSearch, color: 'text-violet-400 bg-violet-500/10' };
+    return { Icon: FileSearch, color: 'text-[#6C4FC4] bg-[#EEEBF8]' };
   }
-  return { Icon: Wrench, color: 'text-zinc-400 bg-zinc-500/10' };
+  return { Icon: Wrench, color: 'text-ink-dim bg-raise' };
 }
 
 /** Extract parameter names from a JSON-Schema-style parameters object. */
@@ -63,7 +63,7 @@ export function BuiltinToolsTab({ q, theme }: Props) {
     );
   }, [tools, q]);
 
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-ink-faint';
 
   if (isLoading) {
     return <div className="py-12 text-center text-sm opacity-60">加载中…</div>;
@@ -90,10 +90,10 @@ function BuiltinCard({ tool, theme }: { tool: BuiltinTool; theme: 'dark' | 'ligh
   const card = theme === 'dark'
     ? 'bg-panel border-line hover:border-line-strong'
     : 'bg-white border-slate-200 hover:border-slate-300';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-ink-faint';
   const chip = theme === 'dark'
     ? 'bg-page border-line text-ink-dim'
-    : 'bg-slate-100 border-slate-200 text-slate-500';
+    : 'bg-slate-100 border-slate-200 text-ink-faint';
 
   return (
     <div className={`rounded-xl border p-5 flex flex-col gap-3 transition ${card}`}>

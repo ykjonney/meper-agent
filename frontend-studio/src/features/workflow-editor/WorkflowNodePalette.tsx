@@ -35,7 +35,7 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
               <div
                 draggable
                 onDragStart={(e) => handleDragStart(e, type)}
-                className="w-9 h-9 flex items-center justify-center rounded-md cursor-grab active:cursor-grabbing hover:bg-[#1E5EFF]/10 transition-colors"
+                className="w-9 h-9 flex items-center justify-center rounded-md cursor-grab active:cursor-grabbing hover:bg-brand-soft transition-colors"
               >
                 <span
                   className="w-7 h-7 flex items-center justify-center rounded-md text-xs"
@@ -61,7 +61,7 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
               key={type}
               draggable
               onDragStart={(e) => handleDragStart(e, type)}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-line/60 bg-page cursor-grab active:cursor-grabbing hover:border-[#1E5EFF] hover:bg-[#1E5EFF]/10 transition-all select-none"
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-line/60 bg-page cursor-grab active:cursor-grabbing hover:border-brand hover:bg-brand-soft transition-all select-none"
               title={cfg.description}
             >
               {/* 彩色图标 */}

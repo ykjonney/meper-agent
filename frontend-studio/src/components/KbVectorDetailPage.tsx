@@ -29,11 +29,11 @@ const STATUS_META: Record<
   KbDocument['parse_status'],
   { label: string; cls: string; icon: typeof CheckCircle2 }
 > = {
-  pending: { label: '排队中', cls: 'text-zinc-400', icon: Loader2 },
-  parsing: { label: '解析中', cls: 'text-amber-400', icon: Loader2 },
-  embedding: { label: '向量化', cls: 'text-sky-400', icon: Loader2 },
-  completed: { label: '已完成', cls: 'text-emerald-400', icon: CheckCircle2 },
-  failed: { label: '失败', cls: 'text-rose-400', icon: AlertCircle },
+  pending: { label: '排队中', cls: 'text-ink-faint', icon: Loader2 },
+  parsing: { label: '解析中', cls: 'text-sig-wait', icon: Loader2 },
+  embedding: { label: '向量化', cls: 'text-sig-wait', icon: Loader2 },
+  completed: { label: '已完成', cls: 'text-sig-ok', icon: CheckCircle2 },
+  failed: { label: '失败', cls: 'text-sig-fail', icon: AlertCircle },
 };
 
 export function KbVectorDetailPage({
@@ -130,13 +130,13 @@ export function KbVectorDetailPage({
     <div className="space-y-5">
       {/* header */}
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer">
+        <button onClick={onBack} className="p-1.5 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
           <div className="flex items-center gap-2 text-xs text-ink-dim">
-            <span>知识库</span><span>/</span><span className="text-white font-semibold">{kbName}</span>
-            <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-emerald-950/40 border border-emerald-700/40 text-emerald-400">向量库</span>
+            <span>知识库</span><span>/</span><span className="text-ink font-semibold">{kbName}</span>
+            <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-[#F5E9E2] text-cat-kb">向量库</span>
           </div>
           <p className="text-[11px] text-ink-dim mt-0.5">上传文档自动解析→切片→向量化；agent/workflow 可用 kb_search 检索</p>
         </div>
@@ -146,27 +146,27 @@ export function KbVectorDetailPage({
         {/* ── Documents ── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-white flex items-center gap-2">
-              <FileText className="w-3.5 h-3.5 text-emerald-400" />
+            <h3 className="text-xs font-bold text-ink flex items-center gap-2">
+              <FileText className="w-3.5 h-3.5 text-cat-kb" />
               文档 ({docs.length})
             </h3>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => docsQ.refetch()}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
+                className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer"
                 title="刷新"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${docsQ.isFetching ? 'animate-spin' : ''}`} />
               </button>
-              <div className="flex items-center rounded-lg bg-line p-0.5">
+              <div className="flex items-center rounded-lg bg-raise p-0.5">
                 {(['recursive', 'structure'] as const).map((s) => (
                   <button
                     key={s}
                     onClick={() => setChunkStrategy(s)}
                     className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                       chunkStrategy === s
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-ink-dim hover:text-white'
+                        ? 'bg-panel text-ink shadow-[var(--shadow-card)]'
+                        : 'text-ink-dim hover:text-ink'
                     }`}
                     title={s === 'structure' ? '按文档结构切分（Markdown标题/HTML标签/Word样式）' : '递归 token 切分（默认）'}
                   >
@@ -174,7 +174,7 @@ export function KbVectorDetailPage({
                   </button>
                 ))}
               </div>
-              <label className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold cursor-pointer transition">
+              <label className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] bg-brand hover:bg-brand-hover text-white font-semibold cursor-pointer transition">
                 {uploadM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                 上传
                 <input
@@ -203,7 +203,7 @@ export function KbVectorDetailPage({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-white truncate">{doc.name}</span>
+                          <span className="text-xs font-semibold text-ink truncate">{doc.name}</span>
                           <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${meta.cls} shrink-0`}>
                             <Icon className={`w-3 h-3 ${inFlight ? 'animate-spin' : ''}`} />
                             {meta.label}
@@ -213,7 +213,7 @@ export function KbVectorDetailPage({
                           <span>{doc.file_type.toUpperCase()}</span>
                           <span>{formatSize(doc.file_size)}</span>
                           {doc.chunk_count > 0 && <span>{doc.chunk_count} 切片</span>}
-                          <span className="text-indigo-400">
+                          <span className="text-ink-soft">
                             {doc.chunk_strategy === 'structure' ? '结构切分' : '递归切分'}
                           </span>
                         </div>
@@ -222,7 +222,7 @@ export function KbVectorDetailPage({
                         {doc.chunk_count > 0 && (
                           <button
                             onClick={() => setChunksDoc(doc)}
-                            className="p-1 rounded text-zinc-400 hover:text-white hover:bg-line transition cursor-pointer"
+                            className="p-1 rounded text-ink-faint hover:text-ink hover:bg-raise transition cursor-pointer"
                             title="查看切片"
                           >
                             <Eye className="w-3 h-3" />
@@ -231,7 +231,7 @@ export function KbVectorDetailPage({
                         {doc.parse_status === 'failed' && (
                           <button
                             onClick={() => reindexM.mutate(doc.id)}
-                            className="p-1 rounded text-amber-500 hover:text-amber-400 hover:bg-amber-950/20 transition cursor-pointer"
+                            className="p-1 rounded text-sig-wait hover:bg-sig-wait-soft transition cursor-pointer"
                             title="重新索引"
                           >
                             <RefreshCw className={`w-3 h-3 ${reindexM.isPending ? 'animate-spin' : ''}`} />
@@ -239,7 +239,7 @@ export function KbVectorDetailPage({
                         )}
                         <button
                           onClick={() => handleDelete(doc)}
-                          className="p-1 rounded text-rose-500 hover:text-rose-400 hover:bg-rose-950/20 transition cursor-pointer"
+                          className="p-1 rounded text-sig-fail hover:bg-sig-fail-soft transition cursor-pointer"
                           title="删除"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -250,13 +250,13 @@ export function KbVectorDetailPage({
                     {inFlight && (
                       <div className="h-1 bg-line rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-emerald-500 transition-all"
+                          className="h-full bg-brand transition-all"
                           style={{ width: `${doc.parse_progress}%` }}
                         />
                       </div>
                     )}
                     {doc.parse_status === 'failed' && doc.parse_error && (
-                      <p className="text-[11px] text-rose-400 break-all">{doc.parse_error}</p>
+                      <p className="text-[11px] text-sig-fail break-all">{doc.parse_error}</p>
                     )}
                   </div>
                 );
@@ -267,8 +267,8 @@ export function KbVectorDetailPage({
 
         {/* ── Retrieval test ── */}
         <div className="space-y-3">
-          <h3 className="text-xs font-bold text-white flex items-center gap-2">
-            <Search className="w-3.5 h-3.5 text-indigo-400" />
+          <h3 className="text-xs font-bold text-ink flex items-center gap-2">
+            <Search className="w-3.5 h-3.5 text-cat-kb" />
             检索测试
           </h3>
           <div className="flex gap-2">
@@ -278,12 +278,12 @@ export function KbVectorDetailPage({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
               placeholder="输入查询文本…"
-              className="flex-1 px-3 py-2 bg-page border border-line rounded-lg text-white text-xs focus:outline-none focus:border-indigo-600 transition"
+              className="flex-1 px-3 py-2 bg-panel border border-line-strong rounded-lg text-ink text-xs focus:outline-none focus:border-brand transition"
             />
             <button
               onClick={handleSearch}
               disabled={searchM.isPending || !query.trim()}
-              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1"
+              className="px-3 py-2 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1"
             >
               {searchM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               检索
@@ -296,23 +296,23 @@ export function KbVectorDetailPage({
                 <p className="text-xs text-ink-dim py-6 text-center">无匹配结果（可能文档尚未索引完成或阈值过高）。</p>
               ) : (
                 searchResults.map((r, i) => (
-                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5">
+                  <div key={i} className="bg-panel border border-line rounded-lg p-3 space-y-1.5">
                     <div className="flex items-center justify-between text-[11px] font-mono">
-                      <span className="text-gray-500 truncate">
+                      <span className="text-ink-dim truncate">
                         {r.source_file}
                         {r.page ? ` · P${r.page}` : ''}
                         {r.section ? ` · ${r.section}` : ''}
                       </span>
-                      <span className="text-emerald-500 shrink-0 ml-2">{r.score.toFixed(3)}</span>
+                      <span className="text-ink-soft shrink-0 ml-2">{r.score.toFixed(3)}</span>
                     </div>
-                    <p className="text-xs text-gray-900 leading-relaxed line-clamp-4">{r.text}</p>
+                    <p className="text-xs text-ink leading-relaxed line-clamp-4">{r.text}</p>
                     {r.image_ref_ids && r.image_ref_ids.length > 0 && (
                       <div className="flex gap-1.5 mt-1 flex-wrap">
                         {r.image_ref_ids.map((fid) => (
                           <img
                             key={fid}
                             src={`/api/v1/files/${encodeURIComponent(fid)}/download`}
-                            className="w-12 h-12 rounded border border-gray-200 object-cover"
+                            className="w-12 h-12 rounded border border-line object-cover"
                             alt=""
                           />
                         ))}
@@ -332,16 +332,16 @@ export function KbVectorDetailPage({
           <div
             className="w-full max-w-2xl max-h-[80vh] flex flex-col bg-panel border border-line rounded-xl overflow-hidden shadow-2xl"
           >
-            <div className="p-4 border-b border-line flex items-center justify-between bg-page/60">
+            <div className="p-4 border-b border-line flex items-center justify-between bg-page">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-white truncate">切片内容 — {chunksDoc.name}</h3>
+                <h3 className="text-sm font-bold text-ink truncate">切片内容 — {chunksDoc.name}</h3>
                 <p className="text-[11px] text-ink-dim font-mono mt-0.5">
                   共 {chunksQ.data?.length ?? chunksDoc.chunk_count} 个切片 · 只读
                 </p>
               </div>
               <button
                 onClick={() => setChunksDoc(null)}
-                className="p-1 rounded-lg text-ink-dim hover:text-white hover:bg-line transition cursor-pointer"
+                className="p-1 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer"
                 title="关闭"
               >
                 <X className="w-4 h-4" />
@@ -354,7 +354,7 @@ export function KbVectorDetailPage({
                 </div>
               )}
               {chunksQ.isError && (
-                <p className="text-xs text-rose-400 text-center py-10">
+                <p className="text-xs text-sig-fail text-center py-10">
                   {getErrorMessage(chunksQ.error, '加载切片失败')}
                 </p>
               )}
@@ -374,22 +374,22 @@ export function KbVectorDetailPage({
 
 function ChunkBlock({ chunk }: { chunk: KbChunkItem }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5">
-      <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500">
-        <span className="text-gray-700">#{chunk.chunk_index + 1}</span>
+    <div className="bg-panel border border-line rounded-lg p-3 space-y-1.5">
+      <div className="flex items-center gap-2 text-[11px] font-mono text-ink-dim">
+        <span className="text-ink-soft">#{chunk.chunk_index + 1}</span>
         {chunk.source_file && <span className="truncate">{chunk.source_file}</span>}
         {chunk.page != null && <span>· P{chunk.page}</span>}
-        {chunk.section && <span className="truncate text-indigo-500">· {chunk.section}</span>}
+        {chunk.section && <span className="truncate text-ink-dim">· {chunk.section}</span>}
       </div>
-      <p className="text-xs text-gray-900 leading-relaxed whitespace-pre-wrap break-words">{chunk.text}</p>
+      <p className="text-xs text-ink leading-relaxed whitespace-pre-wrap break-words">{chunk.text}</p>
       {chunk.image_ref_ids && chunk.image_ref_ids.length > 0 && (
         <div className="flex gap-1.5 mt-1 flex-wrap">
-          <span className="text-[11px] text-gray-400 w-full mb-0.5">关联图片:</span>
+          <span className="text-[11px] text-ink-faint w-full mb-0.5">关联图片:</span>
           {chunk.image_ref_ids.map((fid) => (
             <img
               key={fid}
               src={`/api/v1/files/${encodeURIComponent(fid)}/download`}
-              className="w-16 h-16 rounded border border-gray-200 object-cover"
+              className="w-16 h-16 rounded border border-line object-cover"
               alt=""
             />
           ))}

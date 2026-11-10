@@ -75,9 +75,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
     <div className="space-y-4">
       {/* 搜索/Tab 行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片）。
           flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
-      <div className={`sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 ${
-        theme === 'dark' ? 'bg-well' : 'bg-slate-50'
-      }`}>
+      <div className="sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 flex flex-wrap items-center gap-2 bg-well">
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
         )}
@@ -85,23 +83,17 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
-          className={`flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none ${
-            theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200'
-          }`}
+          className="flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none bg-panel border-line text-ink"
         />
         {canCreate && tab === 'library' && (
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setGenOpen(true)}
               title="描述需求，AI 自动生成工具定义草稿"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition ${
-                theme === 'dark'
-                  ? 'border border-blue-500/40 text-blue-400 hover:bg-blue-500/10'
-                  : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
-              }`}>
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition border border-brand text-brand hover:bg-brand-soft">
               <Sparkles size={14} />AI 生成
             </button>
             <button onClick={() => setCreating(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-brand hover:bg-brand-hover text-white cursor-pointer">
               <Plus size={14} />创建工具
             </button>
           </div>
@@ -233,7 +225,7 @@ function LibraryTab({ q, theme, onEditItem }: {
     }).then((ok) => { if (ok) deleteM.mutate(item.id); });
   };
 
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
+  const textMuted = 'text-ink-dim';
 
   return (
     <div className="space-y-4">
@@ -299,9 +291,6 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
   onSubmit: () => void;
   onDelete: () => void;
 }) {
-  const card = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
   const isPending = item.status === 'submitted';
   const isDraft = item.status === 'private';
   const isOfficial = item.kind === 'official';
@@ -320,170 +309,146 @@ function LibraryCard({ item, theme, isAdmin, canCreate, onPreview, onEnable, onC
 
   return (
     <div
-      className={`rounded-xl border p-5 flex flex-col gap-3 transition ${
-        isPending
-          ? theme === 'dark'
-            ? 'bg-amber-950/20 border-amber-700/50'
-            : 'bg-amber-50 border-amber-300'
-          : isDraft
-            ? theme === 'dark'
-              ? 'border-dashed border-line-strong bg-panel/60'
-              : 'border-dashed border-slate-300 bg-slate-50/60'
-            : isOfficial
-              ? 'border-amber-500/40 border-t-2 border-t-amber-500/70 hover:border-amber-400'
-              : `hover:border-line-strong ${card}`
+      className={`bg-panel border rounded-xl p-4 flex flex-col transition hover:shadow-[var(--shadow-card)] hover:border-line-strong ${
+        isPending ? 'border-sig-wait bg-sig-wait-soft/30' : isDraft ? 'border-dashed border-line-strong' : 'border-line'
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-            theme === 'dark' ? 'bg-page border-line' : 'bg-slate-50 border-slate-200'
-          }`}>
-            <srcMeta.icon size={18} className={srcMeta.cls} />
-          </div>
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-bold truncate flex-1 min-w-0" title={item.name}>{item.name}</span>
-              {isOfficial && <Crown size={13} className="shrink-0 text-amber-500" />}
-            </div>
-            <div className={`text-[11px] ${textMuted} truncate`}>
-              {srcMeta.label} · 创建者 {item.author_name || '未知'}
-            </div>
-          </div>
+      {/* 头部：类型徽章 + 名称 + 来源/作者行 + 状态徽章（设计稿 pane-tools） */}
+      <div className="flex items-start gap-[11px]">
+        <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 bg-raise text-ink-dim">
+          <srcMeta.icon size={18} />
         </div>
-        <div className={`flex items-center gap-1 text-[11px] ${textMuted} shrink-0`}>
-          <ThumbsUp size={12} />{item.score}
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-ink truncate" title={item.name}>{item.name}</div>
+          <div className="text-[10.5px] text-ink-dim mt-0.5 truncate">{srcMeta.label} · by {item.author_name || '未知'}</div>
         </div>
+        {isOfficial && !isPending ? (
+          <span className="shrink-0 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md bg-brand-soft text-brand tracking-[.03em]">✦ 官方收录</span>
+        ) : isPending ? (
+          <span className="shrink-0 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md bg-sig-wait-soft text-sig-wait tracking-[.03em]">◌ 审核中</span>
+        ) : isDraft ? (
+          <span className="shrink-0 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md bg-raise text-ink-dim tracking-[.03em]">草稿</span>
+        ) : (
+          <span className="shrink-0 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-md bg-raise text-ink-dim tracking-[.03em]">用户创作</span>
+        )}
       </div>
 
-      <p className={`text-xs ${textMuted} line-clamp-2 min-h-[2rem]`}>{item.description || '暂无描述'}</p>
+      {/* 描述 */}
+      <p className="text-[11.5px] text-ink-dim leading-relaxed line-clamp-2 mt-2.5 min-h-[2rem]">{item.description || '暂无描述'}</p>
 
-      <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-        <span className={`px-1.5 py-0.5 rounded ${chip} ${
-          item.enabled ? 'text-emerald-500' : 'text-ink-dim'
-        }`}>
+      {/* chips：启用状态 + 调用数 + 积分 */}
+      <div className="flex items-center gap-1.5 mt-2 text-[11px] text-ink-dim">
+        <span className={`px-1.5 py-0.5 rounded text-[10px] ${item.enabled ? 'bg-sig-ok-soft text-sig-ok' : 'bg-raise text-ink-dim'}`}>
           {item.enabled ? '已开启 · 可用' : isPending ? '待审核' : isDraft ? '草稿' : '未开启'}
         </span>
-        <span className={`px-1.5 py-0.5 rounded ${chip}`}>调用 {item.stats?.load_count ?? 0}</span>
+        <span className="px-1.5 py-0.5 rounded bg-raise text-[10px] font-mono text-ink-dim">调用 {item.stats?.load_count ?? 0}</span>
+        <span className="ml-auto font-mono text-[10px] text-ink-faint shrink-0" title="点赞回复的派生积分">{(item.score ?? 0) > 0 ? `+${item.score}` : item.score ?? 0} 分</span>
       </div>
 
-      {isPending ? (
-        <div className="space-y-2 pt-1 border-t border-current/10">
-          <div className="text-[11px] text-amber-500">待审核{isAdmin ? '' : '（等待管理员处理）'}</div>
-          {(isOwn || isAdmin) && (
-            <div className="flex items-center gap-1 text-xs">
-              <button onClick={onPreview}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
-                <Eye size={12} />详情
-              </button>
-              <button onClick={onEdit}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
-                <Pencil size={12} />编辑
-              </button>
-              <button onClick={onDelete}
-                className="flex items-center gap-1 px-2 py-1 rounded text-red-400 hover:text-red-300 cursor-pointer">
-                <Trash2 size={12} />删除
-              </button>
-            </div>
-          )}
-          {isAdmin && (
-            <>
-              <div className="flex gap-2">
-                <button onClick={() => reviewM.mutate({ action: 'approve' })}
-                  className="flex-1 px-2 py-1.5 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer">
-                  通过
-                </button>
-                <button onClick={() => setRejecting(true)}
-                  className="flex-1 px-2 py-1.5 rounded-lg text-xs bg-red-600/80 hover:bg-red-500 text-white cursor-pointer">
-                  驳回
-                </button>
-              </div>
-              {rejecting && (
-                <div className="space-y-1.5">
-                  <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="驳回理由（展示给创建者）"
-                    className={`w-full px-2 py-1 rounded text-xs border outline-none ${
-                      theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'
-                    }`} />
-                  <button onClick={() => reviewM.mutate({ action: 'reject', reason })}
-                    className="w-full px-2 py-1 rounded text-xs bg-red-600 hover:bg-red-500 text-white cursor-pointer">
-                    确认驳回
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      ) : isDraft ? (
-        /* 草稿：owner 就地管理（提交发布 / 编辑 / 删除）；admin 可编辑/删除（帮忙治理） */
-        <div className="flex items-center gap-1 pt-1 border-t border-current/10 text-xs">
-          {(isOwn || isAdmin) && (
-            <>
-              <button onClick={onPreview}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
-                <Eye size={12} />详情
-              </button>
-              {isOwn && (
-                <button onClick={onSubmit}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-blue-400 hover:text-blue-300 cursor-pointer">
-                  <Send size={12} />提交发布
-                </button>
-              )}
-              <button onClick={onEdit}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}>
-                <Pencil size={12} />编辑
-              </button>
-              <button onClick={onConfigArgs}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-80 ${textMuted}`}
-                title="配置工具级统一凭证（所有使用点共用）——提交前配好，过审后管理员可直接开启">
-                <KeyRound size={12} />凭证
-              </button>
-              <div className="flex-1" />
-              <button onClick={onDelete}
-                className="flex items-center gap-1 px-2 py-1 rounded text-red-400 hover:text-red-300 cursor-pointer">
-                <Trash2 size={12} />删除
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 pt-1 border-t border-current/10">
-          <button onClick={onPreview}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}>
-            <Eye size={13} />详情
+      {/* 内联驳回理由输入（待审卡，admin） */}
+      {isPending && isAdmin && rejecting && (
+        <div className="flex items-center gap-1.5 mt-2">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="驳回理由（展示给创建者）"
+            autoFocus
+            className="flex-1 min-w-0 px-2 py-1 rounded-lg text-xs border border-line bg-page text-ink placeholder:text-ink-faint outline-none focus:border-brand"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && reason.trim()) {
+                reviewM.mutate({ action: 'reject', reason: reason.trim() });
+                setRejecting(false);
+              }
+              if (e.key === 'Escape') setRejecting(false);
+            }}
+          />
+          <button
+            onClick={() => {
+              if (reason.trim()) reviewM.mutate({ action: 'reject', reason: reason.trim() });
+              setRejecting(false);
+            }}
+            className="text-xs border-0 bg-transparent text-sig-fail cursor-pointer shrink-0"
+          >
+            确认驳回
           </button>
-          {isAdmin && <ToolToggle enabled={item.enabled} onChange={onEnable} />}
-          {(isOfficial ? isAdmin : isOwn || isAdmin) && (
-            <button onClick={onConfigArgs}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}
-              title="配置工具级统一凭证（所有使用点共用）">
-              <KeyRound size={13} />凭证
-            </button>
-          )}
-          {(isOwn || isAdmin) && !isOfficial && (
-            <>
-              <button onClick={onEdit}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 ${textMuted}`}>
-                <Pencil size={12} />编辑
-              </button>
-              <button onClick={onDelete}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-400 hover:text-red-300 cursor-pointer">
-                <Trash2 size={12} />删除
-              </button>
-            </>
-          )}
-          <div className="flex-1" />
-          <button onClick={() => onVote(1)}
-            className={`p-1 rounded cursor-pointer hover:opacity-80 ${item.my_vote === 1 ? 'text-blue-400' : textMuted}`}
-            title="赞">
-            <ThumbsUp size={13} />
-          </button>
-          <button onClick={() => onVote(-1)}
-            className={`p-1 rounded cursor-pointer hover:opacity-80 ${item.my_vote === -1 ? 'text-red-400' : textMuted}`}
-            title="踩">
-            <ThumbsDown size={13} />
+          <button onClick={() => setRejecting(false)} className="text-xs border-0 bg-transparent cursor-pointer opacity-70 shrink-0">
+            取消
           </button>
         </div>
       )}
+
+      {/* foot：按状态分组的三态操作（全功能保留） */}
+      <div className="flex items-center gap-2.5 border-t border-line mt-3 pt-2.5 text-[11px] min-h-[28px]">
+        {isPending ? (
+          <>
+            <button onClick={onPreview} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">详情</button>
+            {(isOwn || isAdmin) && (
+              <>
+                <button onClick={onEdit} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">编辑</button>
+                <button onClick={onDelete} className="border-0 bg-transparent text-sig-fail cursor-pointer">删除</button>
+              </>
+            )}
+            {isAdmin && (
+              <div className="ml-auto flex items-center gap-2.5">
+                <button
+                  onClick={() => reviewM.mutate({ action: 'approve' })}
+                  disabled={reviewM.isPending}
+                  className="border-0 bg-transparent text-sig-ok font-semibold cursor-pointer disabled:opacity-40"
+                >通过</button>
+                <button
+                  onClick={() => setRejecting(true)}
+                  disabled={reviewM.isPending}
+                  className="border-0 bg-transparent text-sig-fail font-semibold cursor-pointer disabled:opacity-40"
+                >驳回</button>
+              </div>
+            )}
+          </>
+        ) : isDraft ? (
+          <>
+            <button onClick={onPreview} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">详情</button>
+            {isOwn && (
+              <button onClick={onSubmit} className="border-0 bg-transparent text-brand hover:text-brand-hover cursor-pointer">提交发布</button>
+            )}
+            {(isOwn || isAdmin) && (
+              <button onClick={onConfigArgs} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer"
+                title="配置工具级统一凭证（所有使用点共用）——提交前配好，过审后管理员可直接开启">凭证</button>
+            )}
+            <div className="flex-1" />
+            {(isOwn || isAdmin) && (
+              <>
+                <button onClick={onEdit} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">编辑</button>
+                <button onClick={onDelete} className="border-0 bg-transparent text-sig-fail cursor-pointer">删除</button>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {isAdmin && <ToolToggle enabled={item.enabled} onChange={onEnable} />}
+            <button onClick={onPreview} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">详情</button>
+            {(isOfficial ? isAdmin : isOwn || isAdmin) && (
+              <button onClick={onConfigArgs} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer"
+                title="配置工具级统一凭证（所有使用点共用）">凭证</button>
+            )}
+            {(isOwn || isAdmin) && !isOfficial && (
+              <>
+                <button onClick={onEdit} className="border-0 bg-transparent text-ink-dim hover:text-ink cursor-pointer">编辑</button>
+                <button onClick={onDelete} className="border-0 bg-transparent text-sig-fail cursor-pointer">删除</button>
+              </>
+            )}
+            <div className="flex-1" />
+            <button onClick={() => onVote(1)}
+              className={`p-0.5 border-0 bg-transparent cursor-pointer ${item.my_vote === 1 ? 'text-brand' : 'text-ink-dim hover:text-ink'}`}
+              title="赞">
+              <ThumbsUp size={13} />
+            </button>
+            <button onClick={() => onVote(-1)}
+              className={`p-0.5 border-0 bg-transparent cursor-pointer ${item.my_vote === -1 ? 'text-sig-fail' : 'text-ink-dim hover:text-ink'}`}
+              title="踩">
+              <ThumbsDown size={13} />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -503,9 +468,9 @@ function PreviewModal({ item, theme, onClose }: {
   });
   const d = item.kind === 'user' ? userDetail : officialDetail;
   const overlay = '';
-  const panel = theme === 'dark' ? 'bg-panel border-line text-ink' : 'bg-white border-slate-200';
-  const textMuted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-500';
-  const chip = theme === 'dark' ? 'bg-line' : 'bg-slate-100';
+  const panel = 'bg-panel border-line text-ink';
+  const textMuted = 'text-ink-dim';
+  const chip = 'bg-raise';
 
   const ep = (d?.endpoint ?? {}) as Record<string, unknown>;
   const typeLabel: Record<string, string> = { string: '文本', number: '数字', boolean: '布尔', array: '列表' };
@@ -531,9 +496,7 @@ function PreviewModal({ item, theme, onClose }: {
       <div className={`w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden ${panel}`}
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
-        <div className={`flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b ${
-          theme === 'dark' ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex items-start justify-between shrink-0 px-6 pt-6 pb-3 border-b border-line">
           <div>
             <h3 className="text-base font-bold">{item.name}</h3>
             <p className={`text-xs ${textMuted}`}>{item.author_name} · {SOURCE_META[item.source]?.label ?? item.source}</p>
@@ -546,21 +509,17 @@ function PreviewModal({ item, theme, onClose }: {
 
         {item.source === 'openapi' && (
           <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${chip} font-mono`}>
-            <span className="text-blue-400 font-bold">{(ep.method as string) ?? 'GET'}</span>
+            <span className="text-brand font-bold">{(ep.method as string) ?? 'GET'}</span>
             <span className="truncate">{(ep.url as string) ?? '—'}</span>
           </div>
         )}
         {item.source === 'code' && (
-          <pre className={`text-xs p-3 rounded-lg overflow-x-auto ${
-            theme === 'dark' ? 'bg-[#0c0c0e]' : 'bg-slate-50'
-          }`}>{d?.code || '—'}</pre>
+          <pre className="text-xs p-3 rounded-lg overflow-x-auto bg-well">{d?.code || '—'}</pre>
         )}
         {(ep.response_notes as string) && (
           <div className="space-y-1.5">
             <div className={`text-xs font-semibold ${textMuted}`}>返回格式</div>
-            <pre className={`text-xs p-3 rounded-lg overflow-x-auto ${
-              theme === 'dark' ? 'bg-[#0c0c0e]' : 'bg-slate-50'
-            }`}>{ep.response_notes as string}</pre>
+            <pre className="text-xs p-3 rounded-lg overflow-x-auto bg-well">{ep.response_notes as string}</pre>
           </div>
         )}
         <div className="space-y-1.5">
@@ -588,7 +547,7 @@ function ToolToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boo
       onClick={() => onChange(!enabled)}
       title={enabled ? '点击停用（停用后 Agent/工作流不可用）' : '点击开启（校验定义与凭证完整性）'}
       className={`relative rounded-full transition cursor-pointer shrink-0 border ${
-        enabled ? 'bg-emerald-600 border-emerald-500' : 'bg-line border-line-strong'
+        enabled ? 'bg-brand border-brand' : 'bg-raise border-line-strong'
       }`}
       style={{ width: '2rem', height: '1.1rem' }}
     >
@@ -628,7 +587,6 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
   });
   const d = isUserTool ? userDetail : officialDetail;
 
-  const dark = theme === 'dark';
   const props = (((d?.user_args_schema ?? {}) as Record<string, unknown>).properties ?? {}) as Record<
     string, { type?: string; description?: string; sensitive?: boolean }
   >;
@@ -671,38 +629,30 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
     onError: (e) => toast.error(getErrorMessage(e, '保存失败')),
   });
 
-  const inputCls = `w-full px-2 py-1 rounded text-xs font-mono border outline-none ${
-    dark
-      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
-      : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
-  }`;
+  const inputCls = 'w-full px-2 py-1 rounded text-xs font-mono border outline-none bg-page border-line text-ink placeholder:text-ink-faint focus:border-brand';
 
   return (
     /* 点遮罩不关闭（防误触丢已填配置，与其余 ui Modal 行为一致） */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div className={`w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-          dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
-        }`}
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border border-line bg-panel text-ink overflow-hidden shadow-[var(--shadow-pop)]"
         onClick={(e) => e.stopPropagation()}>
         {/* 头部固定：滚动时标题与关闭按钮始终可见 */}
-        <div className={`flex items-start justify-between shrink-0 px-5 pt-5 pb-3 border-b ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex items-start justify-between shrink-0 px-5 pt-5 pb-3 border-b border-line">
           <div>
             <h3 className="text-sm font-bold">工具凭证 · {d?.name ?? fallbackName}</h3>
-            <p className={`text-[11px] mt-0.5 ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
+            <p className="text-[11px] mt-0.5 text-ink-dim">
               工具级统一配置——Agent 绑定与工作流直调共用；敏感值加密存储。
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
+          <button onClick={onClose} className="cursor-pointer hover:opacity-70 text-ink-dim">✕</button>
         </div>
 
         {/* 内容区滚动 */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {!d ? (
-          <div className={`py-6 text-center text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>加载参数定义…</div>
+          <div className="py-6 text-center text-xs text-ink-dim">加载参数定义…</div>
         ) : propKeys.length === 0 ? (
-          <p className={`text-xs ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
+          <p className="text-xs text-ink-dim">
             该工具无需凭证，可直接开启使用。
           </p>
         ) : (
@@ -712,7 +662,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
               const configured = savedArgs[key] != null && String(savedArgs[key]) !== '';
               return (
                 <div key={key} className="flex items-center gap-2">
-                  <label className={`w-28 shrink-0 text-[11px] truncate ${dark ? 'text-ink-dim' : 'text-slate-500'}`} title={key}>
+                  <label className="w-28 shrink-0 text-[11px] truncate text-ink-dim" title={key}>
                     {key}{prop.sensitive ? ' 🔒' : ''}
                   </label>
                   <input
@@ -732,7 +682,7 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
                     className={`flex-1 ${inputCls}`}
                   />
                   {prop.sensitive && configured && (
-                    <span className={`text-[11px] shrink-0 ${dark ? 'text-emerald-500/80' : 'text-emerald-600'}`}>已配置</span>
+                    <span className="text-[11px] shrink-0 text-sig-ok">已配置</span>
                   )}
                 </div>
               );
@@ -742,15 +692,13 @@ function OrgArgsModal({ toolId, fallbackName, theme, onClose, onSaved }: {
         </div>
 
         {/* 底部按钮固定 */}
-        <div className={`flex justify-end gap-2 shrink-0 px-5 py-4 border-t ${
-          dark ? 'border-line' : 'border-slate-200'
-        }`}>
+        <div className="flex justify-end gap-2 shrink-0 px-5 py-4 border-t border-line">
           <button onClick={onClose}
-            className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${dark ? 'text-ink-dim hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
+            className={`px-3 py-1.5 rounded-lg text-sm cursor-pointer ${'text-ink-dim hover:text-ink'}`}>
             取消
           </button>
           <button onClick={() => saveM.mutate()} disabled={!d || saveM.isPending}
-            className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white cursor-pointer disabled:opacity-50">
+            className="px-4 py-1.5 rounded-lg text-sm bg-brand hover:bg-brand-hover text-white cursor-pointer disabled:opacity-50">
             {saveM.isPending ? '保存中…' : '保存凭证'}
           </button>
         </div>

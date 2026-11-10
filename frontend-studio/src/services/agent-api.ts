@@ -118,10 +118,15 @@ export interface AgentListResponse {
 
 /* ─── Execution types (invoke / stream) ─── */
 
+/** 思考强度档位：off 直答；low/medium/high 按厂商映射（与后端 Literal 一致） */
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high'
+
 export interface ExecutionRequest {
   input: string
   session_id?: string
   enable_thinking?: boolean
+  /** 思考强度档位（优先于 enable_thinking） */
+  thinking_level?: ThinkingLevel
   /** 计划模式：只调研不执行（剥离副作用工具），propose_plan 提交计划审批 */
   plan_mode?: boolean
   file_paths?: string[]
@@ -218,10 +223,13 @@ export interface TextDeltaEvent {
   content: string
 }
 
-/** Complete text block from the AI — consolidated */
+/** Complete text block from the AI — consolidated.
+ *  final=true = 本次 LLM 响应无 tool_calls，该文本即最终回答（agent loop
+ *  结束）——前端据此精确收起过程卡。 */
 export interface TextEvent {
   type: 'text'
   content: string
+  final?: boolean
 }
 
 /** Error during execution */
@@ -344,6 +352,15 @@ export const agentApi = {
   },
 
   /**
+   * 聊天中切换 Agent 默认模型（只动 default_model 单字段，published 也可换）。
+   * PUT /api/v1/agents/{id}/default-model
+   */
+  async updateDefaultModel(agentId: string, modelId: string): Promise<Agent> {
+    const res = await apiClient.put<Agent>(`/api/v1/agents/${encodeURIComponent(agentId)}/default-model`, { model_id: modelId })
+    return res.data
+  },
+
+  /**
    * Upload an agent avatar image (already cropped to PNG client-side).
    * POST /api/v1/agents/{id}/avatar — multipart 'file'. Returns the avatar URL.
    */
@@ -460,6 +477,8 @@ export const agentApi = {
       session_id: string
       answer: string
       enable_thinking?: boolean
+      /** 思考强度档位（优先于 enable_thinking） */
+      thinking_level?: ThinkingLevel
       /** 恢复语义：true=继续计划模式（反馈保持只读）；批准用默认 false 解除只读 */
       plan_mode?: boolean
     },

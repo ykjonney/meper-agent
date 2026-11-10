@@ -20,20 +20,12 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
   const dark = props.theme === 'dark'
   const inputKnown = props.inputDevices.some((device) => device.deviceId === props.inputDeviceId)
   const outputKnown = props.outputDevices.some((device) => device.deviceId === props.outputDeviceId)
-  const selectClass = `h-11 w-full rounded-lg border px-3 text-xs outline-none transition-colors focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50 ${
-    dark
-      ? 'border-line-strong bg-[#111113] text-[#f4f4f5]'
-      : 'border-slate-300 bg-white text-slate-800'
-  }`
+  const selectClass = 'h-11 w-full rounded-lg border border-line-strong bg-page text-ink px-3 text-xs outline-none transition-colors focus:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50'
 
   return (
     <details className="group relative">
       <summary
-        className={`flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-lg px-3 text-[11px] font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden ${
-          dark
-            ? 'text-ink-soft hover:bg-white/8'
-            : 'text-slate-700 hover:bg-slate-100'
-        }`}
+        className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-lg px-3 text-[11px] font-semibold text-ink-soft hover:bg-raise transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden"
         aria-label="选择音频输入和输出设备"
       >
         <Settings2 className="h-3.5 w-3.5" />
@@ -41,16 +33,12 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
       </summary>
 
       <div
-        className={`absolute right-0 top-[calc(100%+8px)] z-40 w-[min(320px,calc(100vw-48px))] rounded-xl border p-3 shadow-2xl ${
-          dark
-            ? 'border-line-strong bg-panel text-[#f4f4f5] shadow-black/50'
-            : 'border-slate-200 bg-white text-slate-800 shadow-slate-900/15'
-        }`}
+        className="absolute right-0 top-[calc(100%+8px)] z-40 w-[min(320px,calc(100vw-48px))] rounded-xl border border-line-strong bg-panel text-ink p-3 shadow-[var(--shadow-pop)]"
       >
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="text-xs font-semibold">浏览器音频设备</div>
-            <p className={`mt-0.5 text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
+            <p className={`mt-0.5 text-[11px] text-ink-dim`}>
               默认跟随操作系统，选择结果仅保存在当前浏览器。
             </p>
           </div>
@@ -77,7 +65,7 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
               ))}
             </select>
             {props.recording && (
-              <span className={`block text-[11px] ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
+              <span className={`block text-[11px] text-sig-wait`}>
                 暂停语音后可以切换麦克风。
               </span>
             )}
@@ -102,7 +90,7 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
               ))}
             </select>
             {!props.outputSelectionSupported && (
-              <span className={`block text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-500'}`}>
+              <span className={`block text-[11px] text-ink-dim`}>
                 当前浏览器仅支持跟随系统输出。
               </span>
             )}
@@ -113,8 +101,8 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
           <p
             className={`mt-3 rounded-lg px-2.5 py-2 text-[11px] ${
               props.error
-                ? dark ? 'bg-rose-500/10 text-rose-300' : 'bg-rose-50 text-rose-700'
-                : dark ? 'bg-amber-500/10 text-amber-200' : 'bg-amber-50 text-amber-800'
+                ? 'bg-sig-fail-soft text-sig-fail'
+                : 'bg-sig-wait-soft text-sig-wait'
             }`}
             role={props.error ? 'alert' : 'status'}
           >

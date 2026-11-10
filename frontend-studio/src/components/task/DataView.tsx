@@ -378,12 +378,12 @@ function LongText({
   const [open, setOpen] = useState(false)
   const ziCount = countZi(text)
   const isLong = ziCount > LONG_TEXT_THRESHOLD
-  const bodyColor = tone === 'danger' ? 'text-rose-400' : variant === 'primary' ? 'text-ink' : 'text-ink-soft'
+  const bodyColor = tone === 'danger' ? 'text-sig-fail' : variant === 'primary' ? 'text-ink' : 'text-ink-soft'
   const bodySize = variant === 'primary' ? 'text-[12px]' : 'text-[11px]'
   return (
     <div
       className={`rounded bg-well border p-2 ${
-        tone === 'danger' ? 'border-rose-500/30' : 'border-line'
+        tone === 'danger' ? 'border-sig-fail/30' : 'border-line'
       }`}
     >
       <div className={`${bodyColor} ${bodySize} leading-relaxed whitespace-pre-wrap break-all`}>
@@ -578,7 +578,7 @@ function matchKnownField(
   if (typeof value === 'string' && (k === 'error' || k === 'error_message')) {
     return (
       <div className="flex gap-1.5 items-start">
-        <AlertTriangle size={11} className="text-rose-400 shrink-0 mt-1" />
+        <AlertTriangle size={11} className="text-sig-fail shrink-0 mt-1" />
         <div className="flex-1 min-w-0">
           <LongText text={value} tone="danger" />
         </div>

@@ -128,7 +128,7 @@ export default function WorkflowInputForm({
             {/* 标签 */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-medium text-ink">{v.label || v.name}</span>
-              {v.required && <span className="text-red-400 text-xs">*</span>}
+              {v.required && <span className="text-sig-fail text-xs">*</span>}
               <span className="text-[11px] text-ink-dim">({getTypeLabel(v.type)})</span>
             </div>
             {v.description && (
@@ -159,7 +159,7 @@ export default function WorkflowInputForm({
                 value={(val as string) ?? ''}
                 placeholder='{"key": "value"}'
                 disabled={disabled}
-                className={isMissing ? 'border-red-400' : ''}
+                className={isMissing ? 'border-sig-fail' : ''}
                 onChange={(e) => update(v.name, e.target.value)}
               />
             )}
@@ -195,7 +195,7 @@ export default function WorkflowInputForm({
                           const next = checked ? arr.filter((x) => x !== o) : [...arr, o]
                           update(v.name, next)
                         }}
-                        className="accent-[#1E5EFF]"
+                        className="accent-brand"
                       />
                       {o}
                     </label>
@@ -247,7 +247,7 @@ export default function WorkflowInputForm({
                     </span>
                     <X
                       size={13}
-                      className="text-ink-dim cursor-pointer hover:text-red-400 shrink-0"
+                      className="text-ink-dim cursor-pointer hover:text-sig-fail shrink-0"
                       onClick={() => removeFile(v, idx)}
                     />
                   </div>
@@ -262,7 +262,7 @@ export default function WorkflowInputForm({
                       <span className="text-ink-dim truncate flex-1">已设置文件：{val}</span>
                       <X
                         size={13}
-                        className="text-ink-dim cursor-pointer hover:text-red-400 shrink-0"
+                        className="text-ink-dim cursor-pointer hover:text-sig-fail shrink-0"
                         onClick={() => update(v.name, '')}
                       />
                     </div>
@@ -270,7 +270,7 @@ export default function WorkflowInputForm({
               </div>
             )}
 
-            {isMissing && <p className="text-[11px] text-red-400">此项为必填</p>}
+            {isMissing && <p className="text-[11px] text-sig-fail">此项为必填</p>}
           </div>
         )
       })}

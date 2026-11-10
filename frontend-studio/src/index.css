@@ -1,95 +1,241 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "highlight.js/styles/github-dark.css";
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════
+   Agent Flow Studio — Design Tokens v4「纸墨 × 靛蓝」
+   规范（唯一权威）：docs/design/DESIGN_SYSTEM.md（索引：docs/design/README.md）
+   历史：v3.1/v3.2 规范已归档 docs/design/archive/
+   规则：
+   1. 亮色为默认主题（@theme）；.theme-dark 段做暗色换值（深蓝灰系）。
+   2. 本文件是颜色/字体/圆角的唯一来源，页面改造时硬编码 hex/Tailwind
+      调色板类必须替换为语义类（bg-panel / text-ink-dim / text-brand…）。
+   3. 品牌蓝只用于主按钮/链接/选中态/聚焦环/badge；状态信号色
+      （sig-ok/sig-wait/sig-fail）只以 tick/状态点/状态词/soft pill 出现。
+   4. 下方「LEGACY LIGHT OVERRIDES」段为历史纠偏层：纠正未改造组件中
+      硬编码暗色类在亮色主题下的表现。页面完成语义类替换后，可删除
+      对应覆写行。
+   ═══════════════════════════════════════════════════════════════ */
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  /* ── 语义色 token（暗色默认；.theme-light 段做亮色换值）──────────
-     替代散落组件的 2500+ 处硬编码 hex。文字两档均过 AA：
-     ink ≈15:1、ink-dim(#a1a1aa) 对 panel ≈6.9:1（旧 #71717a/#52525b
-     文字档 3.66:1/2.57:1 不达标，已并入 ink-dim）。 */
-  --color-page: #121214;          /* 页面底（含画布 #0f0f11 并入） */
-  --color-well: #09090b;          /* 输入框/代码块等更深的井底 */
-  --color-panel: #18181b;         /* 卡片/面板表面 */
-  --color-panel-hover: #1c1c1f;   /* 面板 hover 态 */
-  --color-line: #27272a;          /* 默认边框/分隔线（亦作抬升块底色） */
-  --color-line-strong: #3f3f46;   /* 强边框/hover 加亮边框 */
-  --color-ink: #fafafa;           /* 主文字 */
-  --color-ink-soft: #d4d4d8;      /* 数据值/代码等近主文字（亮灰，对 panel ≈10:1） */
-  --color-ink-dim: #a1a1aa;       /* 次级/meta 文字 */
-  --color-accent: #a78bfa;        /* 品牌紫标签（loop 主题色，对 panel ≈6:1） */
-  --color-link: #60a5fa;          /* 信息蓝文字/图标（原 #1E5EFF 文字用法 2.9:1 不达标，
-                                      统一升档；亮色换 #1d4ed8） */
-  --color-danger-text: #f87171;   /* 危险操作文字（原 #ef4444 3.96:1 差半口气；亮色换 #dc2626） */
-  /* Animation utilities used across components (animate-fade-in / animate-slide-left) */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: Georgia, "Songti SC", "STSong", serif;
+
+  /* ── 灰阶（亮色默认）────────────────────────────────────────── */
+  --color-page: #f7f7f8;        /* 页面底 */
+  --color-well: #efeff1;        /* 侧栏/输入井/代码块底 */
+  --color-panel: #ffffff;       /* 卡片/面板（无边框，靠底色差分层） */
+  --color-panel-hover: #f2f2f4;
+  --color-raise: #e9e9ec;       /* 抬升块/选中槽/控件槽 */
+  --color-line: #e4e4e8;        /* 分隔线（唯一常规边框用途） */
+  --color-line-strong: #c9c9d0; /* 输入框边框/hover 边框 */
+  --color-ink: #17171a;         /* 主文字 */
+  --color-ink-soft: #3d3d44;    /* 数据值/强调正文 */
+  --color-ink-dim: #66666e;     /* 次级/meta（≥5:1） */
+  --color-ink-faint: #93939c;   /* 占位/装饰（不承载信息） */
+
+  /* ── 品牌蓝（唯一的品牌彩）──────────────────────────────────── */
+  --color-brand: #2563eb;
+  --color-brand-hover: #1d4fd8;
+  --color-brand-soft: rgb(37 99 235 / 0.08);
+
+  /* ── 状态信号色（信息彩，与品牌蓝无关）──────────────────────── */
+  --color-sig-ok: #1f9d55;
+  --color-sig-ok-soft: rgb(31 157 85 / 0.1);
+  --color-sig-wait: #b07d1a;
+  --color-sig-wait-soft: rgb(176 125 26 / 0.1);
+  --color-sig-fail: #d93a3f;
+  --color-sig-fail-soft: rgb(217 58 63 / 0.1);
+
+  /* 兼容别名（未改造页面仍引用） */
+  --color-accent: var(--color-brand);
+  --color-link: var(--color-brand);
+  --color-danger-text: #b91c1c;
+
+  /* ── 阴影 ───────────────────────────────────────────────────── */
+  --shadow-card: 0 1px 2px rgb(20 20 25 / 0.04);
+  --shadow-pop: 0 8px 28px rgb(20 20 25 / 0.14);
+
+  /* Animation utilities (animate-fade-in / animate-slide-left / thinking 流式) */
   --animate-fade-in: fade-in 0.2s ease-out;
   --animate-slide-left: slide-left 0.25s ease-out;
-  /* 思考流式动效（thinking 卡片：头部脉冲点 + 正文打字光标） */
   --animate-thinking-dot: thinking-dot 1.2s ease-in-out infinite;
   --animate-caret-blink: caret-blink 1s step-end infinite;
+  --animate-breathe: breathe 1.6s ease-in-out infinite;
+}
+
+/* ── 暗色主题换值（深蓝灰系，与亮色白+蓝同族）──────────────────── */
+.theme-dark {
+  --color-page: #13151c;
+  --color-well: #0e1015;
+  --color-panel: #1a1d26;
+  --color-panel-hover: #20242f;
+  --color-raise: #272c39;
+  --color-line: #2a2f3c;
+  --color-line-strong: #3a4152;
+  --color-ink: #eef0f6;
+  --color-ink-soft: #c8cdd9;
+  --color-ink-dim: #939aae;
+  --color-ink-faint: #5d6478;
+
+  --color-brand: #6a97ff;
+  --color-brand-hover: #8badff;
+  --color-brand-soft: rgb(106 151 255 / 0.14);
+
+  --color-sig-ok: #41c177;
+  --color-sig-ok-soft: rgb(65 193 119 / 0.13);
+  --color-sig-wait: #dbab45;
+  --color-sig-wait-soft: rgb(219 171 69 / 0.13);
+  --color-sig-fail: #ef5e63;
+  --color-sig-fail-soft: rgb(239 94 99 / 0.13);
+
+  --color-danger-text: #ef5e63;
+
+  --shadow-card: none;
+  --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+/* ── 靛蓝主题（会话主页专用浅色皮肤）──────────────────────────────
+   挂载：ChatHomepage 根容器 className="theme-indigo"。
+   与 .theme-dark 同机制：class 级换值，语义类名全站复用；
+   其他页面（资源库/智能体等）不受影响。 */
+.theme-indigo {
+  --color-page: #F7F8FA;
+  --color-well: #EEF1F6;
+  --color-panel: #FFFFFF;
+  --color-panel-hover: #F3F5F9;
+  --color-raise: #EDF0F5;
+  --color-line: #DFE3EC;
+  --color-line-strong: #C9CFDD;
+  --color-ink: #1B2029;
+  --color-ink-soft: #3A4150;
+  --color-ink-dim: #666E7D;
+  --color-ink-faint: #9BA1AD;
+
+  --color-brand: #2B4A9E;
+  --color-brand-hover: #3A5CB8;
+  --color-brand-soft: rgb(43 74 158 / 0.08);
+
+  --shadow-card: 0 1px 3px rgb(40 50 80 / 0.06);
+  --shadow-pop: 0 8px 28px rgb(30 40 70 / 0.12);
+  --shadow-send: 0 2px 8px rgb(43 74 158 / 0.30);
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-
 @keyframes slide-left {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
-
 @keyframes thinking-dot {
-  0%, 100% {
-    opacity: 0.25;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-1px);
-  }
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-1px); }
 }
-
 @keyframes caret-blink {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+/* 运行态呼吸（tick/状态点专用，prefers-reduced-motion 时由下方全局规则停用） */
+@keyframes breathe {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* ── 动效白名单之外，尊重系统减弱动效 ──────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-/* Voice presence: local energy-loop video with state tint and poster fallback. */
+/* ═══════════════════ 复用组件类（af-*）═══════════════════
+   逐页改造时的标准零件；详见规范 §4。 */
+
+/* mono 小标签 — 组标题/表头/状态词 */
+.af-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-dim);
+}
+
+/* 无边框卡：panel 底 + 发丝阴影（暗色无阴影靠明度差） */
+.af-card {
+  background: var(--color-panel);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 按钮：主操作=品牌蓝实心；次操作=描边；行内=ghost */
+.af-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 13px;
+  border-radius: 8px; font-size: 12.5px; font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, filter 0.15s;
+  cursor: pointer;
+}
+.af-btn:disabled { opacity: 0.4; pointer-events: none; }
+.af-btn-primary { background: var(--color-brand); color: #fff; }
+.af-btn-primary:hover { background: var(--color-brand-hover); }
+.theme-dark .af-btn-primary { color: #0e1015; }
+.af-btn-secondary { border: 1px solid var(--color-line-strong); color: var(--color-ink); background: var(--color-panel); }
+.af-btn-secondary:hover { background: var(--color-panel-hover); }
+.af-btn-ghost { color: var(--color-ink-dim); }
+.af-btn-ghost:hover { background: var(--color-raise); color: var(--color-ink); }
+
+/* 暗色主题：品牌蓝变亮（#6a97ff），实底上的文字压深保证对比（≥4.5:1） */
+.theme-dark .bg-brand { color: #0e1015; }
+
+/* 状态 pill：点+文字双通道 */
+.af-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 9999px; padding: 2px 9px;
+  font-size: 11px; font-weight: 600; line-height: 1.5;
+  font-family: var(--font-mono);
+}
+.af-pill::before { content: ""; width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+.af-pill-ok { background: var(--color-sig-ok-soft); color: var(--color-sig-ok); }
+.af-pill-wait { background: var(--color-sig-wait-soft); color: var(--color-sig-wait); }
+.af-pill-fail { background: var(--color-sig-fail-soft); color: var(--color-sig-fail); }
+.af-pill-neutral { background: var(--color-raise); color: var(--color-ink-dim); }
+.af-pill-neutral::before { background: var(--color-ink-faint); }
+
+/* tick 体系：左缘 2px 状态线，彩色只属于状态 */
+.af-tick { position: relative; }
+.af-tick::before {
+  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px;
+  width: 2px; border-radius: 2px;
+  background: var(--tick-color, var(--color-ink-faint));
+}
+.af-tick-run { --tick-color: var(--color-sig-ok); }
+.af-tick-run::before { animation: breathe 1.6s ease-in-out infinite; }
+.af-tick-wait { --tick-color: var(--color-sig-wait); }
+.af-tick-fail { --tick-color: var(--color-sig-fail); }
+
+/* 状态点 */
+.af-dot { width: 8px; height: 8px; border-radius: 9999px; flex: none; }
+.af-dot-run { background: var(--color-sig-ok); animation: breathe 1.6s ease-in-out infinite; }
+.af-dot-wait { background: var(--color-sig-wait); }
+.af-dot-fail { background: var(--color-sig-fail); }
+.af-dot-mute { background: var(--color-ink-faint); }
+
+/* ── Voice presence: local energy-loop video（业务组件，保留）────── */
 .voice-video-orb {
   position: relative;
   width: 8rem;
   height: 8rem;
   isolation: isolate;
 }
-
-.voice-video-orb--compact {
-  width: 6.5rem;
-  height: 6.5rem;
-}
-
+.voice-video-orb--compact { width: 6.5rem; height: 6.5rem; }
 .voice-video-orb__viewport,
-.voice-video-orb__halo {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-}
-
+.voice-video-orb__halo { position: absolute; inset: 0; border-radius: 9999px; }
 .voice-video-orb__viewport {
   overflow: hidden;
   background: #02060b;
@@ -98,22 +244,12 @@
     0 18px 50px rgb(8 47 73 / 0.35);
   transition: transform 300ms ease, filter 300ms ease, opacity 300ms ease;
 }
-
 .voice-video-orb__media,
 .voice-video-orb__fallback,
 .voice-video-orb__tint {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
+  position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit;
 }
-
-.voice-video-orb__media {
-  object-fit: cover;
-  transform: translate(-2px, 2px) scale(1.12);
-}
-
+.voice-video-orb__media { object-fit: cover; transform: translate(-2px, 2px) scale(1.12); }
 .voice-video-orb__halo {
   background: #38bdf8;
   filter: blur(22px);
@@ -121,394 +257,149 @@
   transform: scale(0.86);
   transition: background-color 300ms ease, opacity 300ms ease;
 }
-
 .voice-video-orb__tint {
   background: transparent;
   mix-blend-mode: color;
   pointer-events: none;
   transition: background-color 300ms ease;
 }
-
 .voice-video-orb__fallback {
   background:
     radial-gradient(circle at 50% 50%, transparent 40%, #38bdf8 43%, transparent 48%),
     conic-gradient(from 30deg, #0ea5e9, #6366f1, #22d3ee, #0ea5e9);
 }
-
-.voice-video-orb[data-state="idle"] .voice-video-orb__viewport {
-  opacity: 0.52;
-  filter: saturate(0.45);
-}
-
-.voice-video-orb[data-state="listening"] .voice-video-orb__viewport {
-  transform: scale(1.03);
-}
-
-.voice-video-orb[data-state="thinking"] .voice-video-orb__tint {
-  background: rgb(139 92 246 / 0.42);
-}
-
-.voice-video-orb[data-state="thinking"] .voice-video-orb__halo {
-  background: #8b5cf6;
-}
-
-.voice-video-orb[data-state="speaking"] .voice-video-orb__viewport {
-  transform: scale(1.06);
-}
-
-.voice-video-orb[data-state="speaking"] .voice-video-orb__tint {
-  background: rgb(59 130 246 / 0.25);
-}
-
-.voice-video-orb[data-state="error"] .voice-video-orb__tint {
-  background: rgb(244 63 94 / 0.62);
-}
-
-.voice-video-orb[data-state="error"] .voice-video-orb__halo {
-  background: #f43f5e;
-}
-
+.voice-video-orb[data-state="idle"] .voice-video-orb__viewport { opacity: 0.52; filter: saturate(0.45); }
+.voice-video-orb[data-state="listening"] .voice-video-orb__viewport { transform: scale(1.03); }
+.voice-video-orb[data-state="thinking"] .voice-video-orb__tint { background: rgb(139 92 246 / 0.42); }
+.voice-video-orb[data-state="thinking"] .voice-video-orb__halo { background: #8b5cf6; }
+.voice-video-orb[data-state="speaking"] .voice-video-orb__viewport { transform: scale(1.06); }
+.voice-video-orb[data-state="speaking"] .voice-video-orb__tint { background: rgb(59 130 246 / 0.25); }
+.voice-video-orb[data-state="error"] .voice-video-orb__tint { background: rgb(244 63 94 / 0.62); }
+.voice-video-orb[data-state="error"] .voice-video-orb__halo { background: #f43f5e; }
 @media (prefers-reduced-motion: reduce) {
   .voice-video-orb__viewport,
   .voice-video-orb__halo,
-  .voice-video-orb__tint {
-    transition-duration: 0.01ms;
-  }
+  .voice-video-orb__tint { transition-duration: 0.01ms; }
 }
 
-
 @utility bg-grid-dots {
-  background-image: radial-gradient(#27272a 1px, transparent 1px);
+  background-image: radial-gradient(var(--color-line) 1px, transparent 1px);
   background-size: 16px 16px;
 }
 
 @utility scrollbar-custom {
-  &::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: #27272a;
-    border-radius: 9999px;
-  }
-  &::-webkit-scrollbar-thumb:hover {
-    background: #3f3f46;
-  }
+  /* gutter 恒定预留：滚动条出现/消失不挤内容宽度（防流结束整页文字重排抖动） */
+  scrollbar-gutter: stable;
+  &::-webkit-scrollbar { width: 6px; height: 6px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 9999px; }
+  &::-webkit-scrollbar-thumb:hover { background: var(--color-ink-faint); }
   scrollbar-width: thin;
-  scrollbar-color: #27272a transparent;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 
-/* ==========================================
-   THEME LIGHT RESPONSIVE OVERRIDE BLOCK
-   ========================================== */
-.theme-light .scrollbar-custom::-webkit-scrollbar-thumb {
-  background: #cbd5e1 !important;
-}
-.theme-light .scrollbar-custom::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8 !important;
-}
-.theme-light .scrollbar-custom {
-  scrollbar-color: #cbd5e1 transparent !important;
-}
+/* ═══════════════════════════════════════════════════════════════
+   LEGACY LIGHT OVERRIDES（历史纠偏层）
+   组件中仍有大量硬编码暗色 Tailwind 类（text-slate-400 / bg-indigo-500 /
+   bg-[#1f1f23] 等）。以下规则把其在亮色主题下的表现纠正为可读值。
+   页面完成语义类替换后应删除对应行。
+   ⚠️ 此段必须保留到最后一个页面改造完成。
+   ═══════════════════════════════════════════════════════════════ */
+.theme-light .scrollbar-custom::-webkit-scrollbar-thumb { background: #cbd5e1 !important; }
+.theme-light .scrollbar-custom::-webkit-scrollbar-thumb:hover { background: #94a3b8 !important; }
+.theme-light .scrollbar-custom { scrollbar-color: #cbd5e1 transparent !important; }
 
-/* Grid dots override for canvas maps */
-.theme-light .bg-grid-dots {
-  background-image: radial-gradient(#cbd5e1 1px, transparent 1px) !important;
-}
-
-/* ── 亮色主题：token 换值（替代旧版对硬编码 hex 的逐值 !important
-   反向覆写——token 化后只需重定义 8 个变量）。 ── */
-.theme-light {
-  --color-page: #f8fafc;
-  --color-well: #f1f5f9;
-  --color-panel: #ffffff;
-  --color-panel-hover: #f1f5f9;
-  --color-line: #e4e4e7;
-  --color-line-strong: #d4d4d8;
-  --color-ink: #18181b;
-  --color-ink-soft: #3f3f46;
-  --color-ink-dim: #52525b;
-  --color-accent: #7c3aed;
-  --color-link: #1d4ed8;
-  --color-danger-text: #b91c1c;
-}
-
-/* ── 恢复：亮色覆写（这些 hex 类未 token 化、组件中仍在使用，
-   误删会导致亮色主题下文字不可见）── */
-.theme-light .bg-\[\#1f1f23\] {
-  background-color: #ffffff !important;
-}
-.theme-light .hover\:bg-\[\#1f1f23\]:hover {
-  background-color: #e2e8f0 !important;
-}
-/* Brand hex surfaces: primary buttons (#1E5EFF), dark tooltip/badge (#0F172A) */
+.theme-light .bg-\[\#1f1f23\] { background-color: #ffffff !important; }
+.theme-light .hover\:bg-\[\#1f1f23\]:hover { background-color: #e2e8f0 !important; }
 .theme-light .bg-\[\#1E5EFF\],
 .theme-light .bg-\[\#0F172A\],
-.theme-light .bg-\[\#0f172a\] {
-  color: #ffffff !important;
-}
+.theme-light .bg-\[\#0f172a\] { color: #ffffff !important; }
 
-/* Tailwind default slate colors under light mode */
-.theme-light .bg-slate-950 {
-  background-color: #fafafa !important;
-}
-.theme-light .bg-slate-900 {
-  background-color: #f1f5f9 !important;
-}
-.theme-light .bg-slate-800 {
-  background-color: #e2e8f0 !important;
-}
+.theme-light .bg-slate-950 { background-color: #fafafa !important; }
+.theme-light .bg-slate-900 { background-color: #f1f5f9 !important; }
+.theme-light .bg-slate-800 { background-color: #e2e8f0 !important; }
+.theme-light .border-slate-800 { border-color: #e2e8f0 !important; }
+.theme-light .border-slate-700 { border-color: #cbd5e1 !important; }
 
-/* Tailwind default borders under light mode */
-.theme-light .border-slate-800 {
-  border-color: #e2e8f0 !important;
-}
-.theme-light .border-slate-700 {
-  border-color: #cbd5e1 !important;
-}
+.theme-light .text-white { color: #0f172a !important; }
+.theme-light .text-rose-400 { color: #e11d48 !important; }
 
-/* Headings and generic Text color overrides */
-.theme-light .text-white {
-  color: #0f172a !important; /* text-slate-900 primary heading */
-}
-.theme-light .text-rose-400 {
-  color: #e11d48 !important; /* text-rose-600 — 错误文本，浅底需加深 */
-}
+.theme-light .text-slate-100 { color: #0f172a !important; }
+.theme-light .text-slate-200 { color: #1e293b !important; }
+.theme-light .text-slate-300 { color: #334155 !important; }
+.theme-light .text-slate-400 { color: #475569 !important; }
+.theme-light .text-slate-500 { color: #64748b !important; }
 
-/* Tailwind default slate texts under light mode */
-.theme-light .text-slate-100 {
-  color: #0f172a !important;
-}
-.theme-light .text-slate-200 {
-  color: #1e293b !important;
-}
-.theme-light .text-slate-300 {
-  color: #334155 !important;
-}
-.theme-light .text-slate-400 {
-  color: #475569 !important;
-}
-.theme-light .text-slate-500 {
-  color: #64748b !important;
-}
-
-/* Input Fields, select dropdown, and Textareas
-   (.code-editor-input 除外——代码编辑器输入层需保持透明以透出高亮回显层) */
-.theme-light input:not(.code-editor-input),
-.theme-light textarea:not(.code-editor-input) {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
-}
+/* input/textarea 白底强制已删除（v4 靛蓝）：语义类（bg-transparent 修订线
+   inline-field / bg-well composer）接管；仍写死暗色类的旧组件由上方 slate
+   纠偏行兜底可读性。select 白底保留（下拉场景无碍）。 */
 .theme-light select {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
   color: #0f172a !important;
 }
-.theme-light select option {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-}
-.theme-light text.fill-slate-500 {
-  fill: #475569 !important;
-}
+.theme-light select option { background-color: #ffffff !important; color: #0f172a !important; }
+.theme-light text.fill-slate-500 { fill: #475569 !important; }
+.theme-light .hover\:text-white:hover { color: #0f172a !important; }
 
-/* Input placeholders */
-.theme-light ::placeholder {
-  color: #94a3b8 !important;
-}
+/* COLORED STATES：深底浅彩字 → 浅彩底深彩字 */
+.theme-light .bg-rose-950\/20 { background-color: rgba(225, 29, 72, 0.06) !important; }
+.theme-light .bg-rose-950\/30 { background-color: rgba(225, 29, 72, 0.08) !important; }
+.theme-light .bg-indigo-950\/20 { background-color: rgba(67, 56, 202, 0.06) !important; }
+.theme-light .bg-indigo-950\/30 { background-color: rgba(67, 56, 202, 0.08) !important; }
+.theme-light .bg-indigo-950\/40 { background-color: rgba(67, 56, 202, 0.1) !important; }
+.theme-light .bg-emerald-950\/30 { background-color: rgba(4, 120, 87, 0.08) !important; }
+.theme-light .bg-emerald-950\/40 { background-color: rgba(4, 120, 87, 0.1) !important; }
+.theme-light .bg-amber-950\/20 { background-color: rgba(180, 83, 9, 0.08) !important; }
+.theme-light .hover\:bg-rose-950\/20:hover { background-color: rgba(225, 29, 72, 0.1) !important; }
+.theme-light .hover\:bg-rose-950\/30:hover { background-color: rgba(225, 29, 72, 0.12) !important; }
+.theme-light .hover\:bg-rose-950:hover { background-color: #ffe4e6 !important; }
+.theme-light .hover\:bg-indigo-950\/40:hover { background-color: rgba(67, 56, 202, 0.12) !important; }
+.theme-light .hover\:bg-amber-950\/20:hover { background-color: rgba(180, 83, 9, 0.12) !important; }
 
-/* Text interaction on hover */
-.theme-light .hover\:text-white:hover {
-  color: #0f172a !important;
-}
-
-/* ------------------------------------------
-   COLORED STATES (chips / status text / tinted buttons)
-   深色主题的「950 深底 + 200/300/400 浅彩字」组合，在亮色下整体翻译为
-   「浅彩底 + 600/700 深彩字」，hover 再深一档。映射保持色相一致：
-   rose→#e11d48/#be123c、indigo→#4f46e5/#4338ca、emerald→#059669/#047857、
-   amber→#b45309、red→#dc2626/#b91c1c、sky→#0284c7/#0369a1。
-   注意：须置于下方 WHITE-TEXT-ON-COLORED-BG 保护块之前，让实底彩面
-   (bg-indigo-600 等) 上的白字保护仍然生效。
-   ------------------------------------------ */
-
-/* 静态 950 深底 → 半透明浅彩底 */
-.theme-light .bg-rose-950\/20 {
-  background-color: rgba(225, 29, 72, 0.06) !important;
-}
-.theme-light .bg-rose-950\/30 {
-  background-color: rgba(225, 29, 72, 0.08) !important;
-}
-.theme-light .bg-indigo-950\/20 {
-  background-color: rgba(67, 56, 202, 0.06) !important;
-}
-.theme-light .bg-indigo-950\/30 {
-  background-color: rgba(67, 56, 202, 0.08) !important;
-}
-.theme-light .bg-indigo-950\/40 {
-  background-color: rgba(67, 56, 202, 0.1) !important;
-}
-.theme-light .bg-emerald-950\/30 {
-  background-color: rgba(4, 120, 87, 0.08) !important;
-}
-.theme-light .bg-emerald-950\/40 {
-  background-color: rgba(4, 120, 87, 0.1) !important;
-}
-.theme-light .bg-amber-950\/20 {
-  background-color: rgba(180, 83, 9, 0.08) !important;
-}
-
-/* hover 950 深底 → 稍强一档浅彩底（不能太黑） */
-.theme-light .hover\:bg-rose-950\/20:hover {
-  background-color: rgba(225, 29, 72, 0.1) !important;
-}
-.theme-light .hover\:bg-rose-950\/30:hover {
-  background-color: rgba(225, 29, 72, 0.12) !important;
-}
-.theme-light .hover\:bg-rose-950:hover {
-  background-color: #ffe4e6 !important; /* rose-100，配 hover:text-white→深字 */
-}
-.theme-light .hover\:bg-indigo-950\/40:hover {
-  background-color: rgba(67, 56, 202, 0.12) !important;
-}
-.theme-light .hover\:bg-amber-950\/20:hover {
-  background-color: rgba(180, 83, 9, 0.12) !important;
-}
-
-/* 静态浅彩字 → 深彩字（白底可读；rose-400 已在上文覆写为 #e11d48） */
-.theme-light .text-indigo-400 {
-  color: #4f46e5 !important;
-}
-.theme-light .text-indigo-300 {
-  color: #4338ca !important;
-}
-.theme-light .text-indigo-200 {
-  color: #4338ca !important;
-}
-.theme-light .text-emerald-400 {
-  color: #059669 !important;
-}
-.theme-light .text-emerald-300 {
-  color: #047857 !important;
-}
-.theme-light .text-amber-400 {
-  color: #b45309 !important;
-}
-.theme-light .text-amber-300 {
-  color: #b45309 !important;
-}
-.theme-light .text-amber-200 {
-  color: #b45309 !important;
-}
-.theme-light .text-red-400 {
-  color: #dc2626 !important;
-}
-.theme-light .text-red-300 {
-  color: #b91c1c !important;
-}
-.theme-light .text-rose-300 {
-  color: #be123c !important;
-}
-.theme-light .text-rose-200 {
-  color: #be123c !important;
-}
-.theme-light .text-sky-400 {
-  color: #0284c7 !important;
-}
-.theme-light .text-sky-300 {
-  color: #0369a1 !important;
-}
-/* 透明度修饰变体（text-xxx-300/80 等编译为独立类名，需逐个覆盖） */
-.theme-light .text-amber-300\/80 {
-  color: #b45309 !important;
-}
-.theme-light .text-indigo-300\/80 {
-  color: #4338ca !important;
-}
+.theme-light .text-indigo-400 { color: #4f46e5 !important; }
+.theme-light .text-indigo-300 { color: #4338ca !important; }
+.theme-light .text-indigo-200 { color: #4338ca !important; }
+.theme-light .text-emerald-400 { color: #059669 !important; }
+.theme-light .text-emerald-300 { color: #047857 !important; }
+.theme-light .text-amber-400 { color: #b45309 !important; }
+.theme-light .text-amber-300 { color: #b45309 !important; }
+.theme-light .text-amber-200 { color: #b45309 !important; }
+.theme-light .text-red-400 { color: #dc2626 !important; }
+.theme-light .text-red-300 { color: #b91c1c !important; }
+.theme-light .text-rose-300 { color: #be123c !important; }
+.theme-light .text-rose-200 { color: #be123c !important; }
+.theme-light .text-sky-400 { color: #0284c7 !important; }
+.theme-light .text-sky-300 { color: #0369a1 !important; }
+.theme-light .text-amber-300\/80 { color: #b45309 !important; }
+.theme-light .text-indigo-300\/80 { color: #4338ca !important; }
 .theme-light .text-indigo-400\/50,
-.theme-light .text-indigo-400\/60 {
-  color: rgba(79, 70, 229, 0.75) !important;
-}
-.theme-light .text-red-400\/70 {
-  color: rgba(185, 28, 28, 0.85) !important;
-}
-.theme-light .text-rose-300\/80 {
-  color: #be123c !important;
-}
+.theme-light .text-indigo-400\/60 { color: rgba(79, 70, 229, 0.75) !important; }
+.theme-light .text-red-400\/70 { color: rgba(185, 28, 28, 0.85) !important; }
+.theme-light .text-rose-300\/80 { color: #be123c !important; }
 
-/* hover 浅彩字 → 再深一档（亮色下 hover 方向与深色一致：加深而非变浅） */
-.theme-light .hover\:text-indigo-400:hover {
-  color: #4338ca !important;
-}
-.theme-light .hover\:text-indigo-300:hover {
-  color: #4338ca !important;
-}
-.theme-light .hover\:text-rose-400:hover {
-  color: #be123c !important;
-}
-.theme-light .hover\:text-rose-300:hover {
-  color: #be123c !important;
-}
-.theme-light .hover\:text-rose-200:hover {
-  color: #be123c !important;
-}
-.theme-light .hover\:text-red-400:hover {
-  color: #b91c1c !important;
-}
-.theme-light .hover\:text-red-300:hover {
-  color: #b91c1c !important;
-}
-.theme-light .hover\:text-emerald-400:hover {
-  color: #047857 !important;
-}
-.theme-light .hover\:text-amber-400:hover {
-  color: #92400e !important;
-}
-.theme-light .hover\:text-amber-200:hover {
-  color: #92400e !important;
-}
-.theme-light .hover\:text-sky-400:hover {
-  color: #0369a1 !important;
-}
-.theme-light .hover\:text-sky-300:hover {
-  color: #0369a1 !important;
-}
-.theme-light .hover\:text-slate-300:hover {
-  color: #334155 !important;
-}
+.theme-light .hover\:text-indigo-400:hover { color: #4338ca !important; }
+.theme-light .hover\:text-indigo-300:hover { color: #4338ca !important; }
+.theme-light .hover\:text-rose-400:hover { color: #be123c !important; }
+.theme-light .hover\:text-rose-300:hover { color: #be123c !important; }
+.theme-light .hover\:text-rose-200:hover { color: #be123c !important; }
+.theme-light .hover\:text-red-400:hover { color: #b91c1c !important; }
+.theme-light .hover\:text-red-300:hover { color: #b91c1c !important; }
+.theme-light .hover\:text-emerald-400:hover { color: #047857 !important; }
+.theme-light .hover\:text-amber-400:hover { color: #92400e !important; }
+.theme-light .hover\:text-amber-200:hover { color: #92400e !important; }
+.theme-light .hover\:text-sky-400:hover { color: #0369a1 !important; }
+.theme-light .hover\:text-sky-300:hover { color: #0369a1 !important; }
+.theme-light .hover\:text-slate-300:hover { color: #334155 !important; }
 
-/* 深彩边框 → 浅彩边框（实彩 border-600 系在白底可读，不动） */
 .theme-light .border-rose-700\/40,
 .theme-light .border-rose-700\/60,
-.theme-light .border-rose-800\/40 {
-  border-color: #fecdd3 !important; /* rose-200 */
-}
-.theme-light .border-indigo-700\/40 {
-  border-color: #c7d2fe !important; /* indigo-200 */
-}
-.theme-light .border-emerald-700\/40 {
-  border-color: #a7f3d0 !important; /* emerald-200 */
-}
+.theme-light .border-rose-800\/40 { border-color: #fecdd3 !important; }
+.theme-light .border-indigo-700\/40 { border-color: #c7d2fe !important; }
+.theme-light .border-emerald-700\/40 { border-color: #a7f3d0 !important; }
+.theme-light .hover\:border-slate-600:hover { border-color: #94a3b8 !important; }
 
-/* hover 中性深边框 → slate-400 中灰（对齐既有 hover:border-[#3f3f46] 映射） */
-.theme-light .hover\:border-slate-600:hover {
-  border-color: #94a3b8 !important;
-}
-
-/* ------------------------------------------
-   WHITE TEXT ON COLORED BACKGROUNDS (both themes)
-   The .text-white / text-[#fafafa] overrides above are unconditional, so they
-   also darken text that sits on a colored (brand) surface — buttons, badges,
-   active tabs, gradient avatars. These higher-specificity rules force that
-   text back to white so it stays legible on the colored fill. "元素偏深则字体
-   选浅色". Must come AFTER the unconditional overrides to win at equal src order.
-   ------------------------------------------ */
-
-/* Solid Tailwind-color buttons / badges / active states */
+/* WHITE TEXT ON COLORED BACKGROUNDS（两主题）：实彩底上强制白字 */
 .theme-light .bg-indigo-600,
 .theme-light .bg-indigo-500,
 .theme-light .bg-indigo-700,
@@ -517,100 +408,70 @@
 .theme-light .bg-sky-600,
 .theme-light .bg-rose-600,
 .theme-light .bg-rose-500,
-.theme-light .bg-red-500 {
-  color: #ffffff !important;
-}
-
-/* Colored gradient endpoints (avatars / icon tiles). Only the colored stops —
-   neutral stops are handled by the from/to-[#hex] block above. */
+.theme-light .bg-red-500 { color: #ffffff !important; }
 .theme-light .from-orange-400,
 .theme-light .from-indigo-500,
 .theme-light .from-amber-500,
 .theme-light .to-rose-400,
-.theme-light .to-violet-500 {
+.theme-light .to-violet-500 { color: #ffffff !important; }
+.theme-light .from-orange-400 .text-white,
+.theme-light .from-indigo-500 .text-white { color: #ffffff !important; }
+
+/* ── 已改造页面（v3.2 语义类）的白字恢复 ──
+   LEGACY .text-white 压深规则会把改造后组件里「品牌蓝实底按钮」的白字
+   也误伤成深字。给改造页根节点加 .af-scope 即恢复白字；
+   暗色主题下品牌蓝实底文字继续压深（.bg-brand 规则已处理）。 */
+.af-scope .text-white,
+.af-scope .text-\[\#fafafa\] {
   color: #ffffff !important;
 }
-/* A gradient avatar's text-white child (e.g. the lucide icon inside) */
-.theme-light .from-orange-400 .text-white,
-.theme-light .from-indigo-500 .text-white {
-  color: #ffffff !important;
+.theme-dark .af-scope .bg-brand,
+.theme-dark .af-scope .bg-brand:hover {
+  color: #0e1015 !important;
 }
 
-/* ==========================================
-   CHAT MARKDOWN (.prose-chat)
-   Scoped styles for streaming markdown in chat bubbles. Dark-first,
-   with .theme-light overrides below to match the rest of the app.
-   ========================================== */
+/* ═══════════════════ CHAT MARKDOWN（.prose-chat）═══════════════════
+   全部引用 token 变量，两主题自动适配。 */
 .prose-chat {
   font-size: 12.5px;
   line-height: 1.65;
   word-break: break-word;
+  color: var(--color-ink-soft);
 }
-.prose-chat > :first-child {
-  margin-top: 0;
-}
-.prose-chat > :last-child {
-  margin-bottom: 0;
-}
-.prose-chat p {
-  margin: 0.5em 0;
-}
-.prose-chat h1,
-.prose-chat h2,
-.prose-chat h3,
-.prose-chat h4 {
+.prose-chat > :first-child { margin-top: 0; }
+.prose-chat > :last-child { margin-bottom: 0; }
+.prose-chat p { margin: 0.5em 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
   font-weight: 700;
   line-height: 1.3;
   margin: 0.8em 0 0.4em;
-  color: #fafafa;
+  color: var(--color-ink);
 }
-.prose-chat h1 {
-  font-size: 1.25em;
-}
-.prose-chat h2 {
-  font-size: 1.15em;
-}
-.prose-chat h3 {
-  font-size: 1.05em;
-}
-.prose-chat h4 {
-  font-size: 1em;
-}
-.prose-chat ul,
-.prose-chat ol {
-  margin: 0.5em 0;
-  padding-left: 1.4em;
-}
-.prose-chat ul {
-  list-style: disc;
-}
-.prose-chat ol {
-  list-style: decimal;
-}
-.prose-chat li {
-  margin: 0.2em 0;
-}
-.prose-chat li > ul,
-.prose-chat li > ol {
-  margin: 0.2em 0;
-}
-/* Inline code */
+.prose-chat h1 { font-size: 1.25em; }
+.prose-chat h2 { font-size: 1.15em; }
+.prose-chat h3 { font-size: 1.05em; }
+.prose-chat h4 { font-size: 1em; }
+.prose-chat ul, .prose-chat ol { margin: 0.5em 0; padding-left: 1.4em; }
+.prose-chat ul { list-style: disc; }
+.prose-chat ol { list-style: decimal; }
+.prose-chat li { margin: 0.2em 0; }
+.prose-chat li > ul, .prose-chat li > ol { margin: 0.2em 0; }
 .prose-chat :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.88em;
   padding: 0.12em 0.38em;
   border-radius: 5px;
-  background: rgba(115, 115, 115, 0.18);
-  border: 1px solid rgba(115, 115, 115, 0.2);
+  background: var(--color-raise);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink-soft);
   white-space: break-spaces;
 }
-/* Fenced code blocks: highlight.js theme handles token colors; we set chrome */
 .prose-chat pre {
   margin: 0.6em 0;
   padding: 0.85em 1em;
   border-radius: 10px;
-  background: #0d1117;
-  border: 1px solid #27272a;
+  background: var(--color-well);
+  border: 1px solid var(--color-line);
   overflow-x: auto;
 }
 .prose-chat pre code {
@@ -625,30 +486,18 @@
 .prose-chat blockquote {
   margin: 0.6em 0;
   padding: 0.2em 0.9em;
-  border-left: 3px solid #3f3f46;
-  color: #a1a1aa;
+  border-left: 3px solid var(--color-line-strong);
+  color: var(--color-ink-dim);
 }
 .prose-chat a {
-  color: #818cf8;
+  color: var(--color-brand);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.prose-chat a:hover {
-  color: #a5b4fc;
-}
-.prose-chat strong {
-  font-weight: 700;
-  color: #fafafa;
-}
-.prose-chat em {
-  font-style: italic;
-}
-.prose-chat hr {
-  margin: 1em 0;
-  border: 0;
-  border-top: 1px solid #27272a;
-}
-/* GFM tables */
+.prose-chat a:hover { color: var(--color-brand-hover); }
+.prose-chat strong { font-weight: 700; color: var(--color-ink); }
+.prose-chat em { font-style: italic; }
+.prose-chat hr { margin: 1em 0; border: 0; border-top: 1px solid var(--color-line); }
 .prose-chat table {
   width: 100%;
   border-collapse: collapse;
@@ -657,80 +506,18 @@
   display: block;
   overflow-x: auto;
 }
-.prose-chat th,
-.prose-chat td {
-  border: 1px solid #27272a;
+.prose-chat th, .prose-chat td {
+  border: 1px solid var(--color-line);
   padding: 0.4em 0.7em;
   text-align: left;
 }
-.prose-chat th {
-  background: rgba(39, 39, 42, 0.5);
-  font-weight: 700;
-}
-.prose-chat tr:nth-child(2n) td {
-  background: rgba(39, 39, 42, 0.2);
-}
-/* GFM task lists */
-.prose-chat input[type='checkbox'] {
-  margin-right: 0.4em;
-  transform: translateY(1px);
-}
-.prose-chat img {
-  max-width: 100%;
-  border-radius: 8px;
-}
+.prose-chat th { background: var(--color-raise); font-weight: 700; }
+.prose-chat tr:nth-child(2n) td { background: var(--color-panel-hover); }
+.prose-chat input[type='checkbox'] { margin-right: 0.4em; transform: translateY(1px); }
+.prose-chat img { max-width: 100%; border-radius: 8px; }
 
-/* ----- Light theme overrides for chat markdown ----- */
-.theme-light .prose-chat {
-  color: #1e293b;
-}
-.theme-light .prose-chat h1,
-.theme-light .prose-chat h2,
-.theme-light .prose-chat h3,
-.theme-light .prose-chat h4,
-.theme-light .prose-chat strong {
-  color: #0f172a;
-}
-.theme-light .prose-chat :not(pre) > code {
-  background: rgba(100, 116, 139, 0.14);
-  border-color: rgba(100, 116, 139, 0.2);
-  color: #334155;
-}
-.theme-light .prose-chat pre {
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-.theme-light .prose-chat blockquote {
-  border-left-color: #cbd5e1;
-  color: #64748b;
-}
-.theme-light .prose-chat a {
-  color: #4f46e5;
-}
-.theme-light .prose-chat a:hover {
-  color: #4338ca;
-}
-.theme-light .prose-chat hr {
-  border-top-color: #e2e8f0;
-}
-.theme-light .prose-chat th,
-.theme-light .prose-chat td {
-  border-color: #e2e8f0;
-}
-.theme-light .prose-chat th {
-  background: rgba(226, 232, 240, 0.6);
-}
-.theme-light .prose-chat tr:nth-child(2n) td {
-  background: rgba(226, 232, 240, 0.35);
-}
-
-/* ==========================================
-   VARIABLE CHIPS (VariableChipEditor)
-   contentEditable 编辑器内的变量占位 chip。chip 由命令式 DOM 创建
-   (document.createElement) 而非 React 渲染，故样式集中定义在此处，
-   不依赖 Tailwind 对动态字符串的扫描。dark-native + .theme-light 覆盖，
-   与 app 其余部分一致。
-   ========================================== */
+/* ═══════════════════ VARIABLE CHIPS（VariableChipEditor）═══════════════════
+   命令式 DOM 创建，样式集中于此。色值已对齐品牌蓝。 */
 .var-chip {
   display: inline-flex;
   align-items: center;
@@ -738,9 +525,9 @@
   margin: 0 1px;
   padding: 0 6px;
   border-radius: 5px;
-  border: 1px solid rgba(30, 94, 255, 0.4);
-  background-color: rgba(30, 94, 255, 0.15);
-  color: #9ec5ff;
+  border: 1px solid rgb(37 99 235 / 0.4);
+  background-color: rgb(37 99 235 / 0.12);
+  color: #1d4fd8;
   font-size: 11px;
   line-height: 1.4;
   font-family: var(--font-sans);
@@ -766,44 +553,221 @@
   opacity: 0.7;
   font-family: var(--font-mono);
 }
-/* Empty-editor placeholder */
 .var-editor:empty::before {
   content: attr(data-placeholder);
-  color: #52525b;
+  color: var(--color-ink-faint);
   pointer-events: none;
 }
-.theme-light .var-chip {
-  background-color: rgba(238, 242, 255, 0.9); /* indigo-50 */
-  border-color: #c7d2fe; /* indigo-200 */
-  color: #4338ca; /* indigo-700 */
+.theme-dark .var-chip {
+  border-color: rgb(106 151 255 / 0.4);
+  background-color: rgb(106 151 255 / 0.14);
+  color: #9ec1ff;
 }
-.theme-light .var-chip > .var-chip-short {
-  color: #6366f1; /* indigo-500 */
-  opacity: 1;
-}
-.theme-light .var-editor:empty::before {
-  color: #94a3b8;
-}
+.theme-dark .var-chip > .var-chip-icon { color: #0e1015; }
 
-/* ── 固定视口壳层：文档级滚动一律禁止 ──────────────────────────────
- * App 根节点是 h-dvh + overflow-hidden 的固定布局，所有滚动都发生在
- * 内部容器（主区/文件树/阅读器）。这里把 html/body/#root 也锁死，
- * 防止任何逃逸裁剪链的元素（如 mermaid 渲染容器、绝对定位残骸）
- * 在特定引擎（Safari 对 scrollable overflow 的判定与 Chrome 不同）
- * 或渲染瞬间把整个窗口撑出滚动区——「页面被顶上去+底部空白」的
- * 症状类别从此在物理上不可能发生。 */
+/* ── 固定视口壳层：文档级滚动一律禁止（原样保留）───────────────── */
 html,
 body,
 #root {
   height: 100%;
   overflow: hidden;
 }
+#root { position: relative; }
 
-/* absolute 元素的包含块兜底：remark-gfm 脚注的 .sr-only 标签、下拉气泡等
- * position:absolute 元素在没有 positioned 祖先时会以初始视口为包含块，
- * 逃逸整条 overflow 裁剪链，把文档 scrollable 区域撑出「幻影高度」
- * （页面被顶上去 + 底部空白的根源）。#root 恰好铺满视口（height:100%），
- * 成为包含块后坐标不变，但从此被 overflow:hidden 正确裁剪。 */
-#root {
-  position: relative;
+/* ═══════════════════ 可点击性（UX 约定）═══════════════════
+   Tailwind Preflight 把 button 重置为 cursor:default——全局恢复手型，
+   逐组件补 cursor-pointer 不再必要。禁用态与显式 cursor-not-allowed 除外。 */
+button:not(:disabled):not(.cursor-not-allowed) {
+  cursor: pointer;
+}
+
+/* ═══════════════════ React Flow 画布主题（@xyflow/react）═══════════════════
+   设计语言对齐：连线/控件/小地图全部走语义 token，明暗主题自适应；
+   JS 侧不再注入硬编码色（WorkflowCanvas 只保留 className 区分条件边）。 */
+.react-flow__edge .react-flow__edge-path {
+  stroke: var(--color-ink-faint);
+  stroke-width: 1.2;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-brand);
+  stroke-width: 1.8;
+}
+.react-flow__edge.workflow-edge--condition .react-flow__edge-path {
+  stroke: var(--color-brand);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.2;
+}
+.react-flow__edge.workflow-edge--condition.selected .react-flow__edge-path {
+  stroke-width: 1.8;
+}
+
+/* 控件（缩放/适配）：贴设计系统的小卡样式 */
+.react-flow__controls {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-card);
+}
+.react-flow__controls-button {
+  background: transparent;
+  border-bottom: 1px solid var(--color-line);
+  width: 28px;
+  height: 28px;
+}
+.react-flow__controls-button:last-child { border-bottom: 0; }
+.react-flow__controls-button svg { fill: var(--color-ink-dim); }
+.react-flow__controls-button:hover { background: var(--color-raise); }
+.react-flow__controls-button:hover svg { fill: var(--color-ink); }
+
+/* 小地图 */
+.react-flow__minimap {
+  border-radius: 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel) !important;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.react-flow__minimap-svg { border-radius: 8px; }
+
+/* 属性面板（react-flow 内置，本项目未用但防第三方插件弹出白块） */
+.react-flow__panel { margin: 12px; }
+
+/* 连接点 Handle：9px 圆点、panel 色描边（节点卡底色一致）、hover 放大——
+   Dify/Coze 节奏；背景色由节点卡按类型色 JS 注入。 */
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--color-panel);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.react-flow__handle:hover {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 3px var(--color-brand-soft);
+}
+.react-flow__handle-connecting,
+.react-flow__handle-valid { box-shadow: 0 0 0 3px var(--color-brand-soft); }
+
+/* ═══════════════════ 代码块 chrome（语言标签 + 复制）═══════════════════
+   .af-codeblock 包裹 .prose-chat pre：容器带边框圆角，head 为语言标签 + 复制钮。 */
+.af-codeblock {
+  margin: 0.6em 0;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-well);
+}
+.af-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 12px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-raise);
+}
+.af-codeblock-lang {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--color-ink-dim);
+  letter-spacing: 0.04em;
+}
+.af-codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--color-ink-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.af-codeblock-copy:hover {
+  background: var(--color-panel);
+  color: var(--color-ink);
+}
+.af-codeblock > pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* ═══════════════════ 列表页骨架（af-page-*）═══════════════════
+   规范 §6.2 列表页三段式：页头 → 筛选行 → 内容网格。
+   React 列表页组件直接引用，勿再各自手写 flex 组合。 */
+.af-page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.af-page-head .right {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+.af-cnt {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-ink-dim);
+}
+.af-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 320px;
+  height: 32px;
+  flex: none;
+  padding: 0 10px;
+  background: var(--color-well);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  color: var(--color-ink-faint);
+}
+.af-search input.af-search-input {
+  flex: 1;
+  background: transparent !important;
+  border: 0 !important;
+  outline: none;
+  color: var(--color-ink) !important;
+  font-size: 12px;
+  height: auto;
+}
+.af-search input::placeholder { color: var(--color-ink-faint); }
+.af-search:focus-within {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-brand-soft);
+}
+.af-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  background: var(--color-raise);
+  border-radius: 8px;
+  padding: 3px;
+}
+.af-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--color-ink-dim);
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.af-tabs button.on {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+.af-tabs button .n {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--color-ink-faint);
 }

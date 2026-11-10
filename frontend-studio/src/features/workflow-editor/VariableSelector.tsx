@@ -256,7 +256,7 @@ export default function VariableSelector({
         <div className="text-[11px] mt-0.5">{field.description}</div>
         <div className="flex items-center gap-1 mt-1">
           <span
-            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-white"
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-ink"
             style={{ backgroundColor: typeInfo.color }}
           >
             {typeInfo.icon}
@@ -282,7 +282,7 @@ export default function VariableSelector({
           onClick={() => onInsert(group.nodeId, field.name)}
         >
           <span
-            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-white shrink-0"
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[11px] font-bold text-ink shrink-0"
             style={{ backgroundColor: typeInfo.color }}
           >
             {typeInfo.icon}
@@ -358,7 +358,7 @@ export default function VariableSelector({
       {/* 顶栏：label + 选择变量 + 放大 */}
       <div className="flex items-center justify-between gap-2">
         {label && (
-          <label className="text-xs text-slate-400 shrink-0">
+          <label className="text-xs text-ink-dim shrink-0">
             {label}
             {required && <span className="text-red-500 ml-0.5">*</span>}
             {labelExtra && <span className="ml-1 inline-flex">{labelExtra}</span>}
@@ -425,7 +425,7 @@ export default function VariableSelector({
             placeholder={placeholder}
           />
           <div>
-            <div className="text-xs text-slate-400 mb-1.5">可用变量（点击插入到光标处）</div>
+            <div className="text-xs text-ink-dim mb-1.5">可用变量（点击插入到光标处）</div>
             {renderUpstreamGroups(handleInsertInModal, 'max-h-48')}
           </div>
         </div>

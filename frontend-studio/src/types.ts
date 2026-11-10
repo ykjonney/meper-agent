@@ -149,6 +149,9 @@ export interface TimelineEntry {
   toolCallId?: string;
   result?: string;
   toolStatus?: ToolStatus;
+  /** 前端计时：工具开始执行 / 结束（流式路径记录，历史数据无此字段） */
+  startedAt?: number;
+  endedAt?: number;
   /** 折叠态（thinking / tool 详情） */
   expanded?: boolean;
   /** 用户手动切换过折叠——thinking 流式结束后的自动收起据此让位于用户选择 */

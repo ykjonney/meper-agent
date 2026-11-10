@@ -52,15 +52,15 @@ const GROUPS: { kind: SelectableKind; label: string; hint: string }[] = [
 
 export function TransferManagementPage({ theme = 'dark' }: { theme?: 'dark' | 'light' }) {
   const [tab, setTab] = useState<'export' | 'import'>('export')
-  const box = theme === 'dark' ? 'bg-panel border-line' : 'bg-white border-slate-200'
-  const muted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const box = 'bg-panel border-line'
+  const muted = 'text-ink-dim'
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <ArrowLeftRight className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+            <ArrowLeftRight className="w-5 h-5 text-brand" />
             数据导入导出
           </h2>
           <p className={`text-xs mt-1 ${muted}`}>
@@ -77,10 +77,8 @@ export function TransferManagementPage({ theme = 'dark' }: { theme?: 'dark' | 'l
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition cursor-pointer ${
                 tab === t.key
-                  ? 'bg-indigo-600 text-white'
-                  : theme === 'dark'
-                    ? 'text-ink-dim hover:text-white hover:bg-line'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  ? 'bg-brand text-white'
+                  : 'text-ink-dim hover:text-ink hover:bg-raise'
               }`}
             >
               <t.icon className="w-4 h-4" />
@@ -106,7 +104,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
   const [busy, setBusy] = useState(false)
   const [groupFilter, setGroupFilter] = useState<SelectableKind | 'all'>('all')
 
-  const muted = theme === 'dark' ? 'text-ink-dim' : 'text-slate-400'
+  const muted = 'text-ink-dim'
 
   // 各类型资源清单（一次一页 100/200 条，管理页足够；更多时分页可后续加）
   const agentsQ = useQuery({
@@ -218,21 +216,19 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
     void queryClient.invalidateQueries({ queryKey: modelKeys.all })
   }
 
-  const rowBorder = theme === 'dark' ? 'border-line' : 'border-slate-200'
+  const rowBorder = 'border-line'
   const hoverBg = 'hover:bg-page'
 
   return (
-    <div className="space-y-4">
+    <div className="h-full min-h-0 flex flex-col gap-4">
       {/* 类型筛选 */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="shrink-0 flex flex-wrap items-center gap-1.5">
         <button
           onClick={() => setGroupFilter('all')}
           className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition cursor-pointer ${
             groupFilter === 'all'
-              ? 'border-indigo-600 bg-indigo-950/30 text-indigo-300'
-              : theme === 'dark'
-                ? 'border-line text-ink-dim hover:text-white'
-                : 'border-slate-200 text-slate-500 hover:text-slate-800'
+              ? 'border-brand bg-brand-soft text-brand'
+              : 'border-line text-ink-dim hover:text-ink'
           }`}
         >
           全部类型
@@ -245,10 +241,8 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
               onClick={() => setGroupFilter(g.kind)}
               className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition cursor-pointer ${
                 groupFilter === g.kind
-                  ? 'border-indigo-600 bg-indigo-950/30 text-indigo-300'
-                  : theme === 'dark'
-                    ? 'border-line text-ink-dim hover:text-white'
-                    : 'border-slate-200 text-slate-500 hover:text-slate-800'
+                  ? 'border-brand bg-brand-soft text-brand'
+                  : 'border-line text-ink-dim hover:text-ink'
               }`}
             >
               {g.label} {count}
@@ -258,6 +252,8 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
       </div>
 
       {/* 分组列表 */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
+
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-dim">
           <Loader2 className="w-4 h-4 animate-spin" /> 加载资源清单…
@@ -277,13 +273,13 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
                       checked={allSelected}
                       onChange={() => toggleGroup(g.kind)}
                       disabled={pickable.length === 0}
-                      className="accent-indigo-600"
+                      className="accent-brand"
                     />
-                    <span className="text-xs font-bold text-white">{g.label}</span>
+                    <span className="text-xs font-bold text-ink">{g.label}</span>
                     <span className={`text-[11px] ${muted}`}>{rows.length} 项 · {g.hint}</span>
                   </label>
                   {selectedByKind.get(g.kind) && (
-                    <span className="text-[11px] text-indigo-400 font-mono">已选 {selectedByKind.get(g.kind)}</span>
+                    <span className="text-[11px] text-brand font-mono">已选 {selectedByKind.get(g.kind)}</span>
                   )}
                 </div>
                 {rows.length === 0 ? (
@@ -303,11 +299,11 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
                               checked={checked}
                               disabled={!!r.disabledReason}
                               onChange={() => toggle(g.kind, r.id, !!r.disabledReason)}
-                              className="accent-indigo-600"
+                              className="accent-brand"
                             />
-                            <span className="text-xs text-white font-medium truncate">{r.name}</span>
+                            <span className="text-xs text-ink font-medium truncate">{r.name}</span>
                             {r.disabledReason && (
-                              <span className="text-[11px] text-amber-400 flex items-center gap-0.5">
+                              <span className="text-[11px] text-sig-wait flex items-center gap-0.5">
                                 <BookOpen className="w-3 h-3" />{r.disabledReason}
                               </span>
                             )}
@@ -332,7 +328,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
             type="checkbox"
             checked={includeDeps}
             onChange={(e) => setIncludeDeps(e.target.checked)}
-            className="mt-0.5 accent-indigo-600"
+            className="mt-0.5 accent-brand"
           />
           <span className="text-xs text-ink-dim leading-relaxed">
             包含依赖资源
@@ -353,7 +349,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
           <button
             onClick={runExport}
             disabled={busy || selectedCount === 0}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2"
+            className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60 flex items-center gap-2"
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             {busy ? '导出中…' : '导出并下载'}
@@ -361,6 +357,7 @@ function ExportTab({ theme }: { theme: 'dark' | 'light' }) {
         </div>
       </div>
     </div>
+      </div>
   )
 }
 

@@ -76,7 +76,8 @@ export function toStudioAgent(a: BackendAgent): Agent {
         prompt: it.prompt ?? '',
       })),
     })),
-    model: a.default_model || 'gemini-3.5-flash',
+    // 不造假 fallback：未配置就是空串，由 UI 显示「未配置」并在会话发送前拦截
+    model: a.default_model ?? '',
     voiceEnabled: a.voice_enabled ?? false,
     canSpawnAgents: a.can_spawn_agents ?? false,
     temperature: DEFAULT_AGENT_TEMPERATURE,

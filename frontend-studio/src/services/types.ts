@@ -89,3 +89,33 @@ export const PERMISSION_GROUPS: Record<string, string[]> = {
 
 /** Flat list of all permission keys */
 export const ALL_PERMISSIONS: string[] = Object.values(PERMISSION_GROUPS).flat()
+
+/* ── 权限点中文标签 ──────────────────────────────────────────────
+   展示层翻译（角色卡 chips / 权限树叶子）；存储/提交仍用原始 key。
+   由 PERMISSION_GROUPS 自动生成，后端新增权限点时资源/动作词典
+   覆盖不了的自动回退显示原文。 */
+
+const RESOURCE_LABELS: Record<string, string> = {
+  user: '用户', agent: 'Agent', workflow: '工作流', trigger: '定时任务',
+  tool: '工具', application: '应用', mcp: 'MCP', channel: '消息渠道',
+  skill: 'Skill', task: '任务', knowledge: '知识库', execution: '执行日志',
+  apikey: 'API Key', settings: '系统设置', model: '模型',
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  read: '查看', write: '管理', invoke: '调用', manage: '管理',
+}
+
+const SCOPE_SUFFIX: Record<string, string> = {
+  all: '全部', own: '仅本人',
+}
+
+export const PERMISSION_LABELS: Record<string, string> = Object.fromEntries(
+  ALL_PERMISSIONS.map((k) => {
+    const [res, action, scope] = k.split(':')
+    const r = RESOURCE_LABELS[res] ?? res
+    const a = ACTION_LABELS[action] ?? action
+    const label = scope ? `${r} ${a}${SCOPE_SUFFIX[scope] ?? scope}` : `${r} ${a}`
+    return [k, label]
+  }),
+)

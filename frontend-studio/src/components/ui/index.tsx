@@ -129,6 +129,8 @@ function usePanelPosition(
 interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   size?: 'small' | 'middle' | 'large'
   status?: 'error' | undefined
+  /** boxed=圆角边框（搜索框等）；line=下划线无边框（弹窗表单，禁 SaaS 边框堆叠） */
+  variant?: 'boxed' | 'line'
 }
 
 const SIZE_CLASS: Record<NonNullable<InputProps['size']>, string> = {
@@ -137,13 +139,24 @@ const SIZE_CLASS: Record<NonNullable<InputProps['size']>, string> = {
   large: 'h-10 text-sm px-3',
 }
 
-function InputInner({ size = 'middle', status, className = '', ...rest }: InputProps) {
+function InputInner({ size = 'middle', status, variant = 'boxed', className = '', ...rest }: InputProps) {
+  if (variant === 'line') {
+    return (
+      <input
+        {...rest}
+        className={`w-full border-0 border-b bg-transparent px-0 text-ink placeholder:text-ink-faint
+          focus:outline-none transition-colors
+          ${status === 'error' ? 'border-sig-fail' : 'border-line-strong focus:border-brand'}
+          ${SIZE_CLASS[size]} ${className}`}
+      />
+    )
+  }
   return (
     <input
       {...rest}
       className={`w-full rounded-md border bg-page text-ink placeholder:text-ink-dim
-        focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
-        ${status === 'error' ? 'border-red-400' : 'border-line'}
+        focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors
+        ${status === 'error' ? 'border-sig-fail' : 'border-line'}
         ${SIZE_CLASS[size]} ${className}`}
     />
   )
@@ -165,7 +178,7 @@ const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextAre
       rows={rows}
       className={`w-full rounded-md border border-line bg-page text-ink
         placeholder:text-ink-dim px-2.5 py-1.5 text-xs leading-relaxed resize-y
-        focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors
+        focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand-soft transition-colors
         ${className}`}
     />
   )
@@ -210,6 +223,8 @@ interface SelectProps {
   groups?: SelectOptionGroup[]
   placeholder?: string
   size?: 'small' | 'middle'
+  /** boxed=圆角边框触发器（默认）；line=下划线无边框（弹窗表单，与 Input line 配套） */
+  variant?: 'boxed' | 'line'
   className?: string
   allowClear?: boolean
   /** Inline search box in the dropdown. Defaults to `true` (post-upgrade behavior). */
@@ -239,6 +254,7 @@ export function Select({
   groups,
   placeholder = '请选择',
   size = 'middle',
+  variant = 'boxed',
   className = '',
   allowClear = false,
   showSearch = true,
@@ -384,9 +400,10 @@ export function Select({
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
-        className={`w-full ${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5
-          rounded-md border border-line bg-page flex items-center justify-between gap-1 cursor-pointer
-          text-ink hover:border-[#1E5EFF] focus:outline-none focus:border-[#1E5EFF] focus:ring-1 focus:ring-[#1E5EFF]/30 transition-colors`}
+        className={`w-full flex items-center justify-between gap-1 cursor-pointer text-ink focus:outline-none transition-colors
+          ${variant === 'line'
+            ? `border-0 border-b border-line-strong bg-transparent px-0 py-1.5 ${size === 'small' ? 'text-xs' : 'text-[13px]'} hover:border-brand focus:border-brand`
+            : `${size === 'small' ? 'h-7 text-xs' : 'h-8 text-xs'} px-2.5 rounded-md border border-line bg-page hover:border-brand focus:border-brand focus:ring-[3px] focus:ring-brand-soft`}`}
       >
         <span className={`flex-1 min-w-0 truncate ${value ? '' : 'text-ink-dim'}`}>
           {displayNode ?? placeholder}
@@ -426,7 +443,7 @@ export function Select({
                 onKeyDown={onKeyDown}
                 placeholder="搜索…"
                 className="w-full h-7 px-2 rounded bg-page border border-line text-xs text-ink
-                  placeholder:text-ink-dim focus:outline-none focus:border-[#1E5EFF]"
+                  placeholder:text-ink-dim focus:outline-none focus:border-brand"
               />
             </div>
           )}
@@ -462,7 +479,7 @@ export function Select({
                           onMouseEnter={() => setActiveIndex(myIdx)}
                           className={`px-2.5 py-1.5 text-xs cursor-pointer flex items-start gap-1.5 text-ink
                             ${opt.disabled ? 'opacity-40 cursor-not-allowed' : ''}
-                            ${isActive && !opt.disabled ? 'bg-[#1E5EFF]/10' : ''}
+                            ${isActive && !opt.disabled ? 'bg-brand-soft' : ''}
                             ${isSelected ? 'text-link font-medium' : ''}`}
                         >
                           {opt.icon && <span className="shrink-0 mt-0.5">{opt.icon}</span>}
@@ -504,16 +521,17 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
 
 const BTN_SIZE: Record<NonNullable<ButtonProps['size']>, string> = {
   small: 'h-7 text-[11px] px-2 gap-1',
-  middle: 'h-8 text-xs px-3 gap-1.5',
+  middle: 'h-[30px] text-[12.5px] px-[13px] gap-1.5',
   large: 'h-10 text-sm px-4 gap-1.5',
 }
 
+/* 形态对齐 af-btn 规范（设计系统 §3 圆角 7-9px / 主钮实色 / 次钮描边） */
 const BTN_TYPE: Record<NonNullable<ButtonProps['type']>, string> = {
-  default: 'bg-panel border border-line text-ink hover:border-[#1E5EFF] hover:text-link',
-  primary: 'bg-[#1E5EFF] border border-[#1E5EFF] text-white hover:bg-[#1a4fd6]',
-  dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-[#1E5EFF] hover:text-link',
-  link: 'bg-transparent border-0 text-link hover:underline px-1',
-  text: 'bg-transparent border-0 text-slate-400 hover:bg-page/60 px-1.5',
+  default: 'bg-panel border border-line-strong text-ink hover:bg-panel-hover',
+  primary: 'bg-brand border-0 text-white hover:bg-brand-hover',
+  dashed: 'bg-panel/40 border border-dashed border-line text-ink hover:border-brand hover:text-link',
+  link: 'bg-transparent border-0 text-brand hover:underline px-1',
+  text: 'bg-transparent border-0 text-ink-dim hover:bg-raise hover:text-ink px-1.5',
 }
 
 export function Button({
@@ -529,14 +547,14 @@ export function Button({
 }: ButtonProps) {
   const dangerClass = danger
     ? type === 'text' || type === 'link'
-      ? 'text-red-500 hover:text-red-600'
-      : 'bg-red-500 border-red-500 text-white hover:bg-red-600 border-red-600'
+      ? 'text-sig-fail hover:opacity-75'
+      : 'bg-sig-fail border-0 text-white hover:opacity-90'
     : ''
   return (
     <button
       {...rest}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center rounded-md font-medium cursor-pointer transition-colors
+      className={`inline-flex items-center justify-center rounded-lg font-semibold cursor-pointer transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed select-none
         ${BTN_SIZE[size]} ${danger ? dangerClass : BTN_TYPE[type]} ${className}`}
     >
@@ -592,7 +610,7 @@ export function Modal({
     >
       <div
         style={{ width, maxWidth: 'calc(100vw - 2rem)' }}
-        className="bg-panel rounded-xl shadow-2xl max-h-[85vh] flex flex-col border border-line"
+        className="bg-panel rounded-xl shadow-[var(--shadow-pop)] max-h-[85vh] flex flex-col border border-line"
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
           <span className="text-sm font-medium text-ink truncate min-w-0">{title}</span>
@@ -635,7 +653,7 @@ export function Switch({ size = 'default', checked = false, disabled = false, on
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
       className={`${w} rounded-full transition-colors flex items-center
-        ${checked ? 'bg-[#1E5EFF]' : 'bg-line'}
+        ${checked ? 'bg-brand' : 'bg-line'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       {/* Knob stays white for contrast on the colored track in both themes */}
@@ -656,17 +674,17 @@ interface TagProps {
 }
 
 const TAG_PRESETS: Record<string, string> = {
-  blue: 'bg-blue-500/10 text-blue-400',
-  processing: 'bg-blue-500/10 text-blue-400',
-  success: 'bg-green-500/10 text-green-400',
-  green: 'bg-green-500/10 text-green-400',
-  warning: 'bg-amber-500/10 text-amber-400',
-  error: 'bg-red-500/10 text-red-400',
-  red: 'bg-red-500/10 text-red-400',
-  orange: 'bg-orange-500/10 text-orange-400',
-  purple: 'bg-purple-500/10 text-purple-400',
-  cyan: 'bg-cyan-500/10 text-cyan-400',
-  default: 'bg-panel text-slate-400',
+  blue: 'bg-brand-soft text-brand',
+  processing: 'bg-brand-soft text-brand',
+  success: 'bg-sig-ok-soft text-sig-ok',
+  green: 'bg-sig-ok-soft text-sig-ok',
+  warning: 'bg-sig-wait-soft text-sig-wait',
+  error: 'bg-sig-fail-soft text-sig-fail',
+  red: 'bg-sig-fail-soft text-sig-fail',
+  orange: 'bg-sig-wait-soft text-sig-wait',
+  purple: 'bg-[#EEEBF8] text-[#6C4FC4]',
+  cyan: 'bg-[#E3F1F4] text-[#0E7490]',
+  default: 'bg-raise text-ink-dim',
 }
 
 export function Tag({ color, closable, onClose, className = '', children, onClick }: TagProps) {
@@ -677,7 +695,7 @@ export function Tag({ color, closable, onClose, className = '', children, onClic
     <span
       onClick={onClick}
       className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[11px] leading-tight
-        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-panel text-slate-400'} ${className}`}
+        ${onClick ? 'cursor-pointer' : ''} ${preset || 'bg-raise text-ink-dim'} ${className}`}
       style={
         isHex
           ? { backgroundColor: `${color}1A`, color }
@@ -951,7 +969,7 @@ export function Popconfirm({
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-56 max-h-[70vh] overflow-y-auto bg-panel rounded-lg shadow-xl border border-line">
           <div className="px-3.5 py-3">
             <div className="text-xs font-medium text-ink">{title}</div>
-            {description && <div className="text-[11px] text-slate-400 mt-1">{description}</div>}
+            {description && <div className="text-[11px] text-ink-dim mt-1">{description}</div>}
             <div className="flex justify-end gap-2 mt-3">
               <Button size="small" onClick={() => setOpen(false)}>
                 {cancelText}
@@ -1018,7 +1036,7 @@ export function Table<T extends Record<string, unknown>>({
               <th
                 key={col.key}
                 style={{ width: col.width }}
-                className={`${pad} text-left font-medium text-slate-400 whitespace-nowrap`}
+                className={`${pad} text-left font-medium text-ink-dim whitespace-nowrap`}
               >
                 {col.title}
               </th>

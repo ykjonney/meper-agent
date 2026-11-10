@@ -53,20 +53,16 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
     }
   };
 
-  const muted = dark ? 'text-ink-dim' : 'text-slate-500';
-  const ctlCls = `px-2 py-1.5 rounded text-xs border outline-none ${
-    dark
-      ? 'bg-page border-line text-white placeholder:text-ink-dim focus:border-blue-600'
-      : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500'
-  }`;
+  const muted = 'text-ink-dim';
+  const ctlCls = 'px-2 py-1.5 rounded text-xs border outline-none bg-page border-line text-ink placeholder:text-ink-faint focus:border-brand';
 
   const renderResult = (out: TestRunResponse | undefined, running: boolean) => {
     if (out) {
       return (
         <div className={`mt-1.5 rounded-lg border p-2 text-[11px] font-mono whitespace-pre-wrap break-words ${
           out.ok
-            ? dark ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            : dark ? 'border-red-500/30 bg-red-500/5 text-red-300' : 'border-red-200 bg-red-50 text-red-600'
+            ? 'border-sig-ok/30 bg-sig-ok-soft text-sig-ok'
+            : 'border-sig-fail/30 bg-sig-fail-soft text-sig-fail'
         }`}>
           {out.ok
             ? (typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2))
@@ -82,19 +78,19 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-6" onClick={phase === 'running' && stage === 'done' ? onClose : undefined}>
-      <div className={`w-full max-w-xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden shadow-2xl ${
-        dark ? 'border-line bg-panel text-ink' : 'border-slate-200 bg-white text-slate-900'
+      <div className={`w-full max-w-xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden shadow-[var(--shadow-pop)] ${
+        'border-line bg-panel text-ink'
       }`} onClick={(e) => e.stopPropagation()}>
-        <div className={`flex items-start justify-between shrink-0 px-5 pt-4 pb-3 border-b ${dark ? 'border-line' : 'border-slate-200'}`}>
+        <div className={`flex items-start justify-between shrink-0 px-5 pt-4 pb-3 border-b border-line`}>
           <div>
             <h3 className="text-base font-bold flex items-center gap-1.5">
-              <Wrench size={15} className="text-blue-500" />AI 测试工具
+              <Wrench size={15} className="text-brand" />AI 测试工具
             </h3>
             <p className={`text-[11px] mt-0.5 ${muted}`}>
               以打开时的表单定义为快照：AI 生成用例并自动试跑，不落库、不影响治理状态
             </p>
           </div>
-          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>✕</button>
+          <button onClick={onClose} className={`cursor-pointer hover:opacity-70 text-ink-dim`}>✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
@@ -102,7 +98,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
             <>
               {/* 询问：是否执行 AI 测试 */}
               <div className={`rounded-lg border p-3 text-xs leading-relaxed ${
-                dark ? 'border-blue-500/30 bg-blue-500/5' : 'border-blue-200 bg-blue-50/50'
+                'border-brand/30 bg-brand-soft/50'
               }`}>
                 即将进行 AI 自动测试：生成 2-3 个用例（含正常路径与边界）并逐个试跑，
                 会调用所选模型并执行工具。确认开始？
@@ -116,9 +112,9 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                   </p>
                   {credFields.map((f) => (
                     <div key={f.key} className="flex items-center gap-2">
-                      <label className="w-28 shrink-0 text-xs text-slate-400 truncate" title={f.key}>
+                      <label className="w-28 shrink-0 text-xs text-ink-dim truncate" title={f.key}>
                         {f.key}
-                        <span className="text-red-500"> *</span>
+                        <span className="text-sig-fail"> *</span>
                       </label>
                       <input
                         type={f.sensitive ? 'password' : 'text'}
@@ -139,7 +135,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                   {activeModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
                 <button onClick={() => void start()} disabled={!activeModels.length || !allCredsFilled}
-                  className="shrink-0 px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="shrink-0 px-3 py-1.5 rounded text-xs font-medium bg-brand hover:bg-brand-soft0 text-white cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
                   title={credFields.length && !allCredsFilled ? '请先填写凭证参数' : undefined}>
                   开始 AI 测试
                 </button>
@@ -151,7 +147,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                 <div className={`py-8 text-center text-xs ${muted}`}>AI 正在生成测试用例…</div>
               )}
               {cases.map((c, i) => (
-                <div key={i} className={`rounded-lg border p-3 space-y-1.5 ${dark ? 'border-line' : 'border-slate-200'}`}>
+                <div key={i} className={`rounded-lg border p-3 space-y-1.5 border-line`}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold truncate">{c.name}</span>
                     {c.description && <span className={`text-[11px] ${muted} truncate`}>{c.description}</span>}
@@ -170,7 +166,7 @@ export function TestToolDialog({ dark, definition, credFields, onClose }: {
                   </span>
                   <button onClick={() => setPhase('confirm')}
                     className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer ${
-                      dark ? 'border border-line hover:bg-line' : 'border border-slate-200 hover:bg-slate-50'
+                      'border border-line hover:bg-raise'
                     }`}>
                     重新测试
                   </button>

@@ -141,6 +141,7 @@ async def stream(
     recorder_sink: dict | None = None,
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
+    thinking_level: str = "",
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。
 
@@ -154,16 +155,19 @@ async def stream(
             finalize 进 execution_log.events(成功/失败路径都拿得到)。
         execution_context: chat(默认) | plan(计划模式:剥离副作用工具,
             注入 propose_plan)。workflow 上下文走 invoke。
+        thinking_level: 用户思考档位 off/low/medium/high；空 = 按
+            enable_thinking 布尔兼容(True→medium)。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
     from app.engine.harness_integration.adapters import stream_events_to_app_events
 
+    level = thinking_level or ("medium" if enable_thinking else "off")
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
         execution_context=execution_context,
-        subagents=subagents,
+        subagents=subagents, thinking_level=level,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -251,6 +255,7 @@ async def invoke(
     execution_context: str = "chat",
     recorder_sink: dict | None = None,
     subagents: list[dict] | None = None,
+    thinking_level: str = "",
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
@@ -271,13 +276,14 @@ async def invoke(
     """
     from agent_flow_harness import build_agent_graph, build_config
 
+    level = thinking_level or ("medium" if enable_thinking else "off")
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, workspace=workspace,
         user_token=user_token,
         require_user_credentials=require_user_credentials,
         execution_context=execution_context,
-        subagents=subagents,
+        subagents=subagents, thinking_level=level,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -456,6 +462,7 @@ async def resume(
     recorder_sink: dict | None = None,
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
+    thinking_level: str = "",
 ) -> dict:
     """恢复被 interrupt 挂起的 graph,用 Command(resume=answer) 继续。
 
@@ -474,11 +481,12 @@ async def resume(
     ):
         execution_context = "plan"
 
+    level = thinking_level or ("medium" if enable_thinking else "off")
     clock = _PhaseClock()
     hctx = await resolve_harness_context(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
         execution_context=execution_context,
-        subagents=subagents,
+        subagents=subagents, thinking_level=level,
     )
     clock.attach(hctx)
     if recorder_sink is not None:

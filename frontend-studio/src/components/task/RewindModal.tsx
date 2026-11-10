@@ -146,7 +146,7 @@ export function RewindModal({ task, open, onClose, resolveTemplateId }: RewindMo
           {/* 目标节点选择 */}
           <div>
             <label className="block text-xs text-ink-dim mb-1.5">
-              退回到节点 <span className="text-rose-400">*</span>
+              退回到节点 <span className="text-sig-fail">*</span>
             </label>
             <Select
               value={targetNode || null}

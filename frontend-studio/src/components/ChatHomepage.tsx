@@ -1,24 +1,28 @@
-import { useState, useRef, useEffect, useLayoutEffect, FormEvent, useCallback, type MouseEvent, type ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, FormEvent, useCallback, type MouseEvent, type ChangeEvent, type ReactNode } from 'react';
 import { Agent, Message, type ChatAttachment, type TimelineEntry } from '../types';
 import {
-  Send, Plus, Sparkles, Trash2, FileCode, CheckCircle,
+  Send, Plus, FileCode, CheckCircle, Check,
   Bot, Terminal, Loader2, Paperclip, Brain, X, ClipboardList, ShieldAlert,
-  Wrench, AlertTriangle, ChevronRight, User, Download, FileText, Image as ImageIcon, Mic,
-  ThumbsUp, ThumbsDown, PanelLeftClose, PanelLeftOpen,
+  Wrench, AlertTriangle, ChevronRight, ChevronDown, User, Download, FileText, Image as ImageIcon, Mic, Copy, RotateCcw,
+  PenLine, SquarePen, FolderSearch, Search, Globe, Link2, BarChart3, FileSearch, BookOpen,
+  ThumbsUp, ThumbsDown, PanelRight, Workflow,
+  FolderOpen, LayoutDashboard, Shield, ArrowLeftRight, Key,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from './ui/toast';
+import { IconAgent, IconTask, IconFlow, IconResource } from './IndigoIcons';
+import { NotificationCenter } from './notification-center';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { Popover } from './ui';
 import { userSkillsApi, type SessionFeedbackItem } from '../services/user-skills-api';
 import {
   sessionApi, sessionKeys, type Session, type MessageRecord, type FileRef, getFileId,
 } from '../services/session-api';
-import { agentApi, agentKeys, type DoneTimelineEntry } from '../services/agent-api';
-import { modelApi, modelKeys } from '../services/model-api';
+import { agentApi, agentKeys, type DoneTimelineEntry, type ThinkingLevel } from '../services/agent-api';
 import { toStudioAgent } from '../services/adapters';
 import { getFileBlob, downloadFile as downloadFileById } from '../services/file-api';
 import { parseSSEStream } from '../lib/sse-parser';
 import { formatFileSize } from '../lib/file-preview';
 import { formatTimeFull } from '../lib/formatTime';
-import { isImeComposing } from '../lib/keyboard';
 import { countZi, truncateByZi } from '../lib/text-stats';
 import { SessionFilesPanel, type SessionFilesPanelHandle } from './SessionFilesPanel';
 import AvatarRender from './AvatarRender';
@@ -32,8 +36,20 @@ import {
   DISMISSED_CLARIFICATION_TEXT,
   type ClarificationField,
 } from './clarification-form-card';
-import { ChatVoiceComposer } from './voice/ChatVoiceComposer';
 import { voiceConfigApi, voiceConfigKeys } from '../services/voice-config-api';
+
+// 思考档位元数据：label=档位文字，color=强度色（信号色 token，明暗主题自适应；
+// off=灰 / low=绿 / medium=黄 / high=橙红）。
+import { ActivityGroup, StreamingDots } from './chat/ActivityGroup';
+import { ChatAttachmentCard } from './chat/ChatAttachmentCard';
+import { Composer } from './chat/Composer';
+import { ChatSidebar } from './chat/ChatSidebar';
+import { MessageList } from './chat/MessageList';
+import { useModelLabels } from './chat/useModelLabels';
+import { ArtifactsPanel } from './chat/ArtifactsPanel';
+import { EmptySession } from './chat/EmptySession';
+import { SessionHeader } from './chat/SessionHeader';
+import { userMessageToDisplay, agentMessageToDisplay, doneTimelineToEntries, formatSessionTime, isInterruptTool, parseOutputAttachments } from './chat/message-utils';
 
 interface ChatHomepageProps {
   /** Studio agents already adapted to the view model; if absent we fetch. */
@@ -41,483 +57,31 @@ interface ChatHomepageProps {
   theme?: 'light' | 'dark';
   /** 固定 agent 模式：会话列表按该 agent 过滤，点 + 直通新建会话（不弹选择框）。 */
   fixedAgentId?: string;
-  /** 会话列表侧栏默认收起为窄轨（仅展开/新建按钮），让对话主区占满宽度。
-   *  AgentDetailPage 预览页传 true；主 chat tab 不传保持展开。 */
-  defaultSidebarCollapsed?: boolean;
+  /** 侧栏功能项点击后跳转 App tab。 */
+  onNavigate?: (tab: string) => void;
+  /** App 下发的权限过滤导航项（含实时计数）：功能 4 项与「··· 更多」菜单由此派生。 */
+  navItems?: { id: string; label: string; badge?: string }[];
+  /** 当前激活的 App tab（非聊天页面态用于功能项选中高亮）。 */
+  activeId?: string;
+  /** 非聊天路由的右侧内容（license 条 + 页面 stage）；null = 渲染聊天面板。
+   *  本组件是全局壳层：侧栏在任何页面都常驻不变，只有右侧区域切换。 */
+  activePage?: ReactNode;
+  /** 侧栏头像下拉：登出（App 层吊销 token 并跳登录页）。 */
+  onLogout?: () => void;
+  /** 用户名首字（侧栏底部头像）。 */
+  userInitial?: string;
+  /** 用户名（底部用户条展示）。 */
+  username?: string;
+  /** 通知点击跳转任务详情（App 层切换看板+打开详情）。 */
+  onNavigateTask?: (taskId: string) => void;
 }
 
-/** Convert a stored agent message + its timeline into display Messages. */
-/**
- * 从工具结果文本里解析 agent 写出的 output 文件路径。
- * write_to_output 返回形如 "Successfully wrote 123 bytes to output/report.png"，
- * 路径相对 output/，即 sessionApi.previewFile 的 filePath 入参，无需二次转换。
- * 也可命中 "output/xxx" 字面量（agent 在 markdown 链接里引用产物时）。
- * 返回去重后的 ChatAttachment[]（source='output'）。
- */
-const OUTPUT_PATH_RE = /\boutput\/([^\s"'<>)\\]+\.[A-Za-z0-9]+)/g;
+/** 「更改」菜单条目图标（与 App NAV_ITEMS 同款 lucide） */
 
-/**
- * 可挂起 interrupt 的工具名单（前端唯一事实源：历史重建/中断检测/忽略
- * 标记/答填/收敛五处匹配共用；与后端 MessageService._INTERRUPT_TOOL_NAMES
- * 保持一致——加新 HITL 工具时两侧同步）。
- */
-const INTERRUPT_TOOLS: ReadonlySet<string> = new Set([
-  'ask_clarification',
-  'confirm_workflow',
-  'propose_plan',
-]);
-const isInterruptTool = (name: unknown): boolean =>
-  typeof name === 'string' && INTERRUPT_TOOLS.has(name);
+/** 「更改」菜单条目图标（与 App NAV_ITEMS 同款 lucide） */
 
-/**
- * ① 计划工具清单提取：从计划文本识别将使用的工具/能力，审批卡警示条展示。
- * 审阅焦点从"步骤是否合理"（需领域知识）降到"会碰什么"（一眼可扫）——
- * 变更类（执行期才解锁）高亮警示。启发式匹配，宁缺勿滥（提示用，非强制）。
- */
-const PLAN_TOOL_HINTS: ReadonlyArray<{ label: string; mutating: boolean; re: RegExp }> = [
-  { label: '命令执行 bash', mutating: true, re: /bash|shell|命令行|运行命令|执行命令|pip install|npm (install|run)|pytest|git (commit|push)/i },
-  { label: '文件写入 write/edit', mutating: true, re: /write_file|edit_file|写入文件|修改文件|创建文件|覆盖文件/ },
-  { label: '代码编排 run_code', mutating: true, re: /run_code/ },
-  { label: '派发工作流', mutating: true, re: /dispatch_workflow|派发工作流|启动工作流|运行工作流/ },
-  { label: '图表生成', mutating: true, re: /render_chart|绘制图表|生成图表/ },
-  { label: '外部调用 HTTP/MCP', mutating: true, re: /webhook|https?:\/\/|api 调用|调用接口|调用 API|\bMCP\b/i },
-  { label: '知识库检索', mutating: false, re: /kb_search|kb_read|知识库/ },
-];
-const extractPlanToolHints = (plan: string) =>
-  PLAN_TOOL_HINTS.filter((h) => h.re.test(plan));
-
-export function parseOutputAttachments(text: string): ChatAttachment[] {
-  if (!text) return [];
-  const seen = new Set<string>();
-  const out: ChatAttachment[] = [];
-  for (const match of text.matchAll(OUTPUT_PATH_RE)) {
-    const rel = match[1]; // 相对 output/ 的路径
-    if (seen.has(rel)) continue;
-    seen.add(rel);
-    out.push({
-      source: 'output',
-      ref: rel,
-      name: rel.split('/').pop() || rel,
-    });
-  }
-  return out;
-}
-
-/** done 事件的权威终态 timeline（与落库同源）→ 展示 entries。流结束时整体
- *  替换流式累加结果——无论流过程发生何种漂移（resume 重放/事件重复），
- *  流结束瞬间与刷新后加载的持久化消息必然一致。旧后端不带 timeline 时
- *  由调用方维持原有行为。 */
-function doneTimelineToEntries(entries: DoneTimelineEntry[], msgId: string): TimelineEntry[] {
-  const tl: TimelineEntry[] = [];
-  let seq = 0;
-  for (const e of entries) {
-    if (e.type === 'thinking' && e.content) {
-      tl.push({ id: `${msgId}-f-think-${seq++}`, type: 'thinking', content: e.content, expanded: false });
-    } else if ((e.type === 'text' || e.type === 'final_answer') && e.content) {
-      tl.push({ id: `${msgId}-f-text-${seq++}`, type: 'text', content: e.content });
-    } else if (e.type === 'error' && e.content) {
-      tl.push({ id: `${msgId}-f-err-${seq++}`, type: 'error', content: `❌ ${e.content}` });
-    } else if (e.type === 'tool_call' || e.type === 'tool') {
-      tl.push({
-        id: `${msgId}-f-tool-${seq++}`,
-        type: 'tool',
-        content: '',
-        toolName: e.tool_name ?? '',
-        args: e.args,
-        toolCallId: e.id ?? '',
-        toolStatus: e.type === 'tool' ? 'success' : 'running',
-      });
-    } else if (e.type === 'tool_result') {
-      const rid = e.tool_call_id ?? '';
-      for (let i = tl.length - 1; i >= 0; i--) {
-        const t = tl[i];
-        if (
-          t.type === 'tool' && t.toolStatus === 'running' &&
-          (rid ? t.toolCallId === rid : t.toolName === e.tool_name)
-        ) {
-          t.result = e.content;
-          t.toolStatus = e.is_error === true || e.status === 'error' ? 'error' : 'success';
-          break;
-        }
-      }
-    }
-  }
-  // 收敛未配对的 running/pending（异常中断）为 success，与下方 done 收敛语义一致。
-  for (const t of tl) {
-    if (t.type === 'tool' && (t.toolStatus === 'running' || t.toolStatus === 'pending')) {
-      t.toolStatus = 'success';
-    }
-  }
-  return tl;
-}
-
-/** Convert a persisted backend agent MessageRecord into a single studio
- *  Message whose `timeline` carries text/tool/thinking/error entries in
- *  chronological order (mirrors frontend historyEntryToTimeline). Tool_call
- *  + tool_result are merged into one tool entry; an unanswered
- *  ask_clarification/confirm_workflow tool_call stays interactive
- *  (isInterrupted). Output-file attachments parsed from tool results are
- *  attached to the message. */
-function agentMessageToDisplay(rec: MessageRecord, agentName: string, avatar: string): Message {
-  const timeline: TimelineEntry[] = [];
-  // Map tool_call_id → index of the last pending tool_call entry (for merging
-  // the matching tool_result). Prefer id over tool_name so parallel same-name
-  // calls (e.g. two kb_search) pair correctly instead of overwriting each other.
-  const pendingToolCalls = new Map<string, number>();
-  const outputAtts: ChatAttachment[] = [];
-  let isInterrupted = false;
-
-  for (let i = 0; i < (rec.timeline_entries ?? []).length; i++) {
-    const entry = (rec.timeline_entries ?? [])[i];
-    if (entry.type === 'text' || entry.type === 'final_answer') {
-      const t = (entry.content ?? '').trim();
-      if (t) timeline.push({ id: `${rec._id}-text-${i}`, type: 'text', content: t });
-    } else if (entry.type === 'thinking') {
-      timeline.push({ id: `${rec._id}-think-${i}`, type: 'thinking', content: entry.content ?? '' });
-    } else if ((entry.type as string) === 'error') {
-      timeline.push({ id: `${rec._id}-err-${i}`, type: 'error', content: `❌ ${entry.content || '执行出错'}` });
-    } else if (entry.type === 'tool_call' || entry.type === 'tool') {
-      const name = entry.tool_name ?? '';
-      // tool entry (already merged by backend) or tool_call (need merge).
-      const isError =
-        entry.type === 'tool' &&
-        typeof entry.content === 'string' &&
-        /\b(error|fail)/i.test(entry.content);
-      const matched = isInterruptTool(name);
-      const idx = timeline.push({
-        id: `${rec._id}-tool-${name}-${i}`,
-        type: 'tool',
-        content: '',
-        toolName: name,
-        toolCallId: entry.id,
-        args: entry.args,
-        toolStatus: isInterruptTool
-          ? 'success'
-          : entry.type === 'tool'
-            ? (isError ? 'error' : 'success')
-            : 'running',
-        result: entry.type === 'tool' ? entry.content : undefined,
-      }) - 1;
-      if (entry.type === 'tool_call') {
-        // Prefer tool_call_id; fall back to tool_name for older records.
-        const mapKey = entry.id || name;
-        if (mapKey) pendingToolCalls.set(mapKey, idx);
-      }
-      // 收集 output 产物。
-      if (entry.type === 'tool' && typeof entry.content === 'string') {
-        outputAtts.push(...parseOutputAttachments(entry.content));
-      }
-    } else if (entry.type === 'tool_result') {
-      const name = entry.tool_name ?? '';
-      // 真正的 fallback：status 存在时以它为准（success 时内容含 error 字样
-      // 也不得误判——此前实现是 ||，正常返回的文档片段/日志被标失败）；
-      // 仅旧数据（无 status）才文本嗅探。
-      const isError =
-        entry.status != null
-          ? entry.status === 'error'
-          : typeof entry.content === 'string' && /\b(error|fail)/i.test(entry.content);
-      // Prefer tool_call_id; fall back to tool_name for older records.
-      const mapKey = entry.tool_call_id || name;
-      const pendingIdx = mapKey ? pendingToolCalls.get(mapKey) : undefined;
-      if (pendingIdx !== undefined && timeline[pendingIdx]) {
-        timeline[pendingIdx] = {
-          ...timeline[pendingIdx],
-          result: entry.content ?? '',
-          toolStatus: isError ? 'error' : 'success',
-        };
-        pendingToolCalls.delete(mapKey);
-      } else {
-        timeline.push({
-          id: `${rec._id}-tool-${name}-${i}`,
-          type: 'tool',
-          content: '',
-          toolName: name,
-          toolCallId: entry.tool_call_id,
-          result: entry.content ?? '',
-          toolStatus: isError ? 'error' : 'success',
-        });
-      }
-      if (typeof entry.content === 'string') {
-        outputAtts.push(...parseOutputAttachments(entry.content));
-      }
-    }
-    // tool_call_start / interrupt are transient — skip in history.
-  }
-
-  // 未答的 ask_clarification/confirm_workflow（tool_call 无 tool_result）→ 中断态。
-  for (const e of timeline) {
-    if (
-      e.type === 'tool' &&
-      isInterruptTool(e.toolName) &&
-      !e.result
-    ) {
-      isInterrupted = true;
-      break;
-    }
-  }
-
-  const dedupOutput = outputAtts.filter(
-    (a, i, arr) => arr.findIndex((b) => b.ref === a.ref) === i,
-  );
-
-  return {
-    id: rec._id,
-    senderName: agentName,
-    avatar,
-    role: 'agent',
-    content: '',
-    timestamp: formatTimeFull(rec.created_at),
-    requestId: rec.request_id,
-    timeline: timeline.length > 0 ? timeline : undefined,
-    isInterrupted,
-    attachment: fileRefToAttachment(rec.files?.[0]),
-    attachments: dedupOutput.length > 0 ? dedupOutput : undefined,
-    usage: rec.token_usage,
-  };
-}
-
-function fileRefToAttachment(file?: FileRef): Message['attachment'] | undefined {
-  if (!file) return undefined;
-  const name = file.name;
-  const mime = file.mime_type ?? '';
-  const type: Message['attachment']['type'] = mime.startsWith('image/')
-    ? 'image'
-    : mime.startsWith('video/')
-      ? 'video'
-      : mime.includes('markdown') || name.endsWith('.md')
-        ? 'markdown'
-        : 'code';
-  return { name, type, content: file.storage_key || name };
-}
-
-/* ─── 对话内附件预览（用户上传 + agent 产出统一渲染） ─── */
-
-/** 按 source 取 blob：upload 走 FileRef.id，output 走 session output 路径。 */
-async function fetchAttachmentBlob(att: ChatAttachment, sessionId: string | null): Promise<Blob> {
-  if (att.source === 'upload') {
-    return getFileBlob(att.ref);
-  }
-  if (!sessionId) throw new Error('会话未加载，无法预览产出文件');
-  const { blob } = await sessionApi.previewFile(sessionId, att.ref);
-  return blob;
-}
-
-/** 下载附件：upload 用 file-api（<a download>），output 用 sessionApi.downloadFile。 */
-async function downloadAttachment(att: ChatAttachment, sessionId: string | null): Promise<void> {
-  if (att.source === 'upload') {
-    await downloadFileById(att.ref, att.name);
-    return;
-  }
-  if (!sessionId) throw new Error('会话未加载，无法下载产出文件');
-  await sessionApi.downloadFile(sessionId, att.ref);
-}
-
-/**
- * 单个附件的内联展示：图片懒加载缩略图直显，其余类型显示文件卡片。
- * 点击图片或「预览」打开 FilePreviewModal（复用，支持缩放/Esc/富渲染/下载）。
- * 需要父级传入 sessionId（output 来源取数依赖）。
- */
-function ChatAttachmentCard({
-  att,
-  sessionId,
-}: {
-  att: ChatAttachment;
-  sessionId: string | null;
-}) {
-  const kind = detectPreviewKind(att.name, att.mime_type);
-  const isImage = kind === 'image';
-
-  // 图片缩略图 blob（懒加载，卸载时回收 objectURL）
-  const [thumbUrl, setThumbUrl] = useState<string>();
-  const [thumbError, setThumbError] = useState(false);
-  const [loadingThumb, setLoadingThumb] = useState(isImage);
-
-  // 弹窗预览态：打开时按需拉取并按类型喂给 FilePreviewModal
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewText, setPreviewText] = useState<string>();
-  const [previewImageUrl, setPreviewImageUrl] = useState<string>();
-
-  // 图片缩略图：挂载即拉一次（output 图片同样从 blob 取）
-  useEffect(() => {
-    if (!isImage) return;
-    let url: string | undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const blob = await fetchAttachmentBlob(att, sessionId);
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setThumbUrl(url);
-      } catch {
-        if (!cancelled) setThumbError(true);
-      } finally {
-        if (!cancelled) setLoadingThumb(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [att, sessionId, isImage]);
-
-  // 打开弹窗预览：按 detectPreviewKind 决定喂 text 还是 imageUrl；二进制直接走下载
-  const openPreview = async () => {
-    if (kind === 'binary') {
-      // 不可预览：直接下载
-      try {
-        await downloadAttachment(att, sessionId);
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-    setPreviewOpen(true);
-    setPreviewLoading(true);
-    try {
-      const blob = await fetchAttachmentBlob(att, sessionId);
-      if (kind === 'image') {
-        setPreviewImageUrl(URL.createObjectURL(blob));
-        setPreviewText(undefined);
-      } else {
-        setPreviewText(await blob.text());
-        setPreviewImageUrl(undefined);
-      }
-    } catch {
-      // 拉取失败：留空，FilePreview 会渲染占位
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  // 关闭弹窗时回收 imageUrl（text 不需要回收）
-  const closePreview = () => {
-    if (previewImageUrl) URL.revokeObjectURL(previewImageUrl);
-    setPreviewImageUrl(undefined);
-    setPreviewText(undefined);
-    setPreviewOpen(false);
-  };
-
-  // ── 图片：缩略图直显（可点击放大） ──
-  if (isImage) {
-    return (
-      <>
-        <button
-          type="button"
-          onClick={openPreview}
-          className="relative rounded-lg overflow-hidden border border-line bg-page hover:border-indigo-500/50 transition-colors cursor-pointer block"
-          title={att.name}
-        >
-          {loadingThumb ? (
-            <div className="w-48 h-32 flex items-center justify-center text-ink-dim">
-              <Loader2 className="w-4 h-4 animate-spin" />
-            </div>
-          ) : thumbError ? (
-            <div className="w-48 h-32 flex flex-col items-center justify-center text-ink-dim gap-1 px-2">
-              <ImageIcon className="w-5 h-5" />
-              <span className="text-[11px] truncate max-w-full">{att.name}</span>
-            </div>
-          ) : (
-            thumbUrl && (
-              <img
-                src={thumbUrl}
-                alt={att.name}
-                // 固定尺寸 + cover:与 loading/error 占位(w-48 h-32)一致,
-                // 竖图/横图/多图排列整齐无跳动,点击弹窗看原图(不裁剪)。
-                className="w-48 h-32 object-cover block"
-                draggable={false}
-              />
-            )
-          )}
-        </button>
-        <FilePreviewModal
-          open={previewOpen}
-          filename={att.name}
-          mime={att.mime_type}
-          imageUrl={previewImageUrl}
-          text={previewText}
-          onClose={closePreview}
-          onDownload={() => downloadAttachment(att, sessionId)}
-        />
-      </>
-    );
-  }
-
-  // ── 非图片：文件卡片（名称 + 类型徽标 + 预览/下载） ──
-  return (
-    <>
-      <div className="flex items-center gap-2.5 w-72 max-w-full px-3 py-2.5 rounded-lg border border-line bg-panel hover:border-indigo-500/40 transition-colors group">
-        <div className="w-8 h-8 rounded-md bg-page border border-line flex items-center justify-center shrink-0">
-          <FileText className="w-4 h-4 text-indigo-400" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold text-slate-200 truncate" title={att.name}>
-            {att.name}
-          </p>
-          <p className="text-[11px] text-ink-dim font-mono uppercase">
-            {att.mime_type || kind}
-            {att.size ? ` · ${formatFileSize(att.size)}` : ''}
-          </p>
-        </div>
-        {kind === 'binary' ? (
-          <button
-            type="button"
-            onClick={() => downloadAttachment(att, sessionId)}
-            title="下载"
-            className="p-1.5 text-ink-dim hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={openPreview}
-            title="预览"
-            className="p-1.5 text-ink-dim hover:text-indigo-400 cursor-pointer transition-colors shrink-0"
-          >
-            <FileCode className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-      <FilePreviewModal
-        open={previewOpen}
-        filename={att.name}
-        mime={att.mime_type}
-        text={previewText}
-        imageUrl={previewImageUrl}
-        onClose={closePreview}
-        onDownload={() => downloadAttachment(att, sessionId)}
-      />
-      {previewLoading && previewOpen && null}
-    </>
-  );
-}
-
-function userMessageToDisplay(rec: MessageRecord): Message {
-  // 全部附件（非仅首个）映射成可预览 ChatAttachment；source='upload' 走 getFileBlob(id)
-  const attachments: ChatAttachment[] | undefined =
-    rec.files && rec.files.length > 0
-      ? rec.files.map((f) => ({
-          source: 'upload' as const,
-          ref: getFileId(f),
-          name: f.name,
-          mime_type: f.mime_type,
-          size: f.size,
-        }))
-      : undefined;
-  return {
-    id: rec._id,
-    senderName: '我',
-    avatar: '👩‍💼',
-    role: 'user',
-    content: rec.content,
-    timestamp: formatTimeFull(rec.created_at),
-    attachment: fileRefToAttachment(rec.files?.[0]),
-    attachments,
-  };
-}
-
-export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId, defaultSidebarCollapsed = false }: ChatHomepageProps) {
+export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
+                               onNavigate, navItems, activeId, activePage, onLogout, userInitial, username, onNavigateTask }: ChatHomepageProps) {
   const qc = useQueryClient();
 
   // ── Agents (fallback fetch if not passed in) ──
@@ -538,17 +102,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const agentsRef = useRef<Agent[]>(agents);
   agentsRef.current = agents;
 
-  // ── Models: build an id → name map so the chat header / input box can show
-  // the human-readable model name instead of the raw "model_..." id. ──
-  const { data: modelsData } = useQuery({
-    queryKey: modelKeys.list({ page_size: 100 }),
-    queryFn: () => modelApi.list({ page_size: 100 }),
-    staleTime: 60_000,
-  });
-  const modelNameById = new Map(
-    (modelsData?.items ?? []).map((m) => [m.id, m.name]),
-  );
-  const modelLabel = (id?: string) => (id ? (modelNameById.get(id) ?? id) : 'Auto');
+  const { modelLabel } = useModelLabels();
 
   const { data: voiceStatus } = useQuery({
     queryKey: voiceConfigKeys.status,
@@ -559,22 +113,41 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const voiceConfigured = voiceStatus?.configured === true;
 
   // ── Sessions list ──
-  // 固定 agent 模式按 agent 过滤。key 挂参数（sessionKeys.list({agent_id})）与
-  // 全量 key（sessionKeys.lists()）互不覆盖；refreshSessions 对 lists() 做前缀
-  // 失效，两个 key 同时命中，主 chat tab 与详情页列表始终一致。
+  // 当前对话对象的意图态：尚未有会话（空白新对话）时指向目标 agent。
+  // 切换 agent 只设置此值，首次发送消息时才真正创建会话。
+  const [draftAgentId, setDraftAgentId] = useState<string | null>(null);
+  // agents 首次加载后默认与第一个 agent 对话（固定 agent 模式则固定为该 agent），
+  // 会话列表从一开始就按 agent 过滤，不混入其他 agent 的对话。
+  useEffect(() => {
+    if (draftAgentId === null && agents.length > 0) {
+      setDraftAgentId(fixedAgentId ?? agents[0].id);
+    }
+  }, [agents, draftAgentId, fixedAgentId]);
+
+  // 会话列表始终按当前对话对象过滤（固定 agent 模式优先），不混入其他 agent 的对话。
+  const filterAgentId = fixedAgentId ?? draftAgentId;
   const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
-    queryKey: fixedAgentId ? sessionKeys.list({ agent_id: fixedAgentId }) : sessionKeys.lists(),
+    queryKey: filterAgentId ? sessionKeys.list({ agent_id: filterAgentId }) : sessionKeys.lists(),
     queryFn: () =>
       sessionApi.list({
         page: 1,
         page_size: 50,
-        ...(fixedAgentId ? { agent_id: fixedAgentId } : {}),
+        ...(filterAgentId ? { agent_id: filterAgentId } : {}),
       }),
     staleTime: 15_000,
   });
   const sessions: Session[] = sessionsData?.items ?? [];
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // 空白态发送时新创建的会话 id：流式期间不绑定 activeSessionId（避免消息加载
+  // effect 清空流式占位），done/流终止时再绑定并加载权威数据。
+  const createdSessionIdRef = useRef<string | null>(null);
+  // 已创建但尚未绑定（流结束才 setActiveSessionId）的新会话 id：仅供侧栏
+  // 高亮兜底——发送时侧栏条目立即出现且选中，输出结束不发生"灰→亮"跳变
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  // 前端记录的工具耗时（toolCallId → 时间）：落库 timeline 无时间戳，而消息加载
+  // effect 会先清空 liveMessages 再拉取，state 途径取不到——用 ref 跨阶段兜底。
+  const toolTimesRef = useRef(new Map<string, { startedAt?: number; endedAt?: number }>());
 
   // ── 消息级反馈（§8.2 v2）：会话各轮投票态，流结束/切会话时刷新 ──
   const [feedbackTick, setFeedbackTick] = useState(0);
@@ -608,10 +181,53 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     }
   }, [activeSessionId, feedbackMap]);
 
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [showAgentSelectModal, setShowAgentSelectModal] = useState(false);
-  // 会话列表侧栏收起态：收起后仅剩窄轨（展开/新建按钮），对话主区拉宽。
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
+  // 侧栏「··· 更多」下拉（收纳非核心功能入口，权限过滤自 navItems）
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  // ── 图钉固定导航（设计稿 sidebar-more.html）：固定项追加在主功能之后，localStorage 持久化 ──
+  const [pinnedNav, setPinnedNav] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('agentflow_pinned_nav') ?? '[]') } catch { return [] }
+  })
+  useEffect(() => {
+    localStorage.setItem('agentflow_pinned_nav', JSON.stringify(pinnedNav))
+  }, [pinnedNav])
+  const togglePin = (id: string) =>
+    setPinnedNav((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  // 侧栏底部头像下拉（个人设置 / 登出）：点击外部关闭
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    // 注意：本文件已从 react 导入 MouseEvent 类型，这里不能显式注解（会遮蔽 DOM 事件类型）
+    const handler = (e: globalThis.MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [userMenuOpen]);
+  /* ─── v3.2 可拉伸布局：会话列表宽 / 右侧功能区宽与开关 ─── */
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [sessW, setSessW] = useState(() => Number(localStorage.getItem('agentflow_chat_sess_w')) || 240);
+  const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem('agentflow_chat_panel') === '1');
+  const [panelW, setPanelW] = useState(() => Number(localStorage.getItem('agentflow_chat_panel_w')) || 340);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  /** 通用列宽拖拽：mousedown 起手，mousemove 连续回调，mouseup 收尾。 */
+  const startColDrag = (e: React.MouseEvent, onMove: (clientX: number) => void) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const move = (ev: globalThis.MouseEvent) => onMove(ev.clientX);
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
   const [inputText, setInputText] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -622,13 +238,22 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   // Live messages for the active session (history + in-flight stream deltas).
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
+  const artifactCount = useMemo(
+    () => liveMessages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0),
+    [liveMessages],
+  );
+
   const [streamError, setStreamError] = useState<string | null>(null);
   // Thinking mode toggle (enable_thinking execution param) + pending file attachments.
   // NOTE: pendingFiles holds raw File objects queued locally — the actual upload
   // happens inside handleSendMessage (before the stream fires), mirroring
   // frontend/src/components/chat-panel.tsx. This avoids the race where the text
   // prompt is sent before the file upload resolves.
-  const [enableThinking, setEnableThinking] = useState(true);
+  // 思考强度档位（thinking_level）：off=直答；low/medium/high 按厂商映射
+  // （o-series effort 直传 / Anthropic budget / Qwen·GLM 开关）。
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium');
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  // 聊天中切换模型 = 回写该 Agent 的 default_model（每请求现读 agent doc，
   // 计划模式（plan_mode）：只调研不执行，agent 产出计划书卡片（propose_plan，
   // 文档样式）待审批。批准后自动关闭；反馈/重新规划时保持开启。
   // 刻意不持久化：计划模式是任务级开关而非会话偏好——刷新/切会话重置为
@@ -669,17 +294,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   const textEntryIdRef = useRef<string | null>(null);
   const textStartedRef = useRef(false);
 
-  // ── 输入框 auto-grow ──
-  // 大量文本时输入框随内容增高（消息区 flex-1 min-h-0 自动让位），超过上限
-  // （160px ≈ 8 行）切换为内部滚动方便回看编辑；发送清空后缩回 rows=2 初始高度。
-  useEffect(() => {
-    const el = inputTextareaRef.current;
-    if (!el) return;
-    const maxHeight = 160;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [inputText]);
 
   /** 输出是否贴底（距底部 120px 内）。自动跟随滚动只在贴底时发生——
    *  用户上翻阅读历史、或点开工具/思考详情时，即使 liveMessages 变化
@@ -691,6 +305,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     if (!el) return true;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }, []);
+  // 用户是否上翻离开底部（显示「回到底部」浮标）
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
   /** 统一的流式消息更新入口：更新前捕获贴底状态，滚动 effect 据此跟随。 */
   const updateLiveMessages = useCallback(
@@ -751,20 +367,54 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   );
 
   const activeSession = sessions.find((s) => s._id === activeSessionId) ?? null;
+  // 固定 agent 模式无会话时恒为该 agent；普通模式按 activeSession → draft → 首个。
   const activeAgent =
-    agents.find((a) => a.id === activeSession?.agent_id) ?? agents[0] ?? null;
+    agents.find((a) => a.id === activeSession?.agent_id) ??
+    (fixedAgentId ? agents.find((a) => a.id === fixedAgentId) : null) ??
+    agents.find((a) => a.id === draftAgentId) ??
+    agents[0] ??
+    null;
   const voiceAvailable = voiceConfigured && activeAgent?.voiceEnabled === true;
+  // 语音按钮常显，tooltip 按不可用原因给出引导（未选 Agent / 服务未配置 / Agent 未开语音）
+  const voiceHint = !activeAgent
+    ? '选择 Agent 后可语音对话'
+    : !voiceConfigured
+      ? '语音服务未配置（设置 → 语音）'
+      : activeAgent.voiceEnabled
+        ? '切换到语音对话'
+        : '该 Agent 未开启语音能力（智能体编辑页可开启）';
 
   useEffect(() => {
     if (inputMode === 'voice' && !voiceAvailable) setInputMode('text');
   }, [inputMode, voiceAvailable]);
-
-  // Auto-select first session once loaded.
+  // ── 输入框 auto-grow ──
+  // 大量文本时输入框随内容增高（消息区 flex-1 min-h-0 自动让位），超过上限
+  // （160px ≈ 8 行）切换为内部滚动方便回看编辑；发送清空后缩回初始高度（空会话 rows=4 / 会话 rows=2）。
   useEffect(() => {
-    if (!activeSessionId && sessions.length > 0) {
-      setActiveSessionId(sessions[0]._id);
+    const el = inputTextareaRef.current;
+    if (!el) return;
+    const maxHeight = 160;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [inputText, activeSession]);
+
+
+  // Auto-select latest session once, on initial load only. 之后进入空白态
+  // （切 agent / 点 + 新对话）不再自动抓回旧会话——新对话就该是空 composer，
+  // 首次发送时才创建会话；想续旧会话从列表显式点入。
+  // 竞态守卫：等 filterAgentId 就绪才选中——draftAgentId 默认化前 query 可能
+  // 先送来全量列表，选中其他 agent 的会话会让 activeSession 游离在列表外。
+  const autoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!autoSelectedRef.current && !activeSessionId && filterAgentId && sessions.length > 0) {
+      const target = sessions.find((s) => s.agent_id === filterAgentId);
+      if (target) {
+        autoSelectedRef.current = true;
+        setActiveSessionId(target._id);
+      }
     }
-  }, [sessions, activeSessionId]);
+  }, [sessions, activeSessionId, filterAgentId]);
 
   // Load messages when the active session changes.
   // NOTE: depends on `activeSessionId` only. `agents` is recomputed (new array
@@ -785,7 +435,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       pinnedRef.current = true;
       return;
     }
-    setLiveMessages([]);
+    // 不预清空：保留旧内容直到落库数据就绪一次性替换（stale-while-revalidate
+    // 的 UI 等价物）——"清空→白屏等待→回填"的高度两次跳变才是闪/抖的来源。
+    // 切换会话的旧请求不写回由上方 cancelled 守卫保证；新会话绑定场景 prev
+    // 即刚流完的消息，替换时同位置同角色沿用原 id（见 load 内配对），原地更新。
     // 会话切换/清空后回到贴底初始态：加载完成即定位到最新消息。
     pinnedRef.current = true;
     setStreamError(null);
@@ -815,11 +468,44 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           }
           // 会话加载完成回到贴底：最新消息就在底部。
           pinnedRef.current = true;
-          setLiveMessages(mapped);
-          // 检测未答的 interrupt（ask_clarification/confirm_workflow）：页面跳转后
-          // SSE 中断导致 pendingInterruptRef 丢失，从历史恢复，使下次发送走 /resume。
-          const pending = [...mapped].reverse().find((m) => m.isInterrupted);
-          if (pending) pendingInterruptRef.current = { toolMsgId: pending.id };
+          setLiveMessages((prev) => {
+            // 位置+角色配对沿用流式占位 id：落库 rec._id 替换占位 id 会让
+            // 全列表 MessageItem key 变化 → 重挂载 → animate-fade-in 重播 +
+            // ActivityGroup open 状态归零（最后一段组被打回收起态塌缩）
+            // = done 绑定会话后整页闪一下。沿用旧 id 时 React 按 key 原地
+            // 更新，数据仍是权威落库内容。
+            const paired =
+              prev.length > 0
+                ? mapped.map((m, i) => {
+                    const old = prev[i];
+                    return old && old.role === m.role ? { ...m, id: old.id } : m;
+                  })
+                : mapped;
+            // 落库 timeline 无工具耗时：从 ref 里把前端记录的 startedAt/endedAt
+            // 按 toolCallId 回填（否则收起态组头的执行耗时会闪一下就消失——
+            // state 途径取不到流式数据，只能靠 ref 跨阶段兜底）。
+            const times = toolTimesRef.current;
+            const filled = !times.size
+              ? paired
+              : paired.map((m) =>
+                  m.timeline?.some((e) => e.type === 'tool' && e.toolCallId && times.has(e.toolCallId))
+                    ? {
+                        ...m,
+                        timeline: m.timeline.map((e) =>
+                          e.type === 'tool' && e.toolCallId && times.has(e.toolCallId)
+                            ? { ...e, ...times.get(e.toolCallId) }
+                            : e,
+                        ),
+                      }
+                    : m,
+                );
+            // 检测未答的 interrupt（ask_clarification/confirm_workflow）：页面跳转后
+            // SSE 中断导致 pendingInterruptRef 丢失，从历史恢复（与渲染列表同 id），
+            // 使下次发送走 /resume。赋值幂等，updater 双跑（StrictMode）无副作用。
+            const pending = [...filled].reverse().find((m) => m.isInterrupted);
+            if (pending) pendingInterruptRef.current = { toolMsgId: pending.id };
+            return filled;
+          });
 
           if (pendingBackgroundSessionsRef.current.has(sid)) {
             const lastIsAgent =
@@ -842,6 +528,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           const status = (e as { response?: { status?: number } })?.response?.status;
           const msg = (e as Error).message ?? '';
           if (status === 404 || /不存在|not found/i.test(msg)) {
+            // 列表缓存可能仍含已删除条目（点击后详情 404）——静默回欢迎页
+            // 会让用户莫名其妙；明确提示 + 刷新列表剔除死条目。
+            toast.error('会话不存在或已被删除');
+            qc.invalidateQueries({ queryKey: sessionKeys.lists() });
             setActiveSessionId(null);
             setLiveMessages([]);
             pinnedRef.current = true;
@@ -868,6 +558,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     const el = chatScrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
     else messageEndRef.current?.scrollIntoView();
+    // 跳底 = 回到最新：浮标必隐。兜底程序跳底后内容收缩时浏览器 clamp
+    // scrollTop 触发的 scroll 事件被上翻判定误读（收起动画期间高发）。
+    setShowJumpToBottom(false);
   }, [liveMessages]);
 
   const refreshSessions = useCallback(() => {
@@ -884,6 +577,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       setIsStreaming(false);
     }
     setActiveSessionId(id);
+    // 全局侧栏：从其它功能页点会话 → 回到聊天界面
+    onNavigate?.('chat');
   };
 
   const handleDeleteSession = async (e: MouseEvent, id: string) => {
@@ -906,19 +601,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     }
   };
 
-  const handleStartNewWithAgent = async (agent: Agent) => {
-    try {
-      // Pass empty title — backend sets it from the first user message
-      // (truncated to 30 chars + ellipsis). See session_service.add_message.
-      const sess = await sessionApi.create(agent.id, '');
-      setInputMode('text');
-      setShowAgentSelectModal(false);
-      setShowDropdown(false);
-      refreshSessions();
-      setActiveSessionId(sess._id);
-    } catch (err) {
-      setStreamError(`创建会话失败：${(err as Error).message}`);
-    }
+  // 切换对话对象：只进入空白新对话态，不立即创建会话——首次发送时才真正
+  // 创建（见 handleSendMessage），避免用户未输入就在后端留下空会话。
+  const handleStartNewWithAgent = (agent: Agent) => {
+    setDraftAgentId(agent.id);
+    setActiveSessionId(null);
+    setPendingSessionId(null);
+    setInputMode('text');
+    setAgentMenuOpen(false);
+    // 全局侧栏：从其它功能页点「＋」→ 回到聊天界面空白新对话
+    onNavigate?.('chat');
   };
 
   /** Pick a file into the local queue (no network upload yet — that happens
@@ -1021,12 +713,40 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
   const handleSendMessage = async (e?: FormEvent, overrideText?: string) => {
     e?.preventDefault();
-    const sessionId = activeSessionId;
     const agent = activeAgent;
     // Allow send with text only OR files only (matches legacy chat-panel.tsx).
     // overrideText 来自 ask_clarification 卡片的选项/内联回答（走 /resume）。
     const prompt = (overrideText ?? inputText).trim();
-    if ((!prompt && pendingFiles.length === 0) || !sessionId || !agent || isStreaming) return;
+    if ((!prompt && pendingFiles.length === 0) || !agent || isStreaming) return;
+    // 未配置默认模型的 Agent 不允许发起会话（后端无从选择 LLM）
+    if (!agent.model) {
+      toast.error(`「${agent.name}」未配置默认模型，请先在智能体编辑页选择模型`);
+      return;
+    }
+
+    // 空白新对话：首次发送时才真正创建会话（切 agent / 点 + 只进入空白态，
+    // 见 handleStartNewWithAgent）。resume 回答必在已有会话中，不受影响。
+    // 注意：创建后**不**立即 setActiveSessionId——那会触发消息加载 effect 清空
+    // liveMessages，占位气泡消失后所有 SSE 事件（prev.map 按 agentMsgId 匹配）
+    // 将静默丢失。改为流结束（done/finally）时绑定，见 createdSessionIdRef。
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      try {
+        // 传入用户输入作标题（截断规则与后端 add_message 的一致：30 字 + …）。
+        // 后端仅在标题为空时才从首条消息生成——直接带上真标题，侧栏创建
+        // 即显示最终标题，消除流结束后"标题回填"的两段式变化。
+        const sess = await sessionApi.create(agent.id, prompt.slice(0, 30) + (prompt.length > 30 ? '…' : ''));
+        sessionId = sess._id;
+        createdSessionIdRef.current = sess._id;
+        setPendingSessionId(sess._id);
+        // 发送即确定会话：侧栏立即出现新会话（不等流结束），契合"用户回车
+        // 即会话成立"的心智；activeSessionId 仍流结束绑定（绑定即触发加载）
+        refreshSessions();
+      } catch (err) {
+        setStreamError(`创建会话失败：${(err as Error).message}`);
+        return;
+      }
+    }
 
     setInputText('');
     setStreamError(null);
@@ -1141,12 +861,10 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       return [...prev, userMsg, agentMsg];
     });
     // 用户主动发消息 = 明确要看新回复：无条件恢复跟随（即使发送前在上翻），
-    // 避免整个流式过程都不跟随。下方 RAF 内的 smooth 滚动同样是无条件的。
+    // 避免整个流式过程都不跟随。跳底交给 useLayoutEffect 的瞬时 scrollTop
+    // 赋值——勿再用 smooth scrollIntoView：两者会抢 scrollTop，动画轨迹把
+    // 视口停在半路，scroll 事件误判"用户上翻"导致「回到最新」浮标闪现。
     pinnedRef.current = true;
-    // 用户主动发消息：无条件滚到底部跟随新回复（贴底守卫仅约束流式/展开场景）。
-    requestAnimationFrame(() => {
-      messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    });
     pendingInterruptRef.current = null;
     setIsStreaming(true);
     setStreamingMsgId(agentMsgId);
@@ -1162,7 +880,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // resume 的 answer 不允许为空(ResumeRequest min_length=1):
             // 澄清回答时只贴图不打字 → 占位让请求可过,agent 从上下文理解。
             answer: prompt || '(用户上传了附件)',
-            enable_thinking: enableThinking,
+            thinking_level: thinkingLevel,
             // 反馈保持 plan 上下文的最终保证在服务端（探针读 checkpoint
             // 推断挂起类型强制 plan，刷新/多端下客户端状态失真也不受影响）；
             // 此处 plan_mode 仅为提示。
@@ -1171,7 +889,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         : await agentApi.stream(agent.id, {
             input: prompt,
             session_id: sessionId,
-            enable_thinking: enableThinking,
+            thinking_level: thinkingLevel,
             plan_mode: planMode || undefined,
             // file_ids: persists the reference on the user message (history).
             // file_paths: backend embeds file contents into the LLM user message
@@ -1210,10 +928,11 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         if (!('type' in evt)) {
           // Stream finished — refresh sessions so persisted messages/timeline load,
           // and reload generated files so any new outputs appear immediately.
-          // 无预建会话直接开聊时，后端在首个请求时创建了会话——此处绑定
-          // session_id，否则 activeSession 一直为空，空状态提示会压在消息上方。
-          if (!activeSessionId && evt.session_id) {
-            setActiveSessionId(evt.session_id);
+          // 无预建会话直接开聊时，后端在首个请求时创建了会话——流结束才绑定
+          // session_id（流式中绑定会触发消息加载 effect 清空流式占位气泡）。
+          if (!activeSessionId && (createdSessionIdRef.current ?? evt.session_id)) {
+            setActiveSessionId(createdSessionIdRef.current ?? evt.session_id);
+            setPendingSessionId(null);
           }
           refreshSessions();
           filesPanelRef.current?.refresh();
@@ -1227,15 +946,35 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           updateLiveMessages((prev) =>
             prev.map((m) => {
               if (m.id !== agentMsgId) return m;
-              const tl = finalTimeline ?? (m.timeline ?? []).map((e) =>
-                e.type === 'tool' &&
-                (e.toolStatus === 'pending' || e.toolStatus === 'running') &&
-                e.toolName !== 'ask_clarification' &&
-                e.toolName !== 'confirm_workflow' &&
-                e.toolName !== ''
-                  ? { ...e, toolStatus: 'success' as const }
-                  : e,
-              );
+              let tl: TimelineEntry[];
+              if (finalTimeline) {
+                // 权威 timeline 无时间戳：把流式期间记录的工具耗时按 toolCallId
+                // 合并回去（收起态组头要显示执行耗时；对不上的条目优雅降级）。
+                const times = new Map<string, { startedAt?: number; endedAt?: number }>();
+                for (const e of m.timeline ?? []) {
+                  if (e.type === 'tool' && e.toolCallId && (e.startedAt != null || e.endedAt != null)) {
+                    times.set(e.toolCallId, { startedAt: e.startedAt, endedAt: e.endedAt });
+                    toolTimesRef.current.set(e.toolCallId, times.get(e.toolCallId)!);
+                  }
+                }
+                tl = times.size
+                  ? finalTimeline.map((e) =>
+                      e.type === 'tool' && e.toolCallId && times.has(e.toolCallId)
+                        ? { ...e, ...times.get(e.toolCallId) }
+                        : e,
+                    )
+                  : finalTimeline;
+              } else {
+                tl = (m.timeline ?? []).map((e) =>
+                  e.type === 'tool' &&
+                  (e.toolStatus === 'pending' || e.toolStatus === 'running') &&
+                  e.toolName !== 'ask_clarification' &&
+                  e.toolName !== 'confirm_workflow' &&
+                  e.toolName !== ''
+                    ? { ...e, toolStatus: 'success' as const }
+                    : e,
+                );
+              }
               return {
                 ...m, status: undefined, timeline: tl,
                 usage: evt.usage ?? m.usage,
@@ -1342,6 +1081,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                     toolCallId: evt.id,
                     args: evt.args,
                     toolStatus: 'running',
+                    startedAt: Date.now(),
                   };
                 } else {
                   tl.push({
@@ -1352,6 +1092,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                     toolCallId: evt.id,
                     args: evt.args,
                     toolStatus: 'running',
+                    startedAt: Date.now(),
                   });
                 }
                 return { ...m, timeline: tl };
@@ -1389,6 +1130,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                       ...tl[i],
                       result: resultContent,
                       toolStatus: isError ? 'error' : 'success',
+                      endedAt: Date.now(),
                     };
                     break;
                   }
@@ -1529,6 +1271,13 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       );
       abortRef.current = null;
       refreshSessions();
+      // 空白态新建的会话：流结束（无论 done/stop/异常）统一绑定——
+      // 消息加载 effect 随之拉取权威数据，占位气泡被持久化内容替换。
+      if (createdSessionIdRef.current) {
+        setActiveSessionId(createdSessionIdRef.current);
+        setPendingSessionId(null);
+        createdSessionIdRef.current = null;
+      }
     }
   };
 
@@ -1635,7 +1384,17 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       }
       // 重载完成回到贴底：最新消息就在底部。
       pinnedRef.current = true;
-      setLiveMessages(mapped);
+      // 就地定稿：流结束的无缝绑定场景下（prev 即刚流完的消息），同位置
+      // 同角色沿用原 id —— React key 稳定 → 列表 DOM 原地更新，消除整列
+      // 重挂载造成的"页面刷新感"（头像重载 / Markdown 重渲染 / 动画重放）。
+      // 数据字段仍全部来自后端权威记录；手动切换会话时 prev 配不上对，
+      // 自然退回后端 id 重建（内容全换，重建符合预期）。
+      setLiveMessages((prev) =>
+        mapped.map((m, i) => {
+          const old = prev[i];
+          return old && old.role === m.role ? { ...m, id: old.id } : m;
+        }),
+      );
       const pending = [...mapped].reverse().find((item) => item.isInterrupted);
       pendingInterruptRef.current = pending ? { toolMsgId: pending.id } : null;
     }).catch((error: Error) => {
@@ -1649,1701 +1408,163 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     handleVoiceAgentDelta(question);
   };
 
+  // ── Composer（voice / 文本两态）：空会话态居中渲染，会话态落底渲染 ──
+  const composerEl = (
+    <Composer
+      theme={theme}
+      activeAgent={activeAgent}
+      activeSession={activeSession}
+      activeSessionId={activeSessionId ?? pendingSessionId}
+      inputMode={inputMode} setInputMode={setInputMode}
+      inputText={inputText} setInputText={setInputText}
+      inputTextareaRef={inputTextareaRef} fileInputRef={fileInputRef}
+      pendingFiles={pendingFiles} setPendingFiles={setPendingFiles}
+      uploading={uploading} onUploadFile={handleUploadFile}
+      isStreaming={isStreaming} liveMessages={liveMessages}
+      onSendMessage={handleSendMessage} onStop={handleStop}
+      planMode={planMode} setPlanMode={setPlanMode}
+      thinkingLevel={thinkingLevel} setThinkingLevel={setThinkingLevel}
+      modelMenuOpen={modelMenuOpen} setModelMenuOpen={setModelMenuOpen}
+      voiceAvailable={voiceAvailable}
+      voiceHint={voiceHint}
+      onTranscriptFinal={handleVoiceTranscriptFinal}
+      onTurnStarted={handleVoiceTurnStarted}
+      onAgentDelta={handleVoiceAgentDelta}
+      onTurnEnd={handleVoiceTurnEnd}
+      onInterruptRequest={handleVoiceInterruptRequest}
+      setStreamError={setStreamError}
+    />
+  );
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 bg-page border-0 overflow-hidden relative w-full h-full min-h-0 flex-1">
-      {/* 1. SIDEBAR: Conversations List — collapsed narrow rail | expanded list */}
-      {sidebarCollapsed ? (
-        <div className="lg:col-span-1 min-h-0 border-r border-line bg-panel/80 flex flex-row lg:flex-col items-center gap-3 px-2 py-3">
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            title="展开会话列表"
-            className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center text-ink-dim hover:text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => {
-              // 固定 agent 模式：+ 直通新建；多 agent 场景先展开侧栏再选择。
-              if (fixedAgentId) {
-                const agent = agents.find((a) => a.id === fixedAgentId);
-                if (agent) void handleStartNewWithAgent(agent);
-                return;
-              }
-              setSidebarCollapsed(false);
-            }}
-            title="新建会话"
-            className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center hover:bg-[#1f1f23] transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4 text-emerald-400" />
-          </button>
-          <span
-            className="mt-auto hidden lg:block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
-            title="MEPER Agent SSE: Connected"
-          />
-        </div>
+    <div
+    ref={rootRef}
+    style={{ ['--sess-w' as string]: `${sessW}px`, ['--panel-w' as string]: `${panelW}px` }}
+    className="af-scope theme-indigo flex gap-0 bg-page border-0 overflow-hidden relative w-full h-full min-h-0 flex-1 flex-row"
+  >
+      {/* 1. GLOBAL SIDEBAR：功能导航 + 会话历史 —— 全局常驻（App 各页面共用，
+          非聊天页面由 activePage 渲染在右侧区域，侧栏本身不变） */}
+      <ChatSidebar
+        rootRef={rootRef} startColDrag={startColDrag} setSessW={setSessW}
+        navItems={navItems} activeId={activeId} activePage={activePage}
+        pinnedNav={pinnedNav} togglePin={togglePin}
+        sessions={sessions} sessionsLoading={sessionsLoading}
+        activeSessionId={activeSessionId ?? pendingSessionId}
+        onSelectSession={handleSelectSession} onDeleteSession={handleDeleteSession}
+        activeAgent={activeAgent} agents={agents}
+        onStartNewWithAgent={handleStartNewWithAgent}
+        userInitial={userInitial} username={username}
+        userMenuOpen={userMenuOpen} setUserMenuOpen={setUserMenuOpen}
+        moreMenuOpen={moreMenuOpen} setMoreMenuOpen={setMoreMenuOpen}
+        onNavigate={onNavigate} onLogout={onLogout} onNavigateTask={onNavigateTask}
+      />
+
+      {activePage ? (
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">{activePage}</div>
       ) : (
-      <div className="lg:col-span-3 min-h-0 border-r border-line bg-panel/80 flex flex-col justify-between">
-        <div className="flex flex-col h-full min-h-0">
-          <div className="px-4 h-16 border-b border-line flex items-center justify-between relative">
-            <div
-              className="flex items-center gap-1.5 cursor-pointer group"
-              onClick={() => setSidebarCollapsed(true)}
-              title="收起会话列表"
-            >
-              <PanelLeftClose className="w-4 h-4 text-ink-dim group-hover:text-white transition-colors" />
-              <span className="text-sm font-bold text-white font-sans">对话</span>
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => {
-                  // 固定 agent 模式：+ 直通以该 agent 新建（原下拉与选择弹窗仅服务多 agent 场景）。
-                  if (fixedAgentId) {
-                    const agent = agents.find((a) => a.id === fixedAgentId);
-                    if (agent) void handleStartNewWithAgent(agent);
-                    return;
-                  }
-                  setShowDropdown(!showDropdown);
-                }}
-                className="w-9 h-9 rounded-full bg-line/50 border border-line flex items-center justify-center text-white hover:bg-[#1f1f23] transition-colors cursor-pointer"
-              >
-                <Plus className="w-4 h-4 text-emerald-400" />
-              </button>
-              {showDropdown && (
-                <div className="absolute right-0 mt-2 w-56 bg-panel border border-line rounded-xl shadow-2xl p-1 z-50 animate-fade-in text-xs font-sans">
-                  <div className="px-3 py-2 text-[11px] text-ink-dim border-b border-line font-semibold uppercase tracking-wider">
-                    新建工作专区
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowAgentSelectModal(true);
-                      setShowDropdown(false);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-page text-ink flex flex-col gap-0.5 transition cursor-pointer"
-                  >
-                    <span className="font-semibold flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      新建项目
-                    </span>
-                    <span className="text-[11px] text-ink-dim">选择协作 Agent 启动全新会话</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAgentSelectModal(true);
-                      setShowDropdown(false);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-page text-ink flex flex-col gap-0.5 transition border-t border-line pt-2 cursor-pointer font-sans"
-                  >
-                    <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                      <Bot className="w-3.5 h-3.5 text-emerald-400 font-bold" />
-                      选择 Agent 开始
-                    </span>
-                    <span className="text-[11px] text-ink-dim">从真实后端创建会话</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-2 space-y-1">
-            {sessionsLoading && (
-              <div className="p-3 text-[11px] text-ink-dim font-mono">加载会话中…</div>
-            )}
-            {!sessionsLoading && sessions.length === 0 && (
-              <div className="p-3 text-[11px] text-ink-dim font-sans">
-                {fixedAgentId ? '暂无会话。点击右上 + 新建。' : '暂无会话。点击右上 + 选择 Agent 新建。'}
-              </div>
-            )}
-            {sessions.map((sess) => {
-              const infoAgent = agents.find((a) => a.id === sess.agent_id);
-              const isActive = activeSessionId === sess._id;
-              return (
-                <div
-                  key={sess._id}
-                  onClick={() => handleSelectSession(sess._id)}
-                  className={`p-3 rounded-lg flex items-start gap-3 transition-all relative group cursor-pointer select-none ${
-                    isActive
-                      ? theme === 'light'
-                        ? 'bg-slate-200'
-                        : 'bg-page border border-line/70 shadow-lg'
-                      : theme === 'light'
-                        ? 'hover:bg-slate-100'
-                        : 'hover:bg-page/50 border border-transparent'
-                  }`}
-                >
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-xl bg-page border border-line flex items-center justify-center text-xl shadow-inner select-none overflow-hidden">
-                      <AvatarRender value={infoAgent?.avatar} className="w-full h-full p-1 text-xl" />
-                    </div>
-                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-line" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center mb-0.5">
-                      <span className="text-xs font-bold text-white truncate font-sans">
-                        {sess.title || infoAgent?.name || '未命名会话'}
-                      </span>
-                      <span className="text-[11px] text-ink-dim font-mono leading-none shrink-0">
-                        {formatSessionTime(sess.updated_at)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-ink-dim truncate font-sans leading-relaxed">
-                      {sess.message_count ?? 0} 条消息 · {infoAgent?.name ?? 'Agent'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => handleDeleteSession(e, sess._id)}
-                    className="absolute right-2 bottom-3 opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-panel rounded-md transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="p-3.5 border-t border-line bg-page rounded-none">
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[11px] text-ink-dim font-mono">MEPER Agent SSE: Connected</span>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* 2. CHAT STREAM PANEL */}
-      <div className={`${sidebarCollapsed ? 'lg:col-span-11' : 'lg:col-span-9'} min-h-0 flex flex-col h-full bg-page`}>
-        <div className="px-6 h-16 border-b border-line bg-panel/50 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-page border border-line text-xl flex items-center justify-center overflow-hidden">
-              <AvatarRender value={activeAgent?.avatar} className="w-full h-full p-1 text-xl" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-xs font-bold text-white flex items-center gap-1.5 font-sans min-w-0">
-                <span className="truncate">{activeSession?.title || activeAgent?.name || '选择一个会话'}</span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[11px] font-mono shrink-0">
-                  SSE 流式
-                </span>
-              </h3>
-              <p className="text-[11px] text-ink-dim font-sans truncate">
-                {modelLabel(activeAgent?.model)} • {activeAgent?.name ?? '—'}
-              </p>
-            </div>
-          </div>
-          {/* Chat / Files tab switcher */}
-          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-page border border-line">
-            {(['chat', 'files'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setRightTab(tab)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-                  rightTab === tab ? 'bg-[#1E5EFF] text-white' : 'text-ink-dim hover:text-white'
-                }`}
-              >
-                {tab === 'chat' ? '对话' : '文件'}
-              </button>
-            ))}
-          </div>
-        </div>
-
+      <>
+      {/* 2. CHAT STREAM PANEL：顶栏 = 衬线会话标题 + agent 身份 + 功能区开关 */}
+      <div className="min-h-0 min-w-0 flex flex-col h-full bg-page relative flex-1">
         {streamError && (
-          <div className="px-6 py-2 bg-rose-950/30 border-b border-rose-900/40 text-rose-400 text-[11px] font-sans">
+          <div className="px-6 py-2 bg-sig-fail-soft border-b border-line text-sig-fail text-[11px] font-sans">
             ⚠ {streamError}
           </div>
         )}
 
-        {rightTab === 'files' ? (
-          <SessionFilesPanel ref={filesPanelRef} sessionId={activeSessionId} />
-        ) : (
-        <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-custom p-6 space-y-5">
-          <div className="flex items-center justify-center">
-            <span className="px-3 py-1 rounded bg-panel border border-line/60 text-ink-dim text-[11px] font-mono">
-              对话由 MEPER Agent 引擎实时流式生成
-            </span>
-          </div>
-
-          {/* 空状态仅在没有任何消息时显示（流式/会话绑定延迟期间不压在消息上方） */}
-          {!activeSession && !sessionsLoading && liveMessages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Bot className="w-10 h-10 text-ink-dim mb-3" />
-              <p className="text-sm text-ink-dim font-sans">还没有会话</p>
-              <p className="text-[11px] text-ink-dim mt-1">
-                {fixedAgentId ? '点击左上 + 立即开始对话' : '点击左上 + 选择一个 Agent 开始对话'}
-              </p>
-            </div>
-          )}
-
-          {liveMessages.map((msg) => {
-            const isUser = msg.role === 'user';
-            const isAgent = msg.role === 'agent';
-            // agent 消息靠 timeline 渲染（text/tool/thinking/error 按顺序）；
-            // user 消息保持单个气泡。
-            const hasTimeline = isAgent && !!msg.timeline && msg.timeline.length > 0;
-            // 本条是否流式生成中——消息级"生成中"动效判据（见 streamingMsgId 声明处
-            // 注释：msg.status 在轮次空窗期会被清空，不能作判据）。
-            const inFlight = streamingMsgId === msg.id;
-            return (
-              <div
-                key={msg.id}
-                className={`flex items-start gap-4 max-w-4xl animate-fade-in ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
-              >
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 select-none shadow ${
-                  isUser
-                    ? 'bg-[#4f46e5]/15 border border-[#4f46e5]/30 text-indigo-400'
-                    : 'bg-panel border border-line overflow-hidden'
-                }`}>
-                  {isUser ? (
-                    <User className="w-4 h-4" />
-                  ) : (
-                    <AvatarRender value={msg.avatar} className="w-full h-full p-1.5 text-lg" />
-                  )}
-                </div>
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className={`flex items-center gap-2 text-[11px] ${isUser ? 'justify-end' : ''}`}>
-                    {!isUser && (
-                      <span className="font-bold text-ink-dim font-sans">
-                        {msg.senderName}
-                        {msg.status === 'thinking' && <span className="text-indigo-400 ml-1">· 思考中</span>}
-                      </span>
-                    )}
-                    <span className="text-ink-dim font-mono">{msg.timestamp}</span>
-                    {!isUser && msg.usage?.total_tokens ? (
-                      <span className="text-ink-dim font-mono">
-                        · {msg.usage.total_tokens.toLocaleString()} tokens
-                        {msg.usage.llm_calls != null && msg.usage.llm_calls > 1
-                          ? ` · ${msg.usage.llm_calls} 轮`
-                          : ''}
-                      </span>
-                    ) : null}
-                  </div>
-                  {hasTimeline ? (
-                    <div className="space-y-2 max-w-2xl">
-                      {msg.timeline!.map((entry, idx) => {
-                        const isLast = idx === msg.timeline!.length - 1;
-                        if (entry.type === 'text') {
-                          return (
-                            <div
-                              key={entry.id}
-                              className="p-4 rounded-xl rounded-tl-none text-[12.5px] leading-relaxed border font-sans select-text shadow-sm bg-panel border-line text-ink-soft"
-                            >
-                              <Markdown content={entry.content} />
-                              {/* agent 消息的产出附件挂在最后一个 text entry 后面 */}
-                              {isLast && msg.attachments && msg.attachments.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-current/10">
-                                  {msg.attachments.map((att, i) => (
-                                    <ChatAttachmentCard
-                                      key={`${msg.id}-att-${i}-${att.ref}`}
-                                      att={att}
-                                      sessionId={activeSessionId}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-                        if (entry.type === 'thinking') {
-                          // 流式判定：消息 thinking 中，且该 entry 是末尾条目或
-                          // 最后一个 thinking entry（交错思考块更新时不一定在末尾）。
-                          const isLastThinking =
-                            isLast || !msg.timeline!.slice(idx + 1).some((e) => e.type === 'thinking');
-                          return (
-                            <ThinkingEntryCard
-                              key={entry.id}
-                              entry={entry}
-                              streaming={msg.status === 'thinking' && isLastThinking}
-                              onToggle={() =>
-                                updateLiveMessages((prev) =>
-                                  prev.map((m) =>
-                                    m.id === msg.id
-                                      ? {
-                                          ...m,
-                                          timeline: (m.timeline ?? []).map((e) =>
-                                            e.id === entry.id
-                                              ? { ...e, expanded: !e.expanded, userToggled: true }
-                                              : e,
-                                          ),
-                                        }
-                                      : m,
-                                  ),
-                                )
-                              }
-                            />
-                          );
-                        }
-                        if (entry.type === 'error') {
-                          return (
-                            <div
-                              key={entry.id}
-                              className="p-4 rounded-xl rounded-tl-none text-[12.5px] leading-relaxed border font-sans shadow-sm bg-rose-950/20 border-rose-900/40 rounded-tl-none text-rose-300"
-                            >
-                              {entry.content}
-                            </div>
-                          );
-                        }
-                        // tool entry
-                        return (
-                          <ToolEntryCard
-                            key={entry.id}
-                            entry={entry}
-                            msgId={msg.id}
-                            interrupted={!!msg.isInterrupted}
-                            theme={theme}
-                            onAnswer={(a) => handleSendMessage(undefined, a)}
-                            onDismiss={() => handleDismissInterrupt(msg.id)}
-                            onApprovePlan={(plan) => handleApprovePlan(msg.id, plan)}
-                            planVersion={
-                              entry.type === 'tool' && entry.toolName === 'propose_plan'
-                                ? (msg.timeline ?? [])
-                                    .slice(0, (msg.timeline ?? []).indexOf(entry) + 1)
-                                    .filter((e) => e.type === 'tool' && e.toolName === 'propose_plan').length
-                                : undefined
-                            }
-                          />
-                        );
-                      })}
-                    </div>
-                  ) : (
-                  <div
-                    className={`p-4 rounded-xl text-[12.5px] leading-relaxed border font-sans select-text shadow-sm ${
-                      msg.status === 'thinking'
-                        ? 'bg-indigo-950/20 border-indigo-900/40 rounded-tl-none text-indigo-300 italic'
-                        : isUser
-                          ? 'bg-[#4f46e5]/10 border-[#4f46e5]/30 rounded-tr-none text-ink'
-                          : 'bg-panel border-line rounded-tl-none text-ink-soft'
-                    }`}
-                  >
-                    {msg.content
-                      ? <Markdown content={msg.content} />
-                      : (inFlight ? (
-                          /* 首 token 等待期：执行中动效（原为静态 '…'） */
-                          <span className="inline-flex items-center gap-1.5">
-                            正在响应
-                            <StreamingDots />
-                          </span>
-                        ) : '')}
-                    {/* 可预览附件挂在气泡内部。有正文时隔开 + 分隔线；
-                        仅附件（无文字）时直接贴边，不留空隙不画线。 */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className={`flex flex-wrap gap-2 ${msg.content ? 'mt-3 pt-3 border-t border-current/10' : ''} ${isUser ? 'justify-end' : ''}`}>
-                        {msg.attachments.map((att, i) => (
-                          <ChatAttachmentCard
-                            key={`${msg.id}-att-${i}-${att.ref}`}
-                            att={att}
-                            sessionId={activeSessionId}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  )}
-                  {/* 消息级"生成中"动效：流式全程显示——覆盖思考完成→正文生成、
-                      工具完成→下一轮等 status 已被清空的空窗期，让用户始终能
-                      分清"回答结束了"还是"仍在等"；流结束/中止/出错即消失 */}
-                  {inFlight && hasTimeline && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-indigo-400 font-sans">
-                      <StreamingDots />
-                      <span>生成中…</span>
-                    </div>
-                  )}
-                  {/* 回答下方：消息级反馈（§8.2 v2）——赞回复→本轮技能派生加分 */}
-                  {!isUser && !isStreaming && msg.requestId && (
-                    <div className="flex items-center gap-0.5 pt-1">
-                      <button
-                        aria-label="msg-vote-up"
-                        title={feedbackMap[msg.requestId]?.value === 1 ? '已点过赞' : '这轮回复有帮助'}
-                        onClick={() => handleVoteMessage(msg.requestId!, 1)}
-                        className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                          feedbackMap[msg.requestId]?.value === 1 ? 'text-blue-400' : 'text-ink-dim hover:text-blue-400'
-                        }`}
-                      >
-                        <ThumbsUp size={15} />
-                      </button>
-                      <button
-                        aria-label="msg-vote-down"
-                        title={feedbackMap[msg.requestId]?.value === -1 ? '已点过踩' : '这轮回复没帮助'}
-                        onClick={() => handleVoteMessage(msg.requestId!, -1)}
-                        className={`border-0 bg-transparent rounded-md w-7 h-7 flex items-center justify-center cursor-pointer transition ${
-                          feedbackMap[msg.requestId]?.value === -1 ? 'text-rose-400' : 'text-ink-dim hover:text-rose-400'
-                        }`}
-                      >
-                        <ThumbsDown size={15} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          <div ref={messageEndRef} />
-        </div>
-        )}
-
-        {/* Input box (chat tab only) */}
-        {rightTab === 'chat' && (
-        <div className="p-4 border-t border-line">
-          {inputMode === 'voice' && voiceAvailable ? (
-            <ChatVoiceComposer
-              agentId={activeAgent?.id}
-              sessionId={activeSessionId ?? undefined}
-              theme={theme}
-              onExit={() => setInputMode('text')}
-              onTranscriptFinal={handleVoiceTranscriptFinal}
-              onTurnStarted={handleVoiceTurnStarted}
-              onAgentDelta={handleVoiceAgentDelta}
-              onTurnEnd={handleVoiceTurnEnd}
-              onInterruptRequest={handleVoiceInterruptRequest}
-              onError={setStreamError}
-            />
-          ) : (
-          <form onSubmit={handleSendMessage} className="relative bg-panel border border-line rounded-xl p-3 flex flex-col justify-between">
-            {pendingFiles.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {pendingFiles.map((f, i) => (
-                  <span key={`${f.name}-${i}`} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-sans">
-                    <FileCode className="w-3 h-3" />
-                    <span className="max-w-[140px] truncate">{f.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
-                      className="hover:text-white cursor-pointer"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <textarea
-              ref={inputTextareaRef}
-              rows={2}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={
-                activeSession
-                  ? '跟我说说你的偏好和要求，我会更懂你（Enter 发送，Shift+Enter 换行）'
-                  : '请先在左侧选择或新建一个会话'
-              }
-              disabled={!activeSession || isStreaming}
-              className="w-full bg-transparent text-xs text-white focus:outline-none resize-none font-sans placeholder-ink-dim leading-relaxed disabled:opacity-50"
-              onKeyDown={(e) => {
-                // 中文 IME 选词/确认候选的 Enter 不是发送（见 isImeComposing 注释）
-                if (isImeComposing(e)) return;
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-            />
-            <div className="flex items-center justify-between border-t border-line/50 pt-2.5 mt-2">
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={handleUploadFile}
-                  disabled={!activeSessionId || uploading || isStreaming}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!activeSessionId || uploading || isStreaming}
-                  className="w-6 h-6 rounded-full bg-page border border-line flex items-center justify-center text-white hover:bg-line hover:text-emerald-400 transition disabled:opacity-40"
-                  title="上传文件附件"
-                >
-                  {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-                </button>
-                {/* Thinking-mode toggle */}
-                <button
-                  type="button"
-                  onClick={() => setEnableThinking((v) => !v)}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none ${
-                    enableThinking
-                      ? 'bg-violet-500/15 border-violet-500/40 text-violet-300'
-                      : 'bg-page border-line text-ink-dim hover:text-white'
-                  }`}
-                  title="思考模式（enable_thinking）— 流式返回思考过程"
-                >
-                  <Brain className="w-3 h-3" />
-                  {enableThinking ? '思考' : '直答'}
-                </button>
-                {/* ⑤ 模式横幅：长对话中途可见的模式状态（点击退出） */}
-                {planMode && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-[11px] text-sky-300 cursor-pointer select-none hover:bg-sky-500/20 transition"
-                    onClick={() => setPlanMode(false)}
-                    title="点击退出计划模式"
-                  >
-                    <ClipboardList className="w-3 h-3" />
-                    计划模式进行中 — 调研设计优先，变更类操作已禁
-                  </div>
-                )}
-                {/* Plan-mode toggle（仅关闭态显示——开启态由横幅承担状态+退出，
-                    两者互斥防重复控件）。点击进入计划模式。 */}
-                {!planMode && (
-                  <button
-                    type="button"
-                    onClick={() => setPlanMode(true)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold transition cursor-pointer select-none bg-page border-line text-ink-dim hover:text-white"
-                    title="计划模式（plan_mode）— 调研设计优先、不产生变更（沙盒内探索性命令保留）；路径不确定或不可逆的任务先出计划审批后再执行"
-                  >
-                    <ClipboardList className="w-3 h-3" />
-                    计划模式
-                  </button>
-                )}
-                <span className="text-[11px] text-ink-dim font-sans flex items-center gap-1 select-none">
-                  <CheckCircle className="w-3 h-3 text-indigo-400" />
-                  {isStreaming ? '正在接收流…' : uploading ? '上传中…' : '就绪'}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                {voiceAvailable && (
-                  <button
-                    type="button"
-                    onClick={() => setInputMode('voice')}
-                    disabled={!activeSession || isStreaming || uploading}
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-ink-dim hover:bg-sky-500/10 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer transition-colors duration-200"
-                    title="切换到语音对话"
-                    aria-label="切换到语音对话"
-                  >
-                    <Mic className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <div className="flex items-center gap-1 bg-page border border-line rounded px-2 py-0.5 text-[11px] font-mono text-ink-dim select-none">
-                  <span>{modelLabel(activeAgent?.model)}</span>
-                </div>
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={handleStop}
-                    className="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer bg-rose-600 hover:bg-rose-500 text-white"
-                    title="中断"
-                  >
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={(!inputText.trim() && pendingFiles.length === 0) || !activeSession}
-                    className={`w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition ${
-                      (inputText.trim() || pendingFiles.length > 0) && activeSession
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                        : 'bg-line text-ink-dim'
-                    }`}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </form>
-          )}
-        </div>
-        )}
-      </div>
-
-      {/* 3. SELECT AGENT FOR NEW SESSION MODAL */}
-      {showAgentSelectModal && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fade-in text-xs font-sans">
-          <div className="w-full max-w-lg bg-panel border border-line rounded-xl shadow-2xl relative overflow-hidden">
-            <div className="p-4 border-b border-line flex justify-between items-center bg-page/60">
-              <h3 className="text-sm font-bold text-white flex items-center gap-1.5 font-sans">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                选择协作 Agent 开始会话
-              </h3>
-              <button
-                onClick={() => setShowAgentSelectModal(false)}
-                className="text-ink-dim hover:text-white font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-5 max-h-[400px] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3">
-              {agents.length === 0 && (
-                <div className="col-span-full text-center text-ink-dim py-8">
-                  暂无可用 Agent，请先在 Agent 空间创建。
-                </div>
-              )}
-              {agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  onClick={() => handleStartNewWithAgent(agent)}
-                  className="p-3 border border-line bg-page/50 rounded-xl hover:border-emerald-500/50 hover:bg-page cursor-pointer transition flex gap-3"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-panel border border-line text-xl flex items-center justify-center shrink-0 shadow-inner select-none overflow-hidden">
-                    <AvatarRender value={agent.avatar} className="w-full h-full p-1 text-xl" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="font-bold text-white truncate">{agent.name}</h4>
-                    <p className="text-[11px] text-ink-dim line-clamp-2 mt-0.5 leading-normal">
-                      {agent.description}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-4 border-t border-line bg-page flex justify-end">
-              <button
-                onClick={() => setShowAgentSelectModal(false)}
-                className="px-4 py-2 border border-line hover:bg-panel text-slate-400 hover:text-white rounded-lg cursor-pointer font-semibold"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function updateMsg(
-  prev: Message[],
-  id: string,
-  patch: Partial<Message>,
-): Message[] {
-  return prev.map((m) => (m.id === id ? { ...m, ...patch } : m));
-}
-
-function formatSessionTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const now = Date.now();
-    const diff = now - d.getTime();
-    if (diff < 60_000) return '刚刚';
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`;
-    return d.toLocaleDateString();
-  } catch {
-    return '';
-  }
-}
-
-/* ────────────────────────────────────────────────────────────
-   Tool-call rendering helpers + ToolCallCard
-   Mirrors the structured tool card from frontend/src/components/chat-panel.tsx:
-   a status-colored header (running/success/error) with a collapsible detail
-   pane showing formatted request args + return result.
-   ──────────────────────────────────────────────────────────── */
-
-/** Per-status visual config. Uses Tailwind opacity color tokens so it renders
- *  correctly in both dark and light themes (no raw hex). `hover` deepens the
- *  same status color slightly (→ /15) for a subtle, theme-safe lift instead of
- *  overlaying an unrelated neutral that looks jarring on a colored card. */
-const TOOL_STATUS_CFG: Record<
-  NonNullable<Message['toolStatus']>,
-  { wrap: string; hover: string; icon: string; label: string }
-> = {
-  pending: {
-    wrap: 'bg-amber-500/10 border-amber-500/30',
-    hover: 'hover:bg-amber-500/15',
-    icon: 'text-amber-400',
-    label: '正在生成参数',
-  },
-  running: {
-    wrap: 'bg-amber-500/10 border-amber-500/30',
-    hover: 'hover:bg-amber-500/15',
-    icon: 'text-amber-400',
-    label: '执行中…',
-  },
-  success: {
-    wrap: 'bg-emerald-500/10 border-emerald-500/30',
-    hover: 'hover:bg-emerald-500/15',
-    icon: 'text-emerald-400',
-    label: '已完成',
-  },
-  error: {
-    wrap: 'bg-rose-500/10 border-rose-500/30',
-    hover: 'hover:bg-rose-500/15',
-    icon: 'text-rose-400',
-    label: '失败',
-  },
-};
-
-/** Pretty-print a tool's request args. Falls back to String() on failure. */
-function formatToolArgs(args?: Record<string, unknown>): string {
-  if (!args || Object.keys(args).length === 0) return '';
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
-/** Try to pretty-print a tool result. If it parses as JSON, re-serialize it
- *  indented; otherwise return the raw string. */
-function formatToolResult(raw?: string): { text: string; isJson: boolean } {
-  if (!raw) return { text: '', isJson: false };
-  const trimmed = raw.trim();
-  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
-    return { text: raw, isJson: false };
-  }
-  try {
-    return { text: JSON.stringify(JSON.parse(trimmed), null, 2), isJson: true };
-  } catch {
-    return { text: raw, isJson: false };
-  }
-}
-
-const RESULT_COLLAPSE_THRESHOLD = 800;
-
-/** 流式执行中三点跳动（消息级动效）。与 ThinkingEntryCard 头部圆点同款
- *  （animate-thinking-dot + 0.18s stagger），对齐 client streaming-dots：
- *  放在消息末尾、不碰 markdown 内部，稳定不抖。 */
-function StreamingDots() {
-  return (
-    <span className="inline-flex items-center gap-[3px] align-baseline" aria-hidden="true">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1 h-1 rounded-full bg-indigo-400 animate-thinking-dot"
-          style={{ animationDelay: `${i * 0.18}s` }}
+        {/* 新会话首条消息的流式期间 activeSession 仍为 null（流结束才绑定，
+            见 handleSendMessage 的 createdSessionIdRef 注释）——此时按
+            liveMessages 判定，直接进入会话视图展示占位气泡与流式输出 */}
+        {(!activeSession && liveMessages.length === 0) ? (
+        <EmptySession
+          composerEl={composerEl}
+          agents={agents}
+          activeAgent={activeAgent}
+          agentMenuOpen={agentMenuOpen}
+          setAgentMenuOpen={setAgentMenuOpen}
+          onSelectAgent={handleStartNewWithAgent}
+          onPickSuggestion={setInputText}
+          modelLabel={modelLabel}
         />
-      ))}
-    </span>
-  );
-}
-
-/** Thinking entry — collapsible reasoning card with streaming animation.
- *  内容区固定最大高度（内部滚动），避免长思考撑爆版面；流式期间内部
- *  贴底跟随（终端效果），思考结束自动收起。 */
-function ThinkingEntryCard({
-  entry,
-  streaming,
-  onToggle,
-}: {
-  entry: TimelineEntry;
-  /** 本轮思考正在流式输出（消息 thinking 中且该 entry 是最新条目）→ 头部脉冲 + 打字光标 */
-  streaming?: boolean;
-  onToggle: () => void;
-}) {
-  const expanded = !!entry.expanded;
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  // 流式期间内容超出固定高度时，内部滚动条贴底跟随最新输出。
-  useEffect(() => {
-    if (streaming && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-  }, [entry.content, streaming]);
-
-  return (
-    <div className="rounded-lg border border-blue-100 bg-blue-50/50 overflow-hidden font-sans dark:border-indigo-900/40 dark:bg-indigo-950/20">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 border-0 bg-transparent cursor-pointer text-left hover:bg-blue-50 dark:hover:bg-indigo-950/40 transition-colors"
-      >
-        <Brain className={`text-indigo-400 ${streaming ? 'animate-pulse' : ''}`} size={13} />
-        <span className="text-xs font-medium text-indigo-300">
-          {streaming ? '思考中' : '思考过程'}
-        </span>
-        {streaming ? (
-          <span className="flex items-center gap-[3px]">
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="w-1 h-1 rounded-full bg-indigo-400 animate-thinking-dot"
-                style={{ animationDelay: `${i * 0.18}s` }}
-              />
-            ))}
-          </span>
         ) : (
-          !!entry.content && (
-            <span className="text-[11px] text-indigo-400/50">{countZi(entry.content)} 字</span>
-          )
-        )}
-        <span className="text-[11px] text-indigo-400/60 ml-auto">{expanded ? '收起' : '展开'}</span>
-        <ChevronRight className={`w-3 h-3 text-indigo-400/60 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-      </button>
-      {expanded && (
-        <div
-          ref={contentRef}
-          className="px-3 pb-2 pt-2 text-xs text-indigo-300/80 whitespace-pre-wrap leading-relaxed border-t border-indigo-900/40 italic max-h-64 overflow-y-auto scrollbar-custom"
-        >
-          {entry.content}
-          {streaming && <span className="animate-caret-blink not-italic">▍</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Tool entry card — renders a timeline tool entry. Dispatches to
- *  ClarificationCard / WorkflowProposalCard / WorkflowTaskCard for known
- *  tool types, else a generic collapsible tool card. Reads entry fields
- *  (toolName/args/result/toolStatus) instead of flat message fields. */
-function ToolEntryCard({
-  entry,
-  msgId,
-  interrupted,
-  onAnswer,
-  onDismiss,
-  onApprovePlan,
-  planVersion,
-  theme,
-}: {
-  entry: TimelineEntry;
-  msgId: string;
-  interrupted: boolean;
-  onAnswer?: (answer: string) => void;
-  onDismiss?: () => void;
-  onApprovePlan?: (plan: string) => void;
-  /** ④ 修订版本号：本条消息内第几次提交计划（反馈循环轮次可见）。 */
-  planVersion?: number;
-  /** 明暗主题——计划书卡片等使用实色底的组件必须感知（prose-chat 的
-   *  正文色随主题切换，深色卡片在浅色主题下会深字深底看不清）。 */
-  theme: 'dark' | 'light';
-}) {
-  // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
-  if (entry.toolName === 'ask_clarification') {
-    // 授权守卫 veto（toolStatus=error）：被拦截的追问渲染为系统引导条
-    // 而非澄清卡——否则"被拦的假澄清 + 后续真澄清"看起来像重复提问。
-    if (entry.result && entry.toolStatus === 'error') {
-      return <GuardRedirectNote text={entry.result} theme={theme} />;
-    }
-    return (
-      <ClarificationCard
-        entry={entry}
-        interrupted={interrupted}
-        onAnswer={onAnswer}
-        onDismiss={onDismiss}
-      />
-    );
-  }
-  // confirm_workflow：工作流确认卡片（从 tool_call args 渲染，tool_result 决定终态）。
-  if (entry.toolName === 'propose_plan') {
-    return (
-      <PlanCard
-        entry={entry}
-        interrupted={interrupted}
-        theme={theme}
-        planVersion={planVersion}
-        onAnswer={onAnswer}
-        onDismiss={onDismiss}
-        onApprovePlan={onApprovePlan}
-      />
-    );
-  }
-  if (entry.toolName === 'confirm_workflow') {
-    const args = entry.args ?? {};
-    const resultText = entry.result ?? '';
-    const isRejection = /取消|拒绝|忽略|cancel/i.test(resultText);
-    const forceAction = entry.result ? (isRejection ? 'rejected' : 'confirmed') : undefined;
-    return (
-      <WorkflowProposalCard
-        proposal={{
-          type: 'workflow_proposal',
-          workflow_name: String(args.workflow_name ?? ''),
-          workflow_description: String(args.description ?? ''),
-          input_preview: (args.params ?? {}) as Record<string, unknown>,
-        }}
-        forceAction={forceAction}
-        onConfirm={(wfName) => {
-          onAnswer?.(`确认执行 ${wfName}`);
-          return true;
-        }}
-        onDismiss={onDismiss}
-      />
-    );
-  }
-  // dispatch_workflow：解析 task_created → 内嵌可展开 task 卡片。
-  if (entry.toolName === 'dispatch_workflow') {
-    const created = parseTaskCreated(entry.result);
-    if (created) return <WorkflowTaskCard created={created} />;
-  }
-  // todo_write：任务清单卡片（checkbox 清单快照；全量替换语义下每次调用
-  // 展示当次的完整清单）。解析失败落通用工具卡。
-  if (entry.toolName === 'todo_write') {
-    const todoItems = parseTodoItems(entry.args);
-    if (todoItems.length) return <TodoListCard todos={todoItems} theme={theme} />;
-  }
-  const status = entry.toolStatus ?? 'running';
-  const cfg = TOOL_STATUS_CFG[status];
-  // render_chart：结果含 ```echarts fenced block → 详情区走 Markdown 自动出图，
-  // 且默认展开（图表是工具的核心产出，不该藏在折叠里）。
-  const isChartResult =
-    entry.toolName === 'render_chart' && /```(?:echarts|chart)\s*\n/i.test(entry.result ?? '');
-  // parse_file：成功解析（返回 markdown 首行 "# 文件名（类型，摘要）"）→ 专属
-  // 文件卡片（FileText 图标 + 文件名标题 + 元信息徽标），详情区 Markdown 渲染，
-  // 默认折叠（提取内容通常较长）。失败（[parse_file] 前缀错误文本）走通用卡片。
-  const isParseResult =
-    entry.toolName === 'parse_file' &&
-    Boolean(entry.result) &&
-    !entry.result!.startsWith('[parse_file]');
-  const parseArgs = entry.args ?? {};
-  const parseLabel = isParseResult
-    ? String(parseArgs.path ?? parseArgs.file_id ?? '文件').split('/').pop()
-    : '';
-  const parseMetaMatch = isParseResult ? /^# .+（(.+?)）/.exec(entry.result ?? '') : null;
-  const parseMeta = parseMetaMatch ? parseMetaMatch[1] : '';
-  // delegate_to_subagent：子 Agent 委派——标题直接显示执行主体名（谁在干活），
-  // 而非 delegate_to_subagent 工具名；task 摘要挂在标题旁。
-  const isDelegation = entry.toolName === 'delegate_to_subagent';
-  const delegationArgs = (entry.args ?? {}) as { subagent_name?: string; task?: string };
-  const delegatedName = isDelegation ? String(delegationArgs.subagent_name ?? '子 Agent') : '';
-  const delegatedTask = isDelegation ? String(delegationArgs.task ?? '') : '';
-  const [expanded, setExpanded] = useState(isChartResult);
-  const [resultExpanded, setResultExpanded] = useState(false);
-
-  const argsText = formatToolArgs(entry.args);
-  const result = formatToolResult(entry.result);
-  const hasDetail = Boolean(argsText || result.text);
-  const resultTooLong = countZi(result.text) > RESULT_COLLAPSE_THRESHOLD;
-  const shownResult =
-    !resultExpanded && resultTooLong
-      ? truncateByZi(result.text, RESULT_COLLAPSE_THRESHOLD) + '…'
-      : result.text;
-
-  const StatusIcon =
-    status === 'running' || status === 'pending' ? Loader2 : status === 'success' ? CheckCircle : AlertTriangle;
-
-  return (
-    <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans ${cfg.wrap}`}>
-      {/* Header — click to toggle detail */}
-      <button
-        type="button"
-        onClick={() => hasDetail && setExpanded((v) => !v)}
-        className={`w-full flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-0 text-left transition-colors ${
-          hasDetail ? `cursor-pointer ${cfg.hover}` : 'cursor-default'
-        }`}
-      >
-        <StatusIcon
-          className={`w-3.5 h-3.5 shrink-0 ${cfg.icon} ${status === 'running' || status === 'pending' ? 'animate-spin' : ''}`}
+        <>
+        <SessionHeader
+          activeSession={activeSession}
+          agents={agents}
+          activeAgent={activeAgent}
+          agentMenuOpen={agentMenuOpen}
+          setAgentMenuOpen={setAgentMenuOpen}
+          onSelectAgent={handleStartNewWithAgent}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
+          modelLabel={modelLabel}
         />
-        {isParseResult ? (
-          <FileText className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
-        ) : isDelegation ? (
-          <Bot className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
-        ) : (
-          <Wrench className={`w-3.5 h-3.5 shrink-0 ${cfg.icon}`} />
+
+        <MessageList
+          messages={liveMessages}
+          activeSession={activeSession}
+          sessionsLoading={sessionsLoading}
+          activeAgent={activeAgent}
+          activeSessionId={activeSessionId ?? pendingSessionId}
+          isStreaming={isStreaming}
+          pinnedRef={pinnedRef}
+          streamingMsgId={streamingMsgId}
+          feedbackMap={feedbackMap}
+          chatScrollRef={chatScrollRef}
+          messageEndRef={messageEndRef}
+          setShowJumpToBottom={setShowJumpToBottom}
+          showJumpToBottom={showJumpToBottom}
+          theme={theme}
+          onAnswer={(a) => handleSendMessage(undefined, a)}
+          onEditMessage={setInputText}
+          inputTextareaRef={inputTextareaRef}
+          onDismissInterrupt={handleDismissInterrupt}
+          onApprovePlan={handleApprovePlan}
+          onVote={handleVoteMessage}
+          onRegenerate={(before) => {
+            const lastUser = [...liveMessages.slice(0, liveMessages.indexOf(before))].reverse().find((m) => m.role === 'user');
+            if (lastUser?.content) {
+              void handleSendMessage(undefined, lastUser.content);
+            } else {
+              toast.error('找不到原始输入，无法重新生成');
+            }
+          }}
+        />
+
+        {/* composer 同理：流式期间（activeSession 未绑定）也要保持输入框可见 */}
+        {(activeSession || liveMessages.length > 0) && (
+          <div
+            ref={(el) => {
+              if (!el) return;
+              const ro = new ResizeObserver(() => {
+                document.documentElement.style.setProperty('--composer-h', `${el.offsetHeight}px`);
+              });
+              ro.observe(el);
+            }}
+            className="px-4 pb-4 pt-2"
+          >
+            {composerEl}
+          </div>
         )}
-        <span className={`text-xs font-semibold truncate ${cfg.icon}`}>
-          {isParseResult
-            ? `文件解析 · ${parseLabel}`
-            : isDelegation
-              ? (status === 'pending' || status === 'running'
-                  ? `${delegatedName} 正在执行子任务…`
-                  : `子 Agent · ${delegatedName}`)
-              : entry.toolName ||
-                (status === 'pending' || status === 'running' ? '调用工具…' : 'unknown_tool')}
-        </span>
-        {isParseResult && parseMeta && (
-          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium bg-white/5 border border-white/10 ${cfg.icon} opacity-80`}>
-            {parseMeta}
-          </span>
-        )}
-        <span className={`text-[11px] ${cfg.icon} opacity-70`}>{cfg.label}</span>
-        {hasDetail && (
-          <span className={`ml-auto flex items-center gap-1 text-[11px] ${cfg.icon} opacity-70`}>
-            {expanded ? '收起' : '详情'}
-            <ChevronRight
-              className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            />
-          </span>
-        )}
-      </button>
 
-      {/* Detail pane */}
-      {expanded && hasDetail && (
-        <div className="border-t border-line px-3.5 pb-3 pt-2.5 space-y-2.5">
-          {isDelegation && delegatedTask && (
-            <div>
-              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
-                委派任务
-              </div>
-              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-48 overflow-y-auto">
-                {delegatedTask}
-              </pre>
-            </div>
-          )}
-          {/* 委派条目不重复展示请求参数——args 即 {subagent_name, task}，
-              已被标题（执行主体名）与「委派任务」块完整覆盖。 */}
-          {!isDelegation && argsText && (
-            <div>
-              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon}`}>
-                请求参数
-              </div>
-              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-48 overflow-y-auto">
-                {argsText}
-              </pre>
-            </div>
-          )}
-          {result.text && (
-            <div>
-              <div className={`text-[11px] font-semibold mb-1 opacity-60 ${cfg.icon} flex items-center gap-1.5`}>
-                返回结果
-                {result.isJson && (
-                  <span className="px-1 py-0 rounded bg-line text-[11px] opacity-80">JSON</span>
-                )}
-              </div>
-              {isChartResult || isParseResult ? (
-                // render_chart：走 Markdown 渲染（识别 ```echarts 出图 + 摘要文本）；
-                // parse_file：提取内容是 markdown（标题/表格），同样走 Markdown 渲染。
-                <Markdown content={result.text} />
-              ) : (
-                <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-all rounded-lg p-2 bg-page border border-line text-ink-dim font-mono max-h-64 overflow-y-auto">
-                  {shownResult}
-                </pre>
-              )}
-              {resultTooLong && (
-                <button
-                  type="button"
-                  onClick={() => setResultExpanded((v) => !v)}
-                  className={`mt-1 text-[11px] underline ${cfg.icon} opacity-80 hover:opacity-100 cursor-pointer`}
-                >
-                  {resultExpanded ? '收起结果' : `展开全部 (${countZi(result.text)} 字)`}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+      </>
       )}
-    </div>
-  );
-}
-
-/** propose_plan 计划书卡片 — 文档样式呈现五段式计划，底部审批操作。
- *
- * 样式上做成"计划书"：文档标题栏（编号感图标 + 标题 + 状态章）、纸面正文
- * （按 `# 标题` 分节渲染：节标题带竖向强调条，目标节强调展示，步骤节
- * checkbox 转为 ☐/☑ 字形），页脚审批区。
- *
- * 交互（interrupted 且未答）：【同意执行】走 approve 端点（零 LLM：
- * 写 PLAN.md + 合成 tool_result），前端随后自动 kickoff 执行；
- * 【拒绝】走 dismiss（本轮作废）；【反馈输入】任意内容 resume
- * （保持计划模式，agent 修订后重新提交新计划书）。
- * 已答态：状态章（已批准/已反馈）+ 反馈摘要。
- */
-
-/** 把五段式计划 markdown 按 `# 标题` 切成节（未带标题的内容归入首节）。 */
-function parsePlanSections(plan: string): Array<{ title: string; body: string }> {
-  const lines = plan.split("\n");
-  const sections: Array<{ title: string; body: string }> = [];
-  let current: { title: string; body: string } | null = null;
-  for (const line of lines) {
-    const m = /^#\s+(.*)$/.exec(line);
-    if (m) {
-      if (current) sections.push(current);
-      current = { title: m[1].trim(), body: "" };
-    } else {
-      if (!current) current = { title: "", body: "" };
-      current.body += line + "\n";
-    }
-  }
-  if (current) sections.push(current);
-  return sections.filter((sec) => sec.title || sec.body.trim());
-}
-
-/** 步骤 checkbox 转 Unicode 字形（Markdown 任务列表渲染不可依赖）。 */
-function planCheckboxGlyphs(body: string): string {
-  return body
-    .replace(/^- \[ \]\s*/gm, "☐ ")
-    .replace(/^- \[x\]\s*/gim, "☑ ");
-}
-
-/** 解析 todo_write 的 args → 清单项（非法项过滤，空数组走通用卡片）。 */
-function parseTodoItems(args: unknown): Array<{ content: string; status: string }> {
-  const todos = (args as { todos?: unknown } | undefined)?.todos;
-  if (!Array.isArray(todos)) return [];
-  return todos
-    .filter(
-      (t): t is { content?: unknown; status?: unknown } =>
-        typeof t === "object" && t !== null,
-    )
-    .map((t) => ({
-      content: String(t.content ?? ""),
-      status: String(t.status ?? "pending"),
-    }));
-}
-
-const TODO_GLYPHS: Record<string, string> = {
-  pending: "☐",
-  in_progress: "◐",
-  completed: "☑",
-};
-
-/** todo_write 专属卡片：checkbox 清单快照 + 完成度摘要（☐ 待办 / ◐ 进行中 / ☑ 完成）。 */
-function TodoListCard({
-  todos,
-  theme,
-}: {
-  todos: Array<{ content: string; status: string }>;
-  theme: "dark" | "light";
-}) {
-  const done = todos.filter((t) => t.status === "completed").length;
-  return (
-    <div
-      className={`rounded-xl rounded-tl-none border overflow-hidden font-sans text-sm ${
-        theme === "dark"
-          ? "border-white/10 bg-white/[0.03]"
-          : "border-black/10 bg-black/[0.02]"
-      }`}
-    >
-      <div className="flex items-center gap-2 px-3.5 py-2.5">
-        <ClipboardList className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-        <span className="font-medium">任务清单</span>
-        <span className="ml-auto text-xs opacity-60">
-          {done}/{todos.length} 完成
-        </span>
-      </div>
-      <ul className="px-3.5 pb-2.5 flex flex-col gap-1">
-        {todos.map((t, i) => (
-          <li key={i} className="flex items-baseline gap-2 leading-6">
-            <span
-              className={`w-4 text-center shrink-0 ${
-                t.status === "completed"
-                  ? "text-green-500"
-                  : t.status === "in_progress"
-                    ? "text-blue-400"
-                    : "opacity-60"
-              }`}
-            >
-              {TODO_GLYPHS[t.status] ?? "☐"}
-            </span>
-            <span
-              className={
-                t.status === "completed"
-                  ? "line-through opacity-50"
-                  : t.status === "in_progress"
-                    ? "font-medium"
-                    : ""
-              }
-            >
-              {t.content}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-const PLAN_SECTION_ORDER = ["目标", "背景与约束", "步骤", "验收标准", "完成时交付"];
-
-function PlanCard({
-  entry,
-  interrupted,
-  onAnswer,
-  onDismiss,
-  onApprovePlan,
-  planVersion,
-  theme,
-}: {
-  entry: TimelineEntry;
-  interrupted: boolean;
-  onAnswer?: (answer: string) => void;
-  onDismiss?: () => void;
-  /** 零 LLM 批准：写 PLAN.md + 合成 tool_result（ChatHomepage 接线后自动 kickoff） */
-  onApprovePlan?: (plan: string) => void;
-  /** ④ 修订版本号（同一消息内第几次提交；>1 时显示 v{n}）。 */
-  planVersion?: number;
-  theme: 'dark' | 'light';
-}) {
-  const [feedback, setFeedback] = useState("");
-  // 编辑模式：直接改计划全文——[按此版本批准]（编辑稿落盘 PLAN.md）或
-  // [作为反馈提交]（编辑稿走 resume 修订通道）。零 LLM 的精确修正路径。
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const dark = theme === 'dark';
-  const plan = String(entry.args?.plan ?? "");
-  const result = entry.result ?? "";
-  const answered = Boolean(result);
-  const toolHints = extractPlanToolHints(plan);
-  // approved 判定：稳定前缀（后端 PLAN_APPROVED_RESULT_TEXT 与 plan_tool
-  // 批准返回文案均以"用户已批准"开头——两侧同源，勿改开头措辞）。
-  const approved = result.startsWith("用户已批准");
-
-  const sections = parsePlanSections(plan);
-  // 规范五段顺序排前，未知节殿后（可演化的计划允许加节）。
-  const ordered = [
-    ...PLAN_SECTION_ORDER.map((t) => sections.find((s) => s.title === t)),
-    ...sections.filter((s) => !PLAN_SECTION_ORDER.includes(s.title)),
-  ].filter((s): s is { title: string; body: string } => Boolean(s));
-  const isObjective = (title: string) => title === "目标";
-
-  // 主题化实色（prose-chat 正文色随主题切换，卡片底色必须跟着走，
-  // 否则浅色主题下深字深底看不清）。
-  const shellCls = dark
-    ? 'border-line-strong bg-panel'
-    : 'border-slate-200 bg-white';
-  const headerCls = dark ? 'bg-[#212126] border-line-strong' : 'bg-slate-50 border-slate-200';
-  const bodyCls = dark ? 'bg-[#1a1a20]' : 'bg-white';
-  const footerCls = dark ? 'bg-page border-line-strong' : 'bg-slate-50 border-slate-200';
-  const titleCls = dark ? 'text-white' : 'text-slate-900';
-  const subtitleCls = dark ? 'text-ink-dim' : 'text-slate-400';
-  const sectionTitleCls = dark ? 'text-sky-300' : 'text-sky-700';
-  const dashCls = dark ? 'border-line-strong' : 'border-slate-300';
-  const objectiveTextCls = dark ? 'text-white' : 'text-slate-900';
-  const bodyTextCls = dark ? 'text-zinc-300' : 'text-slate-700';
-  const badge = answered
-    ? approved
-      ? dark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-             : 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
-      : dark ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-             : 'bg-amber-500/10 text-amber-700 border-amber-500/30'
-    : dark ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
-           : 'bg-sky-500/10 text-sky-700 border-sky-500/30';
-  const ghostBtnCls = dark
-    ? 'border-line-strong text-ink-dim hover:text-white hover:border-line-strong'
-    : 'border-slate-300 text-slate-500 hover:text-slate-900 hover:border-slate-400';
-  const inputCls = dark
-    ? 'bg-panel border-line-strong text-white placeholder-ink-dim focus:border-sky-500/50'
-    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-sky-500';
-  const secondaryBtnCls = dark
-    ? 'bg-line hover:bg-line-strong text-white'
-    : 'bg-slate-200 hover:bg-slate-300 text-slate-900';
-  const resultTextCls = dark ? 'text-ink-dim' : 'text-slate-500';
-
-  return (
-    <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-lg max-w-full ${shellCls}`}>
-      {/* 文档标题栏 */}
-      <div className={`flex items-center justify-between px-5 py-3 border-b ${headerCls}`}>
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
-            <ClipboardList className={`w-3.5 h-3.5 ${dark ? 'text-sky-400' : 'text-sky-600'}`} />
-          </div>
-          <div>
-            <div className={`text-[13px] font-bold tracking-widest ${titleCls}`}>
-              执行计划书{planVersion && planVersion > 1 ? ` · v${planVersion}` : ''}
-            </div>
-            <div className={`text-[11px] tracking-wide ${subtitleCls}`}>
-              PLAN{planVersion && planVersion > 4 ? ` · 已修订 ${planVersion} 轮` : ' · 待人工审批后执行'}
-            </div>
-          </div>
-        </div>
-        <span className={`text-[11px] font-semibold px-2 py-1 rounded border ${badge}`}>
-          {answered ? (approved ? "✓ 已批准" : "已反馈") : "待审批"}
-        </span>
       </div>
 
-      {/* ① 工具清单警示条：审批焦点从"步骤合理"降到"会碰什么"（变更类⚠高亮） */}
-      {toolHints.length > 0 && (
-        <div className={`flex flex-wrap items-center gap-1.5 px-5 py-2 border-b ${dark ? 'border-line-strong bg-[#1d1d23]' : 'border-slate-100 bg-slate-50/60'}`}>
-          <span className={`text-[11px] font-semibold tracking-wide ${subtitleCls}`}>本计划将使用：</span>
-          {toolHints.map((h) => (
-            <span
-              key={h.label}
-              className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
-                h.mutating
-                  ? dark
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                    : 'bg-amber-500/10 border-amber-500/30 text-amber-700'
-                  : dark
-                    ? 'bg-line border-line-strong text-ink-dim'
-                    : 'bg-slate-100 border-slate-200 text-slate-500'
-              }`}
-            >
-              {h.mutating ? '⚠ ' : ''}{h.label}
-            </span>
-          ))}
-        </div>
+      {/* 4. RIGHT PANEL：产物 + 后续扩展功能（左右可拉伸，默认关闭，≥lg 显示）。
+          根级子级（聊天面板 div 之外）——否则会被纵向排到 composer 下方 */}
+      {panelOpen && (
+        <ArtifactsPanel
+          rootRef={rootRef}
+          startColDrag={startColDrag}
+          setPanelW={setPanelW}
+          artifactCount={artifactCount}
+          onClose={() => setPanelOpen(false)}
+          filesPanelRef={filesPanelRef}
+          activeSessionId={activeSessionId ?? pendingSessionId}
+        />
       )}
-
-      {/* 纸面正文：分节渲染 */}
-      <div className={`px-6 py-4 max-h-96 overflow-y-auto space-y-4 ${bodyCls}`}>
-        {ordered.length === 0 && <p className={`text-xs ${subtitleCls}`}>（计划内容缺失）</p>}
-        {ordered.map((sec, i) => (
-          <div key={i}>
-            {sec.title && (
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="w-1 h-3.5 bg-sky-500/70 rounded-full" />
-                <h4 className={`text-[11px] font-bold tracking-widest uppercase ${sectionTitleCls}`}>{sec.title}</h4>
-                <span className={`flex-1 border-t border-dashed ${dashCls}`} />
-              </div>
-            )}
-            {isObjective(sec.title) ? (
-              <div className={`px-3 py-2 rounded-md bg-sky-500/5 border-l-2 border-sky-500/60 text-[13px] font-medium leading-relaxed ${objectiveTextCls}`}>
-                <Markdown content={planCheckboxGlyphs(sec.body.trim())} />
-              </div>
-            ) : (
-              <div className={`text-[12px] leading-relaxed pl-1 ${bodyTextCls}`}>
-                <Markdown content={planCheckboxGlyphs(sec.body.trim() || "—")} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* 页脚：审批操作（未答态） */}
-      {!answered && interrupted && (
-        <div className={`px-5 py-3 border-t space-y-2 ${footerCls}`}>
-          {editing ? (
-            <div className="space-y-2">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={10}
-                spellCheck={false}
-                className={`w-full px-3 py-2 rounded-md text-xs font-mono leading-relaxed outline-none transition resize-y ${inputCls}`}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={!draft.trim()}
-                  onClick={() => {
-                    setEditing(false);
-                    onApprovePlan?.(draft.trim());
-                  }}
-                  className="px-4 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  按此版本批准
-                </button>
-                <button
-                  type="button"
-                  disabled={!draft.trim()}
-                  onClick={() => {
-                    setEditing(false);
-                    onAnswer?.(`以下为用户修改后的计划全文，请据此修订并重新提交：\n\n${draft.trim()}`);
-                    setFeedback("");
-                  }}
-                  className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${ghostBtnCls}`}
-                >
-                  作为反馈提交
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditing(false)}
-                  className="px-3 py-1.5 rounded-md text-xs text-slate-400 hover:text-slate-600 cursor-pointer transition"
-                >
-                  取消
-                </button>
-              </div>
-            </div>
-          ) : (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onApprovePlan?.(plan)}
-              className="px-4 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer transition-colors"
-            >
-              同意执行
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(plan);
-                setEditing(true);
-              }}
-              className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors ${ghostBtnCls}`}
-            >
-              编辑
-            </button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              className={`px-4 py-1.5 rounded-md border text-xs font-semibold cursor-pointer transition-colors ${ghostBtnCls}`}
-            >
-              拒绝
-            </button>
-          </div>
-          )}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && feedback.trim()) {
-                  e.preventDefault();
-                  onAnswer?.(feedback.trim());
-                  setFeedback("");
-                }
-              }}
-              placeholder="输入修改意见，agent 修订后将重新提交计划书…"
-              className={`flex-1 px-3 py-1.5 rounded-md text-xs outline-none transition ${inputCls}`}
-            />
-            <button
-              type="button"
-              disabled={!feedback.trim()}
-              onClick={() => {
-                onAnswer?.(feedback.trim());
-                setFeedback("");
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition disabled:opacity-40 disabled:cursor-not-allowed ${secondaryBtnCls}`}
-            >
-              提交反馈
-            </button>
-          </div>
-        </div>
+      </>
       )}
-
-      {/* 已答态：结果摘要 */}
-      {answered && result && (
-        <div className={`px-5 py-2.5 border-t text-[11px] ${footerCls} ${resultTextCls}`}>
-          {approved ? "✅ 计划已批准 — 对话中说“开始执行”即可按计划推进" : `反馈：${result}`}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 授权守卫引导条 — ask_clarification 被 authorization_guard_veto 拦截
- * （存在未授权应用时防模型向用户索要凭证）的呈现形态。与澄清卡区分：
- * 这是系统级安全引导（指向 request_app_authorization），不是一次提问。 */
-function GuardRedirectNote({ text, theme }: { text: string; theme: 'dark' | 'light' }) {
-  const dark = theme === 'dark';
-  return (
-    <div
-      className={`rounded-xl rounded-tl-none border px-4 py-3 font-sans shadow-sm ${
-        dark
-          ? 'border-amber-500/25 bg-amber-500/5'
-          : 'border-amber-500/30 bg-amber-50'
-      }`}
-    >
-      <div className={`flex items-center gap-2 text-xs font-semibold ${dark ? 'text-amber-400' : 'text-amber-700'}`}>
-        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-        系统安全引导（追问已拦截）
-      </div>
-      <p className={`mt-1.5 text-[11.5px] leading-relaxed ${dark ? 'text-zinc-300' : 'text-slate-600'}`}>
-        {text}
-      </p>
-      <p className={`mt-1 text-[11px] ${dark ? 'text-ink-dim' : 'text-slate-400'}`}>
-        模型被引导改用应用授权流程（request_app_authorization），凭证永不进入对话。
-      </p>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────
-   ClarificationCard — ask_clarification 交互卡片
-   按 clarification_type 分样式渲染问题 + 选项/按钮 + 内联输入。
-   交互态（!answered && clarificationActive）选项可点、内联可填；已回答后选项
-   静态高亮、答案以 indigo 气泡附在卡片下方。暗色配色用 Tailwind opacity token，
-   明暗主题通用。对照 frontend/src/components/chat-panel.tsx 的 ask_clarification 渲染。
-   ──────────────────────────────────────────────────────────── */
-function ClarificationCard({
-  entry,
-  interrupted,
-  onAnswer,
-  onDismiss,
-}: {
-  entry: TimelineEntry;
-  interrupted: boolean;
-  onAnswer?: (answer: string) => void;
-  onDismiss?: () => void;
-}) {
-  const args = entry.args ?? {};
-  const question = args.question ? String(args.question) : '';
-  // LLM 可能把 options 传成 JSON 字符串，做一次兼容解析。
-  const rawOptions = args.options;
-  let options: string[] = [];
-  if (Array.isArray(rawOptions)) options = rawOptions as string[];
-  else if (typeof rawOptions === 'string') {
-    try {
-      options = JSON.parse(rawOptions);
-    } catch {
-      /* ignore */
-    }
-  }
-  const clarificationType = args.clarification_type
-    ? String(args.clarification_type)
-    : 'missing_info';
-  const answered = !!entry.result;
-  // 交互态：只要未回答就可交互。不再门控 interrupted 标志——该标志用于 /resume
-  // 路由判断，不应影响卡片交互元素的可见性（否则 interrupt 状态没及时传递时
-  // 选项/输入框会被隐藏，导致卡片「看不清楚」）。
-  void interrupted; // 保留 prop 以兼容调用方，但不再用作交互门控
-  const interactive = !answered;
-
-  // fields 向导模式：ask_clarification 带 fields 时渲染多步结构化表单，
-  // 单次收集多个字段。fields 可能是数组或 JSON 字符串（LLM 容错）。
-  const rawFields = args.fields;
-  let formFields: ClarificationField[] = [];
-  if (Array.isArray(rawFields)) formFields = rawFields as ClarificationField[];
-  else if (typeof rawFields === 'string') {
-    try {
-      const parsed = JSON.parse(rawFields);
-      if (Array.isArray(parsed)) formFields = parsed as ClarificationField[];
-    } catch {
-      /* ignore */
-    }
-  }
-  if (formFields.length > 0) {
-    return (
-      <ClarificationFormCard
-        question={question}
-        context={args.context ? String(args.context) : undefined}
-        fields={formFields}
-        answered={answered}
-        result={entry.result}
-        onSubmit={(jsonStr) => onAnswer?.(jsonStr)}
-        onDismiss={onDismiss}
-      />
-    );
-  }
-
-  const [inlineText, setInlineText] = useState('');
-  const submitInline = () => {
-    const t = inlineText.trim();
-    if (!t) return;
-    onAnswer?.(t);
-    setInlineText('');
-  };
-
-  const isRisk = clarificationType === 'risk_confirmation';
-  const isSuggestion = clarificationType === 'suggestion';
-  const verticalOptions =
-    clarificationType === 'approach_choice' || clarificationType === 'ambiguous_requirement';
-  const dismissed = entry.result === DISMISSED_CLARIFICATION_TEXT;
-
-  // 配色完全复用 TOOL_STATUS_CFG 的视觉语言（已验证好看 + 协调）：
-  // 外层用淡彩透明底（/10）+ 彩色边框（/30），标题文字用彩色（-400）。
-  // 问题正文放在实底深色内嵌区块（bg-page，和通用工具卡 detail pane 的
-  // <pre> 一致）里，用白字——这样背景好看、文字清晰，两全其美。
-  const accent = isRisk
-    ? { icon: 'text-amber-400', wrap: 'bg-amber-500/10 border-amber-500/30', sym: '⚠️' }
-    : isSuggestion
-      ? { icon: 'text-emerald-400', wrap: 'bg-emerald-500/10 border-emerald-500/30', sym: '💡' }
-      : { icon: 'text-indigo-400', wrap: 'bg-indigo-500/10 border-indigo-500/30', sym: '❓' };
-
-  return (
-    <div className={`rounded-xl rounded-tl-none border overflow-hidden font-sans shadow-sm ${accent.wrap}`}>
-      {/* 标题行：与通用工具卡 header 一致（透明底 + 彩色字） */}
-      <div className="flex items-center gap-2 px-3.5 py-2.5">
-        {answered ? (
-          <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${accent.icon}`} />
-        ) : (
-          <Loader2 className={`w-3.5 h-3.5 shrink-0 ${accent.icon} animate-spin`} />
-        )}
-        <span className={`text-xs font-semibold truncate ${accent.icon}`}>澄清提问</span>
-        <span className={`text-[11px] ${accent.icon} opacity-70`}>
-          {answered ? (dismissed ? '已忽略' : '已回答') : '等待回答'}
-        </span>
-        {/* 跳过入口移至交互区（「跳过此问题，直接继续」）——此处不再放小字按钮 */}
-      </div>
-
-      {/* 问题正文 + 交互区：实底深色内嵌区块（bg-page）+ 白字，可读性优先 */}
-      <div className="mx-2.5 mb-2.5 rounded-lg bg-page border border-line px-3.5 py-3">
-        <div className="flex items-start gap-2.5">
-          <span className={`text-sm mt-0.5 select-none ${accent.icon}`}>{accent.sym}</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium whitespace-pre-wrap leading-relaxed text-ink">
-              {question}
-            </div>
-
-            {options.length > 0 && (
-              <div className={`flex gap-2 mt-3 ${verticalOptions ? 'flex-col' : 'flex-wrap'}`}>
-                {options.map((opt, i) =>
-                  interactive ? (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => onAnswer?.(opt)}
-                      className="text-left px-3 py-1.5 rounded-lg text-xs border bg-well border-line-strong text-ink hover:border-indigo-500/60 hover:bg-indigo-500/10 transition cursor-pointer"
-                    >
-                      {opt}
-                    </button>
-                  ) : (
-                    <div
-                      key={i}
-                      className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                        entry.result === opt
-                          ? 'bg-indigo-500/20 border-indigo-500/60 text-ink font-medium'
-                          : 'bg-well border-line text-ink-dim'
-                      }`}
-                    >
-                      {opt}
-                      {entry.result === opt && <span className="ml-1.5 text-indigo-400">✓</span>}
-                    </div>
-                  ),
-                )}
-              </div>
-            )}
-
-            {/* risk_confirmation：确认执行 / 取消 */}
-            {interactive && isRisk && (
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  onClick={() => onAnswer?.('确认')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-rose-600 text-white hover:bg-rose-500 transition cursor-pointer"
-                >
-                  确认执行
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onAnswer?.('取消')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-well border border-line-strong text-ink hover:bg-line transition cursor-pointer"
-                >
-                  取消
-                </button>
-              </div>
-            )}
-
-            {/* suggestion：接受按钮 */}
-            {interactive && isSuggestion && (
-              <div className="flex gap-2 mt-3 items-center">
-                <button
-                  type="button"
-                  onClick={() => onAnswer?.('接受建议')}
-                  className="px-3.5 py-1.5 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-500 transition cursor-pointer"
-                >
-                  接受
-                </button>
-                <span className="text-[11px] text-ink-dim">或输入其他回答</span>
-              </div>
-            )}
-
-            {/* 内联自由输入（交互态通用兜底） */}
-            {interactive && (
-              <div className="flex gap-1.5 mt-2.5">
-                <input
-                  type="text"
-                  value={inlineText}
-                  onChange={(e) => setInlineText(e.target.value)}
-                  onKeyDown={(e) => {
-                    // 中文 IME 选词的 Enter 不是提交回答
-                    if (isImeComposing(e)) return;
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      submitInline();
-                    }
-                  }}
-                  placeholder="输入你的回答…"
-                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs border border-line-strong bg-well text-ink placeholder:text-ink-dim focus:outline-none focus:border-indigo-500/60"
-                />
-                <button
-                  type="button"
-                  onClick={submitInline}
-                  disabled={!inlineText.trim()}
-                  className="px-2.5 py-1.5 rounded-lg text-xs bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition cursor-pointer"
-                >
-                  发送
-                </button>
-              </div>
-            )}
-
-            {/* 跳过入口：可选问题允许不回答直接继续（下一条消息走普通 stream，
-                不注入本卡）。原入口是右上角 10px 小字「忽略」，太隐蔽用户找不到
-                ——改到交互区，文案说明后果，与表单卡「忽略此问题」同级。 */}
-            {interactive && onDismiss && (
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="mt-2 text-xs text-ink-dim hover:text-ink-dim transition cursor-pointer"
-              >
-                跳过此问题，直接继续 →
-              </button>
-            )}
-
-            {/* 已答：答案在卡片内部展示（紧贴问题下方，与 ClarificationFormCard 一致），
-                不再渲染独立的右对齐气泡。已忽略则只给一行提示。 */}
-            {dismissed && (
-              <div className="mt-3 pt-3 border-t border-line text-xs text-ink-dim">
-                已忽略此问题——可直接在输入框重新描述需求或上传文件
-              </div>
-            )}
-            {answered && entry.result && !dismissed && !options.includes(entry.result) && (
-              <div className="mt-3 pt-3 border-t border-line flex items-baseline gap-2 text-xs">
-                <span className={`shrink-0 ${accent.icon}`}>你的回答:</span>
-                <span className="text-ink font-medium break-all whitespace-pre-wrap">
-                  {entry.result}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
