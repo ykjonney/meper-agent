@@ -141,6 +141,18 @@ export function ToolEntryCard({
   suppressChartBody?: boolean;
 }) {
   // ask_clarification 走专门的交互卡片（按 clarification_type 分样式）。
+  // Hooks 顺序红线：组件有多个条件提前 return 的专属卡片分支，**所有
+  // useState 必须集中在此处无条件调用**——散落在主路径的话，「普通工具
+  // ↔ 澄清条目」的 fiber 复用场景 hooks 数量不一致，切会话时 React 直接
+  // 崩溃白屏（Rendered more hooks than during the previous render）。
+  const answeredClarification = !!entry.result;
+  // render_chart：结果含 ```echarts fenced block → 详情区走 Markdown 自动出图，
+  // 且默认展开（图表是工具的核心产出）。suppressChartBody（组内调用行）时
+  // 退化为普通工具行——成品在产物层渲染，不重复出图、detail 不含 result。
+  const isChartResult = !suppressChartBody && isChartResultEntry(entry);
+  const [clarExpanded, setClarExpanded] = useState(!answeredClarification);
+  const [expanded, setExpanded] = useState(isChartResult);
+  const [resultExpanded, setResultExpanded] = useState(false);
   if (entry.toolName === 'ask_clarification') {
     // 授权守卫 veto（toolStatus=error）：被拦截的追问渲染为系统引导条
     // 而非澄清卡——否则"被拦的假澄清 + 后续真澄清"看起来像重复提问。
@@ -150,8 +162,6 @@ export function ToolEntryCard({
     // 已回答（含忽略）→ 默认收起为一行摘要，点击展开完整卡片；
     // 未答 → 交互卡原样显眼展示。useState 初始值只在挂载时生效：
     // 流式中刚回答完组件不重挂 → 保持展开可见，历史加载/刷新才默认收起。
-    const answeredClarification = !!entry.result;
-    const [clarExpanded, setClarExpanded] = useState(!answeredClarification);
     if (!answeredClarification) {
       return (
         <ClarificationCard
@@ -235,9 +245,7 @@ export function ToolEntryCard({
   const status = entry.toolStatus ?? 'running';
   const cfg = TOOL_STATUS_CFG[status];
   // render_chart：结果含 ```echarts fenced block → 详情区走 Markdown 自动出图，
-  // 且默认展开（图表是工具的核心产出）。suppressChartBody（组内调用行）时
-  // 退化为普通工具行——成品在产物层渲染，不重复出图、detail 不含 result。
-  const isChartResult = !suppressChartBody && isChartResultEntry(entry);
+  // 且默认展开——isChartResult 已在组件顶部（Hooks 无条件区）计算。
   // parse_file：成功解析（返回 markdown 首行 "# 文件名（类型，摘要）"）→ 专属
   // 文件卡片（FileText 图标 + 文件名标题 + 元信息徽标），详情区 Markdown 渲染，
   // 默认折叠（提取内容通常较长）。失败（[parse_file] 前缀错误文本）走通用卡片。
@@ -257,8 +265,6 @@ export function ToolEntryCard({
   const delegationArgs = (entry.args ?? {}) as { subagent_name?: string; task?: string };
   const delegatedName = isDelegation ? String(delegationArgs.subagent_name ?? '子 Agent') : '';
   const delegatedTask = isDelegation ? String(delegationArgs.task ?? '') : '';
-  const [expanded, setExpanded] = useState(isChartResult);
-  const [resultExpanded, setResultExpanded] = useState(false);
 
   const argsText = formatToolArgs(entry.args);
   const result = formatToolResult(entry.result);
