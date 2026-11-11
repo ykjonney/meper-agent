@@ -468,9 +468,11 @@ export function ModelsPage() {
                   <VendorCell
                     key={v.key}
                     on={matchVendorKey(form.provider_tag) === v.key}
-                    bg={v.bg}
-                    fg={v.fg}
-                    label={VENDOR_LOGOS[v.key] ?? <span className="text-[13px]">?</span>}
+                    bg="#fff"
+                    fg="#666E7D"
+                    label={v.key === '自定义'
+                      ? <span className="text-[13px]">?</span>
+                      : <ModelBrandIcon name={v.key} variant="avatar" size={22} />}
                     title={v.key}
                     onClick={() => {
                       const isEmptyBase = !form.base_url || VENDORS.some((o) => o.endpoint && o.endpoint === form.base_url);

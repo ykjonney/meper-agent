@@ -72,12 +72,12 @@ const BRAND_BG: Record<string, string> = {
 export function resolveModelBrand(...texts: (string | undefined | null)[]): string {
   const key = texts.filter(Boolean).join(' ').toLowerCase();
   if (!key) return '';
-  if (/glm|zhipu|chatglm/.test(key)) return 'zhipu';
-  if (/deepseek/.test(key)) return 'deepseek';
-  if (/qwen|tongyi|dashscope/.test(key)) return 'qwen';
+  if (/glm|zhipu|chatglm|智谱/.test(key)) return 'zhipu';
+  if (/deepseek|深度求索/.test(key)) return 'deepseek';
+  if (/qwen|tongyi|dashscope|通义|阿里云/.test(key)) return 'qwen';
   if (/claude|anthropic/.test(key)) return 'anthropic';
   if (/kimi|moonshot/.test(key)) return 'moonshot';
-  if (/gemini/.test(key)) return 'gemini';
+  if (/gemini|google/.test(key)) return 'gemini';
   if (/doubao|豆包/.test(key)) return 'doubao';
   if (/hunyuan|混元/.test(key)) return 'hunyuan';
   if (/grok|xai/.test(key)) return 'grok';
