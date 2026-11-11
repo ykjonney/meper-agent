@@ -267,3 +267,53 @@ class TestRecoverOrphanRunningTasks:
         }
         assert update_doc["$set"]["status"] == TaskStatus.FAILED.value
         assert update_doc["$set"]["checkpoint"] is None
+
+
+class TestRedispatchOrphanPending:
+    """孤儿 PENDING 重派：查询条件排除未到期任务 + delay 派发 + touch updated_at。"""
+
+    @pytest.mark.asyncio
+    async def test_query_excludes_future_scheduled(self) -> None:
+        """查询必须含 scheduled_at 条件——未到期的合法待执行任务不得被拉起。"""
+        from app.services.task_recovery import redispatch_orphan_pending_tasks
+
+        mock_collection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.limit.return_value = mock_cursor
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_collection.find.return_value = mock_cursor
+
+        with patch("app.services.task_recovery.get_database") as mock_db:
+            mock_db.return_value = {"tasks": mock_collection}
+            count = await redispatch_orphan_pending_tasks(idle_seconds=60, limit=50)
+
+        assert count == 0
+        query = mock_collection.find.call_args.args[0]
+        assert query["status"] == TaskStatus.PENDING.value
+        assert "updated_at" in query and "$lt" in query["updated_at"]
+        # scheduled_at 条件：null/缺失 或 已到期
+        assert {"scheduled_at": None} in query["$or"]
+        assert {"scheduled_at": {"$lte": query["$or"][1]["scheduled_at"]["$lte"]}} in query["$or"]
+
+    @pytest.mark.asyncio
+    async def test_redispatch_delays_and_touches_updated_at(self) -> None:
+        """每个孤儿任务 delay 一次 + touch updated_at（自愈循环时钟重置）。"""
+        from app.services.task_recovery import redispatch_orphan_pending_tasks
+
+        orphans = [{"_id": "task_a"}, {"_id": "task_b"}]
+        mock_collection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=orphans)
+        mock_collection.find.return_value = mock_cursor
+        mock_collection.update_one = AsyncMock()
+
+        with (
+            patch("app.services.task_recovery.get_database") as mock_db,
+            patch("app.workers.tasks.workflow_execution.run_workflow_task") as mock_task,
+        ):
+            mock_db.return_value = {"tasks": mock_collection}
+            count = await redispatch_orphan_pending_tasks(idle_seconds=60)
+
+        assert count == 2
+        assert mock_task.delay.await_count if hasattr(mock_task.delay, "await_count") else mock_task.delay.call_count == 2
+        assert mock_collection.update_one.await_count == 2

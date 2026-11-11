@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     TASK_SLOW_WARN_REPEAT_MINUTES: int = 60
     # 孤儿判定（分钟）：RUNNING 且 updated_at 超过此时长视为孤儿 → FAILED。
     TASK_ORPHAN_MINUTES: int = 30
+    # 孤儿 PENDING 重派判定（分钟）：pending 且 scheduled_at 已到期/为空、
+    # updated_at 超过此时长 → 重新 dispatch（acks_early 下 worker 崩溃/
+    # 消费异常遗留任务的常驻恢复防线；状态机版本锁保证幂等）。
+    TASK_ORPHAN_PENDING_MINUTES: int = 5
     # 完结任务 checkpoint 保留期（天）：completed/failed/cancelled 任务的
     # agent thread checkpoints 到期删除（0=禁用）。代价：到期后前端"节点
     # 执行明细"不可回看（任务结果/timeline 不受影响）。

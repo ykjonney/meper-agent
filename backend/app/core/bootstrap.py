@@ -134,10 +134,15 @@ async def recover_tasks() -> None:
     from app.services.task_recovery import (
         recover_orphan_running_tasks,
         recover_waiting_human_tasks,
+        redispatch_orphan_pending_tasks,
     )
 
     await recover_waiting_human_tasks()
     await recover_orphan_running_tasks()
+    # 孤儿 PENDING 立即重派（60s 宽限）：不等 beat 5 分钟轮——worker 重启
+    # 后遗留的 pending 任务在服务起来时即恢复（消息若实际还在排队，状态机
+    # 版本锁保证双消费方仅一方成功）。
+    await redispatch_orphan_pending_tasks(idle_seconds=60, limit=100)
 
 
 async def start_channel_connections() -> None:

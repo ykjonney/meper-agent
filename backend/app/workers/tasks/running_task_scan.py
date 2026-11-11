@@ -86,7 +86,10 @@ async def _notify_slow(task: dict[str, Any], elapsed_min: int) -> None:
 
 async def _scan_async() -> dict[str, int]:
     from app.db.mongodb import get_database
-    from app.services.task_recovery import recover_orphan_running_tasks
+    from app.services.task_recovery import (
+        recover_orphan_running_tasks,
+        redispatch_orphan_pending_tasks,
+    )
 
     db = get_database()
     now = utc_now()
@@ -125,10 +128,16 @@ async def _scan_async() -> dict[str, int]:
         idle_seconds=settings.TASK_ORPHAN_MINUTES * 60, limit=100,
     )
 
-    return {"warned": warned, "orphaned": orphaned}
+    # ── 孤儿 PENDING 重派 ──（acks_early 下 worker 崩溃/消费异常遗留的
+    # pending 任务重新 dispatch；状态机版本锁幂等，与正常消费竞速安全）
+    redispatched = await redispatch_orphan_pending_tasks(
+        idle_seconds=settings.TASK_ORPHAN_PENDING_MINUTES * 60, limit=50,
+    )
+
+    return {"warned": warned, "orphaned": orphaned, "redispatched": redispatched}
 
 
 @celery_app.task(name="app.workers.tasks.running_task_scan.scan_running_tasks")
 def scan_running_tasks() -> dict[str, int]:
-    """Periodic: slow-task warnings + orphan RUNNING cleanup (every 5 min)."""
+    """Periodic: slow-task warnings + orphan RUNNING/PENDING recovery (5 min)."""
     return run_async(_scan_async())

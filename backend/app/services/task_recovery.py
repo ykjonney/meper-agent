@@ -280,3 +280,71 @@ async def _mark_orphan_running_failed(
     else:
         # 状态已被其他路径推进（例如人工/超时已转移），跳过
         logger.info("orphan_running_task_skipped", task_id=task_id)
+
+
+async def redispatch_orphan_pending_tasks(
+    *,
+    idle_seconds: int | None = None,
+    limit: int | None = None,
+) -> int:
+    """Re-dispatch ``pending`` tasks whose Celery message was lost.
+
+    acks_late=False（收到消息即 ack）下，worker 崩溃/SIGKILL/消费异常会让
+    任务停在 ``pending`` 且永远无人拉起——孤儿 RUNNING 有 beat 判 FAILED
+    兜底，孤儿 PENDING 此前没有任何恢复通道（worker 重启不会重投已 ack
+    的消息）。
+
+    恢复 = 重新 dispatch 统一入口 ``run_workflow_task``（内部按 agent_id
+    分流）+ touch updated_at。幂等由状态机版本锁承担：若原消息其实还在
+    排队，双消费方仅一方 pending→running 成功，另一方 skipped 无副作用。
+    ``scheduled_at`` 未到期的合法待执行任务被排除（只扫无计划时间或已到期）。
+
+    Args:
+        idle_seconds: 判定窗口（启动恢复传 60s 宽限；beat 巡检传
+            TASK_ORPHAN_PENDING_MINUTES 分钟级窗口）。
+        limit: 单轮派发上限。
+
+    Returns:
+        本轮重派的任务数。
+    """
+    from datetime import timedelta
+
+    db = get_database()
+    idle = idle_seconds if idle_seconds is not None else ORPHAN_RUNNING_GRACE_SECONDS
+    cutoff = utc_now() - timedelta(seconds=idle)
+
+    query = {
+        "status": TaskStatus.PENDING.value,
+        "updated_at": {"$lt": cutoff},
+        "$or": [{"scheduled_at": None}, {"scheduled_at": {"$lte": utc_now()}}],
+    }
+    cursor = db["tasks"].find(query, {"_id": 1})
+    if limit is not None:
+        cursor = cursor.limit(limit)
+    orphans = await cursor.to_list(length=None)
+    if not orphans:
+        logger.debug("redispatch_orphan_pending_none_found")
+        return 0
+
+    logger.warning("redispatch_orphan_pending_starting", count=len(orphans))
+
+    from app.workers.tasks.workflow_execution import run_workflow_task
+
+    redispatched = 0
+    for doc in orphans:
+        task_id = str(doc["_id"])
+        try:
+            run_workflow_task.delay(task_id)
+        except Exception as exc:
+            # broker 不可达等：本轮跳过该任务，下一轮扫描继续（updated_at
+            # 未 touch，仍处于超龄窗口）
+            logger.error("orphan_pending_redispatch_failed", task_id=task_id, error=str(exc))
+            continue
+        # touch updated_at：若重派消息再次丢失，updated_at 重新超龄后下一轮
+        # 扫描会再次重派（自愈循环）。
+        await db["tasks"].update_one(
+            {"_id": doc["_id"]}, {"$set": {"updated_at": utc_now()}},
+        )
+        redispatched += 1
+        logger.info("orphan_pending_redispatched", task_id=task_id)
+    return redispatched
