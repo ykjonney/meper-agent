@@ -174,9 +174,14 @@ export function TaskBoardCard({
         )}
       </div>
 
-      {/* 标题 */}
-      <div className="text-[13px] font-bold text-ink leading-[1.4] pr-5">
-        {workflowName ?? task.workflow_id}
+      {/* 标题（类型 chip：Agent 靛蓝软底 / 工作流灰底，与调度规则卡同款） */}
+      <div className="flex items-center gap-1.5 pr-5 min-w-0">
+        <span className={`shrink-0 text-[9.5px] font-semibold px-1.5 py-[1.5px] rounded-[5px] ${task.agent_id ? 'bg-brand-soft text-brand' : 'bg-raise text-ink-dim'}`}>
+          {task.agent_id ? 'Agent' : '工作流'}
+        </span>
+        <span className="text-[13px] font-bold text-ink leading-[1.4] truncate">
+          {workflowName ?? (task.agent_id || task.workflow_id)}
+        </span>
       </div>
 
       {/* 来源行（设计稿 t-src）：src-tag + 执行者 */}
