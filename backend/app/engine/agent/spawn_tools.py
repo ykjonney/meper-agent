@@ -245,6 +245,27 @@ async def _create_agent(
     from app.engine.agent.builtin_tools import _get_workspace
     from app.services.agent_service import AgentService
 
+    # 模型引用归一：default_model 粒度是 models 表 _id（model_ ULID）。
+    # 模型常误填名称/厂商 model_id（清单按名称+id 双列）——映射回表 _id；
+    # 未知直接报错回灌（防静默绑定失败：无效引用走 env fallback 后无凭证，
+    # 被测 agent 会「没反应」）。
+    if model_ref and not model_ref.startswith("model_"):
+        m = await get_database()["models"].find_one(
+            {"$or": [{"name": model_ref}, {"model_id": model_ref}]},
+            {"_id": 1},
+        )
+        if m:
+            model_ref = m["_id"]
+        else:
+            models = await get_database()["models"].find(
+                {}, {"name": 1, "model_id": 1},
+            ).limit(20).to_list(20)
+            hint = "；".join(f"{x.get('name','')}（id={x['_id']}）" for x in models)
+            return (
+                f"[create_agent] model_ref「{model_ref}」不是 models 表 _id，"
+                f"且按名称/厂商 id 也找不到。可用模型：{hint}"
+            )
+
     # 连接 id 归一：绑定粒度是连接（mcp_connection_ids）。模型可能误填
     # 工具级 id（清单曾按工具列出）——按 tools 集合映射回所属连接；
     # 未知 id 直接报错回灌（防静默绑定失败）。
