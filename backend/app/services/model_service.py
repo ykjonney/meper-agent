@@ -311,13 +311,15 @@ class ModelService:
         if existing_doc is None:
             return False
 
-        # Check Agent references — list ALL referencing agents (like TOOL_IN_USE)
+        # Check Agent references — list ALL referencing agents (like TOOL_IN_USE)。
+        # 归档（archived）agent 不计入：它不是有效消费者（不可对话），恢复发布
+        # 是显式动作，届时重新配置模型即可——不再阻止模型删除。
         agents_col = get_database()["agents"]
         cursor = agents_col.find(
             {"$or": [
                 {"default_model": model_id},
                 {"llm_config.default_model": model_id},  # backward compat
-            ]},
+            ], "status": {"$ne": "archived"}},
             {"name": 1},
         )
         referencing_agents = await cursor.to_list(length=100)
