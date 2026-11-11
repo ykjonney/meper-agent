@@ -415,7 +415,42 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                   </section>
                 )}
 
+                {/* agent 任务：无流程图/时间线——指令 + 结果 + 执行过程跳转 */}
+                {taskDetail.agent_id && (
+                  <section className="rounded-lg border border-line bg-panel p-4 space-y-3">
+                    <SectionTitle>
+                      Agent 执行 <span className="font-normal text-ink-dim">({agentNameMap[taskDetail.agent_id] ?? taskDetail.agent_id})</span>
+                    </SectionTitle>
+                    <div>
+                      <div className="text-xs text-ink-dim mb-1">执行指令</div>
+                      <div className="text-sm text-ink whitespace-pre-wrap break-words">
+                        {String((taskDetail.input as Record<string, unknown> | null)?.instruction ?? '')}
+                      </div>
+                    </div>
+                    {taskDetail.status === 'completed' && taskDetail.output && (
+                      <div>
+                        <div className="text-xs text-ink-dim mb-1">执行结果</div>
+                        <div className="text-sm text-ink-soft whitespace-pre-wrap break-words bg-well rounded-lg p-3 border border-line max-h-[50vh] overflow-y-auto scrollbar-custom">
+                          {String((taskDetail.output as Record<string, unknown>).output ?? '')}
+                        </div>
+                        {(taskDetail.output as Record<string, unknown>).session_id && (
+                          <button
+                            type="button"
+                            className="mt-2 text-xs text-brand hover:underline cursor-pointer"
+                            onClick={() => window.dispatchEvent(new CustomEvent('af:open-session', {
+                              detail: { id: String((taskDetail.output as Record<string, unknown>).session_id) },
+                            }))}
+                          >
+                            查看执行过程 →
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {/* 流程图（可折叠 card） */}
+                {!taskDetail.agent_id && (
                 <section className={`rounded-lg border overflow-hidden ${
                   'border-line bg-panel'
                 }`}>
@@ -441,14 +476,17 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                     </div>
                   )}
                 </section>
+                )}
 
                 {/* 执行时间线 */}
+                {!taskDetail.agent_id && (
                 <section>
                   <SectionTitle>
                     时间线 <span className="font-normal text-ink-dim">({taskDetail.timeline?.length ?? 0})</span>
                   </SectionTitle>
                   <TaskFlowTimeline task={taskDetail} theme={theme} resolveTemplateId={resolveTemplateId} />
                 </section>
+                )}
               </div>
             )}
           </div>
@@ -461,7 +499,11 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                 <CollapsibleSection title="基本信息" open={basicOpen} onToggle={() => setBasicOpen((v) => !v)}>
                   <div className="space-y-2.5">
                     <InfoRow label="ID" value={taskDetail.id} mono />
-                    <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
+                    {taskDetail.agent_id ? (
+                      <InfoRow label="执行目标" value={agentNameMap[taskDetail.agent_id] ?? taskDetail.agent_id} />
+                    ) : (
+                      <InfoRow label="工作流" value={workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id} />
+                    )}
                     <InfoRow label="创建者" value={creatorLabel(taskDetail.created_by, taskDetail.created_by_type)} />
                     <InfoRow label="版本" value={`v${taskDetail.version}`} />
                     <InfoRow label="创建时间" value={formatTimeShort(taskDetail.created_at)} />

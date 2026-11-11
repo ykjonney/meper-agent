@@ -253,13 +253,18 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
     return entry?.workflow_id ?? maybeRegistryId
   }, [wfData])
   const workflows: WorkflowRegistryEntry[] = wfData?.items ?? []
-  // 已发布 Agent（发起任务弹窗的执行目标第二类型：委派单个 Agent 执行）
+  // 已发布 Agent（发起任务弹窗的执行目标第二类型：委派单个 Agent 执行；
+  // 列表/详情的目标名解析同源——不再 gated by createOpen）
   const { data: pubAgentsData } = useQuery({
     queryKey: agentKeys.list({ page: 1, page_size: 100, status: 'published' }),
     queryFn: () => agentApi.list({ page: 1, page_size: 100, status: 'published' }),
-    enabled: createOpen,
   })
   const pubAgents: Agent[] = useMemo(() => (pubAgentsData?.items ?? []).map(toStudioAgent), [pubAgentsData])
+  const agentNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const a of pubAgentsData?.items ?? []) map[a.id] = a.name
+    return map
+  }, [pubAgentsData])
 
   // 调度规则过滤（名称 / cron / workflow_id）
   const filteredTriggers = useMemo(() => {
@@ -628,7 +633,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                         key={task.id}
                         task={task}
                         progress={progressMap[task.id]}
-                        workflowName={workflowNameMap[task.workflow_id]}
+                        workflowName={task.agent_id ? (agentNameMap[task.agent_id] ?? task.agent_id) : workflowNameMap[task.workflow_id]}
                         creatorName={creatorLabel(task.created_by, task.created_by_type)}
                         sourceTag={task.trigger_id ? 'cron' : 'manual'}
                         onClick={() => handleCardClick(task)}
