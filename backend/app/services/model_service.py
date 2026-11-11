@@ -312,14 +312,20 @@ class ModelService:
             return False
 
         # Check Agent references — list ALL referencing agents (like TOOL_IN_USE)。
+        # 生效语义与 resolve_default_model 对齐：平铺 default_model 优先，legacy
+        # llm_config.default_model 仅在平铺缺失/为空时回退——平铺已指向别的模型
+        # 时，legacy 残留不算引用（否则更新模型后永远误拦删除）。
         # 归档（archived）agent 不计入：它不是有效消费者（不可对话），恢复发布
         # 是显式动作，届时重新配置模型即可——不再阻止模型删除。
         agents_col = get_database()["agents"]
         cursor = agents_col.find(
-            {"$or": [
-                {"default_model": model_id},
-                {"llm_config.default_model": model_id},  # backward compat
-            ], "status": {"$ne": "archived"}},
+            {"$and": [
+                {"status": {"$ne": "archived"}},
+                {"$or": [
+                    {"default_model": model_id},
+                    {"default_model": {"$in": ["", None]}, "llm_config.default_model": model_id},
+                ]},
+            ]},
             {"name": 1},
         )
         referencing_agents = await cursor.to_list(length=100)
