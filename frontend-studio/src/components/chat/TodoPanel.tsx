@@ -37,6 +37,9 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
   const doing = todos.some((t) => t.status === 'in_progress');
   const allDone = done === todos.length;
   const accent = allDone ? 'text-sig-ok' : doing ? 'text-brand' : 'text-ink-dim';
+  // 全完成收尾：胶囊淡化为弱灰度不抢视觉（hover/展开复原）——清单仍可
+  // 回看，新一轮 todo_write 全量替换后自然恢复常态。
+  const faded = allDone && !open;
 
   return (
     <div className="relative shrink-0">
@@ -44,7 +47,7 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="h-8 flex items-center gap-1.5 px-2.5 bg-panel border border-line rounded-full shadow-[var(--shadow-card)] cursor-pointer transition hover:border-line-strong"
+        className={`h-8 flex items-center gap-1.5 px-2.5 bg-panel border border-line rounded-full shadow-[var(--shadow-card)] cursor-pointer transition hover:border-line-strong ${faded ? 'opacity-45 hover:opacity-100' : ''}`}
         title="任务清单"
       >
         <ClipboardList className={`w-3.5 h-3.5 ${accent}`} />
