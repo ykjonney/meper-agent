@@ -66,6 +66,11 @@ class AgentExecutionService:
         *,
         external_call_chain: list[str] | None = None,
         user_token: str | None = None,
+        # 后台任务用 "workflow"：无人值守语义（剥离交互工具，注入 abort_workflow）。
+        # None 回退 "chat"，现有调用方零影响。
+        execution_context: str | None = None,
+        # 协作式取消检查器（每轮 REACT 迭代边界调用，True=取消挂起）。
+        cancel_checker=None,
     ) -> ExecutionResponse:
         """Execute an agent synchronously and persist the result.
 
@@ -78,8 +83,9 @@ class AgentExecutionService:
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
 
-        # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）。
-        exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
+        # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）；否则用调用方
+        # 声明的上下文（默认 chat）。
+        exec_ctx = "plan" if getattr(body, "plan_mode", False) else (execution_context or "chat")
 
         session_id = await _resolve_session(agent_id, body, user_id)
         request_id = str(uuid.uuid4())
@@ -123,6 +129,7 @@ class AgentExecutionService:
                 recorder_sink=recorder_sink,
                 execution_context=exec_ctx,
                 subagents=subagent_bundles or None,
+                cancel_checker=cancel_checker,
             )
         except Exception as exc:
             run_error = exc
@@ -177,6 +184,7 @@ class AgentExecutionService:
             agent_id=agent_id,
             session_id=session_id,
             step_count=result.get("step_count", 0),
+            total_tokens=(request_usage or {}).get("total_tokens", 0),
         )
 
     # ------------------------------------------------------------------
