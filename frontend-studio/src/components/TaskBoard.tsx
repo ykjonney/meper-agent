@@ -401,19 +401,14 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       setActionError(target?.kind === 'agent' ? '请先选择一个已发布的 Agent' : '请先选择一个已发布的工作流')
       return
     }
-    // agent 目标的定时调度：周期(cron)走调度规则（trigger 绑定 agent，每期
-    // 到期 fork agent 任务）；单次(once)直接创建带 scheduled_at 的任务
+    // agent 目标的定时调度：与 workflow 同构——once/cron 都存调度规则
+    //（trigger 绑定 agent + instruction，到期由 scheduled worker fork 任务）
     if (createMode === 'sched' && target?.kind === 'agent') {
-      if (schedFreq === 'once') {
-        if (!schedOnceAt) {
-          setActionError('请选择一次性执行的时间')
-          return
-        }
-        setActionError(null)
-        createTask.mutate({ ...newTask, targetKind: 'agent', scheduledAt: new Date(schedOnceAt).toISOString() })
+      if (schedFreq === 'once' && !schedOnceAt) {
+        setActionError('请选择一次性执行的时间')
         return
       }
-      if (schedFreq === 'adv' && !cronAdv.trim()) {
+      if (schedFreq !== 'once' && schedFreq === 'adv' && !cronAdv.trim()) {
         setActionError('请填写 cron 表达式')
         return
       }
@@ -425,8 +420,9 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       createScheduleM.mutate({
         agentId: newTask.entryId,
         instruction: newTask.input,
-        type: 'cron',
-        cron_expression: buildCron(),
+        type: schedFreq === 'once' ? 'once' : 'cron',
+        cron_expression: schedFreq === 'once' ? undefined : buildCron(),
+        execute_at: schedFreq === 'once' ? new Date(schedOnceAt).toISOString() : undefined,
       })
       return
     }
@@ -711,7 +707,8 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
           ) : (
             <div className="space-y-2.5 pb-6 max-w-[920px]">
               {filteredTriggers.map((t) => {
-                const wfName = t.agent_id ? `🤖 ${agentNameMap[t.agent_id] ?? t.agent_id}` : (workflowNameMap[t.workflow_id] ?? t.workflow_id)
+                const isAgent = !!t.agent_id
+                const targetName = isAgent ? (agentNameMap[t.agent_id] ?? t.agent_id) : (workflowNameMap[t.workflow_id] ?? t.workflow_id)
                 const isCron = t.type === 'cron'
                 return (
                   <div
@@ -720,17 +717,20 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                       t.enabled ? '' : 'opacity-70'
                     }`}
                   >
-                    {/* 主信息：名称 + cron chip / 一次性时间 + 人类描述 */}
+                    {/* 主信息：名称 + 类型 chip + cron chip / 一次性时间 + 人类描述 */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[14px] font-bold text-ink truncate">{wfName}</span>
+                        <span className="text-[14px] font-bold text-ink truncate">{targetName}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md shrink-0 ${isAgent ? 'bg-brand-soft text-brand font-semibold' : 'bg-raise text-ink-dim'}`}>
+                          {isAgent ? 'Agent' : '工作流'}
+                        </span>
                         {isCron && (
                           <span className="font-mono text-[10.5px] px-2 py-0.5 rounded-md bg-raise text-ink-dim shrink-0">{t.cron_expression || '-'}</span>
                         )}
                       </div>
                       <div className="text-[11px] text-ink-dim mt-1 truncate">
                         {isCron ? `cron 调度` : `一次性 · ${t.execute_at ? new Date(t.execute_at).toLocaleString('zh-CN') : '-'}`}
-                        {' · '}工作流「{wfName}」
+                        {' · '}{isAgent ? '委派 Agent' : '工作流'}「{targetName}」
                       </div>
                     </div>
 
