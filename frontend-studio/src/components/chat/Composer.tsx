@@ -12,6 +12,7 @@ import { Popover } from '../ui';
 import { isImeComposing } from '../../lib/keyboard';
 import { THINK_LEVELS, THINK_LEVEL_META, fmtContextWindow } from './message-utils';
 import { useModelLabels } from './useModelLabels';
+import { ModelBrandIcon } from '../ModelBrandIcon';
 
 interface ComposerProps {
   theme: 'dark' | 'light';
@@ -235,6 +236,7 @@ export function Composer({
                             : 'text-ink-dim hover:bg-raise hover:text-ink'
                         }`}
                       >
+                        <ModelBrandIcon name={m.name} modelId={m.model_id} providerTag={m.provider_tag} />
                         <span className="truncate">{m.name}</span>
                         <span className="ml-auto flex items-center gap-1.5 shrink-0">
                           {fmtContextWindow(m.default_params?.context_window) && (
@@ -279,6 +281,11 @@ export function Composer({
               className="hidden sm:flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-mono select-none shrink-0 transition cursor-pointer text-ink-dim hover:bg-raise hover:text-ink disabled:cursor-default disabled:opacity-60"
               title={activeAgent ? '选择模型与思考强度' : '未选择 Agent'}
             >
+              <ModelBrandIcon
+                name={modelLabel(activeAgent?.model)}
+                modelId={modelsData?.items.find((m) => m.id === activeAgent?.model)?.model_id}
+                providerTag={modelsData?.items.find((m) => m.id === activeAgent?.model)?.provider_tag}
+              />
               <span>{modelLabel(activeAgent?.model)}</span>
               <ChevronDown className="w-3 h-3 text-ink-faint" />
               {activeAgent && (

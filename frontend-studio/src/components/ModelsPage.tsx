@@ -10,6 +10,7 @@
  * (the nav entry hides this page entirely for users lacking model:read).
  */
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { ModelBrandIcon } from './ModelBrandIcon';
 import {
   Plus, Search, Server, Zap, Loader2, X, AlertTriangle, CheckCircle2, ChevronRight,
 } from 'lucide-react';
@@ -113,17 +114,17 @@ function matchVendorKey(tag?: string): string {
   return hit?.key ?? (t ? '自定义' : '');
 }
 
-/** 厂商徽章（设计稿 badge-44）：按名称/model_id/provider_tag 匹配厂商 → 真 logo SVG + 身份色 */
-function vendorStyle(m: Model): { bg: string; label: ReactNode } {
-  const key = `${m.name} ${m.model_id} ${m.provider_tag ?? ''}`.toLowerCase();
-  if (/embed|bge|text-embedding/.test(key)) return { bg: '#14B8A6', label: VENDOR_LOGOS['OpenAI'] ?? 'E' };
-  if (/glm|zhipu|chatglm/.test(key)) return { bg: '#2E5BFF', label: VENDOR_LOGOS['智谱 AI'] ?? '智' };
-  if (/qwen|tongyi|dashscope/.test(key)) return { bg: '#FF6A00', label: VENDOR_LOGOS['阿里云通义'] ?? '通' };
-  if (/claude|anthropic/.test(key)) return { bg: '#D97757', label: VENDOR_LOGOS['Anthropic'] ?? 'A' };
-  if (/deepseek/.test(key)) return { bg: '#4D6BFE', label: VENDOR_LOGOS['DeepSeek'] ?? 'D' };
-  if (/gpt|openai|o1|o3/.test(key)) return { bg: '#0D0D0D', label: VENDOR_LOGOS['OpenAI'] ?? 'O' };
-  if (/kimi|moonshot/.test(key)) return { bg: '#0B0B1E', label: VENDOR_LOGOS['Moonshot AI'] ?? 'K' };
-  return { bg: '#5A6472', label: (m.name || '?').trim().slice(0, 1).toUpperCase() };
+/** 厂商徽章（设计稿 badge-44）：ModelBrandIcon avatar 变体（品牌色方底+白 logo）
+ *  替代旧手绘 SVG；embedding 类模型回退青色首字母徽章。 */
+function vendorBadge(m: Model): ReactNode {
+  if (/embed|bge|text-embedding/i.test(`${m.name} ${m.model_id}`)) {
+    return (
+      <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 text-white font-bold text-[15px] select-none" style={{ background: '#14B8A6' }}>
+        E
+      </div>
+    );
+  }
+  return <ModelBrandIcon name={m.name} modelId={m.model_id} providerTag={m.provider_tag} variant="avatar" size={26} />;
 }
 
 /** Format an ISO timestamp as a short Chinese relative string ('刚刚' / '3 分钟前'). '' if missing/invalid. */
@@ -348,7 +349,6 @@ export function ModelsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-4">
           {filtered.map((m) => {
-            const vendor = vendorStyle(m);
             const isEmbed = /embed/i.test(`${m.name} ${m.model_id} ${m.provider_tag ?? ''}`);
             // pill 优先级：已停用 > 连通性测试结果
             const pill = m.status !== 'active'
@@ -367,12 +367,8 @@ export function ModelsPage() {
               >
                 {/* 头部：厂商徽章 + 名称 + 厂商/协议行 + 连通 pill */}
                 <div className="flex items-start gap-[11px]">
-                  <div
-                    className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center shrink-0 text-white font-bold text-[15px] select-none"
-                    style={{ background: vendor.bg, fontFamily: 'var(--font-serif)' }}
-                    title={`${m.provider_tag || COMPATIBILITY_LABELS[m.compatibility_type]}`}
-                  >
-                    {vendor.label}
+                  <div title={`${m.provider_tag || COMPATIBILITY_LABELS[m.compatibility_type]}`} className="shrink-0">
+                    {vendorBadge(m)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-ink truncate" title={m.name}>{m.name}</div>
