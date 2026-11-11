@@ -567,7 +567,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
           {/* 下次执行预告（设计稿 next-run）：最近的启用调度 */}
           {tab === 'runs' && nextRun && (
             <span className="text-[11.5px] text-ink-faint flex items-center gap-1.5">
-              接下来：<b className="text-ink font-semibold">{workflowNameMap[nextRun.workflow_id] ?? nextRun.workflow_id}</b>
+              接下来：<b className="text-ink font-semibold">{nextRun.agent_id ? `🤖 ${agentNameMap[nextRun.agent_id] ?? nextRun.agent_id}` : (workflowNameMap[nextRun.workflow_id] ?? nextRun.workflow_id)}</b>
               <span>· {formatTimeRelative(nextRun.next_trigger_at)}</span>
             </span>
           )}
