@@ -57,40 +57,6 @@ const ERROR_HINTS: Record<string, string> = {
 const COMPATIBILITY_OPTIONS: CompatibilityType[] = ['openai', 'anthropic'];
 const AUTH_TYPES: AuthType[] = ['bearer', 'x_api_key', 'api_key_header', 'custom'];
 
-/** 厂商 logo（设计稿 vendors 真图形）：白线条 SVG，置于厂商身份色块上 */
-/** 厂商 logo（贴近官方形态）：智谱 Z 圆 / OpenAI 六瓣花结 / 通义四角星 / Gemini 渐变 spark / Kimi K / DeepSeek 鲸 / Anthropic A\u005c 字标 */
-const VENDOR_LOGOS: Record<string, ReactNode> = {
-  '智谱 AI': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.14)" /><path d="M7.6 8.6 H16.4 L7.6 15.4 H16.4" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" /></svg>
-  ),
-  '阿里云通义': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.14)" /><path d="M12 4.6 C12.7 8.4 15.6 11.3 19.4 12 C15.6 12.7 12.7 15.6 12 19.4 C11.3 15.6 8.4 12.7 4.6 12 C8.4 11.3 11.3 8.4 12 4.6 Z" fill="#fff" /></svg>
-  ),
-  'DeepSeek': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M4 16 C4 10 8 6.5 13 6.5 C17.5 6.5 20.5 9 20.5 12 C20.5 13.8 19.2 15 17.5 15 L7 15 C5.8 15 5 15.8 5 17 C5 17.8 4.6 18.3 4 16 Z" /><circle cx="16.2" cy="10.2" r="1.1" fill="#4D6BFE" /></svg>
-  ),
-  'OpenAI': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff">
-      <path id="oai-petal" d="M12 2.9 a3.85 3.85 0 0 1 3.33 1.93 l.42 .74 a1.1 1.1 0 0 1 -1.9 1.1 l-.42 -.74 A2.35 2.35 0 0 0 12 5.4 a2.35 2.35 0 0 0 -1.16 .31 l-.75 .43 A1.1 1.1 0 0 1 8.78 4.42 l.75 -.43 A3.85 3.85 0 0 1 12 2.9 Z" />
-      <use href="#oai-petal" transform="rotate(60 12 12)" /><use href="#oai-petal" transform="rotate(120 12 12)" />
-      <use href="#oai-petal" transform="rotate(180 12 12)" /><use href="#oai-petal" transform="rotate(240 12 12)" />
-      <use href="#oai-petal" transform="rotate(300 12 12)" />
-    </svg>
-  ),
-  'Anthropic': (
-    <span className="text-white font-extrabold text-[13px] leading-none" style={{ fontFamily: 'var(--font-serif)' }}>{'A\\'}</span>
-  ),
-  'Google': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <defs><linearGradient id="gemi-g" x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#4285F4" /><stop offset=".5" stopColor="#9B72CB" /><stop offset="1" stopColor="#D96570" /></linearGradient></defs>
-      <path d="M12 3.2 C12.6 8.2 15.8 11.4 20.8 12 C15.8 12.6 12.6 15.8 12 20.8 C11.4 15.8 8.2 12.6 3.2 12 C8.2 11.4 11.4 8.2 12 3.2 Z" fill="url(#gemi-g)" />
-    </svg>
-  ),
-  'Moonshot AI': (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" fill="rgba(255,255,255,.12)" /><path d="M8.4 5.6 H11 L14.2 10.6 L13 12.3 L16 18.4 H13.3 L10 12.2 L11.2 10.6 Z M8.4 10.4 H10.4 V18.4 H8.4 Z" fill="#fff" /></svg>
-  ),
-};
-
 /** 厂商网格（设计稿 vendors）：选厂商自动带出官方端点 + 兼容协议 + 常见模型预设。
  * endpoint=官方兼容端点（用户可改为自建网关）；models=模型 ID 快捷 chips。 */
 const VENDORS: { key: string; bg: string; fg?: string; compat: CompatibilityType; endpoint: string; models: string[] }[] = [
