@@ -21,9 +21,10 @@ import {
 } from 'lucide-react'
 import {
   tasksApi, taskKeys,
-  type TaskDetail, type CommentValue, type WorkflowRegistryEntry,
+  type TaskDetail, type CommentValue, type WorkflowRegistryEntry, type NodeTimelineEntry,
 } from '../../services/tasks-api'
 import { agentApi, agentKeys } from '../../services/agent-api'
+import { sessionApi } from '../../services/session-api'
 import { userApi } from '../../services/user-api'
 import { useAuthStore } from '../../stores/auth-store'
 import { TASK_STATUS_STYLES } from '../../constants/task-status'
@@ -33,6 +34,7 @@ import { confirmDialog } from '../ui/confirm'
 import { TaskOutputFiles } from './TaskOutputFiles'
 import { TaskFlowTimeline } from './TaskFlowTimeline'
 import { TaskFlowGraph } from './TaskFlowGraph'
+import AgentTimeline from './AgentTimeline'
 import { RewindModal } from './RewindModal'
 import { APPROVAL_ACCENT } from './TaskBoardCard'
 import { DataView, DataViewEnhanceProvider } from './DataView'
@@ -94,6 +96,29 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
     for (const a of agentListData?.items ?? []) map[a.id] = a.name
     return map
   }, [agentListData])
+
+  /* ─── agent 任务执行过程（页内查看） ─── */
+  const agentSessionId = taskDetail?.agent_id
+    ? (taskDetail.output as Record<string, unknown> | null | undefined)?.session_id
+    : undefined
+  const [traceOpen, setTraceOpen] = useState(false)
+  // 任务 running 时跟随详情页的 3s 轮询节奏刷新轨迹（REACT 过程实时可见）
+  const { data: sessionDetail, isLoading: traceLoading } = useQuery({
+    queryKey: ['session-detail', agentSessionId],
+    queryFn: () => sessionApi.getDetail(String(agentSessionId)),
+    enabled: traceOpen && !!agentSessionId,
+    refetchInterval: taskDetail?.status === 'running' ? 3_000 : false,
+  })
+  const agentTraceEntries = useMemo(() => {
+    // 会话轨迹类型是节点轨迹的超集：final_answer 归并为 text（同为 Markdown
+    // 渲染）；interrupt / tool_call_start 瞬态事件剔除——filter 后剩余类型
+    // 均为 NodeTimelineEntry 支持，集中断言一次
+    return (sessionDetail?.messages ?? [])
+      .filter((m) => m.role === 'agent')
+      .flatMap((m) => m.timeline_entries ?? [])
+      .filter((e) => e.type !== 'interrupt' && e.type !== 'tool_call_start')
+      .map((e) => (e.type === 'final_answer' ? { type: 'text' as const, content: e.content, id: e.id } : e)) as NodeTimelineEntry[]
+  }, [sessionDetail])
   const workflowNameMap = useMemo(() => {
     const map: Record<string, string> = {}
     for (const wf of (wfData?.items ?? []) as WorkflowRegistryEntry[]) {
@@ -415,7 +440,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                   </section>
                 )}
 
-                {/* agent 任务：无流程图/时间线——指令 + 结果 + 执行过程跳转 */}
+                {/* agent 任务：无流程图/时间线——指令 + Markdown 结果 + 页内执行过程 */}
                 {taskDetail.agent_id && (
                   <section className="rounded-lg border border-line bg-panel p-4 space-y-3">
                     <SectionTitle>
@@ -427,22 +452,35 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                         {String((taskDetail.input as Record<string, unknown> | null)?.instruction ?? '')}
                       </div>
                     </div>
-                    {taskDetail.status === 'completed' && taskDetail.output && (
+                    {taskDetail.status === 'completed' && String((taskDetail.output as Record<string, unknown> | null)?.output ?? '') && (
                       <div>
                         <div className="text-xs text-ink-dim mb-1">执行结果</div>
-                        <div className="text-sm text-ink-soft whitespace-pre-wrap break-words bg-well rounded-lg p-3 border border-line max-h-[50vh] overflow-y-auto scrollbar-custom">
-                          {String((taskDetail.output as Record<string, unknown>).output ?? '')}
+                        <div className="text-sm bg-well rounded-lg p-3 border border-line max-h-[50vh] overflow-y-auto scrollbar-custom">
+                          <Markdown content={String((taskDetail.output as Record<string, unknown>).output)} />
                         </div>
-                        {(taskDetail.output as Record<string, unknown>).session_id && (
-                          <button
-                            type="button"
-                            className="mt-2 text-xs text-brand hover:underline cursor-pointer"
-                            onClick={() => window.dispatchEvent(new CustomEvent('af:open-session', {
-                              detail: { id: String((taskDetail.output as Record<string, unknown>).session_id) },
-                            }))}
-                          >
-                            查看执行过程 →
-                          </button>
+                      </div>
+                    )}
+                    {/* 执行过程：折叠按需加载会话 timeline（复用 AgentTimeline 渲染） */}
+                    {agentSessionId && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setTraceOpen((v) => !v)}
+                          className="flex items-center gap-1.5 text-xs text-ink-dim hover:text-ink cursor-pointer"
+                        >
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${traceOpen ? '' : '-rotate-90'}`} />
+                          执行过程
+                        </button>
+                        {traceOpen && (
+                          <div className="mt-2">
+                            {traceLoading ? (
+                              <div className="flex items-center gap-2 text-xs text-ink-dim py-3">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载执行过程…
+                              </div>
+                            ) : (
+                              <AgentTimeline entries={agentTraceEntries} theme={theme} />
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

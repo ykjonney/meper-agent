@@ -584,20 +584,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     onNavigate?.('chat');
   };
 
-  // 任务详情「查看执行过程」跨组件跳转：TaskDetailPage dispatch → 此处打开会话
-  // （handleSelectSession 内部 onNavigate('chat') 自动切回聊天视图；ref 转发避免
-  // 闭包持有过期 state）
-  const selectSessionRef = useRef(handleSelectSession);
-  selectSessionRef.current = handleSelectSession;
-  useEffect(() => {
-    const onOpenSession = (e: Event) => {
-      const id = (e as CustomEvent<{ id: string }>).detail?.id;
-      if (id) selectSessionRef.current(id);
-    };
-    window.addEventListener('af:open-session', onOpenSession);
-    return () => window.removeEventListener('af:open-session', onOpenSession);
-  }, []);
-
   const handleDeleteSession = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     try {
