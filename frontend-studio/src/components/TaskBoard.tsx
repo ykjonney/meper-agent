@@ -276,14 +276,6 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
     })
   }, [triggers, tSearch, workflowNameMap, agentNameMap])
 
-  // 下次执行预告：启用中的调度里最近的一条
-  const nextRun = useMemo(
-    () => triggers
-      .filter((t) => t.enabled && t.next_trigger_at)
-      .sort((a, b) => new Date(a.next_trigger_at!).getTime() - new Date(b.next_trigger_at!).getTime())[0] ?? null,
-    [triggers],
-  )
-
   /* ─── 新建任务：选中工作流后拉详情，读 start 节点 output_variables ───
      与「AI 工作路线」运行链路（useWorkflowExecution）及定时任务弹窗
      （TriggerConfigModal）对齐：声明了输入变量的工作流用结构化表单按名收集，
@@ -564,13 +556,6 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
               </button>
             ))}
           </div>
-          {/* 下次执行预告（设计稿 next-run）：最近的启用调度 */}
-          {tab === 'runs' && nextRun && (
-            <span className="text-[11.5px] text-ink-faint flex items-center gap-1.5">
-              接下来：<b className="text-ink font-semibold">{nextRun.agent_id ? `🤖 ${agentNameMap[nextRun.agent_id] ?? nextRun.agent_id}` : (workflowNameMap[nextRun.workflow_id] ?? nextRun.workflow_id)}</b>
-              <span>· {formatTimeRelative(nextRun.next_trigger_at)}</span>
-            </span>
-          )}
           <button
             onClick={() => {
               setActionError(null)
