@@ -329,14 +329,16 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
 
   /* ─── Mutations ─── */
   const createTask = useMutation({
-    // structuredInput：结构化表单收集的值（有输入变量定义时优先）；
-    // 否则回退旧语义 —— 空 input 或 { prompt: 文本 } 透传给 start 节点
-    mutationFn: (vars: { entryId: string; input: string; structuredInput?: Record<string, unknown> }) =>
-      // 把 registry entry _id (wfr_) 解析成模板 workflow_id (wf_) 再传给后端
-      tasksApi.create({
-        workflow_id: resolveTemplateId(vars.entryId),
-        input: vars.structuredInput ?? (vars.input ? { prompt: vars.input } : {}),
-      }),
+    // structuredInput：结构化表单收集的值（workflow 有输入变量定义时优先）；
+    // agent 目标：input = {instruction}，entryId 此时存的是 agent id
+    mutationFn: (vars: { entryId: string; input: string; structuredInput?: Record<string, unknown>; targetKind: 'workflow' | 'agent'; scheduledAt?: string }) =>
+      vars.targetKind === 'agent'
+        ? tasksApi.create({ agent_id: vars.entryId, input: { instruction: vars.input }, scheduled_at: vars.scheduledAt ?? null })
+        : tasksApi.create({
+            // 把 registry entry _id (wfr_) 解析成模板 workflow_id (wf_) 再传给后端
+            workflow_id: resolveTemplateId(vars.entryId),
+            input: vars.structuredInput ?? (vars.input ? { prompt: vars.input } : {}),
+          }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskKeys.lists() })
       setCreateOpen(false)
@@ -384,14 +386,22 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
   })
 
   /* ─── Actions ─── */
-  const handleCreateSubmit = () => {
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    // 不阻止默认提交 → 原生表单提交整页刷新回聊天主页（历史 bug：toast 一闪即逝）
+    e.preventDefault()
     if (!newTask.entryId) {
-      setActionError('请先选择一个已发布的工作流')
+      setActionError(target?.kind === 'agent' ? '请先选择一个已发布的 Agent' : '请先选择一个已发布的工作流')
       return
     }
-    // Agent 目标：后端暂无 agent 后台任务执行链路（当前仅会话式 SSE）——明确提示
-    if (target?.kind === 'agent') {
-      toast.error('委派 Agent 的后台任务能力需要后端支持，即将上线——当前可先在会话中委派')
+    // agent 目标的单次定时：调度规则(triggers)绑定 workflow，不走 createScheduleM——
+    // 创建带 scheduled_at 的任务，到期由 task_scheduler_service 自动拉起
+    if (createMode === 'sched' && target?.kind === 'agent') {
+      if (!schedOnceAt) {
+        setActionError('请选择一次性执行的时间')
+        return
+      }
+      setActionError(null)
+      createTask.mutate({ ...newTask, targetKind: 'agent', scheduledAt: new Date(schedOnceAt).toISOString() })
       return
     }
     // 定时调度分支：保存为调度规则（按 cron 自动产生执行实例），不立即执行
@@ -414,6 +424,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       return
     }
     setActionError(null)
+    const targetKind = target?.kind ?? 'workflow'
     // 有输入变量定义：先过必填校验 + 类型强转，再按变量名提交
     if (hasInputVariables) {
       setInputTouched(true)
@@ -423,10 +434,10 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
         setActionError(res.error)
         return
       }
-      createTask.mutate({ ...newTask, structuredInput: res.values })
+      createTask.mutate({ ...newTask, structuredInput: res.values, targetKind })
       return
     }
-    createTask.mutate(newTask)
+    createTask.mutate({ ...newTask, targetKind })
   }
 
   const handleCancel = useCallback(async (task: TaskSummary | TaskDetail) => {
@@ -837,6 +848,8 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
           }}
         >
           <form id="task-create-form" onSubmit={handleCreateSubmit}>
+            {/* agent 目标时隐藏（entryId 已被 target 选择器写为 agent id，两套选择器共享会互踩） */}
+            {target?.kind !== 'agent' && (
             <ResField label="工作流（已发布）" required>
               <select
                 value={newTask.entryId}
@@ -854,6 +867,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                 <div className="text-[10.5px] text-sig-wait mt-1.5">暂无已发布工作流，请先在工作流页面发布一个。</div>
               )}
             </ResField>
+            )}
 
             {/* 执行参数：随目标类型/工作流联动弹出 */}
             {!target ? (
@@ -890,8 +904,21 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                 options={[{ value: 'immediate', label: '立即执行' }, { value: 'sched', label: '定时调度' }]}
               />
             </ResField>
-            {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条 */}
-            {createMode === 'sched' && (
+            {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条
+                agent 目标：调度规则(triggers)绑定 workflow，仅支持单次定时——精简为时间选择 */}
+            {createMode === 'sched' && target?.kind === 'agent' && (
+              <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
+                  <input type="datetime-local" value={schedOnceAt} onChange={(e) => setSchedOnceAt(e.target.value)}
+                    className="w-[220px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
+                </div>
+                <div className="flex items-center gap-3.5 mt-3 px-[13px] py-2.5 bg-brand-soft rounded-[9px]">
+                  <span className="text-xs text-brand font-semibold">到时由 Agent 后台执行一次，任务卡出现在执行看板</span>
+                </div>
+              </div>
+            )}
+            {createMode === 'sched' && target?.kind !== 'agent' && (
               <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
                 <div className="flex items-center gap-2.5 mb-3">
                   <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">重复</span>

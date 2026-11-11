@@ -126,6 +126,8 @@ export interface Checkpoint {
 export interface TaskSummary {
   id: string
   workflow_id: string
+  /** 双目标：agent_id 非空 = agent 任务（此时 workflow_id 为空串） */
+  agent_id: string
   workflow_version: string
   status: TaskStatusValue
   input: Record<string, unknown>
@@ -177,7 +179,10 @@ export interface TaskStats {
 }
 
 export interface TaskCreatePayload {
-  workflow_id: string
+  /** 与 agent_id 互斥（恰好其一）；后端 schema 校验 */
+  workflow_id?: string
+  /** agent 任务目标：与 workflow_id 互斥（恰好其一） */
+  agent_id?: string
   input: Record<string, unknown>
   scheduled_at?: string | null
 }
