@@ -152,9 +152,11 @@ export function parseTodoItems(args: unknown): TodoItem[] {
     }));
 }
 
-/** 最新任务清单快照（顶栏 TodoPanel 数据源）：倒序找最后一条 todo_write
- *  的 timeline 条目；清空调用（todos=[]，任务闭环）或无记录 → null。
- *  仅扫 tool_call 条目的 args（全量替换语义，最后一次调用即当前清单）。 */
+/** 最新任务清单快照（顶栏 TodoPanel 数据源）：倒序找最后一条**非空** todo_write
+ *  的 timeline 条目；无记录 → null。
+ *  清空调用（todos=[]）不再抹除快照——跳过并继续找上一个非空快照：任务
+ *  闭环后清单保留为完成态（TodoPanel 淡化收尾），而不是整个消失。
+ *  仅扫 tool_call 条目的 args（全量替换语义，最后一次非空调用即当前清单）。 */
 export function extractLatestTodos(messages: Message[]): TodoItem[] | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const tl = messages[mi].timeline;
@@ -163,7 +165,8 @@ export function extractLatestTodos(messages: Message[]): TodoItem[] | null {
       const e = tl[i];
       if (e.type === 'tool' && e.toolName === 'todo_write') {
         const items = parseTodoItems(e.args);
-        return items.length ? items : null;
+        if (items.length) return items;
+        // 清空调用（todos=[]）：跳过，保留上一个非空快照
       }
     }
   }
