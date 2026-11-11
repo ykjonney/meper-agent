@@ -167,7 +167,9 @@ class SessionService:
         Returns:
             Tuple of (items, total_count).
         """
-        filter_query: dict = {"user_id": user_id}
+        # 任务会话（task_id 非空）不出现在会话列表——任务详情页经 session_id
+        # 直达详情（get_session 不过滤）。$in 含 None 以匹配字段缺失的旧文档。
+        filter_query: dict = {"user_id": user_id, "task_id": {"$in": ["", None]}}
         if agent_id:
             filter_query["agent_id"] = agent_id
 
