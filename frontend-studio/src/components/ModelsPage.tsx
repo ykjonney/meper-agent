@@ -485,12 +485,21 @@ export function ModelsPage() {
             <Field label="接入端点" required>
               <UInput mono required value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://open.bigmodel.cn/api" />
             </Field>
-            {/* 编辑态不渲染 API Key 字段：留空即保持原密钥（提交时空值不会覆盖） */}
-            {!editing && (
-              <Field label="API Key" required>
-                <UInput type="password" required value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder="输入 API Key" />
-              </Field>
-            )}
+            {/* API Key：新建必填；编辑态显示已存掩码供确认，留空=保持原密钥
+                （后端空值不覆盖，非必填），输入新值则替换——不回显明文（安全红线） */}
+            <Field
+              label="API Key"
+              required={!editing}
+              hint={editing && editing.api_key ? `已保存：${editing.api_key}（留空保持不变）` : undefined}
+            >
+              <UInput
+                type="password"
+                required={!editing}
+                value={form.api_key}
+                onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                placeholder={editing ? '留空保持现有 Key，输入新值则替换' : '输入 API Key'}
+              />
+            </Field>
             {/* 高级参数折叠：认证 / 协议 / 采样与上下文（主流形态——基础流不露） */}
             <div className="border-t border-line pt-3 mt-1">
               <button
