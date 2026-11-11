@@ -62,6 +62,15 @@ async def _run_async(task_id: str) -> dict[str, Any]:
     FAILED/WAITING_HUMAN) internally via TaskService.transition_task.
     """
     try:
+        # 双目标分流：agent_id 非空 → AgentTaskRunner（同一状态机/调度/取消基建）
+        from app.services.task_service import TaskService
+
+        task_doc = await TaskService.get_task(task_id)
+        if task_doc and task_doc.get("agent_id"):
+            from app.workers.tasks.agent_task_runner import run_agent_async
+
+            return await run_agent_async(task_id)
+
         engine = WorkflowEngine()
         result = await engine.run_and_persist(task_id)
         # The engine returns an empty dict {} when the task or workflow

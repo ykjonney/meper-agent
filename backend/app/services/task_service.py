@@ -341,6 +341,24 @@ class TaskService:
         )
 
     @staticmethod
+    async def update_task_output(
+        task_id: str, output: dict[str, Any], *, extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Write task.output（整体替换）plus optional extra top-level fields.
+
+        Agent 任务 Runner 专用（workflow 引擎自行写 collection）。output 为
+        {} 时只写 extra（如 started_at）。
+        """
+        set_fields: dict[str, Any] = {"updated_at": utc_now()}
+        if output:
+            set_fields["output"] = output
+        if extra:
+            set_fields.update(extra)
+        await get_database()["tasks"].update_one(
+            {"_id": task_id}, {"$set": set_fields},
+        )
+
+    @staticmethod
     async def cancel_running_task(task_id: str) -> None:
         """Revoke the Celery worker running *task_id* (best-effort).
 
