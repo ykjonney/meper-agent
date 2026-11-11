@@ -18,7 +18,11 @@ export type TriggerType = 'cron' | 'once'
 export interface TriggerConfig {
   _id?: string
   id?: string
+  /** 双目标：workflow_id / agent_id 恰好其一非空 */
   workflow_id: string
+  agent_id?: string
+  /** agent 规则的执行指令（每期到期 fork agent 任务用） */
+  instruction?: string
   user_id?: string
   type: TriggerType
   enabled: boolean
@@ -70,12 +74,14 @@ export const triggersApi = {
   },
 
   /**
-   * Create a new trigger for a workflow.
+   * Create a new trigger（workflow 或 agent 目标，恰好其一）。
    * POST /api/v1/triggers
    */
-  async create(workflowId: string, config: Partial<TriggerConfig>): Promise<TriggerConfig> {
+  async create(workflowId: string, config: Partial<TriggerConfig> & { agent_id?: string; instruction?: string }): Promise<TriggerConfig> {
     const res = await apiClient.post<TriggerConfig>('/api/v1/triggers', {
       workflow_id: workflowId,
+      agent_id: config.agent_id,
+      instruction: config.instruction,
       type: config.type || 'cron',
       enabled: config.enabled ?? false,
       cron_expression: config.cron_expression,

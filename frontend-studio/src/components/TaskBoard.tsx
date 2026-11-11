@@ -271,10 +271,10 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
     if (!tSearch.trim()) return triggers
     const q = tSearch.trim().toLowerCase()
     return triggers.filter((t) => {
-      const wfName = workflowNameMap[t.workflow_id] || ''
-      return wfName.toLowerCase().includes(q) || (t.cron_expression || '').toLowerCase().includes(q)
+      const name = t.agent_id ? (agentNameMap[t.agent_id] ?? '') : (workflowNameMap[t.workflow_id] || '')
+      return name.toLowerCase().includes(q) || (t.cron_expression || '').toLowerCase().includes(q)
     })
-  }, [triggers, tSearch, workflowNameMap])
+  }, [triggers, tSearch, workflowNameMap, agentNameMap])
 
   // 下次执行预告：启用中的调度里最近的一条
   const nextRun = useMemo(
@@ -354,14 +354,25 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
 
   // 定时调度创建（发起任务弹窗 sched 分支）：enabled 直启，保存后按 cron 出实例
   const createScheduleM = useMutation({
-    mutationFn: (vars: { workflowId: string; type: 'cron' | 'once'; cron_expression?: string; execute_at?: string }) =>
-      triggersApi.create(vars.workflowId, {
-        type: vars.type,
-        enabled: true,
-        cron_expression: vars.cron_expression,
-        execute_at: vars.execute_at,
-        default_input: {},
-      }),
+    // agentId 非空 = agent 周期规则（trigger 绑定 agent + instruction）
+    mutationFn: (vars: { workflowId?: string; agentId?: string; instruction?: string; type: 'cron' | 'once'; cron_expression?: string; execute_at?: string }) =>
+      vars.agentId
+        ? triggersApi.create('', {
+            agent_id: vars.agentId,
+            instruction: vars.instruction,
+            type: vars.type,
+            enabled: true,
+            cron_expression: vars.cron_expression,
+            execute_at: vars.execute_at,
+            default_input: {},
+          })
+        : triggersApi.create(vars.workflowId!, {
+            type: vars.type,
+            enabled: true,
+            cron_expression: vars.cron_expression,
+            execute_at: vars.execute_at,
+            default_input: {},
+          }),
     onSuccess: () => {
       invalidateTriggers()
       setCreateOpen(false)
@@ -398,15 +409,33 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       setActionError(target?.kind === 'agent' ? '请先选择一个已发布的 Agent' : '请先选择一个已发布的工作流')
       return
     }
-    // agent 目标的单次定时：调度规则(triggers)绑定 workflow，不走 createScheduleM——
-    // 创建带 scheduled_at 的任务，到期由 task_scheduler_service 自动拉起
+    // agent 目标的定时调度：周期(cron)走调度规则（trigger 绑定 agent，每期
+    // 到期 fork agent 任务）；单次(once)直接创建带 scheduled_at 的任务
     if (createMode === 'sched' && target?.kind === 'agent') {
-      if (!schedOnceAt) {
-        setActionError('请选择一次性执行的时间')
+      if (schedFreq === 'once') {
+        if (!schedOnceAt) {
+          setActionError('请选择一次性执行的时间')
+          return
+        }
+        setActionError(null)
+        createTask.mutate({ ...newTask, targetKind: 'agent', scheduledAt: new Date(schedOnceAt).toISOString() })
+        return
+      }
+      if (schedFreq === 'adv' && !cronAdv.trim()) {
+        setActionError('请填写 cron 表达式')
+        return
+      }
+      if (!newTask.input.trim()) {
+        setActionError('请先填写任务指令')
         return
       }
       setActionError(null)
-      createTask.mutate({ ...newTask, targetKind: 'agent', scheduledAt: new Date(schedOnceAt).toISOString() })
+      createScheduleM.mutate({
+        agentId: newTask.entryId,
+        instruction: newTask.input,
+        type: 'cron',
+        cron_expression: buildCron(),
+      })
       return
     }
     // 定时调度分支：保存为调度规则（按 cron 自动产生执行实例），不立即执行
@@ -697,7 +726,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
           ) : (
             <div className="space-y-2.5 pb-6 max-w-[920px]">
               {filteredTriggers.map((t) => {
-                const wfName = workflowNameMap[t.workflow_id] ?? t.workflow_id
+                const wfName = t.agent_id ? `🤖 ${agentNameMap[t.agent_id] ?? t.agent_id}` : (workflowNameMap[t.workflow_id] ?? t.workflow_id)
                 const isCron = t.type === 'cron'
                 return (
                   <div
@@ -982,20 +1011,8 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
             </ResField>
 
             {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条
-                agent 目标：调度规则(triggers)绑定 workflow，仅支持单次定时——精简为时间选择 */}
-            {createMode === 'sched' && target?.kind === 'agent' && (
-              <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
-                  <input type="datetime-local" value={schedOnceAt} onChange={(e) => setSchedOnceAt(e.target.value)}
-                    className="w-[220px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
-                </div>
-                <div className="flex items-center gap-3.5 mt-3 px-[13px] py-2.5 bg-brand-soft rounded-[9px]">
-                  <span className="text-xs text-brand font-semibold">到时由 Agent 后台执行一次，任务卡出现在执行看板</span>
-                </div>
-              </div>
-            )}
-            {createMode === 'sched' && target?.kind !== 'agent' && (
+                agent 与 workflow 同一周期 UI：周期(cron)存调度规则，单次(once)创建带 scheduled_at 的任务 */}
+            {createMode === 'sched' && (
               <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
                 <div className="flex items-center gap-2.5 mb-3">
                   <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">重复</span>
