@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.core.errors import ForbiddenError, NotFoundError, ValidationError
 from app.core.security import get_current_user, get_role_permissions, require_permission
+from app.db.mongodb import get_database
 from app.models.base import utc_now
 from app.models.trigger import Trigger
 from app.schemas.user import UserResponse
@@ -34,9 +35,15 @@ router = APIRouter(
 
 
 class TriggerCreate(BaseModel):
-    """Request body for creating a trigger."""
+    """Request body for creating a trigger.
 
-    workflow_id: str
+    双目标：workflow_id / agent_id 恰好其一非空（agent 规则必须携带
+    instruction 指令，每期到期据此 fork agent 任务）。
+    """
+
+    workflow_id: str = ""
+    agent_id: str = ""
+    instruction: str = ""
     # Literal 而非裸 str：任意字符串会静默通过并让调度器永不触发
     type: Literal["cron", "once"]
     enabled: bool = False
@@ -155,8 +162,26 @@ async def create_trigger(
     repo = _get_repo()
     _validate_cron(body.type, body.cron_expression)
 
+    # 双目标校验：恰好其一非空；agent 规则要求 published + instruction 非空
+    if bool(body.workflow_id) == bool(body.agent_id):
+        raise ValidationError(
+            code="TRIGGER_TARGET_REQUIRED",
+            message="workflow_id 与 agent_id 必须恰好提供其一",
+        )
+    if body.agent_id:
+        db = get_database()
+        agent_doc = await db["agents"].find_one({"_id": body.agent_id}, {"status": 1})
+        if agent_doc is None:
+            raise ValidationError(code="AGENT_NOT_FOUND", message=f"Agent {body.agent_id} 不存在")
+        if agent_doc.get("status") != "published":
+            raise ValidationError(code="AGENT_NOT_PUBLISHED", message="只能对已发布的 Agent 建立调度规则")
+        if not body.instruction.strip():
+            raise ValidationError(code="TASK_MISSING_INSTRUCTION", message="agent 调度规则必须提供非空 instruction 指令")
+
     trigger = Trigger(
         workflow_id=body.workflow_id,
+        agent_id=body.agent_id,
+        instruction=body.instruction,
         user_id=current_user.id,
         type=body.type,
         enabled=body.enabled,

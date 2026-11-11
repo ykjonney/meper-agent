@@ -21,7 +21,11 @@ class Trigger(BaseModel):
     """Independent scheduled trigger document."""
 
     id: str = Field(default_factory=lambda: generate_id("trig"), alias="_id")
-    workflow_id: str
+    # 双目标：workflow_id / agent_id 恰好其一非空（schema 层校验）。
+    workflow_id: str = ""
+    agent_id: str = ""
+    # agent 目标的执行指令（每期到期以 {"instruction": ...} fork 任务）
+    instruction: str = ""
     user_id: str  # creator, also used as created_by at execution time
     type: str  # "cron" | "once"
     enabled: bool = False

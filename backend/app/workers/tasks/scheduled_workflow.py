@@ -78,15 +78,22 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         logger.warning("trigger_disabled", trigger_id=trigger_id)
         return {"status": "skipped", "message": "disabled"}
 
-    # 2. Load workflow
-    workflow_doc = await db["workflows"].find_one({"_id": trigger_doc.workflow_id})
-    if not workflow_doc:
-        logger.error(
-            "workflow_not_found",
-            workflow_id=trigger_doc.workflow_id,
-            trigger_id=trigger_id,
-        )
-        return {"status": "error", "message": "workflow not found"}
+    # agent 目标规则：fork agent 任务后 dispatch 到统一 Celery 入口
+    #（run_workflow_task 内按 agent_id 分流到 AgentTaskRunner）——REACT 循环
+    # 是长任务，触发任务立即返回，不在本轮内联执行。
+    is_agent_trigger = bool(trigger_doc.agent_id)
+
+    # 2. Load workflow（agent 规则跳过）
+    workflow_doc = None
+    if not is_agent_trigger:
+        workflow_doc = await db["workflows"].find_one({"_id": trigger_doc.workflow_id})
+        if not workflow_doc:
+            logger.error(
+                "workflow_not_found",
+                workflow_id=trigger_doc.workflow_id,
+                trigger_id=trigger_id,
+            )
+            return {"status": "error", "message": "workflow not found"}
 
     # 3. Render default input parameters
     rendered_input = render_default_input(trigger_doc.default_input)
@@ -95,6 +102,7 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         "scheduled_workflow_starting",
         trigger_id=trigger_id,
         workflow_id=trigger_doc.workflow_id,
+        agent_id=trigger_doc.agent_id,
         rendered_input=rendered_input,
     )
 
@@ -136,8 +144,9 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
     now = _utc_now()
     snapshot_doc = {
         "_id": snapshot_id,
-        "workflow_id": trigger_doc.workflow_id,
-        "input": rendered_input,
+        "workflow_id": "" if is_agent_trigger else trigger_doc.workflow_id,
+        "agent_id": trigger_doc.agent_id,
+        "input": {"instruction": trigger_doc.instruction} if is_agent_trigger else rendered_input,
         "created_by": trigger_doc.user_id,
         "created_by_type": "system",
         "call_chain": [],
@@ -149,7 +158,10 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
             {
                 "timestamp": now.isoformat(),
                 "event_type": "created",
-                "data": {"workflow_id": trigger_doc.workflow_id, "from_trigger": trigger_id},
+                "data": {
+                    ("agent_id" if is_agent_trigger else "workflow_id"): trigger_doc.agent_id if is_agent_trigger else trigger_doc.workflow_id,
+                    "from_trigger": trigger_id,
+                },
                 "actor": "system",
             },
         ],
@@ -164,11 +176,21 @@ async def _execute_async(trigger_id: str) -> dict[str, Any]:
         "scheduled_workflow_task_forked",
         trigger_id=trigger_id,
         task_id=task_id,
+        agent_trigger=is_agent_trigger,
     )
 
-    # 6. Execute the workflow
+    # 6. Execute：agent 规则 dispatch 到统一入口（长任务异步跑，触发即返回）；
+    #    workflow 规则保持内联执行（现状）。
     result: dict[str, Any] = {"status": "error", "task_id": task_id, "message": "unknown"}
     try:
+        if is_agent_trigger:
+            from app.workers.tasks.workflow_execution import run_workflow_task
+
+            run_workflow_task.delay(task_id)
+            await repo.update(trigger_id, last_triggered_at=utc_now())
+            logger.info("scheduled_agent_task_dispatched", trigger_id=trigger_id, task_id=task_id)
+            return {"status": "success", "task_id": task_id}
+
         engine = WorkflowEngine()
         await engine.run_and_persist(task_id)
 
