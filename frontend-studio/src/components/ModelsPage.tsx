@@ -26,6 +26,7 @@ import {
   type ModelTestResult,
 } from '../services/model-api';
 import { Select } from './ui';
+import { toast } from './ui/toast';
 import { confirmDialog } from './ui/confirm';
 import { usePermission } from '../hooks/use-permission';
 import { getErrorMessage } from '../lib/api-client';
@@ -178,6 +179,7 @@ export function ModelsPage() {
       queryClient.invalidateQueries({ queryKey: modelKeys.all });
       setError(null);
       setCreating(false);
+      toast.success('模型已接入');
     },
     onError: (e: unknown) => setError(getErrorMessage(e, '创建模型失败')),
   });
@@ -188,13 +190,17 @@ export function ModelsPage() {
       queryClient.invalidateQueries({ queryKey: modelKeys.all });
       setError(null);
       setEditing(null);
+      toast.success('模型已保存');
     },
     onError: (e: unknown) => setError(getErrorMessage(e, '保存模型失败')),
   });
 
   const deleteM = useMutation({
     mutationFn: (id: string) => modelApi.remove(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: modelKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: modelKeys.all });
+      toast.success('模型已删除');
+    },
     onError: (e: unknown) => setError(getErrorMessage(e, '删除失败')),
   });
 
