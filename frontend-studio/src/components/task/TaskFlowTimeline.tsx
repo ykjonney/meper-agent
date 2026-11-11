@@ -349,7 +349,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                               )}
                             </div>
                             {filteredData && (
-                              <details className="mt-1 group rounded-lg border border-line bg-well overflow-hidden">
+                              <details className="mt-1 group rounded-lg bg-well overflow-hidden">
                                 <summary className={`cursor-pointer list-none flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium ${mutedText} hover:text-link hover:bg-panel/40 transition-colors [&::-webkit-details-marker]:hidden`}>
                                   <ChevronRight className="w-3 h-3 shrink-0 group-open:rotate-90 transition-transform" />
                                   详细数据
@@ -371,7 +371,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                     {output === undefined ? (
                       <div className={`text-[11px] italic ${mutedText}`}>无</div>
                     ) : (
-                      <div className="rounded-lg border border-line bg-well p-2.5">
+                      <div className="rounded-lg bg-well p-2.5">
                         <DataView value={output} context="node_output" nodeType={stage.nodeType} showRaw={false} />
                       </div>
                     )}
@@ -491,7 +491,7 @@ function FreshMemberCard({
     : latestVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
     : null
   return (
-    <div className={`rounded-md border px-2 py-1.5 border-line bg-panel`}>
+    <div className={`rounded-md bg-raise px-2 py-1.5`}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
         <span className={`text-[11px] font-medium truncate text-ink`}>{label}</span>
@@ -524,7 +524,7 @@ function FreshMemberCard({
                 <ChevronRight size={11} className={`shrink-0 self-center transition-transform ${open ? 'rotate-90' : ''} ${mutedText}`} />
               </button>
               {open && (
-                <div className="mx-1.5 mt-0.5 mb-1 rounded border border-line bg-well p-2">
+                <div className="mx-1.5 mt-0.5 mb-1 rounded bg-well p-2">
                   <DataView value={out!} context="node_output" nodeType={member.nodeType} showRaw={false} />
                 </div>
               )}
@@ -560,7 +560,7 @@ function ContinueMemberCard({
     : mVerdict === 'revise' ? { text: '需修改', color: '#F59E0B' }
     : null
   return (
-    <div className={`rounded-md border px-2 py-1.5 border-line bg-panel`}>
+    <div className={`rounded-md bg-raise px-2 py-1.5`}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={`shrink-0 ${mutedText}`}>{NODE_TYPE_ICON[member.nodeType] ?? <Flag size={11} />}</span>
         <span className={`text-[11px] font-medium truncate text-ink`}>{mLabel}</span>
@@ -580,7 +580,7 @@ function ContinueMemberCard({
       </div>
       {/* 成员输出（response/结果——DataView 按类型渲染） */}
       {mOutput !== undefined && (
-        <div className="mt-1.5 rounded border border-line bg-well p-2">
+        <div className="mt-1.5 rounded bg-well p-2">
           <DataView value={mOutput} context="node_output" nodeType={member.nodeType} showRaw={false} />
         </div>
       )}
