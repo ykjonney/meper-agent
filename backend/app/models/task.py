@@ -97,7 +97,9 @@ class Task(BaseModel):
     """
 
     id: str = Field(default_factory=lambda: generate_id("task"), alias="_id")
-    workflow_id: str = Field(..., max_length=100)
+    # 双目标：workflow_id / agent_id 恰好其一非空（schema 层校验）。
+    workflow_id: str = Field(default="", max_length=100)
+    agent_id: str = Field(default="", max_length=100)
     workflow_version: str = Field(default="", max_length=20)
     status: TaskStatus = TaskStatus.PENDING
     input: dict[str, Any] = Field(default_factory=dict)

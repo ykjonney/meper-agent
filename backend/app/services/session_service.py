@@ -73,6 +73,7 @@ class SessionService:
             "status": session.status.value,
             "message_count": session.message_count,
             "total_tokens": session.total_tokens,
+            "task_id": session.task_id,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
         }

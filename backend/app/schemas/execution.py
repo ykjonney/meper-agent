@@ -72,6 +72,8 @@ class ExecutionResponse(BaseModel):
     agent_id: str = Field(..., description="Agent ID")
     session_id: str = Field(..., description="Associated session ID for this conversation")
     step_count: int = Field(default=0, description="Number of execution steps taken")
+    # 本轮请求 token 增量（后台任务 Runner 写回 task.total_tokens 用）
+    total_tokens: int = Field(default=0, ge=0)
 
 
 class DefaultModelUpdate(BaseModel):

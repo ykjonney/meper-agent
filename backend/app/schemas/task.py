@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.task import TaskStatus
 from app.schemas.common import PaginatedResponse
@@ -12,13 +12,24 @@ from app.schemas.common import PaginatedResponse
 # ── Request Schemas ──
 
 class TaskCreate(BaseModel):
-    """Request body for creating a new Task."""
+    """Request body for creating a new Task.
 
-    workflow_id: str = Field(..., min_length=1, max_length=100)
+    双目标：workflow_id / agent_id 恰好其一非空（agent 任务 input 携带
+    {"instruction": ...}，由 service 层校验）。
+    """
+
+    workflow_id: str = Field(default="", max_length=100)
+    agent_id: str = Field(default="", max_length=100)
     input: dict[str, Any] = Field(default_factory=dict)
     scheduled_at: datetime | None = None
     # 工作流级 token 预算（0=不限制）：跨节点累计检查，超限任务诚实终止
     token_budget: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _require_exactly_one_target(self) -> TaskCreate:
+        if bool(self.workflow_id) == bool(self.agent_id):
+            raise ValueError("workflow_id 与 agent_id 必须恰好提供其一")
+        return self
 
 
 class TaskIntervene(BaseModel):
@@ -81,6 +92,7 @@ class TaskResponse(BaseModel):
 
     id: str
     workflow_id: str
+    agent_id: str = ""
     workflow_version: str = ""
     status: TaskStatus
     input: dict[str, Any] = Field(default_factory=dict)
@@ -107,6 +119,7 @@ class TaskSummary(BaseModel):
 
     id: str
     workflow_id: str
+    agent_id: str = ""
     workflow_version: str = ""
     status: TaskStatus
     input: dict[str, Any] = Field(default_factory=dict)

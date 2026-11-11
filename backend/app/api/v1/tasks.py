@@ -56,6 +56,7 @@ def _doc_to_full_response(doc: dict) -> TaskResponse:
     return TaskResponse(
         id=doc["_id"],
         workflow_id=doc["workflow_id"],
+        agent_id=doc.get("agent_id", ""),
         workflow_version=doc.get("workflow_version", ""),
         status=TaskStatus(doc["status"]),
         input=doc.get("input", {}),
@@ -83,6 +84,7 @@ def _doc_to_summary(doc: dict) -> TaskSummary:
     return TaskSummary(
         id=doc["_id"],
         workflow_id=doc["workflow_id"],
+        agent_id=doc.get("agent_id", ""),
         workflow_version=doc.get("workflow_version", ""),
         status=TaskStatus(doc["status"]),
         input=doc.get("input", {}),

@@ -31,6 +31,9 @@ class Session(BaseModel):
     status: SessionStatus = Field(default=SessionStatus.ACTIVE)
     message_count: int = Field(default=0, ge=0)
     total_tokens: int = Field(default=0, ge=0, description="Cumulative token usage across all agent messages")
+    # 非空 = 任务自动创建的会话：会话列表隐藏（list_sessions 过滤），
+    # 任务详情「查看执行过程」经 session_id 直达。
+    task_id: str = Field(default="", max_length=100)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
