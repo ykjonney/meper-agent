@@ -13,10 +13,10 @@ class TestCreateTaskWorkflowValidation:
 
     @pytest.mark.asyncio
     async def test_empty_workflow_id_raises(self) -> None:
-        """workflow_id 为空 → TASK_MISSING_WORKFLOW_ID。"""
+        """双目标都空 → TASK_TARGET_REQUIRED（互斥校验覆盖旧缺 workflow_id 语义）。"""
         with pytest.raises(ValidationError) as exc_info:
             await TaskService.create_task(workflow_id="", input_data={})
-        assert exc_info.value.code == "TASK_MISSING_WORKFLOW_ID"
+        assert exc_info.value.code == "TASK_TARGET_REQUIRED"
 
     @pytest.mark.asyncio
     async def test_nonexistent_workflow_raises(self) -> None:
@@ -80,3 +80,63 @@ class TestCreateTaskWorkflowValidation:
             # 校验通过后应触发 insert
             assert mock_task_collection.insert_one.called
             assert result["_id"] == "task_new"
+
+
+class TestCreateTaskAgentTarget:
+    """create_task agent 分支：published 校验 + instruction 必填 + 互斥。"""
+
+    @pytest.mark.asyncio
+    async def test_both_targets_raises(self) -> None:
+        with pytest.raises(ValidationError) as exc_info:
+            await TaskService.create_task(workflow_id="wf_1", agent_id="agent_1", input_data={})
+        assert exc_info.value.code == "TASK_TARGET_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_agent_not_found_raises(self) -> None:
+        mock_agents = MagicMock()
+        mock_agents.find_one = AsyncMock(return_value=None)
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_agents)
+
+        with (
+            patch("app.services.task_service.get_database", return_value=mock_db),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            await TaskService.create_task(
+                workflow_id="", agent_id="agent_x",
+                input_data={"instruction": "做"},
+            )
+        assert exc_info.value.code == "AGENT_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_agent_not_published_raises(self) -> None:
+        mock_agents = MagicMock()
+        mock_agents.find_one = AsyncMock(return_value={"_id": "agent_1", "status": "draft"})
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_agents)
+
+        with (
+            patch("app.services.task_service.get_database", return_value=mock_db),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            await TaskService.create_task(
+                workflow_id="", agent_id="agent_1",
+                input_data={"instruction": "做"},
+            )
+        assert exc_info.value.code == "AGENT_NOT_PUBLISHED"
+
+    @pytest.mark.asyncio
+    async def test_missing_instruction_raises(self) -> None:
+        mock_agents = MagicMock()
+        mock_agents.find_one = AsyncMock(return_value={"_id": "agent_1", "status": "published"})
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_agents)
+
+        with (
+            patch("app.services.task_service.get_database", return_value=mock_db),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            await TaskService.create_task(
+                workflow_id="", agent_id="agent_1", input_data={},
+            )
+        assert exc_info.value.code == "TASK_MISSING_INSTRUCTION"

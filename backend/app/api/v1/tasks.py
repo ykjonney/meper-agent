@@ -119,19 +119,22 @@ async def create_task(
 ) -> TaskResponse:
     """Create a new Task in pending status.
 
-    The Task will be created and associated with the given workflow.
-    Actual execution is handled by the Workflow Engine (Story 4-9).
-    If the workflow's start node declares required input variables, the
-    input is validated up front (fail fast) instead of failing at runtime.
+    双目标：workflow_id（工作流模板，input 按变量表单校验）或 agent_id
+    （委派已发布 Agent，input = {"instruction": ...}）。Actual execution
+    is handled by the Workflow Engine or AgentTaskRunner（同一 Celery 入口
+    分流）。
     """
-    wf_doc = await WorkflowService.get(body.workflow_id)
-    if wf_doc is not None:
-        input_schema = extract_input_schema(wf_doc.get("nodes", []))
-        if input_schema:
-            validate_workflow_input(body.input, input_schema)
+    # agent 目标跳过 workflow input_schema 校验（instruction 文本非变量表单）
+    if not body.agent_id:
+        wf_doc = await WorkflowService.get(body.workflow_id)
+        if wf_doc is not None:
+            input_schema = extract_input_schema(wf_doc.get("nodes", []))
+            if input_schema:
+                validate_workflow_input(body.input, input_schema)
 
     doc = await TaskService.create_task(
         workflow_id=body.workflow_id,
+        agent_id=body.agent_id,
         input_data=body.input,
         created_by=current_user.id,
         created_by_type="user",

@@ -122,6 +122,7 @@ class TaskService:
         source: str = "manual",
         trigger_id: str | None = None,
         token_budget: int = 0,
+        agent_id: str = "",
     ) -> dict:
         """Create a new Task in pending status.
 
@@ -150,25 +151,48 @@ class TaskService:
             parent_task_id=parent_task_id,
             input_keys=list(input_data.keys()) if input_data else [],
         )
-        if not workflow_id:
+        # 双目标不变量：workflow_id / agent_id 恰好其一非空。
+        if bool(workflow_id) == bool(agent_id):
             raise ValidationError(
-                code="TASK_MISSING_WORKFLOW_ID",
-                message="workflow_id 不能为空",
+                code="TASK_TARGET_REQUIRED",
+                message="workflow_id 与 agent_id 必须恰好提供其一",
             )
 
-        # 校验 workflow 模板存在，避免创建指向已删除/不存在模板的僵尸 task
-        # （模板不存在时 engine.run_and_persist 会加载失败，但 task 已写入
-        # pending 且不会被清理，造成永久卡死）。
         db = get_database()
-        workflow_exists = await db["workflows"].find_one(
-            {"_id": workflow_id}, {"_id": 1}
-        )
-        if not workflow_exists:
-            raise ValidationError(
-                code="WORKFLOW_NOT_FOUND",
-                message=f"工作流模板 {workflow_id} 不存在，无法创建任务",
-                details={"workflow_id": workflow_id},
+        if agent_id:
+            # agent 目标：must published + instruction 非空（fail fast，
+            # 与下方 workflow 模板存在性校验同一目的——不产生僵尸 task）。
+            agent_doc = await db["agents"].find_one({"_id": agent_id}, {"status": 1})
+            if agent_doc is None:
+                raise ValidationError(
+                    code="AGENT_NOT_FOUND",
+                    message=f"Agent {agent_id} 不存在",
+                    details={"agent_id": agent_id},
+                )
+            if agent_doc.get("status") != "published":
+                raise ValidationError(
+                    code="AGENT_NOT_PUBLISHED",
+                    message="只能委派已发布的 Agent 执行后台任务",
+                    details={"agent_id": agent_id},
+                )
+            if not str(input_data.get("instruction") or "").strip():
+                raise ValidationError(
+                    code="TASK_MISSING_INSTRUCTION",
+                    message="agent 任务必须提供非空 instruction 指令",
+                )
+        else:
+            # 校验 workflow 模板存在，避免创建指向已删除/不存在模板的僵尸 task
+            # （模板不存在时 engine.run_and_persist 会加载失败，但 task 已写入
+            # pending 且不会被清理，造成永久卡死）。
+            workflow_exists = await db["workflows"].find_one(
+                {"_id": workflow_id}, {"_id": 1}
             )
+            if not workflow_exists:
+                raise ValidationError(
+                    code="WORKFLOW_NOT_FOUND",
+                    message=f"工作流模板 {workflow_id} 不存在，无法创建任务",
+                    details={"workflow_id": workflow_id},
+                )
 
         # Build initial timeline
         now = utc_now()
@@ -183,6 +207,7 @@ class TaskService:
 
         task = Task(
             workflow_id=workflow_id,
+            agent_id=agent_id,
             input=input_data,
             created_by=created_by,
             created_by_type=created_by_type,
@@ -211,10 +236,10 @@ class TaskService:
             triggered_by=created_by,
             triggered_by_type=created_by_type,
             version=1,
-            details={"workflow_id": workflow_id},
+            details={"workflow_id": workflow_id, "agent_id": agent_id},
         )
 
-        logger.info("task_created", task_id=task.id, workflow_id=workflow_id)
+        logger.info("task_created", task_id=task.id, workflow_id=workflow_id, agent_id=agent_id)
 
         created_doc = await TaskService._collection().find_one({"_id": result.inserted_id})
 
