@@ -57,6 +57,7 @@ function isCommentEmpty(c: CommentValue | undefined): boolean {
 export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDetailPageProps) {
   const qc = useQueryClient()
   const full = mode === 'full'
+  const authUser = useAuthStore((s) => s.user)
   const permissions = useAuthStore((s) => s.user?.permissions ?? [])
   const canReadUsers = permissions.includes('user:read')
 
@@ -142,10 +143,18 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
     return map
   }, [usersData])
   const creatorLabel = useCallback((created_by: string, created_by_type?: string) => {
-    if (!created_by) return created_by_type === 'system' ? '系统' : '—'
-    if (created_by_type === 'user') return creatorNameMap[created_by] ?? created_by
-    return created_by
-  }, [creatorNameMap])
+    // 绝不把内部 id（user_01KT…）展示给用户：优先后端 enrich 的友好名
+    // （users/agents join），解析不到降级为角色词（对齐 TaskBoard 同款防线）
+    if (created_by_type === 'system') return '系统'
+    if (!created_by) return '—'
+    if (taskDetail?.created_by_name) return taskDetail.created_by_name
+    if (created_by_type === 'user') {
+      if (creatorNameMap[created_by]) return creatorNameMap[created_by]
+      return authUser?.id === created_by ? '我' : '成员'
+    }
+    if (created_by_type === 'agent') return 'Agent'
+    return created_by_type || '—'
+  }, [creatorNameMap, taskDetail, authUser])
 
   /* ─── Mutations（取消/重试/审批/resume/删除） ─── */
   const intervene = useMutation({

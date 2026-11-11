@@ -101,6 +101,7 @@ class TaskResponse(BaseModel):
     call_chain: list[str] = Field(default_factory=list)
     parent_task_id: str | None = None
     created_by: str = ""
+    created_by_name: str = ""
     created_by_type: str = "user"
     version: int = 1
     timeline: list[TimelineEventResponse] = Field(default_factory=list)
@@ -126,6 +127,7 @@ class TaskSummary(BaseModel):
     output: dict[str, Any] | None = None
     parent_task_id: str | None = None
     created_by: str = ""
+    created_by_name: str = ""
     created_by_type: str = "user"
     version: int = 1
     error: TaskErrorResponse | None = None

@@ -134,6 +134,8 @@ export interface TaskSummary {
   output?: Record<string, unknown> | null
   parent_task_id?: string | null
   created_by: string
+  /** 后端 join 的创建者友好名（用户名/agent 名），空串=已删除等兜底场景 */
+  created_by_name?: string
   created_by_type: string
   version: number
   error?: TaskError | null

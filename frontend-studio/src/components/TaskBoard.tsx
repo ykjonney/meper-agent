@@ -313,9 +313,11 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
     for (const u of usersData?.items ?? []) map[u.id] = u.username
     return map
   }, [usersData])
-  const creatorLabel = useCallback((created_by: string, created_by_type?: string) => {
-    // 绝不把内部 id（user_01KT…）直接展示给用户：解析不到时降级为角色词
+  const creatorLabel = useCallback((created_by: string, created_by_type?: string, created_by_name?: string) => {
+    // 绝不把内部 id（user_01KT…）直接展示给用户：优先后端 enrich 的友好名，
+    // 解析不到时降级为角色词
     if (created_by_type === 'system') return '系统'
+    if (created_by_name) return created_by_name
     if (created_by_type === 'user') {
       if (creatorNameMap[created_by]) return creatorNameMap[created_by]
       return authUser?.id === created_by ? '我' : '成员'
@@ -644,7 +646,7 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
                         task={task}
                         progress={progressMap[task.id]}
                         workflowName={task.agent_id ? (agentNameMap[task.agent_id] ?? task.agent_id) : workflowNameMap[task.workflow_id]}
-                        creatorName={creatorLabel(task.created_by, task.created_by_type)}
+                        creatorName={creatorLabel(task.created_by, task.created_by_type, task.created_by_name)}
                         sourceTag={task.trigger_id ? 'cron' : 'manual'}
                         onClick={() => handleCardClick(task)}
                         onCancel={handleCancel}

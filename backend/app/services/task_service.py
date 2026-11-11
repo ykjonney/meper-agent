@@ -396,7 +396,10 @@ class TaskService:
         Returns:
             Task document or None if not found.
         """
-        return await TaskService._collection().find_one({"_id": task_id})
+        doc = await TaskService._collection().find_one({"_id": task_id})
+        if doc is not None:
+            await TaskService._enrich_creator_names([doc])
+        return doc
 
     @staticmethod
     async def get_task_or_404(task_id: str) -> dict:
@@ -446,7 +449,36 @@ class TaskService:
         )
         items = await cursor.to_list(length=page_size)
         total = await TaskService._collection().count_documents(query)
+        await TaskService._enrich_creator_names(items)
         return items, total
+
+    @staticmethod
+    async def _enrich_creator_names(docs: list[dict]) -> None:
+        """就地写入 ``created_by_name``（用户名 / agent 名）。
+
+        创建者展示不应露原始 id（user_01KT...）——由后端统一 join 出友好
+        名。查不到（已删除）写空串，前端按需兜底。
+        """
+        if not docs:
+            return
+        db = get_database()
+        user_ids = {
+            d["created_by"] for d in docs
+            if d.get("created_by") and d.get("created_by_type") == "user"
+        }
+        agent_ids = {
+            d["created_by"] for d in docs
+            if d.get("created_by") and d.get("created_by_type") == "agent"
+        }
+        name_map: dict[str, str] = {}
+        if user_ids:
+            async for u in db["users"].find({"_id": {"$in": list(user_ids)}}, {"username": 1}):
+                name_map[u["_id"]] = u.get("username", "")
+        if agent_ids:
+            async for a in db["agents"].find({"_id": {"$in": list(agent_ids)}}, {"name": 1}):
+                name_map[a["_id"]] = a.get("name", "")
+        for d in docs:
+            d["created_by_name"] = name_map.get(d.get("created_by", ""), "")
 
     @staticmethod
     async def _cleanup_task_artifacts(task_id: str, *, delete_workspace: bool = True) -> None:
