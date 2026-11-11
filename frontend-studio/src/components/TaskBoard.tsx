@@ -823,189 +823,6 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
       )}
 
       {/* ─── 发起任务 Modal：设计稿 task-unified taskModal（双模式 + sched-box） ─── */}
-      {createOpen && (
-        <ResModal
-          badge={<span className="text-[15px]">▶</span>}
-          badgeCls="bg-brand-soft text-brand"
-          title={createMode === 'sched' ? '新建定时任务' : '发起任务'}
-          kicker="TASK · CREATE"
-          onClose={() => { setCreateOpen(false); setActionError(null) }}
-          formId="task-create-form"
-          smooth
-          footer={{
-            note: createMode === 'sched'
-              ? '保存为调度规则，按 cron 自动产生执行实例'
-              : '提交后立即执行，任务卡出现在执行看板',
-            actions: (
-              <>
-                <button type="button" className="af-btn af-btn-ghost" onClick={() => { setCreateOpen(false); setActionError(null) }}>取消</button>
-                <button
-                  type="submit"
-                  form="task-create-form"
-                  disabled={!newTask.entryId || createTask.isPending || createScheduleM.isPending || wfDetailLoading || (hasInputVariables && !inputValid)}
-                  className="af-btn af-btn-primary disabled:opacity-40 flex items-center gap-2"
-                >
-                  {(createTask.isPending || createScheduleM.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {createMode === 'sched' ? '保存调度' : '立即执行'}
-                </button>
-              </>
-            ),
-          }}
-        >
-          <form id="task-create-form" onSubmit={handleCreateSubmit}>
-            {/* agent 目标时隐藏（entryId 已被 target 选择器写为 agent id，两套选择器共享会互踩） */}
-            {target?.kind !== 'agent' && (
-            <ResField label="工作流（已发布）" required>
-              <select
-                value={newTask.entryId}
-                onChange={(e) => setNewTask({ ...newTask, entryId: e.target.value })}
-                className="w-full border-0 border-b border-line-strong bg-transparent px-0 py-[7px] text-[13px] text-ink outline-none transition-colors focus:border-b-brand cursor-pointer"
-              >
-                <option value="">— 选择工作流 —</option>
-                {workflows.map((wf) => (
-                  <option key={wf._id} value={wf._id}>
-                    {`${wf.name} (v${wf.version})${wf.has_human_node ? ' · 含人工节点' : ''}`}
-                  </option>
-                ))}
-              </select>
-              {workflows.length === 0 && (
-                <div className="text-[10.5px] text-sig-wait mt-1.5">暂无已发布工作流，请先在工作流页面发布一个。</div>
-              )}
-            </ResField>
-            )}
-
-            {/* 执行参数：随目标类型/工作流联动弹出 */}
-            {!target ? (
-              <div className="text-[10.5px] text-ink-faint -mt-2 mb-4">选择目标后填写执行参数</div>
-            ) : target.kind === 'agent' ? (
-              <ResField label="任务指令" required hint="描述要让这个 Agent 完成什么">
-                <UTextarea rows={2} required value={newTask.input} onChange={(e) => setNewTask({ ...newTask, input: e.target.value })} placeholder="如：整理本周的销售数据并输出摘要报告" />
-              </ResField>
-            ) : wfDetailLoading ? (
-              <div className="flex items-center gap-2 text-xs text-ink-dim min-h-[64px]">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载工作流输入参数…
-              </div>
-            ) : hasInputVariables ? (
-              <ResField label="执行参数" optional="按目标声明动态生成">
-                <WorkflowInputForm
-                  variables={inputVariables}
-                  value={inputValues}
-                  onChange={setInputValues}
-                  onValidityChange={(v) => setInputValid(v)}
-                  showErrors={inputTouched}
-                />
-              </ResField>
-            ) : (
-              <ResField label="任务输入" optional="prompt，可选">
-                <UTextarea rows={2} value={newTask.input} onChange={(e) => setNewTask({ ...newTask, input: e.target.value })} placeholder="任务的初始输入…" />
-              </ResField>
-            )}
-
-            <ResField label="触发方式" required>
-              <Seg
-                className="w-full"
-                value={createMode}
-                onChange={(v) => { setCreateMode(v); setActionError(null) }}
-                options={[{ value: 'immediate', label: '立即执行' }, { value: 'sched', label: '定时调度' }]}
-              />
-            </ResField>
-            {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条
-                agent 目标：调度规则(triggers)绑定 workflow，仅支持单次定时——精简为时间选择 */}
-            {createMode === 'sched' && target?.kind === 'agent' && (
-              <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
-                  <input type="datetime-local" value={schedOnceAt} onChange={(e) => setSchedOnceAt(e.target.value)}
-                    className="w-[220px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
-                </div>
-                <div className="flex items-center gap-3.5 mt-3 px-[13px] py-2.5 bg-brand-soft rounded-[9px]">
-                  <span className="text-xs text-brand font-semibold">到时由 Agent 后台执行一次，任务卡出现在执行看板</span>
-                </div>
-              </div>
-            )}
-            {createMode === 'sched' && target?.kind !== 'agent' && (
-              <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
-                <div className="flex items-center gap-2.5 mb-3">
-                  <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">重复</span>
-                  <select
-                    value={schedFreq}
-                    onChange={(e) => setSchedFreq(e.target.value as typeof schedFreq)}
-                    className="flex-1 border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none cursor-pointer focus:border-b-brand"
-                  >
-                    {(Object.keys(SCHED_FREQ_LABEL) as (typeof schedFreq)[]).map((f) => (
-                      <option key={f} value={f}>{SCHED_FREQ_LABEL[f]}</option>
-                    ))}
-                  </select>
-                </div>
-                {schedFreq === 'weekly' && (
-                  <div className="flex items-center gap-2.5 mb-3">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">星期</span>
-                    <div className="flex gap-1.5">
-                      {DOW_LABEL.map((d, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setSchedDow(i)}
-                          className={`w-[30px] h-[30px] rounded-lg border-[1.5px] text-[11px] cursor-pointer transition-colors ${
-                            schedDow === i ? 'border-brand bg-brand-soft text-brand font-bold' : 'border-line text-ink-dim hover:text-ink'
-                          }`}
-                        >
-                          {d.replace('周', '')}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {schedFreq === 'monthly' && (
-                  <div className="flex items-center gap-2.5 mb-3">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">日期</span>
-                    <input type="number" min={1} max={28} value={schedDom} onChange={(e) => setSchedDom(Number(e.target.value))}
-                      className="w-[120px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none focus:border-b-brand" />
-                    <span className="text-[11px] text-ink-faint">号</span>
-                  </div>
-                )}
-                {schedFreq === 'hourly' && (
-                  <div className="flex items-center gap-2.5 mb-3">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">间隔</span>
-                    <input type="number" min={1} max={23} value={schedEvery} onChange={(e) => setSchedEvery(Number(e.target.value))}
-                      className="w-[120px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none focus:border-b-brand" />
-                    <span className="text-[11px] text-ink-faint">小时</span>
-                  </div>
-                )}
-                {(schedFreq === 'daily' || schedFreq === 'weekly' || schedFreq === 'monthly') && (
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
-                    <input type="time" value={schedTime} onChange={(e) => setSchedTime(e.target.value)}
-                      className="w-[120px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
-                    <span className="text-[11px] text-ink-faint">自动产生一个执行实例</span>
-                  </div>
-                )}
-                {schedFreq === 'once' && (
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
-                    <input type="datetime-local" value={schedOnceAt} onChange={(e) => setSchedOnceAt(e.target.value)}
-                      className="w-[220px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
-                  </div>
-                )}
-                {schedFreq === 'adv' && (
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">表达式</span>
-                    <UInput mono value={cronAdv} onChange={(e) => setCronAdv(e.target.value)} placeholder="0 9 * * *" />
-                  </div>
-                )}
-                {/* 靛蓝预览条（设计稿 sched-preview） */}
-                <div className="flex items-center gap-3.5 mt-3 px-[13px] py-2.5 bg-brand-soft rounded-[9px]">
-                  <span className="text-xs text-brand font-semibold">
-                    {schedFreq === 'once'
-                      ? '到时执行一次，任务卡出现在执行看板'
-                      : `按 ${schedFreq === 'adv' ? cronAdv : buildCron()} 自动产生执行实例`}
-                  </span>
-                </div>
-              </div>
-            )}
-          </form>
-        </ResModal>
-      )}
 
       {/* ─── 定时任务 新建/编辑 + 执行记录（从 TriggersPage 并入） ─── */}
       <TriggerConfigModal
@@ -1164,8 +981,21 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
               />
             </ResField>
 
-            {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条 */}
-            {createMode === 'sched' && (
+            {/* 定时调度配置（设计稿 sched-box）：重复 select + 动态行 + 靛蓝预览条
+                agent 目标：调度规则(triggers)绑定 workflow，仅支持单次定时——精简为时间选择 */}
+            {createMode === 'sched' && target?.kind === 'agent' && (
+              <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">时间</span>
+                  <input type="datetime-local" value={schedOnceAt} onChange={(e) => setSchedOnceAt(e.target.value)}
+                    className="w-[220px] border-0 border-b border-line-strong bg-transparent px-0 py-[5px] text-[12.5px] text-ink outline-none font-mono focus:border-b-brand" />
+                </div>
+                <div className="flex items-center gap-3.5 mt-3 px-[13px] py-2.5 bg-brand-soft rounded-[9px]">
+                  <span className="text-xs text-brand font-semibold">到时由 Agent 后台执行一次，任务卡出现在执行看板</span>
+                </div>
+              </div>
+            )}
+            {createMode === 'sched' && target?.kind !== 'agent' && (
               <div className="border border-line rounded-[11px] px-4 py-3.5 mt-1">
                 <div className="flex items-center gap-2.5 mb-3">
                   <span className="w-[44px] text-[11.5px] text-ink-dim font-semibold shrink-0">重复</span>
