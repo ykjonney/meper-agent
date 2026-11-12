@@ -698,12 +698,7 @@ export function AgentEditorPage({
         <div className="flex-[1.45] min-w-0 overflow-y-auto scrollbar-custom pl-8 pr-10 py-7">
           <div className="af-label mb-6">人设 · PERSONA</div>
 
-          {/* 一句话职责 */}
-          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">一句话职责</div>
-            <input className="w-full bg-transparent outline-none text-[15px] font-semibold text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="这个 Agent 专门解决什么问题…" />
-          </div>
-          {/* 系统提示词（整段直通；迁移自旧五槽，【小节】标题保留语义） */}
+          {/* 系统提示词（整段直通；description 由创建流程自动填写，用于列表卡展示） */}
           <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
             <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">系统提示词 · 它是谁、做什么、怎么答</div>
             <textarea rows={16} className="w-full bg-transparent outline-none text-[13.5px] leading-[1.8] text-ink placeholder:text-ink-faint resize-y font-sans" placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'} value={form.systemPrompt ?? ''} onChange={(e) => set({ systemPrompt: e.target.value })} />
