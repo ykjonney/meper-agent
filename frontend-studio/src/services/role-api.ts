@@ -19,6 +19,8 @@ export interface RoleUpdatePayload {
 
 export interface AllPermissionsResponse {
   permissions: string[]
+  /** 权限键 → 中文名（后端 permission_labels 单一权威源下发） */
+  labels?: Record<string, string>
 }
 
 export const roleApi = {

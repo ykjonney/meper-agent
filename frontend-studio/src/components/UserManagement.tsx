@@ -15,7 +15,7 @@ import { PermissionTree } from './ui/PermissionTree';
 import { type NormalizedApiError } from '../lib/api-client';
 import type { User } from '../types';
 import type { Role } from '../services/types';
-import { PERMISSION_LABELS } from '../services/types';
+// 权限中文名由后端 /roles/permissions 下发（labels，permission_labels.py 单一权威源）——前端不写死
 
 /** 首字母圆牌配色（纯色 hex + 白字，亮/暗双主题下都清晰）。按用户名 hash 确定性取色。 */
 const MONOGRAM_COLORS = [
@@ -131,6 +131,7 @@ export function UserManagement() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const roles = rolesData ?? [];
   const allPerms = allPermsData?.permissions ?? [];
+  const permLabels = allPermsData?.labels ?? {};
 
   // Drive role selectors from the dynamic roles list (system + custom). The
   // backend role `name` is the value we submit/store; `display_name` is what
@@ -619,8 +620,8 @@ export function UserManagement() {
                 </p>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {r.permissions.slice(0, 6).map((p) => (
-                    <span key={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-ink-dim">
-                      {PERMISSION_LABELS[p] ?? p}
+                    <span key={p} title={p} className="px-1.5 py-0.5 rounded bg-panel border border-line text-[11px] text-ink-dim">
+                      {permLabels[p] ?? p}
                     </span>
                   ))}
                   {r.permissions.length > 6 && (
@@ -871,7 +872,7 @@ export function UserManagement() {
 
               <div className="space-y-1">
                 <label className="text-ink-dim font-medium font-sans">权限点 ({rolePerms.size}/{allPerms.length})</label>
-                <PermissionTree selected={rolePerms} onChange={setRolePerms} />
+                <PermissionTree selected={rolePerms} onChange={setRolePerms} labels={permLabels} />
               </div>
 
               <div className="p-4 border-t border-line bg-page flex justify-end gap-3 pt-4">

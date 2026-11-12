@@ -40,3 +40,6 @@ class AllPermissionsResponse(BaseModel):
     """Response for the all-permissions endpoint — grouped permission keys."""
 
     permissions: list[str]
+    # 权限键 → 中文名（permission_labels.py 单一权威源；权限管理 UI 直接消费，
+    # 新增权限只改后端映射表，前端零改动）
+    labels: dict[str, str] = Field(default_factory=dict)

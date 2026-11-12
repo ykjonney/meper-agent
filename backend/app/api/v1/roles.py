@@ -104,5 +104,13 @@ async def delete_role(
 async def get_all_permissions(
     _: UserResponse = Depends(get_current_user),
 ) -> AllPermissionsResponse:
-    """Return all available permission keys (for the permission checkbox UI)."""
-    return AllPermissionsResponse(permissions=ALL_PERMISSION_KEYS)
+    """Return all available permission keys + Chinese labels (for the permission UI).
+
+    labels 由 permission_labels.py 单一权威源下发——前端不写死权限中文名。
+    """
+    from app.core.permission_labels import permission_label
+
+    return AllPermissionsResponse(
+        permissions=ALL_PERMISSION_KEYS,
+        labels={p: permission_label(p) for p in ALL_PERMISSION_KEYS},
+    )

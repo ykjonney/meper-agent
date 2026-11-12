@@ -12,11 +12,13 @@
  */
 import { useState } from 'react'
 import { ChevronRight, Check, Minus } from 'lucide-react'
-import { PERMISSION_GROUPS, PERMISSION_LABELS } from '../../services/types'
+import { PERMISSION_GROUPS } from '../../services/types'
 
 interface PermissionTreeProps {
   selected: Set<string>
   onChange: (next: Set<string>) => void
+  /** 权限键 → 中文名（后端 /roles/permissions 下发，单一权威源；缺省回退原 key） */
+  labels?: Record<string, string>
 }
 
 /** 自定义 checkbox，支持半选(indeterminate)态。双主题。 */
@@ -51,11 +53,13 @@ function ModuleNode({
   label,
   keys,
   selected,
+  labels,
   onToggleMany,
 }: {
   label: string
   keys: string[]
   selected: Set<string>
+  labels?: Record<string, string>
   onToggleMany: (keys: string[], on: boolean) => void
 }) {
   const [open, setOpen] = useState(true)
@@ -100,7 +104,7 @@ function ModuleNode({
                   onChange={() => onToggleMany([k], !on)}
                   className="accent-brand cursor-pointer w-3 h-3"
                 />
-                <span className="truncate">{PERMISSION_LABELS[k] ?? k}</span>
+                <span className="truncate" title={k}>{labels?.[k] ?? k}</span>
               </label>
             )
           })}
@@ -110,7 +114,7 @@ function ModuleNode({
   )
 }
 
-export function PermissionTree({ selected, onChange }: PermissionTreeProps) {
+export function PermissionTree({ selected, onChange, labels }: PermissionTreeProps) {
   const toggleMany = (keys: string[], on: boolean) => {
     const next = new Set(selected)
     for (const k of keys) {
@@ -136,6 +140,7 @@ export function PermissionTree({ selected, onChange }: PermissionTreeProps) {
             label={label}
             keys={keys}
             selected={selected}
+            labels={labels}
             onToggleMany={toggleMany}
           />
         ))}
