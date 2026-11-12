@@ -806,8 +806,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     };
 
-    // Placeholder agent bubble updated incrementally as deltas arrive.
-    const agentMsgId = 'msg_stream_' + Date.now();
+    // ── 是否走 /resume：pendingInterruptRef 已设置（SSE interrupt）或存在等待中的
+    // ask_clarification/confirm_workflow（页面跳转后从历史恢复）。回答注入对应卡片
+    // 作为结果，不再单独渲染用户气泡；下次走 resume 让 agent 继续而非重复提问。
+    const resumeMsgId =
+      pendingInterruptRef.current?.toolMsgId ??
+      [...liveMessages].reverse().find((m) => m.isInterrupted)?.id;
+    const isResume = !!resumeMsgId;
+    // resume：复用被挂起的原消息 id——回答后续输出续在原气泡（与后端
+    // append_to_last_agent 持久化同语义），不再新开输出栏。
+    const agentMsgId = isResume && resumeMsgId ? resumeMsgId : 'msg_stream_' + Date.now();
     const agentMsg: Message = {
       id: agentMsgId,
       senderName: agent.name,
@@ -827,14 +835,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
-
-    // ── 是否走 /resume：pendingInterruptRef 已设置（SSE interrupt）或存在等待中的
-    // ask_clarification/confirm_workflow（页面跳转后从历史恢复）。回答注入对应卡片
-    // 作为结果，不再单独渲染用户气泡；下次走 resume 让 agent 继续而非重复提问。
-    const resumeMsgId =
-      pendingInterruptRef.current?.toolMsgId ??
-      [...liveMessages].reverse().find((m) => m.isInterrupted)?.id;
-    const isResume = !!resumeMsgId;
 
     updateLiveMessages((prev) => {
       if (isResume && resumeMsgId) {
@@ -858,8 +858,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
               return e;
             });
             return { ...m, isInterrupted: false, timeline: tl };
-          })
-          .concat(agentMsg);
+          });
       }
       return [...prev, userMsg, agentMsg];
     });
@@ -949,6 +948,15 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           updateLiveMessages((prev) =>
             prev.map((m) => {
               if (m.id !== agentMsgId) return m;
+              // resume：done timeline 仅含恢复轮条目，替换会丢挂起前的内容——
+              // 流式累加（与 append_to_last_agent 持久化同源）即最终形态，只收敛状态。
+              if (isResume) {
+                return {
+                  ...m, status: undefined,
+                  usage: evt.usage ?? m.usage,
+                  requestId: evt.request_id || m.requestId,
+                };
+              }
               let tl: TimelineEntry[];
               if (finalTimeline) {
                 // 权威 timeline 无时间戳：把流式期间记录的工具耗时按 toolCallId
