@@ -334,11 +334,16 @@ export function AgentSpace({
                     }
                   >
                     <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="shrink-0 p-1 rounded-md text-ink-faint hover:text-ink hover:bg-raise transition cursor-pointer"
+                      onClick={(e) => {
+                        // stopPropagation 双重意义：不冒泡到卡片（误入编辑页），
+                        // 也不冒泡到 Popover 容器（其注入的 onClick 会重复 toggle）
+                        e.stopPropagation()
+                        setMenuOpenFor(menuOpenFor === agent.id ? null : agent.id)
+                      }}
+                      className="shrink-0 p-2 -mr-1.5 -mt-1 rounded-md text-ink-faint hover:text-ink hover:bg-raise transition cursor-pointer"
                       title="更多操作"
                     >
-                      <MoreVertical className="w-3.5 h-3.5" />
+                      <MoreVertical className="w-4 h-4" />
                     </button>
                   </Popover>
                 </div>
