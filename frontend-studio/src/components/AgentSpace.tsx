@@ -278,7 +278,8 @@ export function AgentSpace({
             return (
               <div
                 key={agent.id}
-                className="group bg-panel rounded-[10px] shadow-[var(--shadow-card)] p-4 flex flex-col justify-between hover:bg-panel-hover transition-colors duration-150"
+                onClick={() => onOpenEdit?.(agent.id)}
+                className="group bg-panel rounded-[10px] shadow-[var(--shadow-card)] p-4 flex flex-col justify-between cursor-pointer hover:bg-panel-hover transition-colors duration-150"
               >
                 {/* 头部：头像（配置了 avatar 用图片，否则首字色块）+ 名称 + 状态 pill + ⋯ 菜单 */}
                 <div className="flex items-start justify-between gap-2">
@@ -358,7 +359,7 @@ export function AgentSpace({
                   </span>
                   {canWrite && (isPublished ? (
                     <button
-                      onClick={() => archiveM.mutate(agent.id)}
+                      onClick={(e) => { e.stopPropagation(); archiveM.mutate(agent.id); }}
                       disabled={archiveM.isPending}
                       className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-ink-dim border border-line hover:bg-raise hover:text-ink transition cursor-pointer disabled:opacity-50"
                     >
@@ -367,7 +368,7 @@ export function AgentSpace({
                     </button>
                   ) : (
                     <button
-                      onClick={() => publishM.mutate(agent.id)}
+                      onClick={(e) => { e.stopPropagation(); publishM.mutate(agent.id); }}
                       disabled={publishM.isPending}
                       className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-white bg-brand hover:bg-brand-hover transition cursor-pointer disabled:opacity-50"
                     >
