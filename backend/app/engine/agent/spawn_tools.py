@@ -301,7 +301,7 @@ async def _create_agent(
             name=name.strip()[:100],
             description=(description or "").strip()[:500],
             # 五槽中 role/task 为对话执行必填槽——system_prompt 进角色定义槽
-            prompt_slots={"role": system_prompt, "task": description or ""},
+            system_prompt=system_prompt,
             builtin_config=builtin_config or [],
             skill_ids=skill_ids or [],
             mcp_connection_ids=mcp_connection_ids or [],

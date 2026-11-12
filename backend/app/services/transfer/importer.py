@@ -97,6 +97,30 @@ async def import_package(
 # ── 公共辅助 ────────────────────────────────────────────────────────
 
 
+# 旧版导出包的 prompt 五槽 → 整段 system_prompt（与 migrate_system_prompt.py 同格式）
+_LEGACY_SLOT_ORDER = [
+    ("role", "角色定义"),
+    ("task", "任务描述"),
+    ("constraints", "约束规则"),
+    ("context", "上下文信息"),
+    ("output_format", "输出格式"),
+]
+
+
+def _merge_legacy_slots(payload: dict) -> str:
+    """payload.system_prompt 优先；旧包槽位按原渲染格式合并。"""
+    direct = payload.get("system_prompt")
+    if direct:
+        return direct
+    slots = payload.get("prompt_slots") or {}
+    parts = [
+        f"【{label}】\n{slots[name]}"
+        for name, label in _LEGACY_SLOT_ORDER
+        if str(slots.get(name) or "").strip()
+    ]
+    return "\n\n".join(parts)
+
+
 def _payload(extract_dir: Path, res: dict) -> dict:
     return pkg.read_json_file(extract_dir / res["path"])
 
@@ -630,7 +654,7 @@ async def _phase_agents(entries: list[dict], extract_dir: Path, ctx: _Ctx) -> No
             doc = await AgentService.create_agent(
                 name=payload["name"],
                 description=payload.get("description", ""),
-                prompt_slots=payload.get("prompt_slots") or {},
+                system_prompt=_merge_legacy_slots(payload),
                 skill_ids=payload.get("skill_ids") or [],
                 mcp_connection_ids=payload.get("mcp_connection_ids") or [],
                 builtin_config=payload.get("builtin_config") or [],

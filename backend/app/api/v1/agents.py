@@ -89,7 +89,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         welcome_message=doc.get("welcome_message", ""),
         recommended_items=doc.get("recommended_items", []),
         recommended_groups=doc.get("recommended_groups", []),
-        prompt_slots=doc.get("prompt_slots", {}),
+        system_prompt=doc.get("system_prompt", ""),
         skill_ids=resolve_skill_ids(doc),
         mcp_connection_ids=doc.get("mcp_connection_ids", []),
         builtin_config=doc.get("builtin_config", []),
@@ -210,7 +210,7 @@ async def update_agent(
     if "recommended_groups" in fields:
         kwargs["recommended_groups"] = [group.model_dump() for group in body.recommended_groups]
     for f in (
-        "description", "prompt_slots", "skill_ids", "mcp_connection_ids",
+        "description", "system_prompt", "skill_ids", "mcp_connection_ids",
         "builtin_config", "workflow_ids", "custom_tool_ids", "knowledge_base_ids",
         "subagent_ids", "default_model", "voice_enabled", "max_retry",
         "max_tokens", "welcome_message", "avatar", "can_spawn_agents",

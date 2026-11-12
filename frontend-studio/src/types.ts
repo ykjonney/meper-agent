@@ -15,17 +15,8 @@ export interface Agent {
   /** 允许该 agent 创建新 agent（能力门控，默认关；创建物为草稿态且不再拥有此能力） */
   canSpawnAgents: boolean;
   temperature: number;
+  /** 系统提示词（整段自由文本 — 后端 system_prompt 直通） */
   systemPrompt: string;
-  /** 角色定义 — 后端 prompt_slots.role（必填） */
-  rolePrompt: string;
-  /** 任务描述 — 后端 prompt_slots.task（必填） */
-  taskPrompt: string;
-  /** 约束规则 — prompt_slots.constraints（可选） */
-  constraintsPrompt: string;
-  /** 上下文信息 — prompt_slots.context（可选） */
-  contextPrompt: string;
-  /** 输出格式 — prompt_slots.output_format（可选） */
-  outputFormatPrompt: string;
   status: 'idle' | 'thinking' | 'online' | 'offline';
   statusText?: string;
   iconColor: string;

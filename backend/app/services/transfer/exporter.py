@@ -281,7 +281,7 @@ def _agent_payload(doc: dict) -> dict:
         "welcome_message": doc.get("welcome_message", ""),
         "recommended_items": doc.get("recommended_items") or [],
         "recommended_groups": doc.get("recommended_groups") or [],
-        "prompt_slots": doc.get("prompt_slots") or {},
+        "system_prompt": doc.get("system_prompt") or {},
         "skill_ids": doc.get("skill_ids") or [],
         "mcp_connection_ids": doc.get("mcp_connection_ids") or [],
         "custom_tools": custom_tools,

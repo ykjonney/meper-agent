@@ -1,9 +1,10 @@
-"""System prompt renderer — reads prompt_slots directly from Agent document.
+"""System prompt renderer — reads system_prompt (whole text) from Agent document.
 
-Rendering order is fixed:
-  role → task → constraints → context → output_format → tool_declaration (auto)
+渲染顺序：system_prompt（整段，Jinja2 {{var}} resolve）→ 节点槽覆写追加段（
+存量兼容）→ tool_declaration（运行时自动追加）。
 
-AgentNode overrides have highest priority for individual slots.
+旧五槽（role/task/constraints/context/output_format）已废弃并迁移为整段
+（migrate_system_prompt.py）；SLOT_SCHEMA 仅供迁移/导入合并函数复用。
 
 Usage::
 
@@ -20,8 +21,6 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-
-from app.models.prompt_template import SLOT_SCHEMA
 
 # 检测字符串里 Jinja2 渲染 dict/list 时产生的 Python repr 片段
 # （单引号包裹 key 的 {…} 或 […]），用于把混合模板里的 dict 变量渲染结果
@@ -95,14 +94,19 @@ async def render_system_prompt_full(
     output_schema: list[dict] | None = None,
     subagents: list[dict] | None = None,
 ) -> str:
-    """Render the full system prompt from Agent's prompt_slots.
+    """Render the full system prompt from the Agent's system_prompt field.
+
+    旧五槽（prompt_slots）设计已废弃（migrate_system_prompt.py 数据迁移）——
+    system_prompt 为整段自由文本，槽值中的 Jinja2 ``{{var}}`` 语法在整段上
+    统一 resolve（工作流变量池注入保持）。
 
     Args:
         agent_doc: The Agent MongoDB document.
-        node_slot_overrides: Per-node slot overrides (highest priority).
+        node_slot_overrides: 节点级槽覆写（存量数据为零；有值时以【label】段
+            追加在整段之后）。
         variable_pool: Variable pool for Jinja2 ``{{var}}`` resolution.
-        strict: When True (default), missing required slots raise ValueError.
-            When False, missing required slots are silently skipped (for preview).
+        strict: When True (default), an empty system_prompt raises ValueError.
+            When False, empty prompt is silently skipped (for preview).
         execution_context: "chat"(默认)或 "workflow"(工作流 agent 节点,
             无人值守——工具声明去掉 Clarification/Task 段,追加自主执行规则)。
         response_schema: 工作流 agent 节点的 response 结构契约(可选,
@@ -123,92 +127,46 @@ async def render_system_prompt_full(
             "render_system_prompt_full: output_schema 参数已废弃，请改用 response_schema",
         )
         response_schema = {"type": "object", "fields": output_schema}
-    agent_slots = agent_doc.get("prompt_slots", {})
-    overrides = node_slot_overrides or {}
+    raw_prompt = str(agent_doc.get("system_prompt") or "")
+    overrides = dict(node_slot_overrides or {})
+    empty_after_resolve = ""  # 原文含 {{var}} 但渲染为空时记录原文
 
-    # ── Resolve Jinja2 expressions in slot values ──
-    # 记录「原始值含变量引用但渲染为空」的情况，用于在 strict 报错时给出精确
-    # 根因（是变量解析失败，而非 slot 未配置）。
-    resolved_agent_slots: dict[str, Any] = {}
-    resolved_overrides: dict[str, Any] = {}
-    empty_after_resolve: dict[str, str] = {}  # slot_name → 原始模板
-
-    if variable_pool:
+    # ── Resolve Jinja2 expressions over the whole prompt ──
+    if variable_pool and ("{{" in raw_prompt or any("{{" in str(v) for v in overrides.values())):
         from app.engine.workflow.expression import ExpressionEngine
 
         engine = ExpressionEngine(variable_pool)
-        if agent_slots:
-            for k, v in agent_slots.items():
-                if isinstance(v, str):
-                    resolved = engine.resolve(v)
-                    coerced = _coerce_slot_value(resolved)
-                    if not coerced and "{{" in v:
-                        empty_after_resolve[k] = v
-                    resolved_agent_slots[k] = coerced
-                else:
-                    resolved_agent_slots[k] = v
-        if overrides:
-            for k, v in overrides.items():
-                if isinstance(v, str):
-                    resolved = engine.resolve(v)
-                    coerced = _coerce_slot_value(resolved)
-                    if not coerced and "{{" in v:
-                        empty_after_resolve[k] = v
-                    resolved_overrides[k] = coerced
-                else:
-                    resolved_overrides[k] = v
-    else:
-        resolved_agent_slots = dict(agent_slots)
-        resolved_overrides = dict(overrides)
+        resolved = engine.resolve(raw_prompt)
+        coerced = _coerce_slot_value(resolved)
+        if not coerced and "{{" in raw_prompt:
+            empty_after_resolve = raw_prompt
+        raw_prompt = coerced
+        for k, v in overrides.items():
+            if isinstance(v, str):
+                overrides[k] = _coerce_slot_value(engine.resolve(v))
 
-    # ── Render each fixed slot in order ──
-    # Priority: node override > agent prompt_slots
     parts: list[str] = []
-    missing_required: list[tuple[str, str]] = []  # (name, label) pairs
-
-    for slot_def in SLOT_SCHEMA:
-        name = slot_def.name
-        label = slot_def.label
-
-        value: str = ""
-        if name in resolved_overrides and resolved_overrides[name]:
-            value = resolved_overrides[name]
-        elif name in resolved_agent_slots and resolved_agent_slots[name]:
-            value = resolved_agent_slots[name]
-
-        if value:
-            # 用 label 作为结构化前缀，让 LLM 理解每段语义角色
-            parts.append(f"【{label}】\n{value}")
-        elif slot_def.required:
-            missing_required.append((name, label))
-
-    if missing_required:
-        missing_labels = [label for _, label in missing_required]
-        if strict:
-            # 区分根因：slot 未配置 vs 变量引用渲染为空
-            # empty_after_resolve 的 key 是 slot name，用它反查
-            unresolved: list[str] = []
-            truly_missing: list[str] = []
-            for name, label in missing_required:
-                if name in empty_after_resolve:
-                    unresolved.append(f"{label}={empty_after_resolve[name]}")
-                else:
-                    truly_missing.append(label)
-            hints: list[str] = []
-            if unresolved:
-                hints.append(
-                    f"以下 slot 含变量引用但渲染后为空（上游变量可能不存在或为空值）: {', '.join(unresolved)}"
-                )
-            if truly_missing:
-                hints.append(f"以下 slot 未配置: {', '.join(truly_missing)}")
+    if raw_prompt.strip():
+        parts.append(raw_prompt.strip())
+    elif strict:
+        # 无人值守等场景 agent 无 prompt 没有意义——fail fast 给出精确根因
+        if empty_after_resolve:
             raise ValueError(
-                f"必填 Prompt Slot 缺失: {', '.join(missing_labels)}。"
-                + (" " + "；".join(hints) if hints else "")
-                + "。请在 Agent 配置或节点覆写中补充，或检查上游变量输出。"
+                "system_prompt 含变量引用但渲染后为空"
+                f"（上游变量可能不存在或为空值）: {empty_after_resolve}"
             )
-        # Non-strict mode: add placeholder for missing required slots
-        for _, label in missing_required:
-            parts.append(f"【{label}】\n（未配置）")
+        if overrides:
+            parts.extend(f"【{k}】\n{v}" for k, v in overrides.items() if v)
+        else:
+            raise ValueError(
+                "system_prompt 未配置。请在 Agent 配置中填写系统提示词，"
+                "或检查节点槽覆写与上游变量输出。"
+            )
+
+    # 节点槽覆写（存量零使用，参数兼容保留）：以【key】段追加在整段之后
+    for k, v in overrides.items():
+        if v:
+            parts.append(f"【{k}】\n{v}")
 
     # ── Always append tool_declaration at the end ──
     from app.engine.agent.builder import build_tool_declaration

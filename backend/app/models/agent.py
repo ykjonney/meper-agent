@@ -39,7 +39,8 @@ class Agent(BaseModel):
     serialized to dict for MongoDB insertion/update.
 
     Prompt composition uses fixed slots stored directly on the Agent:
-    - ``prompt_slots``: dict with keys role/task/constraints/context/output_format
+    - ``system_prompt``: the full system prompt text (single free-form field,
+      migrated from the deprecated five-slot prompt_slots design)
 
     Tool configuration is split into three categories:
     - ``skill_ids``: IDs of bound Skill tools (``source="markdown"``)
@@ -65,7 +66,11 @@ class Agent(BaseModel):
     recommended_groups: list[RecommendedGroup] = Field(
         default_factory=list, max_length=20, description="首屏推荐项分类分组（≤20 组，与独立项共存）"
     )
-    prompt_slots: dict[str, str] = Field(default_factory=dict)
+    system_prompt: str = Field(
+        default="",
+        max_length=50000,
+        description="完整系统提示词（整段自由文本；工具声明等运行时段由渲染器追加）",
+    )
     # --- Deprecated: kept for backward compat ---
     tool_ids: list[str] = Field(default_factory=list)
     # --- New categorized fields ---
@@ -142,7 +147,7 @@ class AgentSnapshot(BaseModel):
     id: str = Field(default_factory=lambda: generate_id("asnap"), alias="_id")
     agent_id: str = Field(..., description="快照所属 Agent")
     snapshot_of_version: int = Field(..., ge=1, description="此快照记录的版本号")
-    doc: dict = Field(..., description="Agent 文档完整快照（含 prompt_slots/tools/config）")
+    doc: dict = Field(..., description="Agent 文档完整快照（含 system_prompt/tools/config）")
     label: str = Field(default="", description="快照标签（update/publish/optimizer…）")
     created_by: str = Field(default="", description="触发者 user_id 或 agent_id（optimizer 场景）")
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())

@@ -182,7 +182,7 @@ export function AgentEditorPage({
   const [createGroupText, setCreateGroupText] = useState('');
   // 组内条目展开索引（key `${gIdx}:${itemIdx}`，避免删除后的平移运算）
   const [expandedGroupItems, setExpandedGroupItems] = useState<Set<string>>(new Set());
-  // 纸墨工作台：高级提示词折叠 / 高级参数展开 / 能力浮层开关
+  // 纸墨工作台：高级参数展开 / 能力浮层开关
   const [advOpen, setAdvOpen] = useState(false);
   const [advParamsOpen, setAdvParamsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -217,8 +217,8 @@ export function AgentEditorPage({
 
   const handleSave = () => {
     if (!form) return;
-    if (!form.rolePrompt?.trim() || !form.taskPrompt?.trim()) {
-      toast.error('「角色定义」和「任务描述」为必填项（对话执行校验）');
+    if (!form.systemPrompt?.trim()) {
+      toast.error('「系统提示词」为必填项');
       return;
     }
     updateM.mutate(fromStudioAgent(form));
@@ -558,13 +558,6 @@ export function AgentEditorPage({
   const bulkNewGroupCount = bulkParsed.groups.filter((g) => !recommendedGroups.some((x) => x.title === g.title)).length;
 
   // 分类导航：滚动联动高亮（滚动列 onScroll 更新，点击平滑锚定）
-  // 高级提示词已填计数（4 个可选字段非空数）
-  const advCount = [
-    form?.constraintsPrompt,
-    form?.contextPrompt,
-    form?.outputFormatPrompt,
-    form?.systemPrompt,
-  ].filter((v) => (v ?? '').trim() !== '').length;
 
   const FORM_SECTIONS = [
     { id: 'sec-basic', label: '基本信息' },
@@ -710,43 +703,13 @@ export function AgentEditorPage({
             <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">一句话职责</div>
             <input className="w-full bg-transparent outline-none text-[15px] font-semibold text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="这个 Agent 专门解决什么问题…" />
           </div>
-          {/* 角色 */}
+          {/* 系统提示词（整段直通；迁移自旧五槽，【小节】标题保留语义） */}
           <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">角色 · 它是谁</div>
-            <textarea rows={3} className="w-full bg-transparent outline-none text-[14px] leading-[1.85] font-medium text-ink placeholder:text-ink-faint resize-none" placeholder="如：你是一位资深产品经理…" value={form.rolePrompt ?? ''} onChange={(e) => set({ rolePrompt: e.target.value })} />
-          </div>
-          {/* 任务 */}
-          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">任务 · 它做什么</div>
-            <textarea rows={3} className="w-full bg-transparent outline-none text-[13px] leading-[1.8] text-ink placeholder:text-ink-faint resize-none" placeholder="如：根据用户需求，输出功能拆解与优先级。" value={form.taskPrompt ?? ''} onChange={(e) => set({ taskPrompt: e.target.value })} />
+            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">系统提示词 · 它是谁、做什么、怎么答</div>
+            <textarea rows={16} className="w-full bg-transparent outline-none text-[13.5px] leading-[1.8] text-ink placeholder:text-ink-faint resize-y font-sans" placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'} value={form.systemPrompt ?? ''} onChange={(e) => set({ systemPrompt: e.target.value })} />
+            <div className="text-[10px] text-ink-faint mt-1.5">支持 Markdown 小节结构与 {'{{变量}}'} 引用（工作流调用时解析）</div>
           </div>
 
-          {/* 高级提示词折叠（4 个可选字段一项不缺） */}
-          <button type="button" onClick={() => setAdvOpen(v => !v)} className="flex items-center gap-2 text-[10.5px] text-ink-dim hover:text-ink cursor-pointer py-1.5 px-2 rounded-lg -ml-2 mb-2">
-            <ChevronRight className={`w-3 h-3 transition-transform ${advOpen ? 'rotate-90' : ''}`} />
-            高级提示词
-            {advCount > 0 && <span className="font-mono text-[8.5px] text-wait bg-[rgba(176,125,26,.1)] rounded-full px-1.5 py-0.5">已填 {advCount} 项</span>}
-          </button>
-          {advOpen && (
-            <div className="border border-dashed border-line2 rounded-md p-3 -ml-2 mb-5 space-y-3">
-              <div>
-                <div className="text-[10px] text-ink-faint mb-1.5">约束规则 · Constraints（可选）</div>
-                <textarea rows={2} className={inputCls} placeholder="如：回答必须用中文；不臆测。" value={form.constraintsPrompt ?? ''} onChange={(e) => set({ constraintsPrompt: e.target.value })} />
-              </div>
-              <div>
-                <div className="text-[10px] text-ink-faint mb-1.5">上下文信息 · Context（可选）</div>
-                <textarea rows={2} className={inputCls} placeholder="如：当前项目背景、术语表…" value={form.contextPrompt ?? ''} onChange={(e) => set({ contextPrompt: e.target.value })} />
-              </div>
-              <div>
-                <div className="text-[10px] text-ink-faint mb-1.5">输出格式 · Output Format（可选）</div>
-                <textarea rows={2} className={inputCls} placeholder="如：用 Markdown 表格输出。" value={form.outputFormatPrompt ?? ''} onChange={(e) => set({ outputFormatPrompt: e.target.value })} />
-              </div>
-              <div>
-                <div className="text-[10px] text-ink-faint mb-1.5">补充说明 · System Prompt（可选）</div>
-                <textarea rows={3} className={inputCls} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
-              </div>
-            </div>
-          )}
 
           {/* ── 开场卡：所见即所得 ── */}
           <div className="bg-panel border border-line rounded-xl p-4">

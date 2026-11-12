@@ -28,7 +28,7 @@ export interface Agent {
   welcome_message: string
   recommended_items: { label: string; prompt: string }[]
   recommended_groups: { title: string; items: { label: string; prompt: string }[] }[]
-  prompt_slots: Record<string, string>
+  system_prompt: string
   /** Skill tool IDs (source=markdown) */
   skill_ids: string[]
   /** MCP connection IDs (tools loaded from remote MCP servers) */
@@ -72,8 +72,8 @@ export interface AgentUpdateInput {
   recommended_items?: { label: string; prompt: string }[]
   /** 终端用户首屏推荐项分类分组（与独立项共存） */
   recommended_groups?: { title: string; items: { label: string; prompt: string }[] }[]
-  /** 提示词卡槽内容 */
-  prompt_slots?: Record<string, string>
+  /** 完整系统提示词（整段自由文本） */
+  system_prompt?: string
   /** Skill tool IDs (source=markdown) */
   skill_ids?: string[]
   /** MCP connection IDs */

@@ -1,12 +1,10 @@
 """Agent-related Pydantic schemas for API request/response."""
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.agent import AgentStatus, RecommendedGroup, RecommendedItem
-from app.utils.sanitize import sanitize_dict, sanitize_text
+from app.utils.sanitize import sanitize_text
 
 
 class CustomToolBinding(BaseModel):
@@ -26,8 +24,6 @@ class CustomToolBinding(BaseModel):
 # 单个 prompt_slot value 的最大字符数（兼顾详细提示词与防滥用，
 # 约 2.5K–5K tokens，足够绝大多数场景）。
 PROMPT_SLOT_MAX_LENGTH = 10_000
-# prompt_slots 允许的 key 数量上限（对应 5 个预定义卡槽 + 容错余量）。
-PROMPT_SLOT_MAX_KEYS = 20
 # 卡槽 key 命名白名单（与 SLOT_SCHEMA 的 name 风格一致）。
 _PROMPT_SLOT_KEY_PATTERN = r"^[a-zA-Z0-9_]+$"
 
@@ -62,30 +58,6 @@ class AgentCreate(BaseModel):
         return sanitize_text(v)
 
 
-def _validate_prompt_slots(value: dict[str, str]) -> dict[str, str]:
-    """Validate then sanitize prompt_slots.
-
-    - 限制 key 数量、key 命名（``^[a-zA-Z0-9_]+$``）。
-    - 限制每个 value 的最大长度（:data:`PROMPT_SLOT_MAX_LENGTH`）。
-    - 清洗每个 value 的 XSS 载荷。
-    """
-    if not isinstance(value, dict):
-        return value  # type: ignore[return-value]
-    if len(value) > PROMPT_SLOT_MAX_KEYS:
-        raise ValueError(
-            f"prompt_slots 最多 {PROMPT_SLOT_MAX_KEYS} 个卡槽（当前 {len(value)} 个）"
-        )
-    for key, val in value.items():
-        if not re.match(_PROMPT_SLOT_KEY_PATTERN, str(key)):
-            raise ValueError(
-                f"prompt_slots 的 key 只允许字母/数字/下划线（非法 key: {key!r}）"
-            )
-        if isinstance(val, str) and len(val) > PROMPT_SLOT_MAX_LENGTH:
-            raise ValueError(
-                f"prompt_slots[{key!r}] 超过最大长度 "
-                f"{PROMPT_SLOT_MAX_LENGTH}（当前 {len(val)}）"
-            )
-    return sanitize_dict(value)
 
 
 class AgentUpdate(BaseModel):
@@ -129,13 +101,10 @@ class AgentUpdate(BaseModel):
         max_length=20,
         description="首屏推荐项分类分组（≤20 组，每组 ≤50 条，与独立项共存）",
     )
-    prompt_slots: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "提示词卡槽内容。key 只允许字母/数字/下划线，"
-            f"每个 value 最长 {PROMPT_SLOT_MAX_LENGTH} 字符，"
-            f"最多 {PROMPT_SLOT_MAX_KEYS} 个卡槽。"
-        ),
+    system_prompt: str = Field(
+        default="",
+        max_length=50000,
+        description="完整系统提示词（整段自由文本，支持 Jinja2 {{var}} 变量）",
     )
     # --- Categorized tool fields ---
     skill_ids: list[str] = Field(
@@ -217,12 +186,6 @@ class AgentUpdate(BaseModel):
                 item.prompt = sanitize_text(item.prompt)
         return v
 
-    @field_validator("prompt_slots", mode="after")
-    @classmethod
-    def _validate_prompt_slots(cls, v: dict[str, str]) -> dict[str, str]:
-        """校验 key 命名/数量与每值长度，并清洗 XSS 载荷。"""
-        return _validate_prompt_slots(v)
-
 
 class AgentResponse(BaseModel):
     """Agent data returned in API responses."""
@@ -237,7 +200,7 @@ class AgentResponse(BaseModel):
     welcome_message: str = Field(default="")
     recommended_items: list[RecommendedItem] = Field(default_factory=list)
     recommended_groups: list[RecommendedGroup] = Field(default_factory=list)
-    prompt_slots: dict[str, str] = Field(default_factory=dict)
+    system_prompt: str = ""
     skill_ids: list[str]
     mcp_connection_ids: list[str]
     builtin_config: list[str]

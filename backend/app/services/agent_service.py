@@ -61,7 +61,7 @@ class AgentService:
     async def create_agent(
         name: str,
         description: str = "",
-        prompt_slots: dict[str, str] | None = None,
+        system_prompt: str = "",
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
@@ -88,7 +88,7 @@ class AgentService:
         Args:
             name: Agent name.
             description: Optional description.
-            prompt_slots: Prompt slot content (role/task/constraints/context/output_format).
+            system_prompt: Full system prompt text (single free-form field).
             skill_ids: Optional list of bound Skill tool IDs.
             mcp_connection_ids: Optional list of bound MCP connection IDs.
             builtin_config: Optional list of enabled built-in tool names.
@@ -117,7 +117,7 @@ class AgentService:
         agent = Agent(
             name=name,
             description=description,
-            prompt_slots=prompt_slots or {},
+            system_prompt=system_prompt,
             skill_ids=skill_ids or [],
             mcp_connection_ids=mcp_connection_ids or [],
             builtin_config=builtin_config or [],
@@ -137,7 +137,7 @@ class AgentService:
             "_id": agent.id,
             "name": agent.name,
             "description": agent.description,
-            "prompt_slots": agent.prompt_slots,
+            "system_prompt": agent.system_prompt,
             "skill_ids": agent.skill_ids,
             "mcp_connection_ids": agent.mcp_connection_ids,
             "builtin_config": agent.builtin_config,
@@ -236,7 +236,7 @@ class AgentService:
         agent_id: str,
         name: str,
         description: str | None = None,
-        prompt_slots: dict[str, str] | None = None,
+        system_prompt: str | None = None,
         skill_ids: list[str] | None = None,
         mcp_connection_ids: list[str] | None = None,
         builtin_config: list[str] | None = None,
@@ -263,7 +263,7 @@ class AgentService:
             agent_id: The Agent's ID.
             name: New name.
             description: New description.
-            prompt_slots: New prompt slot content.
+            system_prompt: New full system prompt text.
             skill_ids: New Skill tool IDs.
             mcp_connection_ids: New MCP connection IDs.
             builtin_config: New built-in tool whitelist.
@@ -322,8 +322,8 @@ class AgentService:
         }
         if description is not None:
             set_fields["description"] = description
-        if prompt_slots is not None:
-            set_fields["prompt_slots"] = prompt_slots
+        if system_prompt is not None:
+            set_fields["system_prompt"] = system_prompt
         if skill_ids is not None:
             set_fields["skill_ids"] = skill_ids
         if mcp_connection_ids is not None:
@@ -634,7 +634,7 @@ class AgentService:
         return await AgentService.create_agent(
             name=new_name,
             description=source.get("description", ""),
-            prompt_slots=source.get("prompt_slots", {}),
+            system_prompt=source.get("system_prompt", ""),
             skill_ids=resolve_skill_ids(source),
             mcp_connection_ids=source.get("mcp_connection_ids", []),
             builtin_config=source.get("builtin_config", []),

@@ -81,14 +81,8 @@ export function toStudioAgent(a: BackendAgent): Agent {
     voiceEnabled: a.voice_enabled ?? false,
     canSpawnAgents: a.can_spawn_agents ?? false,
     temperature: DEFAULT_AGENT_TEMPERATURE,
-    // role/task map to backend prompt_slots.role/.task (both required by slot_renderer).
-    // systemPrompt kept as a legacy fallback (prompt_slots.system) for old agents.
-    rolePrompt: a.prompt_slots?.role ?? '',
-    taskPrompt: a.prompt_slots?.task ?? '',
-    constraintsPrompt: a.prompt_slots?.constraints ?? '',
-    contextPrompt: a.prompt_slots?.context ?? '',
-    outputFormatPrompt: a.prompt_slots?.output_format ?? '',
-    systemPrompt: a.prompt_slots?.system ?? a.prompt_slots?.system_prompt ?? '',
+    // 系统提示词整段直通（后端 system_prompt；旧五槽已迁移合并）
+    systemPrompt: a.system_prompt ?? '',
     status: agentStatusToDisplay(a.status),
     iconColor: DEFAULT_AGENT_ICON_COLOR,
     skills: [...skillsFromSkillIds, ...skillsFromMcp, ...skillsFromBuiltin, ...skillsFromWorkflows, ...skillsFromKb, ...skillsFromSubagents],
@@ -109,7 +103,7 @@ export function fromStudioAgent(a: Agent): {
   welcome_message?: string
   recommended_items?: { label: string; prompt: string }[]
   recommended_groups?: { title: string; items: { label: string; prompt: string }[] }[]
-  prompt_slots?: Record<string, string>
+  system_prompt?: string
   default_model?: string
   voice_enabled?: boolean
   can_spawn_agents?: boolean
@@ -155,15 +149,7 @@ export function fromStudioAgent(a: Agent): {
         prompt: it.prompt ?? '',
       })),
     })),
-    // Backend slot_renderer requires role + task; system is kept for legacy compat.
-    prompt_slots: {
-      role: a.rolePrompt ?? '',
-      task: a.taskPrompt ?? '',
-      ...(a.constraintsPrompt ? { constraints: a.constraintsPrompt } : {}),
-      ...(a.contextPrompt ? { context: a.contextPrompt } : {}),
-      ...(a.outputFormatPrompt ? { output_format: a.outputFormatPrompt } : {}),
-      ...(a.systemPrompt ? { system: a.systemPrompt } : {}),
-    },
+    system_prompt: a.systemPrompt ?? '',
     default_model: a.model,
     voice_enabled: a.voiceEnabled ?? false,
     can_spawn_agents: a.canSpawnAgents ?? false,
