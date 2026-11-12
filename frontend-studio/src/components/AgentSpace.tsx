@@ -334,6 +334,7 @@ export function AgentSpace({
                     }
                   >
                     <button
+                      onClick={(e) => e.stopPropagation()}
                       className="shrink-0 p-1 rounded-md text-ink-faint hover:text-ink hover:bg-raise transition cursor-pointer"
                       title="更多操作"
                     >
