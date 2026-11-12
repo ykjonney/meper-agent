@@ -931,7 +931,7 @@ export function AgentEditorPage({
         </div>
 
         {/* ── 右：能力架 ── */}
-        <div className="w-[360px] shrink-0 bg-panel overflow-y-auto scrollbar-custom px-5 py-6">
+        <div className="w-[360px] shrink-0 overflow-y-auto scrollbar-custom px-5 py-6">
           <div className="flex items-baseline gap-2 mb-4">
             <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
             <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
@@ -946,7 +946,7 @@ export function AgentEditorPage({
           </button>
 
           {/* 内置工具 */}
-          <div className="mb-4">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <div className="flex items-center gap-1.5 mb-2">
               <IconWrench size={12} className="text-cat-tool" />
               <span className="text-[11px] font-bold text-ink-soft">内置工具</span>
@@ -964,7 +964,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 技能 */}
-          <div className="mb-4">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <div className="flex items-center gap-1.5 mb-2">
               <IconSkill size={12} className="text-cat-skill" />
               <span className="text-[11px] font-bold text-ink-soft">技能</span>
@@ -984,7 +984,7 @@ export function AgentEditorPage({
           </div>
 
           {/* MCP 连接 */}
-          <div className="mb-4">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <div className="flex items-center gap-1.5 mb-2">
               <IconPlug size={12} className="text-cat-mcp" />
               <span className="text-[11px] font-bold text-ink-soft">MCP 连接</span>
@@ -1002,7 +1002,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 知识库 */}
-          <div className="mb-4">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <div className="flex items-center gap-1.5 mb-2">
               <IconBook size={12} className="text-cat-kb" />
               <span className="text-[11px] font-bold text-ink-soft">知识库</span>
@@ -1020,7 +1020,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 可委派子 Agent */}
-          <div className="mb-4">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <div className="flex items-center gap-1.5 mb-2">
               <IconSubAgent size={12} className="text-cat-sub" />
               <span className="text-[11px] font-bold text-ink-soft">可委派子 Agent</span>
@@ -1037,19 +1037,21 @@ export function AgentEditorPage({
           </div>
 
           {/* ── 模型 ── */}
-          <div className="rk-h flex items-center gap-1.5 mb-2">
-            <IconChip size={12} className="text-brand" />
-            <span className="text-[11px] font-bold text-ink-soft">模型</span>
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
+            <div className="rk-h flex items-center gap-1.5 mb-2">
+              <IconChip size={12} className="text-brand" />
+              <span className="text-[11px] font-bold text-ink-soft">模型</span>
+            </div>
+            <Select
+              value={form.model || null}
+              onChange={(v) => set({ model: v ?? '' })}
+              placeholder={activeModels.length === 0 ? '暂无可用模型，请先在模型配置页添加' : '— 未选择 —'}
+              groups={modelGroups}
+            />
           </div>
-          <Select
-            value={form.model || null}
-            onChange={(v) => set({ model: v ?? '' })}
-            placeholder={activeModels.length === 0 ? '暂无可用模型，请先在模型配置页添加' : '— 未选择 —'}
-            groups={modelGroups}
-          />
 
           {/* ── 高级参数（行展开编辑）── */}
-          <div className="mt-5">
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
             <button type="button" onClick={() => setAdvParamsOpen(v => !v)} className="w-full flex items-center justify-between text-[11.5px] text-ink-dim hover:text-ink cursor-pointer py-1.5">
               <span>▸ 高级参数</span>
               <span className="font-mono text-[9px] text-ink-faint">温度 {form.temperature} · 重试 {form.maxRetry ?? 3} · {form.maxTokens ? `${Math.round(form.maxTokens / 1000)}k` : '默认'}</span>
@@ -1074,8 +1076,8 @@ export function AgentEditorPage({
           </div>
 
           {/* ── 开关行：语音 / 允许创建 Agent ── */}
-          <div className="mt-4">
-            <div className="sw-row flex items-center justify-between py-2.5 border-b border-line">
+          <div className="af-card border border-line rounded-xl p-4 space-y-1">
+            <div className="sw-row flex items-center justify-between py-2.5">
               <div className="flex items-center gap-2">
                 <IconVoice size={14} className="text-cat-voice" />
                 <span className="text-[11.5px] text-ink">语音对话<span className="block text-[9px] text-ink-faint mt-0.5">需全局语音凭证</span></span>
@@ -1090,7 +1092,7 @@ export function AgentEditorPage({
                 <span className={`absolute top-[2px] w-[15px] h-[15px] rounded-full bg-white shadow transition-all ${form.voiceEnabled ? 'left-[15px]' : 'left-[2px]'}`} />
               </button>
             </div>
-            <div className="sw-row flex items-center justify-between py-2.5 border-b border-line">
+            <div className="sw-row flex items-center justify-between py-2.5">
               <div className="flex items-center gap-2">
                 <IconSubAgent size={14} className="text-cat-sub" />
                 <span className="text-[11.5px] text-ink">允许创建 Agent<span className="block text-[9px] text-ink-faint mt-0.5">创建物为草稿，需人工审核</span></span>
