@@ -34,6 +34,18 @@ import AvatarField, { type AvatarFieldHandle } from './AvatarField';
 const inputCls =
   'w-full px-0 py-1.5 bg-transparent border-0 outline-none text-ink placeholder:text-ink-faint focus:bg-brand-soft/40 rounded-r-lg transition font-sans resize-none';
 
+/** 节标：靛蓝衬线章节符 § + 衬线斜体标题——纸墨文书的分节语言，
+    替代修订线（border-l-2）与幽灵小字标签，节与节靠留白呼吸。 */
+function SectionMark({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline gap-2.5 mb-3.5">
+      <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
+      <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">{title}</span>
+      {hint && <span className="text-[10px] text-ink-faint">{hint}</span>}
+    </div>
+  );
+}
+
 export function AgentEditorPage({
   agentId,
   onBack,
@@ -694,26 +706,36 @@ export function AgentEditorPage({
 
       {/* ═══ 双栏工作台：左人设大纸 × 右能力架 ═══ */}
       <div className="flex-1 min-h-0 flex">
-        {/* ── 左：人设大纸（文稿修订线就地编辑）── */}
-        <div className="flex-[1.45] min-w-0 overflow-y-auto scrollbar-custom pl-8 pr-10 py-7">
-          <div className="af-label mb-6">人设 · PERSONA</div>
+        {/* ── 左：人设大纸（章节手稿——§ 分节，无修订线）── */}
+        <div className="flex-[1.45] min-w-0 overflow-y-auto scrollbar-custom pl-10 pr-12 py-8">
 
-          {/* Agent 描述：独立于 prompt 的展示元数据（列表卡文案），不进系统提示词 */}
-          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">一句话描述智能体</div>
-            <input className="w-full bg-transparent outline-none text-[14px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
-          </div>
-          {/* 系统提示词（整段直通） */}
-          <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">系统提示词 · 它是谁、做什么、怎么答</div>
-            <textarea rows={16} className="w-full bg-transparent outline-none text-[13.5px] leading-[1.8] text-ink placeholder:text-ink-faint resize-y font-sans" placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'} value={form.systemPrompt ?? ''} onChange={(e) => set({ systemPrompt: e.target.value })} />
-            <div className="text-[10px] text-ink-faint mt-1.5">支持 Markdown 小节结构与 {'{{变量}}'} 引用（工作流调用时解析）</div>
-          </div>
+          {/* § 人设基调 */}
+          <section className="mb-9">
+            <SectionMark title="人设基调" hint="一句话描述智能体" />
+            <input className="w-full bg-transparent outline-none text-[14.5px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
+          </section>
+
+          {/* § 系统提示词——稿纸卡（全页唯一强调处） */}
+          <section className="mb-9">
+            <SectionMark title="系统提示词" hint="支持 Markdown 小节与 {{变量}}（工作流调用时解析）" />
+            <div className="relative bg-page rounded-xl border border-line focus-within:border-brand/60 transition-colors">
+              <textarea
+                rows={14}
+                className="w-full bg-transparent outline-none text-[13.5px] leading-[1.85] text-ink placeholder:text-ink-faint resize-y p-4 pb-8 rounded-xl"
+                placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'}
+                value={form.systemPrompt ?? ''}
+                onChange={(e) => set({ systemPrompt: e.target.value })}
+              />
+              <span className="absolute right-3 bottom-2.5 text-[10px] font-mono tabular-nums text-ink-faint select-none pointer-events-none">
+                {(form.systemPrompt ?? '').length} 字
+              </span>
+            </div>
+          </section>
 
 
-          {/* ── 开场卡：所见即所得 ── */}
-          <div className="bg-panel border border-line rounded-xl p-4">
-            <div className="af-label mb-4">开场 — 用户看到的第一眼</div>
+          {/* § 开场卡：所见即所得 */}
+          <section className="mb-9">
+            <SectionMark title="开场" hint="用户看到的第一眼" />
             <div className="bg-page rounded-xl p-4">
               <div className="flex gap-2.5 items-start">
                 <span className="w-6 h-6 rounded-lg bg-brand text-white flex items-center justify-center text-[10px] font-bold shrink-0">
@@ -746,7 +768,7 @@ export function AgentEditorPage({
               </div>
             </div>
             {/* 推荐项/分组管理：完整功能折叠区（RecommendedItemCard/分组/批量 原样保留） */}
-            <div className="mt-3 border-t border-line pt-2">
+            <div className="mt-3 pt-1">
               <button
                 type="button"
                 className="flex items-center gap-2 text-[10.5px] text-ink-dim hover:text-ink cursor-pointer py-1"
@@ -905,12 +927,16 @@ export function AgentEditorPage({
                 </button>
               </div>
             </div>
-          </div>
+          </section>
         </div>
 
         {/* ── 右：能力架 ── */}
         <div className="w-[300px] shrink-0 border-l border-line bg-panel overflow-y-auto scrollbar-custom px-5 py-6">
-          <div className="af-label mb-4">能力 · CAPABILITIES</div>
+          <div className="flex items-baseline gap-2 mb-4">
+            <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
+            <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
+            <span className="text-[10px] text-ink-faint">搜索技能、MCP、知识库并装配</span>
+          </div>
           <button
             type="button"
             onClick={(e) => openPalette(e)}
