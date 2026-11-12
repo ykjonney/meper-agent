@@ -899,7 +899,7 @@ export function Badge({ count, size = 'default', className = '', style, children
       {children}
       {count !== undefined && count > 0 && (
         <span
-          className={`absolute -top-1 -right-1 ${dot} px-1 flex items-center justify-center
+          className={`absolute -top-1 -right-1 ${dot} px-1 flex items-center justify-center pointer-events-none select-none
             rounded-full text-white font-medium leading-none`}
           style={{ backgroundColor: '#3B82F6', ...style }}
         >

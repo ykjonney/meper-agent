@@ -120,9 +120,13 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
   const [host, setHost] = useState<HTMLElement | null>(null)
   const [coords, setCoords] = useState<{ top: number; left: number; arrow: boolean } | null>(null)
 
+  // host 在「打开时」查询而非 mount 时：主题类由 App useEffect 挂到 <html>，
+  // 子组件 effect 先于父组件执行，mount 时查询必然为 null（生产无 StrictMode
+  // 双跑兜底，服务器上表现为面板永远不渲染）。token 变量在 :root，body 兜底安全。
   useEffect(() => {
-    setHost(document.querySelector<HTMLElement>('.theme-light, .theme-dark'))
-  }, [])
+    if (!open) return
+    setHost(document.querySelector<HTMLElement>('.theme-light, .theme-dark') ?? document.body)
+  }, [open])
 
   useEffect(() => {
     if (open) {
@@ -172,6 +176,15 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  // 跳转前先收面板：不关的话面板悬浮在新页面上方，拦截下层点击
+  const handleNavigate = useCallback(
+    (taskId: string) => {
+      setOpen(false)
+      onNavigateTask?.(taskId)
+    },
+    [onNavigateTask],
+  )
+
   const filtered = notifications.filter((n) => matchTab(n, tab))
   const waitingCount = notifications.filter(
     (n) => n.kind === 'task_waiting_human' && !n.read,
@@ -197,8 +210,8 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
             ref={panelRef}
             style={
               coords
-                ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 200 }
-                : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 200 }
+                ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 210 }
+                : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 210 }
             }
             className="w-[288px] max-h-[calc(100vh-120px)] flex flex-col bg-panel border border-line rounded-[14px] shadow-[var(--shadow-pop)] overflow-hidden"
           >
@@ -252,7 +265,7 @@ export function NotificationCenter({ onNavigateTask }: NotificationCenterProps) 
                 <div className="py-6 text-center text-xs text-ink-faint">暂无通知</div>
               ) : (
                 filtered.map((item) => (
-                  <NotificationRow key={item.id} item={item} onNavigateTask={onNavigateTask} />
+                  <NotificationRow key={item.id} item={item} onNavigateTask={handleNavigate} />
                 ))
               )}
             </div>
