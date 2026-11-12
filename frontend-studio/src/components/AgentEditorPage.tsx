@@ -712,7 +712,7 @@ export function AgentEditorPage({
           {/* § 人设基调 */}
           <section className="mb-9">
             <SectionMark title="人设基调" hint="一句话描述智能体" />
-            <input className="w-full bg-transparent outline-none text-[14.5px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
+            <input className="w-full bg-transparent outline-none text-[15px] font-medium text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
           </section>
 
           {/* § 系统提示词——稿纸卡（节卡内嵌 bg-page 输入区，全页唯一强调处） */}
