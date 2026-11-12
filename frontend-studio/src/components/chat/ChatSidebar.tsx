@@ -73,7 +73,7 @@ export function ChatSidebar({
             <img src="/AFLogo.png" alt="MEPER Agent"
               className="w-[26px] h-[26px] rounded-[7px] object-contain select-none" draggable={false} />
             <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 14, fontWeight: 700 }}>
-              agent<span className="text-brand" style={{ fontStyle: 'normal' }}>·</span>flow
+              MEPER Agent
             </span>
           </div>
           <NotificationCenter onNavigateTask={onNavigateTask} />
