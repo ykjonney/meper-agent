@@ -710,18 +710,18 @@ export function AgentEditorPage({
         <div className="flex-[1.45] min-w-0 overflow-y-auto scrollbar-custom pl-10 pr-12 py-8">
 
           {/* § 人设基调 */}
-          <section className="af-card border border-line rounded-xl p-5 mb-4">
+          <section className="mb-9">
             <SectionMark title="人设基调" hint="一句话描述智能体" />
             <input className="w-full bg-transparent outline-none text-[14.5px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
           </section>
 
           {/* § 系统提示词——稿纸卡（节卡内嵌 bg-page 输入区，全页唯一强调处） */}
-          <section className="af-card border border-line rounded-xl p-5 mb-4">
+          <section className="mb-9">
             <SectionMark title="系统提示词" hint="支持 Markdown 小节与 {{变量}}（工作流调用时解析）" />
-            <div className="relative bg-page rounded-lg border border-line focus-within:border-brand/60 transition-colors">
+            <div className="relative">
               <textarea
                 rows={14}
-                className="w-full bg-transparent outline-none text-[13.5px] leading-[1.85] text-ink placeholder:text-ink-faint resize-y p-4 pb-8 rounded-lg"
+                className="w-full bg-transparent outline-none text-[13.5px] leading-[1.85] text-ink placeholder:text-ink-faint resize-y pb-7"
                 placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'}
                 value={form.systemPrompt ?? ''}
                 onChange={(e) => set({ systemPrompt: e.target.value })}
@@ -734,7 +734,7 @@ export function AgentEditorPage({
 
 
           {/* § 开场卡：所见即所得 */}
-          <section className="af-card border border-line rounded-xl p-5">
+          <section className="mb-9">
             <SectionMark title="开场" hint="用户看到的第一眼" />
             <div className="bg-page rounded-lg p-4">
               <div className="flex gap-2.5 items-start">
@@ -933,7 +933,7 @@ export function AgentEditorPage({
         {/* ── 右：能力架 ── */}
         <div className="w-[360px] shrink-0 overflow-y-auto scrollbar-custom px-5 py-6">
           {/* 能力整体：一张方框卡，标题在卡内，内部分组平铺不再分块 */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-5">
           <div className="flex items-baseline gap-2 mb-4">
             <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
             <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
@@ -1032,7 +1032,7 @@ export function AgentEditorPage({
           </div>
 
           {/* ── 模型 ── */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-5">
             <div className="rk-h flex items-center gap-1.5 mb-2">
               <IconChip size={12} className="text-brand" />
               <span className="text-[11px] font-bold text-ink-soft">模型</span>
@@ -1046,7 +1046,7 @@ export function AgentEditorPage({
           </div>
 
           {/* ── 高级参数（行展开编辑）── */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-5">
             <button type="button" onClick={() => setAdvParamsOpen(v => !v)} className="w-full flex items-center justify-between text-[11.5px] text-ink-dim hover:text-ink cursor-pointer py-1.5">
               <span>▸ 高级参数</span>
               <span className="font-mono text-[9px] text-ink-faint">温度 {form.temperature} · 重试 {form.maxRetry ?? 3} · {form.maxTokens ? `${Math.round(form.maxTokens / 1000)}k` : '默认'}</span>
@@ -1071,7 +1071,7 @@ export function AgentEditorPage({
           </div>
 
           {/* ── 开关行：语音 / 允许创建 Agent ── */}
-          <div className="af-card border border-line rounded-xl p-4 space-y-1">
+          <div className="space-y-1">
             <div className="sw-row flex items-center justify-between py-2.5">
               <div className="flex items-center gap-2">
                 <IconVoice size={14} className="text-cat-voice" />
