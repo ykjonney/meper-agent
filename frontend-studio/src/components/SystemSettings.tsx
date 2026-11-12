@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, FormEvent, type InputHTMLAttributes } from
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldAlert, Plus, Sliders, CheckCircle, Check, Copy,
-  AlertTriangle, RefreshCw, Pencil, ArrowLeft, Search, X, Bot, Workflow,
+  AlertTriangle, RefreshCw, Pencil, ArrowLeft, Search, X, Bot, Workflow, Plug,
 } from 'lucide-react';
 import { agentApi } from '../services/agent-api';
 import { workflowsApi } from '../services/workflows-api';
@@ -208,6 +208,11 @@ export function ExternalAccessPage() {
 
   return (
     <div className="space-y-4">
+      {/* 页头：拆出独立入口后与外部授权等页面同款标题行 */}
+      <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+        <Plug className="w-5 h-5 text-brand" />
+        外部接入
+      </h2>
       {/* One-time raw key reveal（创建成功后置顶提示） */}
       {createdKey && (
         <div className="p-4 bg-sig-ok-soft border border-line rounded-xl space-y-3">
