@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     # recall 走 tool_output_archives 不受影响）。
     TOOL_RESULT_MAX_CHARS: int = 100_000
 
+    # ── 启动迁移 ──
+    # prompt_slots → system_prompt 五槽废弃迁移随启动执行（幂等可重跑）。
+    # 存量环境确认迁移完成后置 false 关闭（启动少一次扫描）。
+    MIGRATE_PROMPT_SLOTS_ON_STARTUP: bool = True
     # ── 长任务巡检（beat）──
     # 慢任务警告阈值（分钟）：RUNNING 超过此时长发站内信+timeline 警告。
     TASK_SLOW_WARN_MINUTES: int = 30

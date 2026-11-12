@@ -139,6 +139,15 @@ async def recover_tasks() -> None:
 
     await recover_waiting_human_tasks()
     await recover_orphan_running_tasks()
+
+    # prompt_slots → system_prompt 启动迁移（settings.MIGRATE_PROMPT_SLOTS_ON_STARTUP
+    # 控制；幂等可重跑，存量槽位自动合并，确认完成后可关）
+    from app.core.config import settings
+    from app.services.migration_service import migrate_prompt_slots
+
+    if settings.MIGRATE_PROMPT_SLOTS_ON_STARTUP:
+        migrated, skipped = await migrate_prompt_slots()
+        logger.info("startup_prompt_slots_migration", migrated=migrated, skipped=skipped)
     # 孤儿 PENDING 立即重派（60s 宽限）：不等 beat 5 分钟轮——worker 重启
     # 后遗留的 pending 任务在服务起来时即恢复（消息若实际还在排队，状态机
     # 版本锁保证双消费方仅一方成功）。
