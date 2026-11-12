@@ -13,6 +13,8 @@ export interface AuthUser {
   username: string
   role: string
   permissions: string[]
+  /** 权限键 → 中文名（/auth/me 由后端 permission_labels 组装下发） */
+  permission_labels?: Record<string, string>
   /** 超级管理员标记（初始管理员）——映射到 store 侧 AuthUser.isSuperAdmin。 */
   is_super_admin?: boolean
 }

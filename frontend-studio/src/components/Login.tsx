@@ -80,6 +80,7 @@ export default function Login() {
             username: user.username,
             role: user.role,
             permissions: user.permissions ?? [],
+            permission_labels: user.permission_labels,
             isSuperAdmin: Boolean(user.is_super_admin),
           }
         : { id: '', username: username.trim(), role: '', permissions: [] }

@@ -58,6 +58,7 @@ export function AuthInitializer({ children }: { children: ReactNode }) {
           username: user.username,
           role: user.role,
           permissions: user.permissions ?? [],
+          permission_labels: user.permission_labels,
           isSuperAdmin: Boolean(user.is_super_admin),
         })
         localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)

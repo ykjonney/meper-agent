@@ -34,6 +34,7 @@ export function usePermissionSync() {
             username: u.username,
             role: u.role,
             permissions: u.permissions ?? [],
+            permission_labels: u.permission_labels,
             isSuperAdmin: Boolean(u.is_super_admin),
           })
         }
