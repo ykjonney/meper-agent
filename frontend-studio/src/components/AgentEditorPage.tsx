@@ -932,21 +932,15 @@ export function AgentEditorPage({
 
         {/* ── 右：能力架 ── */}
         <div className="w-[360px] shrink-0 overflow-y-auto scrollbar-custom px-5 py-6">
+          {/* 能力整体：一张方框卡，标题在卡内，内部分组平铺不再分块 */}
+          <div className="af-card border border-line rounded-xl p-4 mb-3">
           <div className="flex items-baseline gap-2 mb-4">
             <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
             <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
             <span className="text-[10px] text-ink-faint">搜索技能、MCP、知识库并装配</span>
           </div>
-          <button
-            type="button"
-            onClick={(e) => openPalette(e)}
-            className="w-full flex items-center gap-2.5 px-3.5 py-3 border border-dashed border-line-strong rounded-xl text-[11.5px] text-ink-dim hover:text-brand hover:border-brand transition-colors cursor-pointer mb-5"
-          >
-            <Plus className="w-3.5 h-3.5" /> 添加能力 — 搜索技能、MCP、知识库…
-          </button>
-
           {/* 内置工具 */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
               <IconWrench size={12} className="text-cat-tool" />
               <span className="text-[11px] font-bold text-ink-soft">内置工具</span>
@@ -964,7 +958,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 技能 */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
               <IconSkill size={12} className="text-cat-skill" />
               <span className="text-[11px] font-bold text-ink-soft">技能</span>
@@ -984,7 +978,7 @@ export function AgentEditorPage({
           </div>
 
           {/* MCP 连接 */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
               <IconPlug size={12} className="text-cat-mcp" />
               <span className="text-[11px] font-bold text-ink-soft">MCP 连接</span>
@@ -1002,7 +996,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 知识库 */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
               <IconBook size={12} className="text-cat-kb" />
               <span className="text-[11px] font-bold text-ink-soft">知识库</span>
@@ -1020,7 +1014,7 @@ export function AgentEditorPage({
           </div>
 
           {/* 可委派子 Agent */}
-          <div className="af-card border border-line rounded-xl p-4 mb-3">
+          <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
               <IconSubAgent size={12} className="text-cat-sub" />
               <span className="text-[11px] font-bold text-ink-soft">可委派子 Agent</span>
@@ -1034,6 +1028,7 @@ export function AgentEditorPage({
               ))}
               <button type="button" onClick={(e) => openPalette(e)} className="text-[10px] text-ink-faint border border-dashed border-line2 rounded-md px-2 py-0.5 hover:text-brand hover:border-brand cursor-pointer">＋ 添加</button>
             </div>
+          </div>
           </div>
 
           {/* ── 模型 ── */}
