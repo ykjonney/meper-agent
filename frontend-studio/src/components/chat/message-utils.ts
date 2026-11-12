@@ -6,7 +6,7 @@ import {
   Wrench, AlertTriangle, ChevronRight, ChevronDown, User, Download, FileText, Image as ImageIcon, Copy, RotateCcw,
   PenLine, SquarePen, FolderSearch, Search, Globe, Link2, BarChart3, FileSearch, BookOpen,
   ThumbsUp, ThumbsDown, PanelRight, Workflow,
-  FolderOpen, LayoutDashboard, Shield, ArrowLeftRight,
+  FolderOpen, LayoutDashboard, Shield, ArrowLeftRight, Plug,
 } from 'lucide-react';
 import { toast } from '../ui/toast'
 import { IconAgent, IconTask, IconFlow, IconResource } from '../IndigoIcons'
@@ -62,6 +62,7 @@ export const MORE_ICONS: Record<string, typeof LayoutDashboard> = {
   dashboard: LayoutDashboard,
   users: Shield,
   'external-auth': Link2,
+  'external-access': Plug,
   transfer: ArrowLeftRight,
   // 系统设置：改版后由侧栏底部独立齿轮承担（lucide Settings），不再进「更多」菜单
 }

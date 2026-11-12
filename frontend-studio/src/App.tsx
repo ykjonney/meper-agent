@@ -3,7 +3,7 @@ import {
   Bot, LayoutDashboard, Layers, Key,
   ListTodo, Shield,
   Clock,
-  Link2, ArrowLeftRight, Store,
+  Link2, ArrowLeftRight, Store, Plug,
 } from 'lucide-react';
 import { useAuthStore, REFRESH_TOKEN_KEY } from './stores/auth-store';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
@@ -29,6 +29,7 @@ import { UserManagement } from './components/UserManagement';
 import { TransferManagementPage } from './components/transfer/TransferManagementPage';
 import { ExternalAuthPage } from './components/ExternalAuthPage';
 import { SettingsPage } from './components/SettingsPage';
+import { ExternalAccessPage } from './components/SystemSettings';
 import { ProfilePage } from './components/ProfilePage';
 import { NotificationCenter } from './components/notification-center';
 import { ActivationWizard } from './components/ActivationWizard';
@@ -72,10 +73,12 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'resource', label: '资源库', icon: Store },
   // 外部授权：所有登录用户可见；应用管理操作按 application:write 权限在卡片上显示。
   { id: 'external-auth', label: '外部授权', icon: Link2 },
+  // 外部接入：自设置页拆出的独立入口（API Key 管理），进「··· 更多」菜单。
+  { id: 'external-access', label: '外部接入', icon: Plug, permission: 'settings:manage' },
   { id: 'users', label: '用户权限', icon: Shield, permission: 'user:read' },
   // 数据导入导出中心：资源包（afpkg）迁移入口，仅管理员可见（后端 admin/developer 双角色放行）。
   { id: 'transfer', label: '导入导出', icon: ArrowLeftRight, adminOnly: true },
-  // 系统设置 = 多权限域容器（SettingsPage 内 Tab 各自门控）：语音/通用走
+  // 系统设置 = 多权限域容器（SettingsPage 内 Tab 各自门控）：语音/全局参数走
   // settings:manage，消息渠道走 channel:read。入口 permission 为数组——任一满足即可见。
   { id: 'settings', label: '系统设置', icon: Key, permission: ['settings:manage', 'channel:read'] },
 ];
@@ -346,6 +349,7 @@ export default function App() {
             {activeTab === 'users' && <UserManagement />}
             {activeTab === 'transfer' && <TransferManagementPage theme={theme} />}
             {activeTab === 'external-auth' && <ExternalAuthPage />}
+            {activeTab === 'external-access' && <ExternalAccessPage />}
             {activeTab === 'settings' && <SettingsPage theme={theme} />}
 
             {activeTab === 'profile' && (

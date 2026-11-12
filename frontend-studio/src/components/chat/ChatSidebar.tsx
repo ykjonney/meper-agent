@@ -45,7 +45,7 @@ export function ChatSidebar({
   onNavigate, onLogout, onNavigateTask,
 }: ChatSidebarProps) {
   // 「更多」菜单可见项（系统设置已移出——由底部齿轮承担）；无可见项则不渲染入口
-  const moreIds = ['dashboard', 'users', 'external-auth', 'transfer']
+  const moreIds = ['dashboard', 'users', 'external-auth', 'external-access', 'transfer']
     .filter((id) => navItems?.some((n) => n.id === id));
   return (
     /* id 供 notification-center 定位「主目录右侧展开」的面板锚点，勿删 */
@@ -160,7 +160,7 @@ export function ChatSidebar({
                     })}
                     <div className="h-px bg-line mx-3.5 my-1.5" />
                     <div className="px-3.5 pb-1 text-[9.5px] font-bold tracking-[.2em] text-ink-faint">管理</div>
-                    {(['users', 'external-auth', 'transfer'] as const).map((id) => {
+                    {(['users', 'external-auth', 'external-access', 'transfer'] as const).map((id) => {
                       const n = (navItems ?? []).find((x) => x.id === id)
                       if (!n) return null
                       const pinned = pinnedNav.includes(id)
