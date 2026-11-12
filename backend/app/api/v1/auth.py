@@ -58,8 +58,16 @@ async def me(
     前端用于近实时感知角色/权限变更（窗口聚焦/轮询拉取）：每次调用都会
     从 DB 重读角色并重新解析权限集，管理员调整权限后已登录用户无需
     重新登录即可在下次拉取时拿到新权限列表。
+
+    permission_labels 由后端下发（permission_labels.py 单一权威源）——
+    权限中文名不写死在前端，新增权限只改后端映射表。
     """
-    return current_user
+    from app.core.permission_labels import permission_label
+
+    labeled = current_user.model_copy(update={
+        "permission_labels": {p: permission_label(p) for p in current_user.permissions},
+    })
+    return labeled
 
 
 @router.post(

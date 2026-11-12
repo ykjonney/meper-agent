@@ -15,6 +15,8 @@ export interface AuthUser {
   username: string
   role: string
   permissions: string[]
+  /** 权限键 → 中文名（后端 permission_labels 单一权威源下发；未登记键前端回退原 key） */
+  permission_labels?: Record<string, string>
   /** 超级管理员（初始管理员）——唯一能对其他管理员执行管理写操作的身份。 */
   isSuperAdmin?: boolean
 }

@@ -103,16 +103,21 @@ export function ProfilePage({ theme = 'dark' }: { theme?: 'light' | 'dark' }) {
           <div>
             <div className={`text-[11px] ${labelCls} mb-1.5`}>已授权权限</div>
             <div className="flex flex-wrap gap-1.5">
-              {authUser.permissions.map((p) => (
-                <span
-                  key={p}
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono ${
-                    'bg-page text-ink-dim border border-line'
-                  }`}
-                >
-                  {p}
-                </span>
-              ))}
+              {authUser.permissions.map((p) => {
+                // 中文名由后端下发（permission_labels 单一权威源）；未登记键回退原 key
+                const label = authUser.permission_labels?.[p] ?? p
+                return (
+                  <span
+                    key={p}
+                    title={p}
+                    className={`px-2 py-0.5 rounded text-[11px] ${
+                      'bg-page text-ink-dim border border-line'
+                    }`}
+                  >
+                    {label}
+                  </span>
+                )
+              })}
             </div>
           </div>
         )}

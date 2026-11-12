@@ -27,6 +27,9 @@ class UserResponse(BaseModel):
     updated_at: str
     last_login_at: str | None = None
     permissions: list[str] = Field(default_factory=list, description="Resolved permission keys")
+    # 权限键 → 中文名（/auth/me 由后端 permission_labels 组装；新增权限只需改
+    # 后端映射表，前端零改动）。未登记键不在表内（前端回退显示原始 key）。
+    permission_labels: dict[str, str] = Field(default_factory=dict, description="Permission key → Chinese label")
     is_super_admin: bool = Field(default=False, description="超级管理员标记（初始管理员）")
 
 
