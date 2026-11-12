@@ -80,7 +80,7 @@ export function ChatSidebar({
         </div>
         {/* ── 功能入口（主 4 项；按 App 权限过滤，无权限的不显示）── */}
         <div className="px-4 pb-1" style={{ fontSize: 9, letterSpacing: '.16em', color: 'var(--color-ink-faint)' }}>功能</div>
-        <div className="px-2 pb-6">
+        <div className="px-2 pb-6 flex flex-col gap-1">
           {PRIMARY_NAV.filter(({ id }) => navItems?.some((n) => n.id === id)).map(({ id, label, Icon }) => {
             const badge = navItems?.find((n) => n.id === id)?.badge;
             const isActive = activePage != null && id === activeId;
@@ -96,7 +96,7 @@ export function ChatSidebar({
               图标样式），hover ✕ 取消；系统设置由底部齿轮承担，不再可固定。
               mt-1.5 与主功能列表留缝——相邻选中/悬停底色不连成一片 */}
           {pinnedNav.filter((id) => id !== 'settings').length > 0 && (
-            <div className="mt-1.5">
+            <div className="mt-1.5 flex flex-col gap-1">
               {pinnedNav.filter((id) => id !== 'settings').map((id) => {
                 const n = navItems?.find((x) => x.id === id)
                 if (!n) return null
@@ -124,7 +124,7 @@ export function ChatSidebar({
             <div className="relative">
               <button
                 onClick={() => { setMoreMenuOpen(v => !v); setUserMenuOpen(false) }}
-                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors ${
+                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors rounded-lg ${
                   moreMenuOpen
                     ? 'bg-panel text-brand font-bold shadow-[var(--shadow-card)]'
                     : 'text-ink-dim hover:bg-panel hover:text-ink'
