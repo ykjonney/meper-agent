@@ -700,8 +700,8 @@ export function AgentEditorPage({
 
           {/* Agent 描述：独立于 prompt 的展示元数据（列表卡文案），不进系统提示词 */}
           <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
-            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">描述 · 列表展示用</div>
-            <input className="w-full bg-transparent outline-none text-[14px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="一句话介绍这个 Agent（展示在列表卡，不进提示词）…" />
+            <div className="text-[10px] font-bold tracking-wider text-ink-faint mb-1.5">一句话描述智能体</div>
+            <input className="w-full bg-transparent outline-none text-[14px] text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
           </div>
           {/* 系统提示词（整段直通） */}
           <div className="relative pl-7 pb-5 mb-3 border-l-2 border-transparent hover:border-line-strong focus-within:border-brand focus-within:bg-brand-soft/40 rounded-r-lg transition-colors">
