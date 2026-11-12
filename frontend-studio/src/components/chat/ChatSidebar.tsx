@@ -86,34 +86,39 @@ export function ChatSidebar({
             const isActive = activePage != null && id === activeId;
             return (
               <button key={id} onClick={() => onNavigate?.(id)}
-                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : 'text-ink hover:bg-panel'}`}>
+                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors rounded-lg ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : 'text-ink hover:bg-panel'}`}>
                 <Icon size={15} className="opacity-70" />{label}
                 {badge != null && <span className="ml-auto font-mono text-[9.5px] text-ink-faint">{badge}</span>}
               </button>
             );
           })}
           {/* 图钉固定项（设计稿 sidebar-more）：固定的导航追加在主功能之后（与主导航同款
-              图标样式），hover ✕ 取消；系统设置由底部齿轮承担，不再可固定 */}
-          {pinnedNav.filter((id) => id !== 'settings').map((id) => {
-            const n = navItems?.find((x) => x.id === id)
-            if (!n) return null
-            const isActive = activePage != null && id === activeId
-            const Ic = MORE_ICONS[id]
-            return (
-              <div key={`pin-${id}`}
-                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors group/pin ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : 'text-ink hover:bg-panel'}`}
-                onClick={() => onNavigate?.(id)}>
-                <span className="opacity-70 shrink-0">{Ic && <Ic size={15} />}</span>
-                <span className="truncate">{n.label}</span>
-                <span className="ml-auto font-mono text-[9.5px] text-ink-faint shrink-0">{n.badge ?? ''}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); togglePin(id) }}
-                  title="取消固定"
-                  className="ml-1 w-4 h-4 rounded flex items-center justify-center text-ink-faint opacity-0 group-hover/pin:opacity-100 hover:text-sig-fail cursor-pointer shrink-0"
-                ><X size={10} /></button>
-              </div>
-            )
-          })}
+              图标样式），hover ✕ 取消；系统设置由底部齿轮承担，不再可固定。
+              mt-1.5 与主功能列表留缝——相邻选中/悬停底色不连成一片 */}
+          {pinnedNav.filter((id) => id !== 'settings').length > 0 && (
+            <div className="mt-1.5">
+              {pinnedNav.filter((id) => id !== 'settings').map((id) => {
+                const n = navItems?.find((x) => x.id === id)
+                if (!n) return null
+                const isActive = activePage != null && id === activeId
+                const Ic = MORE_ICONS[id]
+                return (
+                  <div key={`pin-${id}`}
+                    className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors rounded-lg group/pin ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : 'text-ink hover:bg-panel'}`}
+                    onClick={() => onNavigate?.(id)}>
+                    <span className="opacity-70 shrink-0">{Ic && <Ic size={15} />}</span>
+                    <span className="truncate">{n.label}</span>
+                    <span className="ml-auto font-mono text-[9.5px] text-ink-faint shrink-0">{n.badge ?? ''}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePin(id) }}
+                      title="取消固定"
+                      className="ml-1 w-4 h-4 rounded flex items-center justify-center text-ink-faint opacity-0 group-hover/pin:opacity-100 hover:text-sig-fail cursor-pointer shrink-0"
+                    ><X size={10} /></button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {/* 「更多」（改版：自底部上移至功能列表末位，向下弹分组菜单） */}
           {moreIds.length > 0 && (
             <div className="relative">
