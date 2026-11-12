@@ -280,15 +280,24 @@ export function AgentSpace({
                 key={agent.id}
                 className="group bg-panel rounded-[10px] shadow-[var(--shadow-card)] p-4 flex flex-col justify-between hover:bg-panel-hover transition-colors duration-150"
               >
-                {/* 头部：首字 avatar + 名称 + 状态 pill + ⋯ 菜单 */}
+                {/* 头部：头像（配置了 avatar 用图片，否则首字色块）+ 名称 + 状态 pill + ⋯ 菜单 */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className="w-9 h-9 rounded-[10px] flex items-center justify-center text-sm font-bold text-white shrink-0 select-none"
-                      style={{ background: ENT_COLORS[agent.name.charCodeAt(0) % ENT_COLORS.length] }}
-                    >
-                      {agent.name.slice(0, 1).toUpperCase()}
-                    </div>
+                    {agent.avatar ? (
+                      <img
+                        src={agent.avatar}
+                        alt=""
+                        className="w-9 h-9 rounded-[10px] object-cover shrink-0 select-none border border-line"
+                        draggable={false}
+                      />
+                    ) : (
+                      <div
+                        className="w-9 h-9 rounded-[10px] flex items-center justify-center text-sm font-bold text-white shrink-0 select-none"
+                        style={{ background: ENT_COLORS[agent.name.charCodeAt(0) % ENT_COLORS.length] }}
+                      >
+                        {agent.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <h4 className="text-[14px] font-semibold text-ink truncate leading-tight">{agent.name}</h4>
                       <div className="mt-1">{statusPill(agent)}</div>
