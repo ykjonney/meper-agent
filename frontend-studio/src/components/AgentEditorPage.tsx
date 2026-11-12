@@ -931,7 +931,7 @@ export function AgentEditorPage({
         </div>
 
         {/* ── 右：能力架 ── */}
-        <div className="w-[300px] shrink-0 border-l border-line bg-panel overflow-y-auto scrollbar-custom px-5 py-6">
+        <div className="w-[360px] shrink-0 border-l border-line bg-panel overflow-y-auto scrollbar-custom px-5 py-6">
           <div className="flex items-baseline gap-2 mb-4">
             <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
             <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
