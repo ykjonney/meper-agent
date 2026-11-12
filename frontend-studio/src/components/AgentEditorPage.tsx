@@ -22,6 +22,7 @@ import { userToolsApi, userToolKeys } from '../services/user-tools-api';
 import { mcpApi, mcpKeys } from '../services/mcp-api';
 import { workflowsApi, workflowKeys } from '../services/workflows-api';
 import { knowledgeApi, knowledgeKeys } from '../services/knowledge-api';
+import { voiceConfigApi, voiceConfigKeys } from '../services/voice-config-api';
 import { toStudioAgent, fromStudioAgent } from '../services/adapters';
 import { Select, Modal, type SelectOptionGroup } from './ui';
 import { toast } from './ui/toast';
@@ -226,6 +227,15 @@ export function AgentEditorPage({
   const scrollLockRef = useRef<string | null>(null);
   // 顶栏头像快捷入口 → AvatarField 的同一套选图/裁剪/上传流程
   const avatarFieldRef = useRef<AvatarFieldHandle>(null);
+
+  // 全局语音服务配置状态——开关行动态提示（未配置时开启语音无意义，引导去配置）
+  const { data: voiceStatus } = useQuery({
+    queryKey: voiceConfigKeys.status,
+    queryFn: voiceConfigApi.status,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const voiceConfigured = voiceStatus?.configured === true;
 
   const handleSave = () => {
     if (!form) return;
@@ -712,7 +722,7 @@ export function AgentEditorPage({
           {/* § 人设基调 */}
           <section className="mb-9">
             <SectionMark title="人设基调" hint="一句话描述智能体" />
-            <input className="w-full bg-transparent outline-none text-[15px] font-medium text-ink placeholder:text-ink-faint" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
+            <input className="w-full bg-transparent outline-none text-[15px] font-medium text-ink placeholder:text-ink-faint border border-line rounded-lg px-3 py-2.5 focus:border-brand transition-colors" value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="如：帮你查询工单、工艺路线并处理设备告警的 MES 助手（展示在列表卡，不进提示词）" />
           </section>
 
           {/* § 系统提示词——稿纸卡（节卡内嵌 bg-page 输入区，全页唯一强调处） */}
@@ -721,7 +731,7 @@ export function AgentEditorPage({
             <div className="relative">
               <textarea
                 rows={14}
-                className="w-full bg-transparent outline-none text-[13.5px] leading-[1.85] text-ink placeholder:text-ink-faint resize-y pb-7"
+                className="w-full bg-transparent outline-none text-[13.5px] leading-[1.85] text-ink placeholder:text-ink-faint resize-y px-3 py-3 pb-8 border border-line rounded-lg focus:border-brand transition-colors"
                 placeholder={'如：\n# 角色\n你是一位资深产品经理…\n\n# 任务\n…\n\n# 约束\n…'}
                 value={form.systemPrompt ?? ''}
                 onChange={(e) => set({ systemPrompt: e.target.value })}
@@ -1075,13 +1085,19 @@ export function AgentEditorPage({
             <div className="sw-row flex items-center justify-between py-2.5">
               <div className="flex items-center gap-2">
                 <IconVoice size={14} className="text-cat-voice" />
-                <span className="text-[11.5px] text-ink">语音对话<span className="block text-[9px] text-ink-faint mt-0.5">需全局语音凭证</span></span>
+                <span className="text-[11.5px] text-ink">语音对话<span className={`block text-[9px] mt-0.5 ${voiceConfigured ? 'text-ink-faint' : 'text-sig-wait'}`}>{voiceConfigured ? '开启后聊天页可用语音模式' : '语音服务未配置——请先在系统设置 → 语音设置中配置凭证'}</span></span>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={form.voiceEnabled}
-                onClick={() => set({ voiceEnabled: !form.voiceEnabled })}
+                onClick={() => {
+                  const next = !form.voiceEnabled;
+                  set({ voiceEnabled: next });
+                  if (next && !voiceConfigured) {
+                    toast.warning('语音服务尚未配置——请到系统设置 → 语音设置中完成供应商凭证配置，否则聊天页语音不可用');
+                  }
+                }}
                 className={`w-8 h-[18px] rounded-full relative transition-colors cursor-pointer ${form.voiceEnabled ? 'bg-brand' : 'bg-line-strong'}`}
               >
                 <span className={`absolute top-[2px] w-[15px] h-[15px] rounded-full bg-white shadow transition-all ${form.voiceEnabled ? 'left-[15px]' : 'left-[2px]'}`} />
