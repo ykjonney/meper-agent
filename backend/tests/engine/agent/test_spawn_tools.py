@@ -83,10 +83,10 @@ class TestCreateAgentTool:
                 {"name": "退款助手", "description": "处理退款", "system_prompt": "你是退款专家"}
             )
         assert "agent_new" in result and "draft" in result
-        # 治理断言：草稿 + 不放大 + prompt 槽位
+        # 治理断言：草稿 + 不放大 + 系统提示词透传
         assert captured["can_spawn_agents"] is False
         assert captured["spawned_by_agent_id"] == ""  # 无上下文时为空（经 contextvar）
-        assert captured["prompt_slots"]["role"] == "你是退款专家"
+        assert captured["system_prompt"] == "你是退款专家"
 
     async def test_rejects_empty_fields(self):
         from app.engine.agent.spawn_tools import create_agent_tool
@@ -161,9 +161,9 @@ async def test_list_capabilities_inventory(monkeypatch):
     result = await list_capabilities.ainvoke({})
     assert "内置工具" in result
     assert "自定义工具" in result and "查订单" in result
-    # MCP 节按连接分组（绑定粒度）+ 组内全量工具带描述
+    # MCP 节按连接分组：连接名 + id + 工具数 + 绑定粒度说明（连接无描述时退化展示工具名）
     assert "MCP 连接" in result and "合作系统" in result and "mcp_c1" in result
-    assert "mcp_x" in result and "mcp 工具" in result and "绑定粒度=整连接" in result
+    assert "mcp_x" in result and "绑定整连接" in result and "1 个工具" in result
     assert "技能" in result and "写作技能" in result
     assert "主力模型" in result
     # 参考 agent 段已移除：盘点不含 agent 名单

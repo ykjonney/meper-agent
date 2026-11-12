@@ -5,7 +5,7 @@ became the sole execution engine (USE_HARNESS_ENGINE removed), the graph
 construction code was deleted. What remains are the functions still used
 by the API layer:
 
-* ``build_system_prompt`` — render the 5-slot system prompt + tool declarations
+* ``build_system_prompt`` — render the full system prompt + tool declarations
 * ``build_tool_declaration`` — generate the 5-section tool declaration text
 * ``preview_agent`` — dry-run assembly (no LLM call) for debugging
 

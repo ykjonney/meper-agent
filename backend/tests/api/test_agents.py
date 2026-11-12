@@ -90,7 +90,7 @@ def _fake_doc(agent_id: str = "agent_01HTEST", name: str = "Test Agent") -> dict
         "_id": agent_id,
         "name": name,
         "description": "A test agent",
-        "prompt_slots": {},
+        "system_prompt": "",
         "skill_ids": [],
         "mcp_connection_ids": [],
         "builtin_config": [],
@@ -359,8 +359,8 @@ class TestUpdateAgent:
         # 传给 service 的 name 已剥离 <script> 块
         assert mock_svc.call_args.kwargs["name"] == "助手"
 
-    def test_update_strips_xss_in_prompt_slots(self, client, auth_admin) -> None:
-        """问题3：prompt_slots 中的 XSS 被清洗，但保留 {{ }} 模板与 < 文本。"""
+    def test_update_strips_xss_in_system_prompt(self, client, auth_admin) -> None:
+        """system_prompt 中的 XSS 被清洗，但保留 {{ }} 模板与 < 文本。"""
         updated = _fake_doc()
         with patch(
             "app.api.v1.agents.AgentService.update_agent",
@@ -370,41 +370,26 @@ class TestUpdateAgent:
                 "/api/v1/agents/agent_01HTEST",
                 json={
                     "name": "x",
-                    "prompt_slots": {
-                        "role": "<script>x</script>你是助手",
-                        "task": "当 a<b 时执行 {{ step }}",
-                    },
+                    "system_prompt": "<script>x</script>你是助手\n当 a<b 时执行 {{ step }}",
                 },
             )
         assert resp.status_code == 200, resp.text
-        slots = mock_svc.call_args.kwargs["prompt_slots"]
-        assert "script" not in slots["role"].lower()
-        assert slots["role"] == "你是助手"
+        prompt = mock_svc.call_args.kwargs["system_prompt"]
+        assert "script" not in prompt.lower()
+        assert "你是助手" in prompt
         # 模板与普通 < 比较保留
-        assert "{{ step }}" in slots["task"]
-        assert "a<b" in slots["task"]
+        assert "{{ step }}" in prompt
+        assert "a<b" in prompt
 
-    def test_update_rejects_oversized_prompt_slot(self, client, auth_admin) -> None:
-        """问题2：单个 prompt_slot value 超过 10000 字符 → 422。"""
+    def test_update_rejects_oversized_system_prompt(self, client, auth_admin) -> None:
+        """system_prompt 超过 50000 字符 → 422。"""
         with patch(
             "app.api.v1.agents.AgentService.update_agent",
             new=AsyncMock(return_value=_fake_doc()),
         ):
             resp = client.put(
                 "/api/v1/agents/agent_01HTEST",
-                json={"name": "x", "prompt_slots": {"role": "a" * 10001}},
-            )
-        assert resp.status_code == 422, resp.text
-
-    def test_update_rejects_bad_prompt_slot_key(self, client, auth_admin) -> None:
-        """prompt_slots 的 key 必须匹配 ^[a-zA-Z0-9_]+$，否则 422。"""
-        with patch(
-            "app.api.v1.agents.AgentService.update_agent",
-            new=AsyncMock(return_value=_fake_doc()),
-        ):
-            resp = client.put(
-                "/api/v1/agents/agent_01HTEST",
-                json={"name": "x", "prompt_slots": {"bad key!": "v"}},
+                json={"name": "x", "system_prompt": "a" * 50_001},
             )
         assert resp.status_code == 422, resp.text
 
@@ -563,7 +548,7 @@ class TestAgentApiServiceContract:
         sig = inspect.signature(AgentService.create_agent)
         valid_params = set(sig.parameters.keys())
         api_kwargs = {
-            "name", "description", "prompt_slots",
+            "name", "description", "system_prompt",
             "skill_ids", "mcp_connection_ids", "builtin_config",
             "workflow_ids", "knowledge_base_ids",
             "default_model", "max_retry",
@@ -578,7 +563,7 @@ class TestAgentApiServiceContract:
         sig = inspect.signature(AgentService.update_agent)
         valid_params = set(sig.parameters.keys())
         api_kwargs = {
-            "agent_id", "name", "description", "prompt_slots",
+            "agent_id", "name", "description", "system_prompt",
             "skill_ids", "mcp_connection_ids", "builtin_config",
             "workflow_ids", "knowledge_base_ids",
             "default_model", "max_retry",

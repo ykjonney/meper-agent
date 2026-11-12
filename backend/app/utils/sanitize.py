@@ -10,9 +10,9 @@ The cleaning strategy is **selective**, not full HTML escaping:
   event handlers (``on*="..."``), and dangerous URI schemes
   (``javascript:``, ``vbscript:``, ``data:text/html``).
 - **Preserves** plain text, bare ``<`` / ``>`` characters, code samples,
-  and ``{{ }}`` Jinja templates. This is essential because ``prompt_slots``
-  values (role / task / constraints …) are fed to the LLM and frequently
-  contain code, math comparisons (``a < b``), and templating.
+  and ``{{ }}`` Jinja templates. This is essential because prompt fields
+  (system prompt / descriptions) are fed to the LLM and frequently contain
+  code, math comparisons (``a < b``), and templating.
 
 This keeps the content usable for LLM prompting while neutralizing the XSS
 payloads that actually execute in browsers.
@@ -61,7 +61,7 @@ def sanitize_text(value: str) -> str:
     Removes ``<script>``/``<iframe>`` blocks, inline ``on*=`` event
     handlers, and ``javascript:``/``vbscript:``/``data:text/html`` URIs.
     Preserves plain text, bare ``<``/``>`` (e.g. ``a < b``), code samples,
-    and ``{{ }}`` Jinja templates — essential for ``prompt_slots`` content
+    and ``{{ }}`` Jinja templates — essential for prompt content
     that is fed to the LLM.
 
     Args:
@@ -83,18 +83,4 @@ def sanitize_text(value: str) -> str:
     return cleaned
 
 
-def sanitize_dict(value: dict[str, str]) -> dict[str, str]:
-    """Sanitize every string value in a ``dict[str, str]``.
 
-    Used for fields like ``prompt_slots`` where each value is free text.
-    Keys are returned unchanged (key validation is handled separately).
-
-    Args:
-        value: Mapping of free-text values (e.g. ``prompt_slots``).
-
-    Returns:
-        New dict with each value passed through :func:`sanitize_text`.
-    """
-    if not isinstance(value, dict):
-        return value
-    return {k: sanitize_text(v) for k, v in value.items()}

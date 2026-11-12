@@ -853,7 +853,7 @@ async def _build_system_prompt_checked(
             subagents=subagents,
         )
     except ValueError as exc:
-        raise ValidationError(code="AGENT_PROMPT_SLOT_MISSING", message=str(exc)) from exc
+        raise ValidationError(code="AGENT_SYSTEM_PROMPT_MISSING", message=str(exc)) from exc
 
     if user_id:
         try:

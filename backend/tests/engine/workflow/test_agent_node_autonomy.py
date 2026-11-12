@@ -196,7 +196,7 @@ class TestBuildToolDeclarationByContext:
 
         # workflow_ids 置空：workflow 列表声明会查 Mongo，与本用例无关
         agent = _fake_agent(
-            prompt_slots={"role": "分析师", "task": "生成日报"},
+            system_prompt="你是分析师，负责生成日报。",
             workflow_ids=[],
         )
         text = await render_system_prompt_full(agent, execution_context="workflow")
@@ -427,7 +427,7 @@ def _run_execute_rich(
     )
     variables = {"system": {"task_id": "task_1", "user_id": "user_1"}}
 
-    agent_doc = _fake_agent(prompt_slots={"role": "分析师", "task": "生成日报"})
+    agent_doc = _fake_agent(system_prompt="你是分析师，负责生成日报。")
 
     mock_db = MagicMock()
     mock_db.__getitem__ = MagicMock(return_value=MagicMock(

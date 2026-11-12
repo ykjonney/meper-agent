@@ -21,17 +21,11 @@ class CustomToolBinding(BaseModel):
         description="绑定时填入的参数(sensitive 字段加密存储)",
     )
 
-# 单个 prompt_slot value 的最大字符数（兼顾详细提示词与防滥用，
-# 约 2.5K–5K tokens，足够绝大多数场景）。
-PROMPT_SLOT_MAX_LENGTH = 10_000
-# 卡槽 key 命名白名单（与 SLOT_SCHEMA 的 name 风格一致）。
-_PROMPT_SLOT_KEY_PATTERN = r"^[a-zA-Z0-9_]+$"
-
 
 class AgentCreate(BaseModel):
     """Schema for creating a new Agent.
 
-    Only essential fields at creation time. Configure prompt slots,
+    Only essential fields at creation time. Configure system prompt,
     tools, workflows, and model via the update endpoint afterwards.
     """
 
@@ -160,7 +154,7 @@ class AgentUpdate(BaseModel):
         description="会话 Token 上限（累计，0 = 使用全局默认）",
     )
 
-    @field_validator("name", "description", "welcome_message", "avatar", mode="after")
+    @field_validator("name", "description", "welcome_message", "avatar", "system_prompt", mode="after")
     @classmethod
     def _sanitize_text_fields(cls, v: str) -> str:
         """后端纵深防御：清洗存储型 XSS 载荷。"""
