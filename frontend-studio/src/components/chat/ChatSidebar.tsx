@@ -101,10 +101,10 @@ export function ChatSidebar({
             const Ic = MORE_ICONS[id]
             return (
               <div key={`pin-${id}`}
-                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer hover:bg-panel rounded-lg group/pin ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : ''}`}
+                className={`w-full flex items-center gap-[10px] px-3 py-[9px] text-[13px] cursor-pointer transition-colors group/pin ${isActive ? 'bg-panel shadow-[var(--shadow-card),inset_2px_0_0_var(--color-brand)]' : 'text-ink hover:bg-panel'}`}
                 onClick={() => onNavigate?.(id)}>
                 <span className="opacity-70 shrink-0">{Ic && <Ic size={15} />}</span>
-                <span className={`truncate ${isActive ? 'text-brand font-semibold' : 'text-ink'}`}>{n.label}</span>
+                <span className="truncate">{n.label}</span>
                 <span className="ml-auto font-mono text-[9.5px] text-ink-faint shrink-0">{n.badge ?? ''}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); togglePin(id) }}
