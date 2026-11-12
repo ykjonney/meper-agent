@@ -27,7 +27,7 @@ import { Select, Modal, type SelectOptionGroup } from './ui';
 import { toast } from './ui/toast';
 import { IconAgent, IconWrench, IconSkill, IconPlug, IconBook, IconSubAgent, IconChip, IconVoice } from './IndigoIcons';
 import type { Agent } from '../types';
-import AvatarField from './AvatarField';
+import AvatarField, { type AvatarFieldHandle } from './AvatarField';
 
 /* 输入框统一定稿 inline-field 修订线语言：透明无边框就地编辑，聚焦时品牌淡底
    + 右侧圆角（左缘修订线由字段容器 border-l-2 承担）——禁用 SaaS 白底边框矩形 */
@@ -212,6 +212,8 @@ export function AgentEditorPage({
   const [activeSec, setActiveSec] = useState('sec-basic');
   // 点击导航后的程序滚动锁：滚动期间 onScroll 不抢高亮，scrollend 解锁
   const scrollLockRef = useRef<string | null>(null);
+  // 顶栏头像快捷入口 → AvatarField 的同一套选图/裁剪/上传流程
+  const avatarFieldRef = useRef<AvatarFieldHandle>(null);
 
   const handleSave = () => {
     if (!form) return;
@@ -619,8 +621,12 @@ export function AgentEditorPage({
         <button onClick={onBack} className="w-8 h-8 rounded-lg text-ink-dim hover:text-ink hover:bg-raise transition cursor-pointer shrink-0 flex items-center justify-center">
           <ArrowLeft className="w-4 h-4" />
         </button>
-        {/* 头像：点击换（复用 AvatarField 逻辑由原字段迁移，此处展示 + 触发同 input） */}
-        <div title="点击更换头像" className="relative w-10 h-10 shrink-0 cursor-pointer group">
+        {/* 头像：点击换——经 AvatarField（inputOnly）触发同一套选图/裁剪/上传 */}
+        <div
+          title="点击更换头像"
+          onClick={() => avatarFieldRef.current?.open()}
+          className="relative w-10 h-10 shrink-0 cursor-pointer group"
+        >
           <div className="w-full h-full rounded-[11px] overflow-hidden relative border border-line" style={{ background: form?.iconColor || 'var(--color-brand)' }}>
             {form?.avatar ? (
               <img src={form.avatar} alt="" className="w-full h-full object-cover select-none" draggable={false} />
@@ -638,6 +644,14 @@ export function AgentEditorPage({
             <Pencil className="w-2.5 h-2.5" strokeWidth={2.5} />
           </span>
         </div>
+        {/* 头像上传全流程（隐藏 UI，仅 input + 裁剪弹层；预览即顶栏头像） */}
+        <AvatarField
+          inputOnly
+          ref={avatarFieldRef}
+          value={form?.avatar ?? ''}
+          entityId={agentId}
+          onChange={(url) => set({ avatar: url })}
+        />
         <div className="name-edit flex items-center gap-1.5 min-w-0" title="点击编辑名称">
           <input
             value={form?.name ?? ''}

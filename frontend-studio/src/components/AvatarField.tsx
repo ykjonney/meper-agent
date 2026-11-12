@@ -5,8 +5,10 @@
  * - 选图 → react-easy-crop 裁剪（1:1）→ canvas 切 256×256 PNG → uploadAvatar → onChange(url)
  * - 移除 → onChange('')（空串 → PUT 提交 → 后端清空 → 渲染回 logo）
  * - agentId 缺失时禁用上传（先保存 Agent 拿到 id 再传）
+ * - inputOnly：不渲染可见 UI（预览/按钮），只挂 input + 裁剪弹层——顶栏头像
+ *   等自定义入口经 ref.open() 触发同一套选图/裁剪/上传流程。
  */
-import { useState, useCallback, useRef, type FC } from 'react'
+import { useState, useCallback, useRef, useImperativeHandle, forwardRef, type FC } from 'react'
 import Cropper from 'react-easy-crop'
 import { Upload, Trash2, Loader2, X } from 'lucide-react'
 import { agentApi } from '../services/agent-api'
@@ -23,6 +25,11 @@ interface PixelCrop {
   height: number
 }
 
+export interface AvatarFieldHandle {
+  /** 打开文件选择（外部自定义入口触发同一套上传流程） */
+  open: () => void
+}
+
 interface AvatarFieldProps {
   value: string
   /** 实体 ID（agent / tool 等）。未保存（空）时禁用上传。 */
@@ -31,6 +38,8 @@ interface AvatarFieldProps {
   disabled?: boolean
   /** 上传回调，默认 agentApi.uploadAvatar；其他实体（如 Skill）传自己的。 */
   upload?: (id: string, file: Blob) => Promise<string>
+  /** 只挂 input + 裁剪弹层，不渲染预览/按钮（顶栏头像等外部入口用） */
+  inputOnly?: boolean
 }
 
 /** 读图片为 dataURL（喂给 Cropper）。 */
@@ -61,7 +70,8 @@ async function cropImageToBlob(imageSrc: string, pixelCrop: PixelCrop, size: num
   })
 }
 
-const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled, upload }) => {
+const AvatarField = forwardRef<AvatarFieldHandle, AvatarFieldProps>(
+  ({ value, entityId, onChange, disabled, upload, inputOnly }, ref) => {
   const doUpload = upload ?? ((id, file) => agentApi.uploadAvatar(id, file))
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [crop, setCrop] = useState({ x: 0, y: 0 })
@@ -69,6 +79,9 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<PixelCrop | null>(null)
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // 外部入口（顶栏头像等）触发同一套 input → 裁剪 → 上传流程
+  useImperativeHandle(ref, () => ({ open: () => inputRef.current?.click() }), [])
 
   const onFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -103,6 +116,26 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
   }, [imageSrc, croppedAreaPixels, entityId, onChange, doUpload])
 
   const canUpload = !!entityId && !disabled
+
+  if (inputOnly) {
+    // 隐藏模式：只挂 input + 裁剪弹层（预览/按钮由外部入口替代）
+    return (
+      <>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) onFile(f)
+            e.target.value = ''
+          }}
+        />
+        {imageSrc && <CropModal imageSrc={imageSrc} uploading={uploading} onConfirm={confirmCrop} onCancel={() => setImageSrc(null)} crop={crop} zoom={zoom} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={onCropComplete} />}
+      </>
+    )
+  }
 
   return (
     <div className="flex items-center gap-3">
@@ -142,47 +175,61 @@ const AvatarField: FC<AvatarFieldProps> = ({ value, entityId, onChange, disabled
           e.target.value = ''
         }}
       />
+      {imageSrc && <CropModal imageSrc={imageSrc} uploading={uploading} onConfirm={confirmCrop} onCancel={() => setImageSrc(null)} crop={crop} zoom={zoom} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={onCropComplete} />}
+    </div>
+  )
+})
 
-      {/* 裁剪 modal */}
-      {imageSrc && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" role="dialog">
-          <div className="w-full max-w-sm bg-panel border border-line rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-white">裁剪头像</span>
-              <button onClick={() => setImageSrc(null)} className="text-ink-dim hover:text-ink cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="relative w-full h-64 bg-[#0c0c0e] rounded-lg overflow-hidden">
-              <Cropper
-                image={imageSrc}
-                crop={crop}
-                zoom={zoom}
-                aspect={1}
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={onCropComplete}
-              />
-            </div>
-            <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full" />
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setImageSrc(null)} className="px-3 py-1.5 text-xs text-ink-dim hover:text-ink cursor-pointer">
-                取消
-              </button>
-              <button
-                onClick={confirmCrop}
-                disabled={uploading}
-                className="px-3 py-1.5 text-xs rounded-md bg-brand text-white hover:bg-brand-hover disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-              >
-                {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                确认上传
-              </button>
-            </div>
-          </div>
+/** 裁剪弹层（两种模式共用）。 */
+function CropModal({ imageSrc, uploading, onConfirm, onCancel, crop, zoom, onCropChange, onZoomChange, onCropComplete }: {
+  imageSrc: string
+  uploading: boolean
+  onConfirm: () => void
+  onCancel: () => void
+  crop: { x: number; y: number }
+  zoom: number
+  onCropChange: (c: { x: number; y: number }) => void
+  onZoomChange: (z: number) => void
+  onCropComplete: (_: unknown, pixels: PixelCrop) => void
+}) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" role="dialog">
+      <div className="w-full max-w-sm bg-panel border border-line rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-white">裁剪头像</span>
+          <button onClick={onCancel} className="text-ink-dim hover:text-ink cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      )}
+        <div className="relative w-full h-64 bg-[#0c0c0e] rounded-lg overflow-hidden">
+          <Cropper
+            image={imageSrc}
+            crop={crop}
+            zoom={zoom}
+            aspect={1}
+            onCropChange={onCropChange}
+            onZoomChange={onZoomChange}
+            onCropComplete={onCropComplete}
+          />
+        </div>
+        <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="w-full" />
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onCancel} className="px-3 py-1.5 text-xs text-ink-dim hover:text-ink cursor-pointer">
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={uploading}
+            className="px-3 py-1.5 text-xs rounded-md bg-brand text-white hover:bg-brand-hover disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+          >
+            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+            确认上传
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
+
 
 export default AvatarField
