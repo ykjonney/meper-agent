@@ -631,7 +631,10 @@ class TaskService:
         """
         doc = await TaskService.get_task_or_404(task_id)
         status = TaskStatus(doc["status"])
-        if status not in TERMINAL_STATUSES:
+        # cancelled 视同终态可删：用户取消的任务语义上已结束，允许清理
+        # （"可恢复"是 retry 语义，不构成保留障碍——重建即可）。
+        deletable = TERMINAL_STATUSES | {TaskStatus.CANCELLED}
+        if status not in deletable:
             raise ConflictError(
                 code="TASK_NOT_TERMINAL",
                 message=f"Task {task_id} 状态为 {status.value}，仅允许删除终态 Task",

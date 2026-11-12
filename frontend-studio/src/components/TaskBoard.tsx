@@ -391,8 +391,9 @@ export function TaskBoard({ theme = 'dark', onOpenTaskDetail }: { theme?: 'light
     mutationFn: (taskId: string) => tasksApi.remove(taskId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskKeys.lists() })
+      toast.success('任务已删除')
     },
-    onError: (e) => setActionError(`删除失败：${getErrorMessage(e)}`),
+    onError: (e) => toast.error(`删除失败：${getErrorMessage(e)}`),
   })
 
   /* ─── Actions ─── */
