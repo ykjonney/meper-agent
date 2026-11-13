@@ -57,10 +57,14 @@ export function LoginPage() {
       />
       <section className="login-panel" aria-labelledby="login-title">
         <div className="login-brand">
-          <img src="/AFLogo.png" alt="Agent Flow" />
+          <img src="AFLogo.png" alt="MEPER Agent" />
           <div>
-            <Typography.Title id="login-title" level={2}>
-              Agent Flow
+            <Typography.Title
+              id="login-title"
+              level={2}
+              style={{ fontFamily: 'Georgia, "Songti SC", "STSong", serif', fontStyle: 'italic', marginBottom: 0 }}
+            >
+              MEPER Agent
             </Typography.Title>
             <Typography.Text type="secondary">
               登录后选择 Agent 开始对话

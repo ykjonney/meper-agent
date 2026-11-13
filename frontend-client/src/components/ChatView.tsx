@@ -29,7 +29,7 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { LoadingOutlined, OrderedListOutlined } from '@ant-design/icons'
-import { Popover, Select, Tag, Tooltip as AntTooltip } from 'antd'
+import { Popover, Tag, Tooltip as AntTooltip } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -231,15 +231,6 @@ export function ChatView({
   const unseenTaskCount = sessionTasks.filter((t) => !seenTaskIds.has(t.task_id)).length
   // 最新 todo 快照（todo_write 清单）——header 胶囊
   const latestTodos = extractLatestTodos(messages)
-  // 思考档位（off/low/medium/high）：localStorage 持久化，use-chat 发送时直读
-  const [thinkingLevel, setThinkingLevel] = useState<string>(() =>
-    localStorage.getItem('meper_client_thinking_level') ?? 'medium',
-  )
-  const changeThinkingLevel = (level: string) => {
-    setThinkingLevel(level)
-    if (level === 'medium') localStorage.removeItem('meper_client_thinking_level')
-    else localStorage.setItem('meper_client_thinking_level', level)
-  }
   // 重新生成：取最后一条用户输入重发（仅非流式时可用）
   const handleRegenerate = useCallback(() => {
     if (running) return
@@ -515,27 +506,10 @@ export function ChatView({
         />
         <div className="chat-agent-title">
           <strong>{agent.name}</strong>
-          {agent.defaultModel ? (
-            <span className="model-tag">{agent.defaultModel}</span>
-          ) : null}
           <Typography.Text type="secondary" ellipsis>
             {agent.description || '智能 Agent'}
           </Typography.Text>
         </div>
-        {/* 思考档位：控制模型推理深度（off 不思考省 token / medium 默认） */}
-        <Select
-          value={thinkingLevel}
-          onChange={changeThinkingLevel}
-          size="small"
-          style={{ minWidth: 92 }}
-          title="思考档位：越高推理越深、耗时越长"
-          options={[
-            { value: 'off', label: '思考:关' },
-            { value: 'low', label: '思考:低' },
-            { value: 'medium', label: '思考:中' },
-            { value: 'high', label: '思考:高' },
-          ]}
-        />
         {/* todo 清单胶囊：agent 用 todo_write 建清单后显示进度（点击展开明细） */}
         {latestTodos && latestTodos.items.length > 0 ? (
           <Popover

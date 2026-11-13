@@ -7,6 +7,7 @@ import {
   PlusOutlined,
   SunOutlined,
   UserOutlined,
+  FolderOutlined,
 } from '@ant-design/icons'
 import { Conversations } from '@ant-design/x'
 import { Avatar, Button, Dropdown, Empty, Skeleton, Typography } from 'antd'
@@ -55,7 +56,7 @@ export function ConversationSidebar(props: ConversationSidebarProps) {
   return (
     <aside className="conversation-sidebar">
       <div className="sidebar-brand">
-        <img src="/FullLogo.png" alt="Agent Flow" />
+        <img src="FullLogo.png" alt="MEPER Agent" />
       </div>
 
       <div className="agent-switcher">
@@ -123,7 +124,7 @@ export function ConversationSidebar(props: ConversationSidebarProps) {
             items={props.sessions.map((session) => ({
               key: session.id,
               label: sessionLabel(session),
-              icon: <MessageOutlined />,
+              icon: session.local_dir ? <FolderOutlined /> : <MessageOutlined />,
             }))}
             onActiveChange={(key) => props.onSelectSession(key)}
             menu={(item) => ({
