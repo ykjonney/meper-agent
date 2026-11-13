@@ -125,6 +125,15 @@ export function Composer({
         }
         disabled={!activeAgent || isStreaming}
         className="w-full bg-transparent text-[13.5px] text-ink focus:outline-none resize-none font-sans placeholder-ink-faint leading-relaxed disabled:opacity-50"
+        onPaste={(e) => {
+          // 剪贴板图片（截图/复制的图）直接进附件队列，与 file picker 同链路；
+          // 纯文本粘贴不拦截（走默认行为）。文件粘贴时文字与文件并存也全收。
+          const files = Array.from(e.clipboardData?.files ?? []);
+          if (files.length) {
+            e.preventDefault();
+            setPendingFiles((prev) => [...prev, ...files]);
+          }
+        }}
         onKeyDown={(e) => {
           // 中文 IME 选词/确认候选的 Enter 不是发送（见 isImeComposing 注释）
           if (isImeComposing(e)) return;
