@@ -180,12 +180,15 @@ def test_injected_in_all_contexts(context: str) -> None:
     assert "todo_write" in [t.name for t in tools]
 
 
-async def test_declaration_contains_task_tracking() -> None:
-    """system prompt 声明含 Task Tracking 段（chat 与 workflow 一致）。"""
+async def test_declaration_has_no_task_tracking_section() -> None:
+    """todo_write 用法规则单一事实源=工具 description,prompt 不再重复表达。
+
+    「### Task Tracking」段已移除——防回归:若有人把 usage 规则加回 prompt
+    （与 description 重复,每轮多注入 ~600 字符）,此测试失败。
+    """
     from app.engine.agent.builder import build_tool_declaration
 
     agent = {"builtin_config": ["bash"], "agent_id": "a1"}
     for context in ("chat", "workflow"):
         decl = await build_tool_declaration(agent, execution_context=context)
-        assert "### Task Tracking" in decl
-        assert "todo_write" in decl
+        assert "### Task Tracking" not in decl

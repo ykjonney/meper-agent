@@ -539,20 +539,17 @@ def _build_builtin_tool_declaration(
         desc_first_line = desc.split("\n")[0].strip()
         lines.append(f"- **{name}**: {desc_first_line}")
 
-    # run_code 使用策略 —— 硬性规则,约束 LLM 不要逐条调用工具。
+    # run_code 使用策略 —— 跨工具编排策略,属于 prompt 层(非单工具用法)。
     if "run_code" in enabled:
         lines.extend([
             "",
             "### Batch Tool Execution (run_code)",
             "",
-            "When a task requires calling the same tool for many items (every person,",
-            "every order, every record), OR chaining multiple tools where later calls",
-            "depend on earlier results, you MUST write one **run_code** with a loop /",
-            "tools.call_many instead of issuing one tool call per item.",
-            "Direct per-item tool calls for batches of 3+ items are an error — they",
-            "waste turns and tokens. Inside run_code, call tools via",
-            "`tools.call(name, **kwargs)` / `tools.call_many([...])`; see the tool",
-            "description for the full API and examples.",
+            "When a task requires calling the same tool for many similar items,",
+            "prefer one **run_code** with a loop / tools.call_many over one tool",
+            "call per item (5+ items) — it saves turns and tokens. Inside run_code,",
+            "call tools via `tools.call(name, **kwargs)` / `tools.call_many([...])`;",
+            "see the tool description for the full API.",
             "",
         ])
 
@@ -595,127 +592,45 @@ def _build_builtin_tool_declaration(
             "",
         ])
 
-    # todo_write is always available in all contexts (capability tool).
-    # 门控行为与运行时一致（final_answer_gate 每用户轮 ≤2 次提醒），声明
-    # 必须写明——模型知道"留未完成项收不了尾"才会主动维护清单终态。
-    from app.engine.agent.todo_tool import TODO_TOOL_BY_NAME
-
-    _todo = TODO_TOOL_BY_NAME.get("todo_write")
-    if _todo is not None:
-        _todo_desc = (_todo.description or "").split("\n")[0].strip()
-        lines.extend([
-            "",
-            "### Task Tracking",
-            "",
-            f"- **todo_write**: {_todo_desc}",
-            "Before starting a multi-step task (3+ steps), call `todo_write` with the full",
-            "checklist; update it as you progress. Every call passes the COMPLETE list",
-            "(full replacement). Keep exactly one item `in_progress` at a time; mark items",
-            "`completed` only when fully done; remove items that are no longer relevant;",
-            "when everything is done, clear the list by passing an empty list.",
-            "The current checklist is re-injected before each of your turns, and you",
-            "MUST NOT end your reply while the checklist still has pending / in_progress",
-            "items — the system will remind you (up to 2 times per user turn) and send",
-            "you back to continue. Do not create checklists for simple Q&A or single-step",
-            "tasks.",
-            "",
-        ])
+    # todo_write 不在此声明：用法/门控规则完整住在工具 description（单一事实
+    # 源），清单状态由运行时每轮 re-inject——prompt 段重复表达已移除。
 
     if execution_context == "workflow":
         # 工作流无人值守语义：ask_clarification 已剥离，不生成 Clarification 段
         # （自主执行规则由 build_tool_declaration 作为独立段注入）。
         return "\n".join(lines)
 
-    # ask_clarification is always available (not gated by builtin_config)
+    # ask_clarification is always available (not gated by builtin_config).
+    # 参数 schema（clarification_type/options/fields 的字段定义）住在工具
+    # args_schema——此段只写 schema 表达不了的策略：何时问、为何必须用工具。
     lines.extend([
         "",
         "### Clarification",
         "",
-        "When you need more information from the user, you MUST call the **ask_clarification** tool.",
-        "Do NOT ask questions in plain text — the tool provides interactive UI (option buttons,",
+        "When you need more information from the user, you MUST call the **ask_clarification**",
+        "tool instead of asking in plain text — it renders interactive UI (option buttons,",
         "confirmation dialogs, structured forms) that plain text cannot.",
+        "Pick the closest `clarification_type` (missing_info / ambiguous_requirement /",
+        "approach_choice / risk_confirmation / suggestion); `risk_confirmation` takes no",
+        "`options` (the UI provides confirm/cancel). When collecting TWO OR MORE independent",
+        "pieces of information, use `fields` (wizard mode, one question per screen) so",
+        "everything resolves in a single tool call instead of repeated rounds.",
         "",
-        "Choose the appropriate `clarification_type`:",
-        "- `missing_info`: Missing required details (e.g. file format, target audience).",
-        "  Set `options` if there are common choices.",
-        "- `ambiguous_requirement`: User's request has multiple interpretations.",
-        "  Set `options` to the distinct interpretations.",
-        "- `approach_choice`: Multiple valid approaches exist (e.g. React vs Vue).",
-        "  Set `options` to the approach names.",
-        "- `risk_confirmation`: About to perform a risky/irreversible action.",
-        "  Do NOT set `options` — the UI provides confirm/cancel buttons.",
-        "- `suggestion`: Recommending a specific approach.",
-        "  Set `options` to alternative suggestions if applicable.",
-        "",
-        "**IMPORTANT**: `options` must be a JSON array of strings, e.g. `[\"React\", \"Vue\", \"Svelte\"]`.",
-        "",
-        "#### Wizard mode (multiple questions, asked one by one)",
-        "",
-        "When you need to collect **two or more independent pieces of information**,",
-        "use the `fields` parameter. The host asks each question one at a time (the user can",
-        "go back to edit earlier answers), so all fields are resolved in a single tool call",
-        "instead of repeated back-and-forth rounds.",
-        "",
-        "Do NOT use `fields` when:",
-        "- You only have one question (use the single-question form).",
-        "- It is a `risk_confirmation` or a single `approach_choice` (use `options`).",
-        "",
-        "Each field object has: `name` (key the answer returns under), `label` (question text",
-        "shown to the user), `field_type` (`text`/`number`/`boolean`/`select`), `required`,",
-        "`options`, `default`, and `description` (help text).",
-        "",
-        "**Deciding whether to provide `options`:**",
-        "- **Provide 3-5 recommended options** whenever reasonable (preferred). This gives the",
-        "  user quick choices while still allowing free input at the bottom of each question.",
-        "- **Omit `options`** only for fields the user MUST type themselves and cannot be",
-        "  anticipated (e.g. passwords, tokens, free-form names). In that case only an input",
-        "  box is shown.",
-        "Boolean fields never take `options` (they are a yes/no toggle).",
-        "",
-        "Example — collecting report parameters:",
-        "```json",
-        "[",
-        "  {\"name\": \"audience\", \"label\": \"目标受众是谁？\", \"field_type\": \"select\",",
-        "   \"options\": [\"技术人员\", \"管理层\", \"客户\", \"通用读者\"]},",
-        "  {\"name\": \"format\", \"label\": \"输出格式？\", \"field_type\": \"select\",",
-        "   \"options\": [\"Markdown\", \"PDF\", \"PPT\", \"HTML\"]},",
-        "  {\"name\": \"api_key\", \"label\": \"API Key\", \"field_type\": \"text\"},",
-        "  {\"name\": \"length\", \"label\": \"篇幅(字)?\", \"field_type\": \"number\", \"default\": 500}",
-        "]",
-        "```",
-        "",
-        "The user's answers come back as a JSON string like `{\"audience\":\"管理层\",\"format\":\"PDF\",\"api_key\":\"sk-...\",\"length\":800}`,",
-        "which you can parse and use directly.",
     ])
 
-    # request_app_authorization is always available in chat (capability tool)
+    # request_app_authorization is always available in chat (capability tool).
+    # 错误协议是事件驱动的（收到 marker 才需要）——此段只留协议指针，
+    # 各 reason 的处置细节跟随 marker 自带的 guidance 文本。
     lines.extend([
         "",
         "### App Authorization",
         "",
-        "When a tool call fails with an error whose first line is a JSON marker like",
-        "`{\"mcp_credential_error\": \"UNBOUND\", \"app_id\": \"...\", \"app_name\": \"...\"}`,",
-        "check the `mcp_credential_error` reason before acting:",
+        "When a tool call fails with a `mcp_credential_error` JSON marker, never ask",
+        "the user for credentials — they only work through the authorization form.",
+        "For `UNBOUND`/`INVALID` reasons: call **request_app_authorization** with the",
+        "`app_id`/`app_name` from the marker, then retry after the user authorizes.",
+        "For any other reason, do NOT call it — follow the guidance text in the marker.",
         "",
-        "**`UNBOUND` or `INVALID`** (`UNBOUND` = the user has not authorized that",
-        "application; `INVALID` = previously authorized but the credentials no longer",
-        "work, usually because the user changed their password or username in that",
-        "system) — you MUST:",
-        "1. Call the **request_app_authorization** tool, copying `app_id` and `app_name`",
-        "   from the JSON marker. The user will authorize (or update credentials) in a form;",
-        "   after they finish, retry the failed tool.",
-        "2. NEVER ask the user for any application's username or password — not via",
-        "   ask_clarification, not in plain text. Credentials go only through the",
-        "   authorization form; anything typed in chat cannot be used for authorization.",
-        "3. If the user declines authorization, explain what cannot be done without it",
-        "   and offer alternatives.",
-        "",
-        "**Any other reason** (`FORBIDDEN` = the service is not open to end users and",
-        "requires admin action; `UNAVAILABLE` = the application's login service is",
-        "temporarily down): do NOT call request_app_authorization — authorization cannot",
-        "fix these, and the marker carries no usable `app_id`. Follow the guidance text",
-        "below the marker (contact the admin, or retry later) and never ask for",
-        "credentials.",
     ])
 
     return "\n".join(lines)
@@ -884,17 +799,17 @@ def _render_schema_fields(fields: list[dict], indent: int) -> list[str]:
 
 
 def _build_task_tool_declaration() -> str:
-    """Build task management tool declaration section for the system prompt."""
+    """Build task management tool declaration section for the system prompt.
+
+    confirm/dispatch 的完整流程说明住在 Available Workflows 段（单一事实源），
+    此段只列查询/干预工具。
+    """
     lines = [
         "",
         "## Task Management Tools",
         "",
-        "You have access to the following task management tools. Use them to query or manage workflow Tasks.",
-        "",
-        "- **confirm_workflow(workflow_name, description, params)**: Ask the user to confirm executing a workflow. Execution pauses (a confirmation card is shown) and resumes when the user confirms or rejects. Pass the workflow's name and description (from the Workflow declaration above) plus the proposed input params.",
-        "- **dispatch_workflow(workflow_name, params)**: Create and dispatch a workflow Task. Only call this AFTER the user explicitly confirms. Pass the user's original request as params using the exact variable names from the Workflow declaration above.",
         "- **task_query(task_ids)**: Query status/results of Tasks by their IDs. Returns status + output (completed) or error (failed). Only call this when the user asks about progress — do NOT poll or loop.",
-        "- **task_intervene**: Intervene in a Task (approve, reject, cancel, resume, retry)",
+        "- **task_intervene**: Intervene in a running Task (approve / reject / cancel / resume / retry)",
         "- **cancel_task**: Shortcut to cancel a Task",
         "- **update_task_variables**: Update the variable pool of a running Task",
         "",
