@@ -855,9 +855,11 @@ interface MessageContentProps {
 /** 过程折叠卡：连续的 reasoning/tool 段聚合为一个可展开卡（对齐 studio 形态）。
  *  摘要行 = 状态点 + 「执行过程 · N 次工具调用」；展开显示原始交错明细
  *  （reasoning 折叠面板 / 工具卡 / 中间轮 text）。完成后默认收起。 */
-function ActivityCard({ streaming, toolCount, children }: {
+function ActivityCard({ streaming, toolCount, durationLabel, children }: {
   streaming: boolean
   toolCount: number
+  /** 执行耗时（「6.8s」格式，来自 done usage/历史 token_usage）；流式中无值 */
+  durationLabel?: string
   children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -873,10 +875,8 @@ function ActivityCard({ streaming, toolCount, children }: {
           {streaming ? '⋯' : '✓'}
         </span>
         <span className="activity-title">
-          执行过程{toolCount > 0 ? ` · ${toolCount} 次工具调用` : ''}
-        </span>
-        <span className={`activity-state ${streaming ? 'is-running' : 'is-done'}`}>
-          {streaming ? '进行中' : '已完成'}
+          {streaming ? '执行中' : '已完成'}
+          {durationLabel ? ` · 用时 ${durationLabel}` : ''}
         </span>
         <span className="activity-chev">{open ? '▾' : '▸'}</span>
       </div>
@@ -914,6 +914,12 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
   const answerContent = anchor >= 0 ? content.slice(anchor) : content
   const answerSegments = anchor >= 0 ? toRenderSegments(answerContent) : segments
   const activityToolCount = activityBlocks.filter((b) => b.type === 'tool').length
+  // 执行耗时（「已完成 · 用时X」）：llm+tool 毫秒求和 → 秒（1 位小数）
+  const durationLabel = (() => {
+    const ms = (message.execDuration?.llm ?? 0) + (message.execDuration?.tool ?? 0)
+    if (!ms) return undefined
+    return `${(ms / 1000).toFixed(1)}s`
+  })()
   /** 渲染单个段（reasoning 折叠面板 / text Markdown / 工具卡）——过程卡明细
    *  与回答区共用同一套段渲染。 */
   const renderSegment = (segment: ReturnType<typeof toRenderSegments>[number], index: number) => {
@@ -950,7 +956,7 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
   return (
     <div className={`message-content message-content-${message.role}`}>
       {activityBlocks.length > 0 ? (
-        <ActivityCard streaming={false} toolCount={activityToolCount}>
+        <ActivityCard streaming={false} toolCount={activityToolCount} durationLabel={durationLabel}>
           {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
         </ActivityCard>
       ) : null}

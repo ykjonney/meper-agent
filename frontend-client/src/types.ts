@@ -109,6 +109,13 @@ export interface MessageRecord {
   /** 本轮执行请求 id——消息级反馈（§8.2）的轮次键 */
   request_id?: string
   timeline_entries?: TimelineEntry[]
+  token_usage?: {
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+    llm_duration?: number
+    tool_duration?: number
+  }
   files?: Array<{
     id?: string
     _id?: string
@@ -182,6 +189,8 @@ export interface ChatMessage {
   error?: string
   /** 本轮执行请求 id——消息级反馈（§8.2）的轮次键（流 done 事件/历史加载） */
   requestId?: string
+  /** 执行耗时（毫秒）——过程卡「已完成 · 用时X」摘要（流 done usage/历史 token_usage） */
+  execDuration?: { llm?: number; tool?: number }
 }
 
 export interface ClarificationField {
@@ -267,6 +276,14 @@ export interface StreamEvent {
   /** text 事件携带——on_chat_model_end 判定无 tool_calls → 该文本即最终回答
    *  （后端权威标记，前端据此收起过程卡）。 */
   final?: boolean
+  /** done 事件携带——毫秒级耗时拆分（total/llm/tool/other/ttft）。 */
+  usage?: {
+    total_tokens?: number
+    total_latency_ms?: number
+    llm_duration_ms?: number
+    tool_duration_ms?: number
+    ttft_ms?: number
+  }
   tool_name?: string
   args?: Record<string, unknown>
   auto?: boolean

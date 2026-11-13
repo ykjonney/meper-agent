@@ -193,6 +193,10 @@ function fromHistory(record: MessageRecord): ChatMessage {
     status: 'success',
     createdAt: record.created_at ? new Date(record.created_at) : undefined,
     requestId: record.request_id ?? undefined,
+    // 过程卡「已完成 · 用时X」数据源（token_usage 的毫秒级耗时拆分）
+    execDuration: record.token_usage
+      ? { llm: record.token_usage.llm_duration, tool: record.token_usage.tool_duration }
+      : undefined,
   }
 }
 
@@ -673,6 +677,13 @@ export function useChat(
             return
           } else if (event.done) {
             acc.requestId = event.request_id  // §8.2 消息级反馈轮次键
+            // 过程卡「已完成 · 用时X」数据源（done usage 的毫秒级耗时拆分）
+            if (event.usage && (event.usage.llm_duration_ms != null || event.usage.tool_duration_ms != null)) {
+              const usage = { llm: event.usage.llm_duration_ms, tool: event.usage.tool_duration_ms }
+              setMessages((current) =>
+                current.map((m) => (m.id === acc.id ? { ...m, execDuration: usage } : m)),
+              )
+            }
             // 权威终态对齐：done 携带与落库同源的 timeline，整体替换流式
             // 累加结果——无论流过程中发生何种漂移（resume 重放/事件重复），
             // 流结束瞬间与刷新后看到的内容必然一致。旧后端不带 timeline
