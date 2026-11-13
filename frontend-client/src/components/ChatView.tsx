@@ -11,7 +11,7 @@ import {
   LikeFilled,
   SafetyCertificateOutlined,
 } from '@ant-design/icons'
-import { Attachments, Bubble, Sender } from '@ant-design/x'
+import { Bubble, Sender } from '@ant-design/x'
 import {
   Alert,
   App,
@@ -396,17 +396,18 @@ export function ChatView({
   }, [lastMessageKey, messages.length, loading])
   // ── 自动滚动跟随 END ────────────────────────────────────────────
 
-  const attachmentItems = useMemo<UploadFile[]>(
-    () =>
-      files.map((file, index) => ({
-        uid: `${index}:${file.name}:${file.lastModified}`,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        status: 'done',
-      })),
-    [files],
-  )
+  // 图片缩略图 URL：files 变化时为图片建 objectURL，卸载/变更时回收
+  const [thumbUrls, setThumbUrls] = useState<Map<number, string>>(new Map())
+  useEffect(() => {
+    const created = new Map<number, string>()
+    files.forEach((file, index) => {
+      if (file.type.startsWith('image/')) {
+        created.set(index, URL.createObjectURL(file))
+      }
+    })
+    setThumbUrls(created)
+    return () => created.forEach((url) => URL.revokeObjectURL(url))
+  }, [files])
 
   const addFiles = (next: File[]) => {
     setFiles((current) => {
@@ -948,33 +949,53 @@ export function ChatView({
               )
             ) : null}
             {files.length > 0 ? (
-              <Attachments
-                className="composer-attachments"
-                items={attachmentItems}
-                overflow="scrollX"
-                onPreview={(item) => {
-                  const selected = files.find(
-                    (file, index) =>
-                      `${index}:${file.name}:${file.lastModified}` === item.uid,
-                  )
-                  if (!selected || !selected.type.startsWith('image/')) {
-                    void message.info('该文件将在发送后支持下载')
-                    return
-                  }
-                  setPendingPreview({
-                    name: selected.name,
-                    url: URL.createObjectURL(selected),
-                  })
-                }}
-                onRemove={(file) => {
-                  setFiles((current) =>
-                    current.filter(
-                      (item, index) =>
-                        `${index}:${item.name}:${item.lastModified}` !== file.uid,
-                    ),
-                  )
-                }}
-              />
+              <div className="composer-attachments">
+                {files.map((file, index) =>
+                  file.type.startsWith('image/') ? (
+                    <div
+                      key={`${index}:${file.name}`}
+                      className="att-image-card"
+                      role="button"
+                      tabIndex={0}
+                      title={file.name}
+                      onClick={() => {
+                        const url = thumbUrls.get(index)
+                        if (url) setPendingPreview({ name: file.name, url })
+                      }}
+                    >
+                      {thumbUrls.get(index) ? (
+                        <img src={thumbUrls.get(index)} alt={file.name} />
+                      ) : (
+                        <span className="att-image-loading">…</span>
+                      )}
+                      <button
+                        type="button"
+                        className="att-remove"
+                        aria-label="移除"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setFiles((current) => current.filter((_, i) => i !== index))
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div key={`${index}:${file.name}`} className="att-file-chip">
+                      <span className="att-file-icon">📄</span>
+                      <span className="att-file-name" title={file.name}>{file.name}</span>
+                      <button
+                        type="button"
+                        className="att-remove"
+                        aria-label="移除"
+                        onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ),
+                )}
+              </div>
             ) : null}
             {(agent.recommendedItems?.length ?? 0) > 0 || (agent.recommendedGroups?.length ?? 0) > 0 ? (
               <QuickActionsBar
