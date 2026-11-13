@@ -283,6 +283,9 @@ export default function App() {
     activeTab === 'agents' && openAgent ? 'h-full flex flex-col p-0 overflow-hidden' :
     activeTab === 'agents' ? 'h-full flex flex-col px-6 pt-6 overflow-hidden' :
     activeTab === 'users' ? 'h-full flex flex-col p-6 overflow-hidden' :
+    // 资源库自带内滚容器（页头/tabs/工具栏固定，仅列表滚动）——stage 禁止
+    // 滚动：窗口高度不足时外层滚动会连标题/tabs 一起滚走
+    activeTab === 'resource' ? 'h-full overflow-hidden p-6' :
     'overflow-y-auto p-6';
   // 聊天态（默认主页）传 null → 壳层渲染聊天面板；任务详情覆盖所有页面。
   const showChat = activeTab === 'chat' && !activeTaskDetail;
