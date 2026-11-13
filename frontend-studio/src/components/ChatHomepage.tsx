@@ -1164,6 +1164,9 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             break;
           case 'text': {
             // 权威全文：覆盖最后一个 text entry，没有就 push。
+            // final 标志（后端 on_chat_model_end 无 tool_calls → 最终回答）随
+            // entry 保留——ActivityGroup 以此为无跃迁场景（挂起→恢复轮）的
+            // 权威收起锚点。
             const content = evt.content;
             if (content) {
               if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
@@ -1176,12 +1179,12 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
                   let found = false;
                   for (let i = tl.length - 1; i >= 0; i--) {
                     if (tl[i].type === 'text') {
-                      tl[i] = { ...tl[i], content };
+                      tl[i] = { ...tl[i], content, final: !!evt.final };
                       found = true;
                       break;
                     }
                   }
-                  if (!found) tl.push({ id: `${agentMsgId}-text-${Date.now()}`, type: 'text', content });
+                  if (!found) tl.push({ id: `${agentMsgId}-text-${Date.now()}`, type: 'text', content, final: !!evt.final });
                   return { ...m, status: undefined, timeline: tl };
                 }),
               );

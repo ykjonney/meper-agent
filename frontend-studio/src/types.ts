@@ -150,6 +150,9 @@ export interface TimelineEntry {
   expanded?: boolean;
   /** 用户手动切换过折叠——thinking 流式结束后的自动收起据此让位于用户选择 */
   userToggled?: boolean;
+  /** 后端权威标记（text 专用）：on_chat_model_end 判定无 tool_calls → 该文本
+   *  即最终回答。挂起→恢复轮 finished 无跃迁，权威收起以此为锚点。 */
+  final?: boolean;
 }
 
 export interface Message {

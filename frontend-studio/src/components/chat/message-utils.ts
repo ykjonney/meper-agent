@@ -242,7 +242,11 @@ export function agentMessageToDisplay(rec: MessageRecord, agentName: string, ava
     const entry = (rec.timeline_entries ?? [])[i];
     if (entry.type === 'text' || entry.type === 'final_answer') {
       const t = (entry.content ?? '').trim();
-      if (t) timeline.push({ id: `${rec._id}-text-${i}`, type: 'text', content: t });
+      if (t) timeline.push({
+        id: `${rec._id}-text-${i}`, type: 'text', content: t,
+        // 后端权威最终回答标记随 entry 保留（历史渲染/收起语义与流式一致）
+        final: (entry as TimelineEntry & { final?: boolean }).final,
+      });
     } else if (entry.type === 'thinking') {
       timeline.push({ id: `${rec._id}-think-${i}`, type: 'thinking', content: entry.content ?? '' });
     } else if ((entry.type as string) === 'error') {
