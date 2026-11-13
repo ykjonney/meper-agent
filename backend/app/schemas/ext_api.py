@@ -69,6 +69,10 @@ class ExtInvokeRequest(BaseModel):
         default=False,
         description="启用 LLM 原生推理（与内部 /v1/agents/*/stream 一致）",
     )
+    thinking_level: str | None = Field(
+        default=None,
+        description="思考档位（off/low/medium/high）；提供时优先于 enable_thinking",
+    )
     file_paths: list[str] | None = Field(
         default=None,
         description="本次上传文件相对路径列表（相对 workspace input/ 目录）",
@@ -108,6 +112,10 @@ class ExtResumeRequest(BaseModel):
     enable_thinking: bool = Field(
         default=False,
         description="启用 LLM 推理模式（与内部 /v1/agents/*/resume 一致）",
+    )
+    thinking_level: str | None = Field(
+        default=None,
+        description="思考档位（off/low/medium/high）；提供时优先于 enable_thinking",
     )
 
 

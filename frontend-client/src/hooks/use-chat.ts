@@ -100,7 +100,11 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
       (entry.type === 'text' || entry.type === 'final_answer') &&
       entry.content
     ) {
-      blocks.push({ type: 'text', text: entry.content })
+      blocks.push({
+        type: 'text',
+        text: entry.content,
+        final: entry.type === 'final_answer' || entry.final === true,
+      })
     } else if (entry.type === 'tool_call' || entry.type === 'tool') {
       const toolCallId = entry.id || entry.tool_call_id || ''
       const tool: ToolRun = {
@@ -484,7 +488,7 @@ export function useChat(
       // 轮结束，重置引用；同轮交错思考块也归并到同一 reasoning 块，
       // 与后端持久化结构（final 合并全部块）一致。
       let reasoningBlock: { type: 'reasoning'; text: string } | null = null
-      let textBlock: { type: 'text'; text: string } | null = null
+      let textBlock: { type: 'text'; text: string; final?: boolean } | null = null
       // 运行时按需授权兜底：tool_result 错误里带凭证错误标记但 LLM 未调
       // request_app_authorization（interrupt 未发生）时，流结束后弹静态
       // 授权卡（提交绑定后重发最后一条用户消息，而非 resume）。
@@ -504,7 +508,11 @@ export function useChat(
             // 全量，另起新块会把整段正文重复一遍（重复显示 bug 的根因）；
             // 中间显示交由 delta，终态由 done 的 timeline 整体对齐。
             if (event.type === 'text') {
-              if (textBlock) textBlock.text = event.content
+              if (textBlock) {
+                textBlock.text = event.content
+                // 后端权威最终回答标记：过程折叠卡据此收起
+                textBlock.final = event.final === true
+              }
             } else {
               if (!textBlock) {
                 textBlock = { type: 'text', text: '' }
@@ -824,6 +832,8 @@ export function useChat(
             uploaded.map((file) => file.path),
             controller.signal,
             displayText,
+            // 思考档位：ChatView 的档位选择器持久化到 localStorage，这里直读
+            localStorage.getItem('meper_client_thinking_level') || undefined,
           ),
           acc,
         )

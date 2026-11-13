@@ -29,6 +29,8 @@ export interface AgentSummary {
   description: string
   avatar?: string | null
   status: string
+  /** Agent 默认模型（对话区标题旁的模型标签） */
+  defaultModel?: string
   accessSource: 'company_owned' | 'platform_assigned'
   /** 终端用户首屏欢迎词（Markdown） */
   welcomeMessage?: string
@@ -55,6 +57,7 @@ export interface AgentRecord {
   description: string | null
   avatar?: string | null
   status: string
+  default_model?: string
   welcome_message?: string | null
   recommended_items?: RecommendedItem[]
   recommended_groups?: RecommendedGroup[]
@@ -67,7 +70,18 @@ export interface ChatSession {
   agent_id: string
   title: string | null
   status: string
+  /** 非空 = 本地接入会话（绑定 LOCAL_WORKSPACE_ROOT 白名单内相对目录） */
+  local_dir?: string
   created_at: string | null
+}
+
+export interface BackgroundTask {
+  id: string
+  running: boolean
+  exit_code: string | null
+  unread: boolean
+  started_at: number
+  cmd: string
 }
 
 export interface ToolCallMeta {
@@ -122,6 +136,9 @@ export interface TimelineEntry {
   /** 流式持久化的 tool_result entry 写的是 status 字段(与 SSE 事件一致);
    *  is_error 仅存在于 invoke/任务 trace 路径,两者都兼容。 */
   status?: 'success' | 'error'
+  /** 该文本块是否为最终回复（final_answer 或流式 done 对齐产物）。
+   *  注：本字段补全的是工作区既有 WIP（use-chat.ts 的 final 标记）。 */
+  final?: boolean
 }
 
 export interface ToolRun {  id: string
@@ -147,7 +164,7 @@ export interface AttachmentView {
 /** 内容块:assistant 消息按真实执行顺序排列的原子单元。
  * text / reasoning / tool 三类交替出现,保留 agent 思考-工具-回复的原始顺序。 */
 export type ContentBlock =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; final?: boolean }
   | { type: 'reasoning'; text: string }
   | { type: 'tool'; tool: ToolRun }
 
@@ -247,6 +264,9 @@ export interface StreamEvent {
    *  旧后端不带此字段，走原有流式累加结果。 */
   timeline?: TimelineEntry[]
   content?: string
+  /** text 事件携带——on_chat_model_end 判定无 tool_calls → 该文本即最终回答
+   *  （后端权威标记，前端据此收起过程卡）。 */
+  final?: boolean
   tool_name?: string
   args?: Record<string, unknown>
   auto?: boolean

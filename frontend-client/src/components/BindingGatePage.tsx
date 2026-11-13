@@ -140,7 +140,7 @@ export function BindingGatePage({ onBound }: Props) {
                   placeItems: 'center',
                   margin: '0 auto 12px',
                   background: isDark ? '#1e3a5f66' : '#e0ecf8',
-                  color: '#315f92',
+                  color: '#2b4a9e',
                   fontSize: 26,
                 }}
               >

@@ -1,34 +1,36 @@
 :root {
-  font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 对齐 studio v4 纸墨×靛蓝设计语言（语义值同 .theme-indigo） */
+  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
   color: #1f2933;
-  background: #f6f7f9;
+  background: #f7f8fa;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --client-bg: #f6f7f9;
+  --client-bg: #f7f8fa;
   --client-surface: #ffffff;
   --client-surface-muted: #eef1f4;
-  --client-border: #dfe4ea;
+  --client-border: #e2e6ee;
   --client-text: #1f2933;
   --client-text-muted: #687481;
-  --client-accent: #315f92;
-  --client-accent-soft: #e7eef6;
-  --client-danger: #b4232f;
+  --client-accent: #2b4a9e;
+  --client-accent-soft: #e9edf7;
+  --client-danger: #d93a3f;
   --client-code: #f0f3f6;
+  --font-serif-brand: Georgia, "Songti SC", "STSong", serif;
 }
 
 :root[data-theme="dark"] {
   color: #e6e9ed;
-  background: #111416;
-  --client-bg: #111416;
-  --client-surface: #181c1f;
-  --client-surface-muted: #22272b;
+  background: #13151c;
+  --client-bg: #13151c;
+  --client-surface: #1a1d26;
+  --client-surface-muted: #20242f;
   --client-border: #30373d;
   --client-text: #e6e9ed;
   --client-text-muted: #9aa5ae;
-  --client-accent: #79a8d8;
-  --client-accent-soft: #1d3348;
+  --client-accent: #6a97ff;
+  --client-accent-soft: #1d2d55;
   --client-danger: #ff8a93;
-  --client-code: #20262a;
+  --client-code: #20242f;
 }
 
 * {
@@ -1925,4 +1927,66 @@ textarea {
 
 .todo-item-in_progress .todo-item-content {
   font-weight: 500;
+}
+
+/* ════════ 过程折叠卡（对齐 studio 过程卡形态） ════════ */
+.activity-card {
+  border: 1px solid var(--client-border);
+  border-radius: 10px;
+  background: var(--client-surface);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.activity-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.activity-card-head:active {
+  background: var(--client-surface-muted);
+}
+.activity-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+.activity-dot.is-done {
+  background: rgba(31, 157, 85, 0.12);
+  color: var(--sig-ok, #1f9d55);
+}
+.activity-dot.is-running {
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
+}
+.activity-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--client-text);
+}
+.activity-state {
+  font-size: 10.5px;
+  margin-left: auto;
+}
+.activity-state.is-done {
+  color: var(--client-text-muted);
+}
+.activity-state.is-running {
+  color: var(--client-accent);
+}
+.activity-chev {
+  font-size: 10px;
+  color: var(--client-text-muted);
+}
+.activity-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--client-border);
+  background: var(--client-bg);
 }

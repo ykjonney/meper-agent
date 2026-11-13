@@ -8,6 +8,7 @@ import {
   FileTextOutlined,
   OrderedListOutlined,
   QuestionCircleOutlined,
+  RedoOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
@@ -846,9 +847,45 @@ interface MessageContentProps {
   sessionId: string
   /** dispatch_workflow 一行状态卡点击 → ChatView 打开工作流任务看板并定位。 */
   onOpenTaskBoard?: (taskId: string) => void
+  /** 重新生成（仅最后一条 assistant 消息传入）：用上一条用户输入重发。 */
+  onRegenerate?: () => void
 }
 
-export function MessageContent({ message, sessionId, onOpenTaskBoard }: MessageContentProps) {
+
+/** 过程折叠卡：连续的 reasoning/tool 段聚合为一个可展开卡（对齐 studio 形态）。
+ *  摘要行 = 状态点 + 「执行过程 · N 次工具调用」；展开显示原始交错明细
+ *  （reasoning 折叠面板 / 工具卡 / 中间轮 text）。完成后默认收起。 */
+function ActivityCard({ streaming, toolCount, children }: {
+  streaming: boolean
+  toolCount: number
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="activity-card">
+      <div
+        className="activity-card-head"
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        tabIndex={0}
+      >
+        <span className={`activity-dot ${streaming ? 'is-running' : 'is-done'}`}>
+          {streaming ? '⋯' : '✓'}
+        </span>
+        <span className="activity-title">
+          执行过程{toolCount > 0 ? ` · ${toolCount} 次工具调用` : ''}
+        </span>
+        <span className={`activity-state ${streaming ? 'is-running' : 'is-done'}`}>
+          {streaming ? '进行中' : '已完成'}
+        </span>
+        <span className="activity-chev">{open ? '▾' : '▸'}</span>
+      </div>
+      {open ? <div className="activity-body">{children}</div> : null}
+    </div>
+  )
+}
+
+export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenerate }: MessageContentProps) {
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
   // 下游 segments / charts / fullText（复制）全部基于替换后的内容，保证不泄漏。
@@ -858,44 +895,66 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard }: MessageC
       : message.content
   const charts = [...promotedCharts(content), ...message.charts]
   const segments = toRenderSegments(content)
+  // ── 过程/回答分割（final 权威锚点，对齐 studio MessageItem 语义）──
+  // anchor = 最后一个 final=true 的 text block。流式中只认真 final（挂起/
+  // 中间态无 final → 全量平铺，澄清卡等 HITL 卡正常渲染）；非流式兜底最后
+  // 一个 text（历史终态，旧数据无 final 标志时最后 text 即答案）。
+  // 完成后：anchor 之前的 reasoning/tool 聚合为过程折叠卡，final text 平铺
+  // 在卡外作为回答；复制内容也只取回答区。 */
+  const isStreaming = message.status === 'loading'
+  let finalAnchor = -1
+  let lastTextIdx = -1
+  content.forEach((b, i) => {
+    if (b.type !== 'text') return
+    lastTextIdx = i
+    if (b.final) finalAnchor = i
+  })
+  const anchor = finalAnchor >= 0 ? finalAnchor : isStreaming ? -1 : lastTextIdx
+  const activityBlocks = anchor > 0 ? content.slice(0, anchor) : []
+  const answerContent = anchor >= 0 ? content.slice(anchor) : content
+  const answerSegments = anchor >= 0 ? toRenderSegments(answerContent) : segments
+  const activityToolCount = activityBlocks.filter((b) => b.type === 'tool').length
+  /** 渲染单个段（reasoning 折叠面板 / text Markdown / 工具卡）——过程卡明细
+   *  与回答区共用同一套段渲染。 */
+  const renderSegment = (segment: ReturnType<typeof toRenderSegments>[number], index: number) => {
+    if (segment.kind === 'reasoning') {
+      const streaming = message.status === 'loading' && index === (segments.length - 1)
+      return <ReasoningPanel key={`seg:${index}`} text={segment.text} streaming={streaming} />
+    }
+    if (segment.kind === 'text') {
+      return <Markdown key={`seg:${index}`}>{segment.text}</Markdown>
+    }
+    const { group } = segment
+    if (group.kind === 'single') {
+      return (
+        <ToolResult
+          key={group.tool.id}
+          tool={group.tool}
+          onOpenTaskBoard={onOpenTaskBoard}
+        />
+      )
+    }
+    return <ToolRunsGroup key={`group:${index}`} tools={group.tools} />
+  }
   // 兜底去重:同名附件可能被上游重复收集,按 id 收敛,避免重复渲染 + 重复 React key
   const uniqueAttachments = useMemo(() => {
     const map = new Map<string, AttachmentView>()
     for (const att of message.attachments) map.set(att.id, att)
     return Array.from(map.values())
   }, [message.attachments])
-  // 拼接所有 text block 作为复制内容
-  const fullText = content
+  // 复制内容 = 回答区 text（final 锚点之后）；过程区 reasoning 不进复制
+  const fullText = answerContent
     .filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text')
     .map((b) => b.text)
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {segments.map((segment, index) => {
-        if (segment.kind === 'reasoning') {
-          // 思考进行中 = 整条消息仍在流式 且 该思考块是最后一个内容块
-          // （后续 text/tool 块一旦到达，思考即已结束——studio 同语义）
-          const streaming = message.status === 'loading' && index === segments.length - 1
-          return <ReasoningPanel key={`seg:${index}`} text={segment.text} streaming={streaming} />
-        }
-        if (segment.kind === 'text') {
-          return <Markdown key={`seg:${index}`}>{segment.text}</Markdown>
-        }
-        // tools segment
-        const { group } = segment
-        if (group.kind === 'single') {
-          // 特殊工具(dispatch_workflow / HITL)走完整操作卡片
-          return (
-            <ToolResult
-              key={group.tool.id}
-              tool={group.tool}
-              onOpenTaskBoard={onOpenTaskBoard}
-            />
-          )
-        }
-        // 普通工具(无论单个还是多个)一律走精简聚合样式
-        return <ToolRunsGroup key={`group:${index}`} tools={group.tools} />
-      })}
+      {activityBlocks.length > 0 ? (
+        <ActivityCard streaming={false} toolCount={activityToolCount}>
+          {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
+        </ActivityCard>
+      ) : null}
+      {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
         <div className="message-attachments">
           {uniqueAttachments.map((attachment) => (
@@ -941,6 +1000,17 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard }: MessageC
               aria-label="复制回答"
             />
           </Tooltip>
+          {onRegenerate ? (
+            <Tooltip title="用上一条输入重新生成">
+              <Button
+                type="text"
+                size="small"
+                icon={<RedoOutlined />}
+                onClick={onRegenerate}
+                aria-label="重新生成"
+              />
+            </Tooltip>
+          ) : null}
         </div>
       ) : null}
     </div>

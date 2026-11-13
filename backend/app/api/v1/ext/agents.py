@@ -149,6 +149,7 @@ async def invoke_agent(
         display_text=body.display_text,
         session_id=body.session_id,
         enable_thinking=body.enable_thinking,
+        thinking_level=body.thinking_level,
         file_paths=body.file_paths,
         file_ids=body.file_ids,
     )
@@ -190,6 +191,7 @@ async def stream_agent(
         display_text=body.display_text,
         session_id=body.session_id,
         enable_thinking=body.enable_thinking,
+        thinking_level=body.thinking_level,
         file_paths=body.file_paths,
         file_ids=body.file_ids,
     )

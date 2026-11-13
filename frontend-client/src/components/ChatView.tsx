@@ -28,21 +28,54 @@ import {
   Typography,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { LoadingOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { Popover, Select, Tag, Tooltip as AntTooltip } from 'antd'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { useChat } from '../hooks/use-chat'
 import { fetchAuthBootstrap, fetchMyAuthorizations } from '../api/authorizations'
 import { fetchVoiceStatus } from '../api/voice'
-import type { AgentSummary } from '../types'
+import type { AgentSummary, ChatMessage } from '../types'
 import { GeneratedFiles } from './GeneratedFiles'
 import { MessageContent } from './MessageContent'
 import { collectSessionTasks, WorkflowBoard } from './WorkflowBoard'
 import { QuickActionsBar } from './QuickActionsBar'
-import { sessionFeedback, voteMessage, type SessionFeedbackItem } from '../api/chat'
+import { sessionFeedback, voteMessage, type SessionFeedbackItem , listBackgroundTasks } from '../api/chat'
 import { ClarificationFormCard } from './clarification-form-card'
 import { VoiceComposer } from './voice/VoiceComposer'
+
+/** 最新 todo 快照（todo_write 工具最后一次调用的清单）——header 胶囊展示。 */
+interface TodoSnapshot {
+  items: { content: string; status: string }[]
+  done: number
+}
+function extractLatestTodos(messages: ChatMessage[]): TodoSnapshot | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== 'assistant') continue
+    for (let j = m.content.length - 1; j >= 0; j--) {
+      const b = m.content[j]
+      if (b.type !== 'tool' || b.tool.name !== 'todo_write' || !b.tool.args) continue
+      try {
+        const parsed = JSON.parse(b.tool.args)
+        const todos = Array.isArray(parsed.todos) ? parsed.todos : []
+        if (!todos.length) return { items: [], done: 0 }
+        return {
+          items: todos.map((t: { content?: string; status?: string }) => ({
+            content: t.content ?? '',
+            status: t.status ?? 'pending',
+          })),
+          done: todos.filter((t: { status?: string }) => t.status === 'completed').length,
+        }
+      } catch {
+        return null
+      }
+    }
+  }
+  return null
+}
 
 /** 嵌入模式（chat-widget.js iframe 内）检测：仅此模式显示 header 关闭按钮，
  * 点击经 postMessage 通知 widget 收起面板（widget 侧悬浮关闭/全屏按钮已移除，
@@ -61,6 +94,8 @@ interface ChatViewProps {
   agentLoading?: boolean
   sessionsLoading?: boolean
   sessionId: string | null
+  /** 非空 = 本地接入会话（隐藏上传，文件由用户直接放入绑定目录） */
+  localDir?: string
   onOpenNavigation: () => void
   onCreateSession: () => void
   /** 会话内容变化(如发完消息后端生成标题)时回调,用于刷新侧边栏会话列表 */
@@ -74,11 +109,38 @@ export function ChatView({
   agentLoading,
   sessionsLoading,
   sessionId,
+  localDir,
   onOpenNavigation,
   onCreateSession,
   onSessionChanged,
   onSessionSwitched,
 }: ChatViewProps) {
+  // 后台任务角标：轮询 registry（纯 FS 语义，与模型侧注入一致）
+  const [bgBadge, setBgBadge] = useState<{ running: number; finishedUnread: number } | null>(null)
+  useEffect(() => {
+    if (!sessionId) {
+      setBgBadge(null)
+      return
+    }
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const items = await listBackgroundTasks(sessionId)
+        if (cancelled) return
+        const running = items.filter((task) => task.running).length
+        const finishedUnread = items.filter((task) => !task.running && task.unread).length
+        setBgBadge(running + finishedUnread > 0 ? { running, finishedUnread } : null)
+      } catch {
+        // 轮询失败不打扰（角标是次要体验）
+      }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 15000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [sessionId])
   const { message } = App.useApp()
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -167,6 +229,29 @@ export function ChatView({
   const sessionTasks = useMemo(() => collectSessionTasks(messages), [messages])
   // 未查看数 = 当前任务 − 已读；antd Badge count=0 时自动隐藏红点
   const unseenTaskCount = sessionTasks.filter((t) => !seenTaskIds.has(t.task_id)).length
+  // 最新 todo 快照（todo_write 清单）——header 胶囊
+  const latestTodos = extractLatestTodos(messages)
+  // 思考档位（off/low/medium/high）：localStorage 持久化，use-chat 发送时直读
+  const [thinkingLevel, setThinkingLevel] = useState<string>(() =>
+    localStorage.getItem('meper_client_thinking_level') ?? 'medium',
+  )
+  const changeThinkingLevel = (level: string) => {
+    setThinkingLevel(level)
+    if (level === 'medium') localStorage.removeItem('meper_client_thinking_level')
+    else localStorage.setItem('meper_client_thinking_level', level)
+  }
+  // 重新生成：取最后一条用户输入重发（仅非流式时可用）
+  const handleRegenerate = useCallback(() => {
+    if (running) return
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    const text = lastUser.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+    if (text) void send(text, [])
+  }, [messages, running, send])
+  const lastAssistantId = messages.length ? messages[messages.length - 1].id : null
 
   // 看板打开期间把当前任务标记为已读（含打开期间新到的任务），并持久化
   useEffect(() => {
@@ -375,6 +460,25 @@ export function ChatView({
           icon={<MenuOutlined />}
           onClick={onOpenNavigation}
         />
+        {bgBadge ? (
+          <Tooltip
+            title={
+              bgBadge.running > 0
+                ? `${bgBadge.running} 个后台任务运行中（模型可用 bash_output 查看进度）`
+                : `${bgBadge.finishedUnread} 个后台任务已完成，结果待查看`
+            }
+          >
+            <Tag
+              icon={<LoadingOutlined />}
+              color={bgBadge.running > 0 ? 'processing' : 'default'}
+              style={{ marginInlineStart: 8 }}
+            >
+              {bgBadge.running > 0
+                ? `${bgBadge.running} 个后台任务`
+                : `${bgBadge.finishedUnread} 个已完成`}
+            </Tag>
+          </Tooltip>
+        ) : null}
         {IS_EMBEDDED ? (
           <Button
             type="text"
@@ -411,10 +515,51 @@ export function ChatView({
         />
         <div className="chat-agent-title">
           <strong>{agent.name}</strong>
+          {agent.defaultModel ? (
+            <span className="model-tag">{agent.defaultModel}</span>
+          ) : null}
           <Typography.Text type="secondary" ellipsis>
             {agent.description || '智能 Agent'}
           </Typography.Text>
         </div>
+        {/* 思考档位：控制模型推理深度（off 不思考省 token / medium 默认） */}
+        <Select
+          value={thinkingLevel}
+          onChange={changeThinkingLevel}
+          size="small"
+          style={{ minWidth: 92 }}
+          title="思考档位：越高推理越深、耗时越长"
+          options={[
+            { value: 'off', label: '思考:关' },
+            { value: 'low', label: '思考:低' },
+            { value: 'medium', label: '思考:中' },
+            { value: 'high', label: '思考:高' },
+          ]}
+        />
+        {/* todo 清单胶囊：agent 用 todo_write 建清单后显示进度（点击展开明细） */}
+        {latestTodos && latestTodos.items.length > 0 ? (
+          <Popover
+            title="任务清单"
+            content={
+              <div style={{ minWidth: 220, maxWidth: 300 }}>
+                {latestTodos.items.map((t, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 0', fontSize: 12 }}>
+                    <span style={{ color: t.status === 'completed' ? '#1f9d55' : t.status === 'in_progress' ? '#2b4a9e' : '#98a2b0', flexShrink: 0 }}>
+                      {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○'}
+                    </span>
+                    <span style={{ color: t.status === 'completed' ? '#98a2b0' : '#1f2933' }}>{t.content}</span>
+                  </div>
+                ))}
+              </div>
+            }
+          >
+            <Badge count={`${latestTodos.done}/${latestTodos.items.length}`} style={{ background: '#2b4a9e' }} title="任务清单进度">
+              <Button type="text" icon={<OrderedListOutlined />}>
+                <span className="desktop-only-label">清单</span>
+              </Button>
+            </Badge>
+          </Popover>
+        ) : null}
         <Button
           type="text"
           icon={<FileOutlined />}
@@ -517,6 +662,13 @@ export function ChatView({
                           setBoardFocusTaskId(taskId)
                           setBoardOpen(true)
                         }}
+                        onRegenerate={
+                          running
+                            ? undefined
+                            : chatMessage.id === lastAssistantId
+                              ? handleRegenerate
+                              : undefined
+                        }
                       />
                       {chatMessage.role === 'assistant' &&
                         chatMessage.status !== 'loading' &&
@@ -918,13 +1070,15 @@ export function ChatView({
                       />
                     </Tooltip>
                   )}
-                  <Button
-                    type="text"
-                    icon={<PaperClipOutlined />}
-                    onClick={() => fileInputRef.current?.click()}
-                    aria-label="上传附件"
-                    disabled={running || Boolean(hitl)}
-                  />
+                  <Tooltip title={localDir ? '本地目录会话：文件请直接放入绑定的本地目录' : undefined}>
+                    <Button
+                      type="text"
+                      icon={<PaperClipOutlined />}
+                      onClick={() => fileInputRef.current?.click()}
+                      aria-label="上传附件"
+                      disabled={running || Boolean(hitl) || Boolean(localDir)}
+                    />
+                  </Tooltip>
                 </>
               }
             />

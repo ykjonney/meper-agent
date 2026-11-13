@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/auth'
 import type {
   AgentRecord,
   AgentSummary,
+  BackgroundTask,
   ChatSession,
   FileUploadResult,
   MessageRecord,
@@ -24,6 +25,7 @@ function toLocalAgent(item: AgentRecord): AgentSummary {
     description: item.description ?? '',
     avatar: item.avatar,
     status: item.status,
+    defaultModel: item.default_model ?? '',
     accessSource: 'company_owned',
     welcomeMessage: item.welcome_message ?? '',
     recommendedItems: item.recommended_items,
@@ -85,7 +87,10 @@ export async function listSessions(agentId: string): Promise<ChatSession[]> {
   return page.items.map(normalizeSession)
 }
 
-export async function createSession(agentId: string): Promise<ChatSession> {
+export async function createSession(
+  agentId: string,
+  options?: { localDir?: string },
+): Promise<ChatSession> {
   if (AUTH_MODE === 'apikey') {
     const session = await apiRequest<ChatSession & { _id?: string }>(
       withVisitor(`/v1/ext/agents/${encodeURIComponent(agentId)}/sessions`),
@@ -95,13 +100,32 @@ export async function createSession(agentId: string): Promise<ChatSession> {
   }
   const session = await apiRequest<ChatSession & { _id?: string }>('/v1/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent_id: agentId, title: '' }),
+    body: JSON.stringify({
+      agent_id: agentId,
+      title: '',
+      ...(options?.localDir ? { local_dir: options.localDir } : {}),
+    }),
   })
   return normalizeSession(session)
 }
 
 function normalizeSession(session: ChatSession & { _id?: string }): ChatSession {
   return { ...session, id: session.id || session._id || '' }
+}
+
+/** 本地接入是否启用（LOCAL_WORKSPACE_ROOT 已配置；apikey 访客恒为否）。 */
+export async function getLocalWorkspaceEnabled(): Promise<{ enabled: boolean }> {
+  if (AUTH_MODE === 'apikey') return { enabled: false }
+  return apiRequest<{ enabled: boolean }>('/v1/sessions/local-workspace/enabled')
+}
+
+/** 会话工作区的后台任务列表（进行中/已完成未读，供角标轮询）。 */
+export async function listBackgroundTasks(sessionId: string): Promise<BackgroundTask[]> {
+  if (AUTH_MODE === 'apikey') return []
+  const page = await apiRequest<{ items: BackgroundTask[] }>(
+    `/v1/sessions/${encodeURIComponent(sessionId)}/bg-tasks`,
+  )
+  return page.items
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -285,7 +309,12 @@ export async function* streamMessage(
   filePaths: string[],
   signal: AbortSignal,
   displayText?: string,
+  /** 思考档位（off/low/medium/high）；提供时优先于 enable_thinking 布尔。 */
+  thinkingLevel?: string,
 ): AsyncGenerator<StreamEvent> {
+  const thinkingPayload = thinkingLevel
+    ? { thinking_level: thinkingLevel }
+    : { enable_thinking: true }
   if (AUTH_MODE === 'apikey') {
     const response = await openStream(
       `/v1/ext/agents/${encodeURIComponent(agentId)}/invoke/stream`,
@@ -293,7 +322,7 @@ export async function* streamMessage(
         message: content,
         session_id: sessionId,
         visitor_id: getVisitorId(),
-        enable_thinking: true,
+        ...thinkingPayload,
         ...(displayText ? { display_text: displayText } : {}),
         ...(fileIds.length ? { file_ids: fileIds } : {}),
         ...(filePaths.length ? { file_paths: filePaths } : {}),
@@ -308,7 +337,7 @@ export async function* streamMessage(
     {
       input: content,
       session_id: sessionId,
-      enable_thinking: true,
+      ...thinkingPayload,
       ...(displayText ? { display_text: displayText } : {}),
       ...(fileIds.length ? { file_ids: fileIds } : {}),
       ...(filePaths.length ? { file_paths: filePaths } : {}),

@@ -66,11 +66,11 @@ function Root() {
           theme === 'dark' ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
         cssVar: { prefix: 'meper' },
         token: {
-          colorPrimary: '#315f92',
-          colorInfo: '#315f92',
+          colorPrimary: '#2b4a9e',
+          colorInfo: '#2b4a9e',
           borderRadius: 12,
           fontFamily:
-            '"SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+            'ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif',
         },
       }}
     >
