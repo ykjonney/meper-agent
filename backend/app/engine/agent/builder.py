@@ -371,7 +371,13 @@ async def _build_mcp_tool_declaration(mcp_connection_ids: list[str]) -> str:
         lines.append("")
         for doc in tool_docs:
             name = doc.get("name", "unknown")
-            desc = doc.get("description", "")
+            # 概览摘要（≤100 字符）：完整 description 已在 bind_tools 的工具
+            # schema 里（LLM 选工具的实际依据），声明段重复全文是纯 token
+            # 浪费——此处只承担「有哪些能力域」的概览职责。MCP 描述多为单行
+            # 长文本，首行化不够，需截断。
+            desc = (doc.get("description", "") or "").split("\n")[0].strip()
+            if len(desc) > 100:
+                desc = desc[:100].rstrip() + "…"
             lines.append(f"- **{name}**: {desc}")
             total_tools += 1
         lines.append("")
