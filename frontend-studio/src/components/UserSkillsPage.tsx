@@ -133,8 +133,8 @@ function MarketplaceTab({ theme, isAdmin }: {
   if (isLoading) return <div className="py-12 text-center text-sm opacity-60">加载中…</div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      <div className="shrink-0 flex items-center gap-3">
         <div className="relative w-[320px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-faint" />
           <input
@@ -150,19 +150,21 @@ function MarketplaceTab({ theme, isAdmin }: {
         <div className="py-12 text-center text-sm opacity-60">暂无技能</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {all.map((it) => (
-          <MarketCard
-            key={it.id}
-            item={it}
-            theme={theme}
-            isAdmin={isAdmin}
-            onPreview={() => setPreview(it)}
-            onInstall={() => installM.mutate({ id: it.id })}
-            onUninstall={() => uninstallM.mutate(it.id)}
-            onFork={() => forkM.mutate(it.id)}
-          />
-        ))}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2 pr-1.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {all.map((it) => (
+            <MarketCard
+              key={it.id}
+              item={it}
+              theme={theme}
+              isAdmin={isAdmin}
+              onPreview={() => setPreview(it)}
+              onInstall={() => installM.mutate({ id: it.id })}
+              onUninstall={() => uninstallM.mutate(it.id)}
+              onFork={() => forkM.mutate(it.id)}
+            />
+          ))}
+        </div>
       </div>
 
       {preview && <PreviewModal item={preview} theme={theme} onClose={() => setPreview(null)} />}

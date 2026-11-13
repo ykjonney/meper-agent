@@ -142,9 +142,9 @@ export function KnowledgeBasePage({
   };
 
   return (
-    <div className="space-y-4">
-      {/* 工具栏：搜索 + 新建（设计稿 toolbar） */}
-      <div className="flex items-center gap-3">
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      {/* 工具栏：搜索 + 新建（设计稿 toolbar；结构固定不随列表滚动） */}
+      <div className="shrink-0 flex items-center gap-3">
         <div className="relative w-[320px]">
           <Search className="w-3.5 h-3.5 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
           <input
@@ -165,6 +165,7 @@ export function KnowledgeBasePage({
         )}
       </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2">
       {error && (
         <div className="px-3 py-2 rounded-lg bg-sig-fail-soft border border-line text-sig-fail text-xs">{error}</div>
       )}
@@ -240,6 +241,7 @@ export function KnowledgeBasePage({
           })}
         </div>
       )}
+      </div>
 
       {/* create modal：设计稿 res-create-edit 形态（徽章头 + kicker + 下划线字段 + 类型卡） */}
       {isCreating && (

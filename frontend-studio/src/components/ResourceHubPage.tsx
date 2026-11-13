@@ -112,9 +112,11 @@ export function ResourceHubPage({ theme }: { theme: 'dark' | 'light' }) {
       </div>
 
       {/* 子页面区：内容区限宽居中（卡片宽度由设计元素决定——徽章 38 + 标题区 +
-          pill ≈ 380-400px/卡最舒展，全屏拉伸会导致卡片虚胖），各 pane 内部滚动 */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-4">
-        <div className="w-full max-w-[1200px]">
+          pill ≈ 380-400px/卡最舒展，全屏拉伸会导致卡片虚胖）。
+          overflow-hidden：列表类子页（模型/技能/工具库/MCP）自带内滚容器，
+          工具栏结构固定不滚；详情页（无内滚）内容溢出时仍由本容器滚动。 */}
+      <div className="flex-1 min-h-0 overflow-hidden pt-4">
+        <div className="w-full max-w-[1200px] h-full min-h-0">
         {tab === 'knowledge' && (
           openKb ? (
             openKb.type === 'vector' ? (

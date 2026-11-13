@@ -72,12 +72,10 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
   const invalidate = () => void qc.invalidateQueries({ queryKey: userToolKeys.all });
 
   return (
-    <div className="space-y-4">
-      {/* 搜索/Tab 行：滚动时固定在顶部（负边距抵消滚动容器 p-6，背景遮住滑过的卡片）。
-          top-[-16px]：滚动容器带 pt-4，sticky top-0 只贴 content box 顶，上方 16px
-          padding 死区会透出滚过的卡片（镂空）——负 top 上移到容器真顶。
-          flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
-      <div className="sticky top-[-16px] z-30 -mx-6 -mt-8 px-6 pt-7 pb-3 flex flex-wrap items-center gap-2 bg-well">
+    <div className="h-full min-h-0 flex flex-col gap-4">
+      {/* 工具栏：结构固定（shrink-0 在滚动容器外）——滚动只发生在下方列表区，
+          与资源库其他 tab 的固定工具栏形态一致。 */}
+      <div className="shrink-0 flex flex-wrap items-center gap-2">
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
         )}
@@ -105,11 +103,13 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
         )}
       </div>
 
-      {tab === 'library' ? (
-        <LibraryTab q={q} theme={theme} onEditItem={handleEdit} />
-      ) : (
-        <BuiltinToolsTab q={q} theme={theme} />
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-custom pt-1 pb-2">
+        {tab === 'library' ? (
+          <LibraryTab q={q} theme={theme} onEditItem={handleEdit} />
+        ) : (
+          <BuiltinToolsTab q={q} theme={theme} />
+        )}
+      </div>
 
       {genOpen && (
         <AiGenerateDialog
