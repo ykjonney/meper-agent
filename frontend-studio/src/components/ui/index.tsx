@@ -430,6 +430,7 @@ export function Select({
             ? { position: 'fixed', top: panelCoords.top, left: panelCoords.left, width: panelCoords.width, zIndex: 9999 }
             : { position: 'fixed', top: -9999, left: -9999, visibility: 'hidden' }}
           className="rounded-md border border-line bg-panel shadow-lg overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
         >
           {showSearch && (
             <div className="p-1.5 border-b border-line">
@@ -865,6 +866,7 @@ export function Popover({ content, title, trigger = 'hover', open, onOpenChange,
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden', zIndex: 200 }
             }
             className="min-w-[220px] max-w-[360px] max-h-[80vh] overflow-y-auto bg-panel rounded-lg shadow-xl border border-line"
+            onClick={(e) => e.stopPropagation()}
             {...(isHover
               ? { onMouseEnter: clearCloseTimer, onMouseLeave: scheduleClose }
               : {})}
