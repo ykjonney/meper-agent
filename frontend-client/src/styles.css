@@ -1958,6 +1958,15 @@ textarea {
   font-size: 9px;
   flex-shrink: 0;
 }
+.activity-dot .anticon {
+  font-size: 8px;
+}
+.activity-chev {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  color: var(--client-text-muted);
+}
 .activity-dot.is-done {
   background: rgba(31, 157, 85, 0.12);
   color: var(--sig-ok, #1f9d55);
