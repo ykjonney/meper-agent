@@ -77,7 +77,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
           top-[-16px]：滚动容器带 pt-4，sticky top-0 只贴 content box 顶，上方 16px
           padding 死区会透出滚过的卡片（镂空）——负 top 上移到容器真顶。
           flex-wrap：窄屏下 Tab / 搜索 / 操作按钮自然换行不挤压。 */}
-      <div className="sticky top-[-16px] z-30 -mx-6 -mt-6 px-6 pt-7 pb-3 flex flex-wrap items-center gap-2 bg-well">
+      <div className="sticky top-[-16px] z-30 -mx-6 -mt-8 px-6 pt-7 pb-3 flex flex-wrap items-center gap-2 bg-well">
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
         )}
