@@ -880,7 +880,6 @@ function ActivityCard({ streaming, toolCount, durationLabel, children }: {
           {streaming ? '执行中' : '已完成'}
           {durationLabel ? ` · 用时 ${durationLabel}` : ''}
         </span>
-        <span className="activity-chev">{open ? '▾' : '▸'}</span>
       </div>
       {open ? <div className="activity-body">{children}</div> : null}
     </div>
