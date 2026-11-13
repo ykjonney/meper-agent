@@ -963,7 +963,13 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
       ) : null}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
-        <div className="message-attachments">
+        <div
+          className={`message-attachments ${
+            uniqueAttachments.filter((a) => a.kind === 'image' && a.url).length >= 2
+              ? 'multi-image'
+              : ''
+          }`}
+        >
           {uniqueAttachments.map((attachment) => (
             <AttachmentItem
               key={attachment.id}

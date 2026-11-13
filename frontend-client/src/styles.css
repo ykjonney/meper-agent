@@ -1117,9 +1117,26 @@ textarea {
 
 .message-image {
   width: min(280px, 65vw) !important;
-  max-height: 260px;
   border: 1px solid var(--client-border);
   border-radius: 12px;
+}
+
+/* 多图（≥2 张图片）：等大方卡网格（主流聊天形态）——缩略等齐不裁不溢出，
+   点击 antd Image preview 看原图。 */
+.message-attachments.multi-image {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 110px));
+  gap: 6px;
+}
+.message-attachments.multi-image .ant-image,
+.message-attachments.multi-image .message-image {
+  width: 110px !important;
+  height: 110px;
+}
+.message-attachments.multi-image .ant-image img,
+.message-attachments.multi-image .message-image {
+  width: 110px !important;
+  height: 110px;
   object-fit: cover;
 }
 
