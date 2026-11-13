@@ -13,7 +13,7 @@ import {
 } from '@tanstack/react-query';
 import {
   Wrench, ThumbsUp, ThumbsDown, Trash2, Plus,
-  Send, Pencil, Eye, Crown, KeyRound, Sparkles,
+  Send, Pencil, Eye, Crown, KeyRound, Sparkles, Search,
 } from 'lucide-react';
 import { getErrorMessage } from '../lib/api-client';
 import { usePermission } from '../hooks/use-permission';
@@ -81,12 +81,15 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
         {tabs.length > 1 && (
           <SegmentedTabs tabs={tabs} value={tab} onChange={(id: Tab) => setTab(id)} theme={theme} />
         )}
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
-          className="flex-1 min-w-[12rem] max-w-md px-3 py-1.5 rounded-lg text-sm border outline-none bg-panel border-line text-ink"
-        />
+        <div className="relative w-[320px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-faint" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={tab === 'builtin' ? '搜索内置工具名称/描述…' : '搜索工具名称/描述…'}
+            className="w-full pl-9 pr-3 h-8 text-xs bg-panel border border-line rounded-[10px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-brand transition font-medium"
+          />
+        </div>
         {canCreate && tab === 'library' && (
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setGenOpen(true)}
