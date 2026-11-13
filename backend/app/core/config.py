@@ -56,7 +56,9 @@ class Settings(BaseSettings):
     # LangSmith tracing (optional — set API key to enable).
     # When LANGSMITH_API_KEY is set, LangChain/LangGraph traces are sent to smith.langchain.com.
     LANGSMITH_API_KEY: str = ""
+    LANGSMITH_TRACING: bool = True
     LANGSMITH_PROJECT: str = "agent-flow"
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
 
     # Model API Key encryption (Base64-encoded 32-byte AES-256 key)
     # Generate: python -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"
@@ -182,6 +184,12 @@ class Settings(BaseSettings):
     WORKSPACES_CONTAINER_DIR: str | None = None
     # Host-side path for Workspaces (the one users configure in .env).
     WORKSPACES_HOST_DIR: str = "~/.agent-flow/data/workspaces"
+
+    # Local workspace access (local directory access integration) — allowlist root directory.
+    # Empty string = local mode disabled (default): sessions cannot be bound to local directories.
+    # When configured: only directories under this tree can be bound via SessionCreate.local_dir
+    # (same-machine form, backend directly reads/writes the user directory tree, bash executed natively on the host).
+    LOCAL_WORKSPACE_ROOT: str = ""
 
     # Workspace retention — days to keep workspace files after Session deletion.
     WORKSPACE_RETENTION_DAYS: int = 30
@@ -490,6 +498,15 @@ class Settings(BaseSettings):
     AGENT_FLOW_WEB_DIR: str = ""
 
 
-
-
 settings = Settings()
+
+# LangSmith 桥接：SDK 在运行时读 os.environ 而 settings 读 .env——实例化后统一
+# 同步（key 为空 = 不注入，tracing 完全关闭零开销）。本模块被 API 与 celery
+# worker 两侧导入，两个进程都被覆盖。
+if settings.LANGSMITH_API_KEY:
+    import os as _os
+
+    _os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
+    _os.environ["LANGSMITH_TRACING"] = "true" if settings.LANGSMITH_TRACING else "false"
+    _os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
+    _os.environ["LANGSMITH_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
