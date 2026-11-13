@@ -1,4 +1,4 @@
-import { type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { type RefObject } from 'react';
 import { Copy, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { toast } from '../ui/toast';
 import AvatarRender from '../AvatarRender';
@@ -28,15 +28,13 @@ interface MessageItemProps {
   onDismissInterrupt: (msgId: string) => void;
   onApprovePlan: (msgId: string, plan: string) => void;
   onVote: (requestId: string, value: 1 | -1) => void;
-  /** 编辑草稿回填（hover 用户消息"编辑"）——父级 setInputText */
-  setInputText: Dispatch<SetStateAction<string>>;
 }
 
 /** 单条聊天消息：user 单气泡 / agent 按 timeline 轮次渲染（活动组+正文），
  *  含附件卡、生成中动效、复制/重新生成、消息级反馈。 */
 export function MessageItem({
   msg, pinnedRef, isLast, theme, streamingMsgId, isStreaming, activeSessionId, feedbackMap,
-  inputTextareaRef, onAnswer, onRegenerate, onDismissInterrupt, onApprovePlan, onVote, setInputText,
+  inputTextareaRef, onAnswer, onRegenerate, onDismissInterrupt, onApprovePlan, onVote,
 }: MessageItemProps) {
   const isUser = msg.role === 'user';
   // agent 消息靠 timeline 渲染（text/tool/thinking/error 按顺序）；
@@ -48,23 +46,13 @@ export function MessageItem({
   return (
     <div
       key={msg.id}
-      className={`group relative flex items-start gap-3 animate-fade-in ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
+      className={`relative flex items-start gap-3 animate-fade-in ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
     >
       <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 select-none text-[11px] ${
         isUser ? 'bg-raise text-ink-soft' : 'bg-brand-soft text-brand'
       }`}>
         {isUser ? 'A' : '✦'}
       </div>
-      {/* hover 用户消息：编辑（内容填回输入框，作为新轮次发送） */}
-      {isUser && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setInputText(msg.content); inputTextareaRef.current?.focus(); }}
-          className="absolute left-0 top-0 w-full h-full opacity-0 hover:opacity-100 transition-opacity bg-panel/40 items-center justify-center hidden group-hover:flex cursor-pointer z-[1]"
-          title="编辑此输入"
-        >
-          <span className="af-btn af-btn-secondary h-7">编辑</span>
-        </button>
-      )}
       <div className="space-y-1 min-w-0 flex-1">
         <div className={`flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-ink-faint ${isUser ? 'justify-end' : ''}`}>
           {!isUser && (

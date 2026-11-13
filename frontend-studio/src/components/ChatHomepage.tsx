@@ -1530,7 +1530,6 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
           showJumpToBottom={showJumpToBottom}
           theme={theme}
           onAnswer={(a) => handleSendMessage(undefined, a)}
-          onEditMessage={setInputText}
           inputTextareaRef={inputTextareaRef}
           onDismissInterrupt={handleDismissInterrupt}
           onApprovePlan={handleApprovePlan}

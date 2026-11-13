@@ -25,7 +25,6 @@ interface MessageListProps {
   showJumpToBottom: boolean;
   theme: 'dark' | 'light';
   onAnswer: (text: string) => void;
-  onEditMessage: (text: string) => void;
   inputTextareaRef: RefObject<HTMLTextAreaElement | null>;
   onDismissInterrupt: (msgId: string) => void;
   onApprovePlan: (msgId: string, plan: string) => void;
@@ -39,7 +38,7 @@ export function MessageList({
   messages, activeSession, sessionsLoading, activeAgent, activeSessionId,
   isStreaming, pinnedRef, streamingMsgId, feedbackMap, chatScrollRef, messageEndRef,
   setShowJumpToBottom, showJumpToBottom, theme,
-  onAnswer, onEditMessage, inputTextareaRef, onDismissInterrupt, onApprovePlan, onVote, onRegenerate,
+  onAnswer, inputTextareaRef, onDismissInterrupt, onApprovePlan, onVote, onRegenerate,
 }: MessageListProps) {
   // 浮标 = 「用户主动上翻」驱动，而非距底距离采样——程序跳底后内容继续
   // 撑高（气泡布局/图片加载）会让离散采样误判成用户上翻，新会话首帧必现。
@@ -111,7 +110,6 @@ export function MessageList({
           onDismissInterrupt={onDismissInterrupt}
           onApprovePlan={onApprovePlan}
           onVote={onVote}
-          setInputText={onEditMessage}
         />
       ))}
       <div ref={messageEndRef} />
