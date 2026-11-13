@@ -92,14 +92,23 @@ export function MessageItem({
             ((msg.usage?.llm_duration ?? 0) + (msg.usage?.tool_duration ?? 0)) * 1000;
           const execDurationLabel = execMs > 0 ? formatToolDuration(execMs) : '';
           let lastTextIdx = -1;
-          tl.forEach((e, i) => { if (e.type === 'text') lastTextIdx = i; });
+          let finalTextIdx = -1;
+          tl.forEach((e, i) => {
+            if (e.type === 'text') lastTextIdx = i;
+            if (e.type === 'text' && e.final) finalTextIdx = i;
+          });
           /* 三层形态（用户模型）：① 执行过程组（最终回答前全部条目按原序，含
-             图表调用行，可收起）；② 产物层（render_chart 成品，组外常驻不收起，
-             Markdown 识别 echarts 出图）；③ 最终回答平铺。流式中组自动展开、
-             finished（最终回答出现或流结束）→ 收起为「已完成 · 用时X」。 */
-          const procEntries = lastTextIdx >= 0 ? tl.slice(0, lastTextIdx) : tl;
+             中间轮 text（final=false，后接工具调用）与图表调用行，可收起）；
+             ② 产物层（render_chart 成品，组外常驻不收起，Markdown 识别 echarts
+             出图）；③ 最终回答平铺。「已完成」只有一种：输出了最终文本
+             （final=true）。历史终态兜底：流已结束且无 final 标志（旧数据）时
+             最后一个 text 即最终回答。 */
+          const hasFinalText = finalTextIdx >= 0
+            || (!inFlight && lastTextIdx >= 0);
+          const anchor = finalTextIdx >= 0 ? finalTextIdx : lastTextIdx;
+          const procEntries = anchor >= 0 ? tl.slice(0, anchor) : tl;
           const chartProducts = tl.filter(isChartResultEntry);
-          const finalTexts = lastTextIdx >= 0 ? tl.slice(lastTextIdx) : [];
+          const finalTexts = anchor >= 0 ? tl.slice(anchor) : [];
           return (
             <div className="space-y-2">
               <ActivityGroup
@@ -109,8 +118,8 @@ export function MessageItem({
                 interrupted={!!msg.isInterrupted}
                 theme={theme}
                 thinkingActive={msg.status === 'thinking'}
-                /* 最终回答已出现在 timeline → 过程确定结束 → 收起为摘要行 */
-                hasOwnText={lastTextIdx >= 0}
+                /* 最终回答（final=true）已出现 → 过程确定结束 → 收起为摘要行 */
+                hasOwnText={hasFinalText}
                 msgStreaming={inFlight}
                 execDurationLabel={execDurationLabel}
                 chartsInProducts

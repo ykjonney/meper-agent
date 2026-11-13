@@ -208,10 +208,11 @@ export function ActivityGroup({
   );
   // 纯思考动效判据：消息流式中 && 本轮正文未开始
   const isLive = !!msgStreaming && !hasOwnText;
-  // 收起时机：finished = 正文已开始 或 流已结束（done）→ 全部过程组收起。
-  // 流结束收起覆盖最后一组（用户预期「任务结束只剩已完成摘要行」），
-  // 明细区 grid-rows 300ms 过渡兜底平滑，无硬切闪屏。
-  const finished = !!hasOwnText || !msgStreaming;
+  // 收起时机（语义定稿）：「已完成」只有一种 = 输出了最终文本（final=true）。
+  // 中间轮 text（final=false，后接工具调用）是过程的一部分，不触发收起；
+  // 流结束但无最终文本（错误/取消/挂起待答）也不算已完成，保持展开。
+  // MessageItem 侧已做历史终态兜底（旧数据流结束的最后 text 即答案）。
+  const finished = !!hasOwnText;
   const [open, setOpen] = useState(!finished || hasOpenInteractive);
   const prevFinished = useRef(finished);
   // 执行中实时计时：组挂载即过程开始（首个过程条目出现），每秒跳动；
@@ -249,15 +250,6 @@ export function ActivityGroup({
       else if (!hasError && !interrupted && !hasOpenInteractive) setOpen(false);
     }
   }, [finished, isRunning, hasError, interrupted, hasOpenInteractive]);
-
-  // 后端权威收起锚点（text.final=true = 本轮回答终态）：挂起→恢复（resume）
-  // 复用同一消息续流，前轮 text 已使 finished 恒为 true——跃迁检测永不触发，
-  // 过程组会一直保持展开。final text 到达不依赖跃迁，直接权威收起
-  // （出错/待答交互卡不藏；用户手动展开后 effect 不再重跑，不抢用户操作）。
-  const hasFinalText = liveEntries.some((e) => e.type === 'text' && (e as TimelineEntry).final);
-  useEffect(() => {
-    if (hasFinalText && !hasError && !hasOpenInteractive) setOpen(false);
-  }, [hasFinalText, hasError, hasOpenInteractive]);
 
   // 过程条目：按时序直接平铺（thinking/工具/小结/错误各自渲染）——
   // 不再做「执行了 N 个工具」的内部折叠批：外层卡组头已有计数汇总，
