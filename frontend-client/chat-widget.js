@@ -1,0 +1,352 @@
+/*!
+ * AgentFlowChat embed loader —— 把 frontend-client 以 iframe 形态嵌入第三方站点。
+ * 纯原生 JS（不进 React 构建、不引框架），放 public/ 由静态服务原样托管。
+ *
+ * 形态：右下角浮动启动器（client.png）→ 点击从右侧滑出 drawer。
+ * 面板左缘可横向拖拽调宽，右上角按钮可全屏/还原；
+ * 拖拽后的宽度记忆在 localStorage（优先于 data-width 默认值）。
+ * 用户身份通过 cookie（mep-access-token）自动注入，无需登录面板。
+ * 用户名和退出按钮由 client 内部侧边栏管理（不在 widget 层显示）。
+ *
+ * 鉴权：握手时 client 发 agentflow:request_config，本脚本回
+ * agentflow:config{apiKey, userToken?} 把凭据注入 iframe。
+ * token 由接入方页面写入 cookie，widget 只读取。
+ *
+ * 用法（自动初始化）：
+ *   <script src="chat-widget.js"
+ *           data-chat-url="http://localhost:3001"
+ *           data-api-key="af_live_xxx"
+ *           data-title="AI 助手"
+ *           data-width="680px"></script>
+ *
+ * API：window.AgentFlowChat = { init, open, close, toggle, destroy, isOpen, setToken, logout }
+ */
+(function (window, document) {
+  'use strict';
+
+  var API_KEY = 'AgentFlowChat';
+  var HOST_ID = 'agent-flow-chat-host';
+  var currentScript = document.currentScript;
+
+  if (window[API_KEY] && window[API_KEY].__afc) return;
+
+  var state = {
+    host: null, shadow: null, shell: null, panel: null,
+    launcher: null, iframe: null, loading: null,
+    resizeHandle: null,
+    initialized: false, open: false, iframeLoaded: false,
+    resizing: false, width: null,
+    previousFocus: null, config: null, userName: '',
+    loadedToken: '' // iframe 初始化时使用的 token，用于检测身份变化
+  };
+
+  var WIDTH_KEY = 'afc-panel-width'; // 拖拽宽度记忆（localStorage）
+  var MIN_WIDTH = 360;
+
+  function bool(v, f) { return v === undefined || v === null || v === '' ? f : !/^(false|0|no|off)$/i.test(String(v)); }
+  function cssLength(v, f) { if (typeof v === 'number' && isFinite(v)) return v + 'px'; var t = String(v || '').trim(); return /^\d+(\.\d+)?(px|rem|em|vw|vh|%)$/.test(t) ? t : f; }
+  function intBetween(v, f, min, max) { var n = parseInt(v, 10); return isFinite(n) ? Math.min(max, Math.max(min, n)) : f; }
+  function scriptDataset() { return currentScript && currentScript.dataset ? currentScript.dataset : {}; }
+  function resolveOrigin() { try { if (currentScript && currentScript.src) return new URL(currentScript.src).origin; } catch (e) {} return window.location.origin; }
+  function resolveLogoUrl() { try { return new URL('/client.png', resolveOrigin()).href; } catch (e) { return '/client.png'; } }
+
+  function normalizeConfig(options) {
+    var d = scriptDataset(), i = options || {}, z = i.zIndex !== undefined ? i.zIndex : d.zIndex;
+    return {
+      chatUrl: String(i.chatUrl || d.chatUrl || resolveOrigin()),
+      title: String(i.title || d.title || 'AI 助手'),
+      width: cssLength(i.width || d.width, '680px'),
+      right: cssLength(i.right || d.right, '24px'),
+      bottom: cssLength(i.bottom || d.bottom, '24px'),
+      zIndex: intBetween(z, 2147483000, 1, 2147483646),
+      openOnLoad: bool(i.openOnLoad !== undefined ? i.openOnLoad : d.openOnLoad, false),
+      apiKey: String(i.apiKey || d.apiKey || ''),
+      tokenCookie: String(i.tokenCookie || d.tokenCookie || 'mep-access-token')
+    };
+  }
+
+  function emit(name) {
+    var ev; try { ev = new CustomEvent('agent-flow-chat:' + name, { detail: { chatUrl: state.config.chatUrl } }); }
+    catch (e) { ev = document.createEvent('CustomEvent'); ev.initCustomEvent('agent-flow-chat:' + name, false, false, { chatUrl: state.config.chatUrl }); }
+    window.dispatchEvent(ev);
+  }
+
+  function buildHost() {
+    var host = document.createElement('div');
+    host.id = HOST_ID; host.setAttribute('data-agent-flow-chat', '');
+    host.style.cssText = 'position:fixed;inset:0;width:0;height:0;z-index:' + state.config.zIndex + ';pointer-events:none';
+
+    var shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
+    var style = document.createElement('style');
+    style.textContent = [
+      ':host{all:initial}','*,*::before,*::after{box-sizing:border-box}',
+      '.afc-panel{position:fixed;z-index:2;top:0;right:0;width:min(var(--afc-width),100vw);height:100vh;height:100dvh;background:#fff;box-shadow:-18px 0 48px rgba(15,23,42,.18);transform:translate3d(102%,0,0);visibility:hidden;pointer-events:none;transition:transform .34s cubic-bezier(.22,1,.36,1),visibility .34s;overflow:hidden;border-left:1px solid rgba(148,163,184,.22)}',
+      '.afc-open .afc-panel{transform:translate3d(0,0,0);visibility:visible;pointer-events:auto}',
+      '.afc-resize{position:absolute;left:0;top:0;bottom:0;width:8px;z-index:6;cursor:col-resize;background:transparent;touch-action:none}',
+      '.afc-resize::after{content:"";position:absolute;left:2px;top:50%;width:3px;height:42px;border-radius:2px;transform:translateY(-50%);background:rgba(113,104,255,0);transition:background .16s ease}',
+      '.afc-resize:hover::after,.afc-resize.afc-active::after{background:rgba(113,104,255,.72)}',
+      '.afc-resizing{user-select:none;cursor:col-resize}',
+      '.afc-resizing .afc-panel{transition:none}',
+      '.afc-resizing .afc-frame{pointer-events:none}',
+      '.afc-launcher:focus-visible{outline:3px solid rgba(94,129,255,.35);outline-offset:3px}',
+      '.afc-body{position:absolute;inset:0;background:#fff}',
+      '.afc-frame{display:block;width:100%;height:100%;border:0;background:#fff;opacity:0;transition:opacity .2s ease}',
+      '.afc-loaded .afc-frame{opacity:1}',
+      '.afc-loading{position:absolute;inset:0;display:grid;place-items:center;background:#fff;color:#667085;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;transition:opacity .2s ease,visibility .2s ease}',
+      '.afc-loaded .afc-loading{opacity:0;visibility:hidden}',
+      '.afc-spinner{width:28px;height:28px;border:3px solid #e8ebf2;border-top-color:#7168ff;border-radius:50%;animation:afc-spin .75s linear infinite}',
+      '.afc-launcher{position:fixed;z-index:3;right:var(--afc-right);bottom:var(--afc-bottom);width:60px;height:60px;padding:0;border:0;border-radius:20px;background:linear-gradient(145deg,#f7f5ff 5%,#e8f5ff 48%,#fff0fb 100%);box-shadow:0 14px 32px rgba(75,85,150,.22),0 3px 10px rgba(91,106,178,.16),inset 0 0 0 1px rgba(255,255,255,.82);cursor:pointer;display:grid;place-items:center;pointer-events:auto;transition:transform .2s ease,box-shadow .2s ease,opacity .2s ease,visibility .2s ease;animation:afc-float 4.4s ease-in-out infinite}',
+      '.afc-launcher::before{content:"";position:absolute;inset:-5px;border-radius:24px;border:1px solid rgba(114,111,255,.18);opacity:.65;animation:afc-pulse 2.8s ease-out infinite}',
+      '.afc-launcher:hover{transform:translateY(-3px) scale(1.04);box-shadow:0 18px 38px rgba(75,85,150,.28),0 5px 14px rgba(91,106,178,.2),inset 0 0 0 1px rgba(255,255,255,.9)}',
+      '.afc-open .afc-launcher{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(12px) scale(.86)}',
+      '.afc-logo{width:42px;height:42px;object-fit:contain;display:block;filter:drop-shadow(0 4px 6px rgba(93,76,220,.22));animation:afc-breathe 3.2s ease-in-out infinite;pointer-events:none;user-select:none;-webkit-user-drag:none}',
+      '@keyframes afc-spin{to{transform:rotate(360deg)}}','@keyframes afc-float{0%,100%{margin-bottom:0}50%{margin-bottom:5px}}',
+      '@keyframes afc-pulse{0%{transform:scale(.9);opacity:.7}75%,100%{transform:scale(1.18);opacity:0}}',
+      '@keyframes afc-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}',
+      '@media(max-width:640px){.afc-panel{width:100vw;border-left:0}.afc-resize{display:none}.afc-launcher{right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom))}}',
+      '@media(prefers-reduced-motion:reduce){.afc-panel,.afc-launcher,.afc-loading,.afc-frame{transition:none}.afc-launcher,.afc-launcher::before,.afc-logo,.afc-spinner{animation:none}}'
+    ].join('');
+
+    var shell = document.createElement('div');
+    shell.className = 'afc-shell';
+    shell.style.setProperty('--afc-width', state.config.width);
+    shell.style.setProperty('--afc-right', state.config.right);
+    shell.style.setProperty('--afc-bottom', state.config.bottom);
+    shell.innerHTML = [
+      '<aside class="afc-panel" role="dialog" aria-label="对话窗口">',
+      '  <div class="afc-resize" aria-hidden="true"></div>',
+      '  <div class="afc-body">',
+      '    <iframe class="afc-frame" title="AI 对话" allow="clipboard-read; clipboard-write; microphone" referrerpolicy="strict-origin-when-cross-origin"></iframe>',
+      '    <div class="afc-loading"><div><div class="afc-spinner"></div></div></div>',
+      '  </div>',
+      '</aside>',
+      '<button class="afc-launcher" type="button" aria-label="打开 AI 助手" aria-expanded="false"><img class="afc-logo" alt="" /></button>'
+    ].join('');
+
+    shadow.appendChild(style); shadow.appendChild(shell);
+    (document.body || document.documentElement).appendChild(host);
+
+    state.host = host; state.shadow = shadow; state.shell = shell;
+    state.panel = shell.querySelector('.afc-panel');
+    state.launcher = shell.querySelector('.afc-launcher');
+    state.iframe = shell.querySelector('.afc-frame');
+    state.loading = shell.querySelector('.afc-body');
+    state.resizeHandle = shell.querySelector('.afc-resize');
+    state.iframe.title = state.config.title;
+    shell.querySelector('.afc-logo').src = resolveLogoUrl();
+    restoreWidth();
+
+    state.launcher.addEventListener('click', open);
+    initResize();
+    state.iframe.addEventListener('load', function () {
+      state.iframeLoaded = true;
+      // 延迟隐藏 widget loading——等 iframe 内 React 完全渲染，
+      // 避免 widget spinner 和 client Spin 两种加载动画交替出现。
+      setTimeout(function () { state.loading.classList.add('afc-loaded'); }, 300);
+    });
+    document.addEventListener('keydown', onKeyDown, true);
+
+    // 点击面板外部（宿主页其他区域）关闭面板。
+    var overlay = document.createElement('div');
+    overlay.className = 'afc-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1;pointer-events:none;';
+    overlay.addEventListener('click', function () { close(); });
+    shadow.insertBefore(overlay, shell);
+    state.overlay = overlay;
+  }
+
+  function loadIframe() {
+    var src = state.iframe.getAttribute('src');
+    if (!src || src === 'about:blank') state.iframe.setAttribute('src', state.config.chatUrl);
+  }
+
+  /* ═══ 宽度拖拽 / 全屏 ═══ */
+  function applyWidth(px) {
+    var w = Math.round(Math.min(window.innerWidth, Math.max(MIN_WIDTH, px)));
+    state.width = w;
+    state.shell.style.setProperty('--afc-width', w + 'px');
+  }
+
+  // 用户上次拖拽的宽度优先于接入方 data-width 默认值
+  function restoreWidth() {
+    try {
+      var v = parseInt(window.localStorage.getItem(WIDTH_KEY), 10);
+      if (isFinite(v) && v >= MIN_WIDTH) applyWidth(v);
+    } catch (e) {}
+  }
+
+  function saveWidth() {
+    try { if (state.width) window.localStorage.setItem(WIDTH_KEY, String(state.width)); } catch (e) {}
+  }
+
+  function initResize() {
+    var handle = state.resizeHandle;
+    handle.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      state.resizing = true;
+      try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+      state.shell.classList.add('afc-resizing');
+      handle.classList.add('afc-active');
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (!state.resizing) return;
+      applyWidth(window.innerWidth - e.clientX);
+    });
+    function end(e) {
+      if (!state.resizing) return;
+      state.resizing = false;
+      try { if (e.pointerId !== undefined) handle.releasePointerCapture(e.pointerId); } catch (err) {}
+      state.shell.classList.remove('afc-resizing');
+      handle.classList.remove('afc-active');
+      saveWidth();
+    }
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  /* ═══ Cookie ═══ */
+  function readCookie(name) {
+    if (!name || !document.cookie) return '';
+    var p = name + '=', parts = document.cookie.split(';');
+    for (var i = 0; i < parts.length; i++) { var t = parts[i].trim(); if (t.indexOf(p) === 0) { var v = t.substring(p.length); try { v = decodeURIComponent(v); } catch (e) {} return v; } }
+    return '';
+  }
+  function writeCookie(name, value) { document.cookie = name + '=' + encodeURIComponent(value) + ';path=/;max-age=' + (30 * 24 * 60 * 60) + ';SameSite=Lax'; }
+  function deleteCookie(name) { document.cookie = name + '=;path=/;max-age=0;SameSite=Lax'; }
+
+  function resolveUserToken() {
+    var primary = readCookie(state.config.tokenCookie);
+    if (primary) return primary;
+    var underscored = state.config.tokenCookie.replace(/-/g, '_');
+    return underscored !== state.config.tokenCookie ? readCookie(underscored) : '';
+  }
+
+  /* ═══ client 握手 ═══ */
+  function onMessage(e) {
+    if (!state.iframe || e.source !== state.iframe.contentWindow) return;
+    var data = e.data || {};
+    if (data.type === 'agentflow:request_config') sendConfig();
+    // client 内的关闭按钮（header 关闭，嵌入模式显示）请求收起面板
+    if (data.type === 'agentflow:close') close();
+    // client 退出登录：只收起面板 + 重置 client 状态，不删接入方 cookie
+    // （cookie 归宿主管，删除会把宿主登录态带掉；宿主可监听
+    // agent-flow-chat:logout 事件自行决定是否登出）
+    if (data.type === 'agentflow:logout') onLogout();
+    // client 验证 token 失败（无效/过期/未绑定）→ client 内部已显示错误页
+    // widget 不再删 cookie 和关闭——让用户看到 client 里的具体错误提示
+    // （cookie 由接入方页面管理，widget 不主动清理）
+    if (data.type === 'agentflow:token_invalid') {
+      // no-op: 错误提示由 client iframe 内部处理
+    }
+  }
+
+  function sendConfig() {
+    if (!state.iframe || !state.config.apiKey) return;
+    var userToken = resolveUserToken();
+    var targetOrigin; try { targetOrigin = new URL(state.config.chatUrl).origin; } catch (err) { targetOrigin = '*'; }
+    state.iframe.contentWindow.postMessage(
+      { type: 'agentflow:config', apiKey: state.config.apiKey, userToken: userToken || undefined },
+      targetOrigin
+    );
+  }
+
+  function onLogout() {
+    // 不删接入方 cookie：tokenCookie 是宿主系统的登录凭证（widget 只读取，
+    // 见文件头注释），删除会把宿主登录态一并带掉、用户被迫重登宿主。
+    // 需要「退出即登出宿主」的接入方，可监听 agent-flow-chat:logout 事件
+    // 自行清理凭证/跳转登录页。
+    state.userName = '';
+    state.loadedToken = '';
+    // 强制重载 iframe（下次打开时 client 以全新状态初始化）
+    if (state.iframeLoaded) {
+      state.iframeLoaded = false;
+      state.loading.classList.remove('afc-loaded');
+      state.iframe.src = 'about:blank';
+    }
+    // 注意勿提前置 state.open=false：close() 开头有 if(!state.open) return，
+    // 预置会让它提前返回、afc-open 不移除——面板卡在展开态且 iframe 已被
+    // 置空，表现为白屏（且 launcher 隐藏、点外部也关不掉）。
+    close();
+    emit('logout');
+  }
+
+  /* ═══ 开关 ═══ */
+  function init(options) {
+    if (state.initialized) return api;
+    state.config = normalizeConfig(options);
+    buildHost();
+    state.initialized = true;
+    window.addEventListener('message', onMessage);
+    if (state.config.openOnLoad) open();
+    return api;
+  }
+
+  function open() {
+    if (!state.initialized) init();
+    if (state.open) return api;
+    // 检测身份变化：cookie 里的 token 变了 → 强制重载 iframe，
+    // 让 client 用新 token 重新初始化（session 列表等状态全部刷新）。
+    var currentToken = resolveUserToken();
+    if (state.loadedToken && currentToken !== state.loadedToken) {
+      state.loadedToken = currentToken;
+      if (state.iframeLoaded) {
+        state.iframeLoaded = false;
+        state.loading.classList.remove('afc-loaded');
+        state.iframe.src = 'about:blank';
+      }
+    } else if (currentToken) {
+      state.loadedToken = currentToken;
+    }
+    state.previousFocus = document.activeElement;
+    state.open = true;
+    loadIframe();
+    if (state.iframeLoaded) sendConfig();
+    state.shell.classList.add('afc-open');
+    if (state.overlay) state.overlay.style.pointerEvents = 'auto';
+    state.launcher.setAttribute('aria-expanded', 'true');
+    emit('open');
+    return api;
+  }
+
+  function close() {
+    if (!state.initialized) return api;
+    if (state.overlay) state.overlay.style.pointerEvents = 'none';
+    if (!state.open) return api;
+    state.open = false;
+    state.shell.classList.remove('afc-open');
+    state.launcher.setAttribute('aria-expanded', 'false');
+    if (state.previousFocus && typeof state.previousFocus.focus === 'function') state.previousFocus.focus();
+    emit('close');
+    return api;
+  }
+
+  function toggle() { return state.open ? close() : open(); }
+
+  function destroy() {
+    if (!state.initialized) return;
+    document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('message', onMessage);
+    if (state.host && state.host.parentNode) state.host.parentNode.removeChild(state.host);
+    state.host = state.shadow = state.shell = state.panel = state.launcher = state.iframe = null;
+    state.initialized = state.open = state.iframeLoaded = false;
+    state.resizing = false;
+    state.width = null;
+    state.userName = '';
+    state.loadedToken = '';
+  }
+
+  function onKeyDown(event) { if (state.open && event.key === 'Escape') close(); }
+
+  var api = {
+    __afc: true, init: init, open: open, close: close, toggle: toggle, destroy: destroy,
+    isOpen: function () { return state.open; },
+    setToken: function (token) { if (token) writeCookie(state.config.tokenCookie, token); else deleteCookie(state.config.tokenCookie); state.userName = ''; },
+    logout: function () { onLogout(); }
+  };
+
+  window[API_KEY] = api;
+
+  function autoInit() { var d = scriptDataset(); if (bool(d.autoInit, true)) init(); }
+  if (document.readyState === 'loading' && !document.body) document.addEventListener('DOMContentLoaded', autoInit, { once: true });
+  else autoInit();
+})(window, document);

@@ -196,9 +196,6 @@ export function ClientApp() {
 
   return (
     <div className="client-shell">
-      <div className="desktop-sidebar-shell">
-        <ConversationSidebar {...sidebarProps} />
-      </div>
       <Drawer
         className="mobile-navigation-drawer"
         width="min(320px, 88vw)"

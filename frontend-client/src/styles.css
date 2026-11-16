@@ -131,12 +131,6 @@ textarea {
   color: var(--client-text);
 }
 
-.desktop-sidebar-shell {
-  width: 292px;
-  height: 100%;
-  flex: 0 0 292px;
-}
-
 .conversation-sidebar {
   display: flex;
   width: 100%;
@@ -308,7 +302,7 @@ textarea {
 }
 
 .mobile-nav-button {
-  display: none;
+  display: inline-flex;
 }
 
 .chat-empty,
@@ -1752,14 +1746,6 @@ textarea {
 }
 
 @media (max-width: 768px) {
-  .desktop-sidebar-shell {
-    display: none;
-  }
-
-  .mobile-nav-button {
-    display: inline-flex;
-  }
-
   .chat-header {
     height: 58px;
     min-height: 58px;
