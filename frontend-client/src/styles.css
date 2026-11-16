@@ -1246,8 +1246,13 @@ textarea {
   white-space: nowrap;
 }
 .activity-body {
-  padding: 4px 12px 10px;
-  border-top: 1px solid var(--client-border);
+  margin-top: 2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--client-surface-muted) 85%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .activity-dot.is-running {
   background: var(--client-accent-soft);
@@ -3071,9 +3076,4 @@ textarea {
 .activity-chev {
   font-size: 10px;
   color: var(--client-text-muted);
-}
-.activity-body {
-  padding: 4px 12px 12px;
-  border-top: 1px solid var(--client-border);
-  background: var(--client-bg);
 }
