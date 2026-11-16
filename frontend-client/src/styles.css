@@ -1184,12 +1184,28 @@ textarea {
   margin-top: 12px;
 }
 
-.tool-details pre {
-  margin-bottom: 0;
+/* 请求参数 pre：折行防撑宽 + 限高内部滚动
+   （直接子级选择器避开 result Markdown 里的代码块） */
+.tool-details section > pre {
+  margin: 6px 0 0;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
+/* 执行结果：限高内部滚动——load_skill 等长结果不再撑开页面 */
 .tool-result-body {
+  max-height: 280px;
   margin-top: 6px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+/* 结果内代码块：限高 + 横向滚动（保持代码不折行） */
+.tool-result-body pre {
+  max-height: 240px;
+  overflow: auto;
 }
 
 /* ── 工具调用 timeline:Collapse 卡片展开后,以节点 + 竖线串联列出工具 ── */
