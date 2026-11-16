@@ -158,6 +158,9 @@ export interface ToolRun {  id: string
   /** per-tool 耗时毫秒（tool_result 事件携带）——步骤行右侧 mono 数字，
    *  undefined/0 = 无数据不显示。 */
   durationMs?: number
+  /** 并行批次号：一轮 AI 输出的多个 tool_call 连续到达（中间无 result 隔断）
+   *  归同批——渲染时合并且「执行了 x 个命令」。同批工具执行时间重叠。 */
+  batchId?: number
   result?: string
   isError?: boolean
   auto?: boolean

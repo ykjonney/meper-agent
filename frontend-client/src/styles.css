@@ -1301,6 +1301,20 @@ textarea {
   background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
 }
 
+/* 并行批合并行（v6）：整体一行「执行了 x 个命令」——不可展开，词重一点 */
+.tool-timeline-node-batch .tool-timeline-node-row {
+  border: 0;
+  cursor: default;
+}
+
+.tool-timeline-node-batch .tool-timeline-node-row:hover {
+  background: transparent;
+}
+
+.tool-timeline-node-batch .tool-timeline-node-name {
+  font-weight: 600;
+}
+
 .tool-timeline-node-label {
   display: inline-flex;
   min-width: 0;

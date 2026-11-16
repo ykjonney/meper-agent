@@ -551,8 +551,44 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
           ),
           children: (
             <ol className="tool-timeline-list">
-              {tools.map((tool, index) => {
-                const isLast = index === tools.length - 1
+              {(() => {
+                const segments = batchSegments(tools)
+                return segments.map((seg, segIndex) => {
+                const isLast = segIndex === segments.length - 1
+                // 并行批（≥2 个连续 tool_call）：整体一行「执行了 x 个命令/工具」
+                if (seg.length >= 2) {
+                  const allBash = seg.every((t) =>
+                    ['bash', 'run_command', 'execute'].includes(t.name),
+                  )
+                  const durSum = seg.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+                  const label = allBash
+                    ? `执行了 ${seg.length} 个命令`
+                    : `执行了 ${seg.length} 个工具`
+                  return (
+                    <li
+                      key={`batch-${seg[0].id}`}
+                      className={`tool-timeline-node tool-timeline-node-batch${isLast ? ' tool-timeline-node-last' : ''}`}
+                    >
+                      <div className="tool-timeline-node-row">
+                        <span className="tool-timeline-node-icon">
+                          {seg.some((t) => t.status === 'error') ? (
+                            <CloseCircleOutlined />
+                          ) : (
+                            <CheckCircleOutlined />
+                          )}
+                        </span>
+                        <span className="tool-timeline-node-label">
+                          <ToolOutlined />
+                          <span className="tool-timeline-node-name">{label}</span>
+                          {durSum > 0 ? (
+                            <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
+                          ) : null}
+                        </span>
+                      </div>
+                    </li>
+                  )
+                }
+                const tool = seg[0]
                 const isOpen = expandedToolId === tool.id
                 return (
                   <li
@@ -582,13 +618,29 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                     ) : null}
                   </li>
                 )
-              })}
+                })
+              })()}
             </ol>
           ),
         },
       ]}
     />
   )
+}
+
+/** 按 batchId 分段：同批（一轮并行 tool_call）聚合为一段，单工具独立段。
+ *  batchId undefined（旧数据）各自成段，保持逐行显示。 */
+function batchSegments(tools: ToolRun[]): ToolRun[][] {
+  const segments: ToolRun[][] = []
+  for (const tool of tools) {
+    const last = segments[segments.length - 1]
+    if (tool.batchId != null && last && last[0].batchId === tool.batchId) {
+      last.push(tool)
+    } else {
+      segments.push([tool])
+    }
+  }
+  return segments
 }
 
 /** 解析 tool.args(JSON 字符串)为对象,失败返回空对象。 */

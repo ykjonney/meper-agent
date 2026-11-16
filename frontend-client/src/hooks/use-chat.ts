@@ -93,9 +93,13 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
   /** 退化兜底:key = tool_name,用于旧数据(无 id)按名称配对。 */
   const pendingByName = new Map<string, ToolRun>()
   const allTools: ToolRun[] = []
+  // 并行批次：连续 tool_call entry（中间无 result/text 隔断）= 同一轮并行调用。
+  let lastEntryWasToolCall = false
+  let batchCounter = 0
   for (const [index, entry] of entries.entries()) {
     if (entry.type === 'thinking' && entry.content) {
       blocks.push({ type: 'reasoning', text: entry.content })
+      lastEntryWasToolCall = false
     } else if (
       (entry.type === 'text' || entry.type === 'final_answer') &&
       entry.content
@@ -105,14 +109,17 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
         text: entry.content,
         final: entry.type === 'final_answer' || entry.final === true,
       })
+      lastEntryWasToolCall = false
     } else if (entry.type === 'tool_call' || entry.type === 'tool') {
       const toolCallId = entry.id || entry.tool_call_id || ''
+      if (!lastEntryWasToolCall) batchCounter += 1
       const tool: ToolRun = {
         id: `history-tool-${index}`,
         toolCallId,
         name: entry.tool_name || 'tool',
         args: entry.args ? JSON.stringify(entry.args, null, 2) : undefined,
         status: entry.type === 'tool' ? 'complete' : 'running',
+        batchId: batchCounter,
       }
       blocks.push({ type: 'tool', tool })
       allTools.push(tool)
@@ -120,6 +127,7 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
         if (toolCallId) pendingById.set(toolCallId, tool)
         pendingByName.set(entry.tool_name || 'tool', tool)
       }
+      lastEntryWasToolCall = entry.type === 'tool_call'
     } else if (entry.type === 'tool_result') {
       // 优先用 tool_call_id 精确配对;退化兜底用 tool_name
       const resultId = entry.tool_call_id || entry.id || ''
@@ -135,6 +143,7 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
         if (resultId) pendingById.delete(resultId)
         pendingByName.delete(entry.tool_name || 'tool')
       }
+      lastEntryWasToolCall = false
     }
   }
   // 跨 tool 去重:同名 output 文件常出现在多个 tool_result 里(写文件后被后续
@@ -216,6 +225,15 @@ interface AssistantAccumulator {
 /** 从 blocks 中找出所有 tool 块的 tool 对象(用于附件/chart 提取等)。 */
 function allToolsFromBlocks(blocks: ContentBlock[]): ToolRun[] {
   return blocks.filter((b): b is ContentBlock & { type: 'tool' } => b.type === 'tool').map((b) => b.tool)
+}
+
+/** 下一个并行批次号 = 消息内现有最大 batchId + 1（从 1 起）。 */
+function nextBatchId(blocks: ContentBlock[]): number {
+  let max = 0
+  for (const b of blocks) {
+    if (b.type === 'tool' && (b.tool.batchId ?? 0) > max) max = b.tool.batchId ?? 0
+  }
+  return max + 1
 }
 
 function isImageName(name: string): boolean {
@@ -543,6 +561,13 @@ export function useChat(
           } else if (event.type === 'tool_call') {
             const toolCallId = event.id || ''
             const id = `tool-${allToolsFromBlocks(acc.blocks).length + 1}`
+            // 并行批次：连续 tool_call（中间无 result 隔断）= 同一轮并行调用，
+            // 渲染时合并为「执行了 x 个命令」。新批 = 上一个块不是 tool 块。
+            const prevBlock = acc.blocks[acc.blocks.length - 1]
+            const batchId =
+              prevBlock && prevBlock.type === 'tool' && prevBlock.tool.batchId != null
+                ? prevBlock.tool.batchId
+                : nextBatchId(acc.blocks)
             acc.blocks.push({
               type: 'tool',
               tool: {
@@ -552,6 +577,7 @@ export function useChat(
                 args: event.args ? JSON.stringify(event.args, null, 2) : undefined,
                 auto: event.auto,
                 status: 'running',
+                batchId,
               },
             })
             // 本轮 LLM 输出结束（thinking/text final 已在其前到达）：
