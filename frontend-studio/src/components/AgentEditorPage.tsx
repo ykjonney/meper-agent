@@ -40,8 +40,8 @@ const inputCls =
 function SectionMark({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-2.5 mb-3.5">
-      <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
-      <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">{title}</span>
+      <span aria-hidden className="font-serif text-brand text-[17px] leading-none select-none">§</span>
+      <span className="font-serif text-[15px] font-semibold text-ink leading-none">{title}</span>
       {hint && <span className="text-[10px] text-ink-faint">{hint}</span>}
     </div>
   );
@@ -165,12 +165,18 @@ export function AgentEditorPage({
 
   const publishM = useMutation({
     mutationFn: () => agentApi.publish(agentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      toast.success('已发布');
+    },
   });
 
   const archiveM = useMutation({
     mutationFn: () => agentApi.archive(agentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      toast.success('已归档');
+    },
   });
 
   const deleteM = useMutation({
@@ -244,6 +250,24 @@ export function AgentEditorPage({
       return;
     }
     updateM.mutate(fromStudioAgent(form));
+  };
+
+  // 发布/归档前先落库当前表单：状态变更必须作用在用户眼前的版本上——
+  // 否则会出现「发布成功但修改没保存」（发布后不可变，无法补救）。
+  const handleStateAction = async (mutate: () => void) => {
+    if (!form) return;
+    if (!form.systemPrompt?.trim()) {
+      toast.error('「系统提示词」为必填项');
+      return;
+    }
+    try {
+      await agentApi.update(agentId, fromStudioAgent(form));
+    } catch {
+      toast.error('保存修改失败，操作已取消');
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: agentKeys.all });
+    mutate();
   };
 
   if (isLoading || !form) {
@@ -672,7 +696,7 @@ export function AgentEditorPage({
             value={form?.name ?? ''}
             onChange={(e) => form && set({ name: e.target.value })}
             className="bg-transparent border-0 outline-none font-bold text-ink min-w-0 max-w-[280px] px-0"
-            style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 17 }}
+            style={{ fontFamily: 'var(--font-serif)', fontSize: 17 }}
           />
         </div>
         {isPublished && (
@@ -695,7 +719,7 @@ export function AgentEditorPage({
         </button>
         {isPublished ? (
           <button
-            onClick={() => archiveM.mutate()}
+            onClick={() => handleStateAction(() => archiveM.mutate())}
             disabled={archiveM.isPending}
             className="af-btn af-btn-ghost border border-line disabled:opacity-60"
           >
@@ -704,7 +728,7 @@ export function AgentEditorPage({
           </button>
         ) : (
           <button
-            onClick={() => publishM.mutate()}
+            onClick={() => handleStateAction(() => publishM.mutate())}
             disabled={publishM.isPending}
             className="af-btn af-btn-primary disabled:opacity-60"
           >
@@ -945,8 +969,8 @@ export function AgentEditorPage({
           {/* 能力整体：一张方框卡，标题在卡内，内部分组平铺不再分块 */}
           <div className="mb-5">
           <div className="flex items-baseline gap-2 mb-4">
-            <span aria-hidden className="font-serif italic text-brand text-[17px] leading-none select-none">§</span>
-            <span className="font-serif italic text-[15px] font-semibold text-ink leading-none">能力</span>
+            <span aria-hidden className="font-serif text-brand text-[17px] leading-none select-none">§</span>
+            <span className="font-serif text-[15px] font-semibold text-ink leading-none">能力</span>
             <span className="text-[10px] text-ink-faint">搜索技能、MCP、知识库并装配</span>
           </div>
           {/* 内置工具 */}
@@ -1338,7 +1362,7 @@ function RecommendedItemCard({
             ? <ChevronDown className="w-3.5 h-3.5 text-ink-dim shrink-0" />
             : <ChevronRight className="w-3.5 h-3.5 text-ink-dim shrink-0" />}
           <span className="text-[11px] text-ink-dim font-mono shrink-0">#{index + 1}</span>
-          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-ink' : 'text-ink-dim italic'}`}>
+          <span className={`text-xs truncate shrink-0 max-w-[240px] ${item.label ? 'text-ink' : 'text-ink-dim'}`}>
             {item.label || '（未填写）'}
           </span>
           <span className="text-[11px] text-ink-dim truncate">
@@ -1522,7 +1546,7 @@ function toggleSkill(skills: string[], token: string): string[] {
 const ToolGroup: FC<{ title: string; hint?: string; children: ReactNode }> = ({ title, hint, children }) => (
   <div className="p-3 rounded-lg bg-page border border-line">
     <p className="text-[11px] text-ink-dim uppercase tracking-wider font-bold mb-2">{title}</p>
-    {hint ? <p className="text-[11px] text-ink-dim italic">{hint}</p> : <div className="flex flex-wrap gap-1.5">{children}</div>}
+    {hint ? <p className="text-[11px] text-ink-dim">{hint}</p> : <div className="flex flex-wrap gap-1.5">{children}</div>}
   </div>
 );
 const ToolChip: FC<{ label: string; checked: boolean; onToggle: () => void }> = ({ label, checked, onToggle }) => (

@@ -194,6 +194,20 @@ async def _list_capabilities(query: str = "") -> str:
                 f"- {d.get('name','')}（id={d.get('_id','')}）：{_desc(d, 200)}"
                 for d in skill_hits[:40]
             ))
+
+        # 知识库：独立集合（knowledge_bases，非 tools 镜像）——不盘点则 LLM
+        # 无从得知 id，create_agent 的 knowledge_base_ids 只能臆造后静默失败。
+        kb_hits = []
+        async for k in db["knowledge_bases"].find(
+            {"status": {"$ne": "archived"}}, {"name": 1, "description": 1}
+        ).limit(50):
+            if matched(k.get("name"), k.get("description")):
+                kb_hits.append(k)
+        if kb_hits:
+            lines.append("## 知识库（knowledge_base_ids 绑定）\n" + "\n".join(
+                f"- {k.get('name','')}（id={k.get('_id','')}）：{_desc(k, 120)}"
+                for k in kb_hits[:40]
+            ))
     except Exception:
         pass
 
