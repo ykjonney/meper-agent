@@ -332,6 +332,15 @@ export function ChatView({
     isPinnedRef.current = distanceToBottom < PIN_THRESHOLD
   }
 
+  // 用户展开/收起过程卡 = 主动浏览意图 → 脱离贴底，停掉 MutationObserver
+  // 的自动跟随（否则展开挂载 activity-body 会被误当流式增量强滚到底部）。
+  // 之后滚回底部（scroll 事件）会自动恢复 pinned。
+  const handleViewportClick = (event: React.MouseEvent) => {
+    if ((event.target as HTMLElement).closest('.activity-card-head')) {
+      isPinnedRef.current = false
+    }
+  }
+
   // 内容尺寸变化时(流式增量、图片加载完成等),贴底则跟随
   useEffect(() => {
     const el = viewportRef.current
@@ -601,6 +610,7 @@ export function ChatView({
             aria-live="polite"
             ref={viewportRef}
             onScroll={handleViewportScroll}
+            onClick={handleViewportClick}
           >
             {loading ? (
               <div className="message-loading">
