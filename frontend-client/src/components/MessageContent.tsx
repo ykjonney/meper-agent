@@ -3,7 +3,6 @@ import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
-  DatabaseOutlined,
   FileOutlined,
   FileTextOutlined,
   OrderedListOutlined,
@@ -416,14 +415,64 @@ function groupTools(tools: ToolRun[]): ToolGroup[] {
   return groups
 }
 
-/** 工具名展示:知识库类工具用更友好的中文名,其余用原名。 */
-function toolDisplayName(name: string): { text: string; isKnowledge: boolean } {
-  const isKnowledge = name === 'kb_retrieve' || name === 'search_kb'
-  return { text: isKnowledge ? '知识库检索' : name, isKnowledge }
+/** 工具名改写（对齐 studio chat/tool-details.tsx 的 toolSummary）：
+ *  用户读的是「在做什么」（动词 + 关键参数）而非工具名。 */
+function toolSummary(name: string, argsJson?: string): { verb: string; detail: string } {
+  let args: Record<string, unknown> = {}
+  try {
+    args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {}
+  } catch { /* ignore */ }
+  const pick = (...keys: string[]) => {
+    for (const k of keys) if (args[k] != null && String(args[k])) return String(args[k])
+    return ''
+  }
+  if (name === 'bash' || name === 'run_command' || name === 'execute')
+    return { verb: '执行命令', detail: pick('command', 'cmd', 'script').replace(/\s*\n\s*/g, ' ').trim() }
+  if (name === 'read_file' || name === 'read')
+    return { verb: '读取文件', detail: pick('path', 'file_path', 'file_id', 'file') }
+  if (name === 'write_file' || name === 'write' || name === 'create_file')
+    return { verb: '写入文件', detail: pick('path', 'file_path', 'file') }
+  if (name === 'edit_file' || name === 'edit' || name === 'apply_patch')
+    return { verb: '编辑文件', detail: pick('path', 'file_path', 'file') }
+  if (name === 'glob' || name === 'list_files' || name === 'list_dir')
+    return { verb: '查找文件', detail: pick('pattern', 'path', 'dir') }
+  if (name === 'grep' || name === 'search_content')
+    return { verb: '搜索内容', detail: pick('pattern', 'query', 'keyword') }
+  if (name === 'web_search' || name === 'search_web')
+    return { verb: '搜索网页', detail: pick('query', 'keyword', 'q') }
+  if (name === 'fetch_url' || name === 'open_url')
+    return { verb: '访问网页', detail: pick('url', 'link') }
+  if (name === 'render_chart')
+    return { verb: '生成图表', detail: pick('title', 'chart_type') }
+  if (name === 'parse_file')
+    return { verb: '解析文件', detail: pick('path', 'file_id', 'file') }
+  if (name === 'load_skill' || name === 'load_skills')
+    return { verb: '加载技能', detail: pick('skill_name', 'name', 'skill') }
+  if (name === 'delegate_to_subagent')
+    return { verb: '委派子任务', detail: pick('subagent_name', 'task') }
+  if (name === 'propose_plan')
+    return { verb: '提交执行计划', detail: '' }
+  if (name === 'dispatch_workflow')
+    return { verb: '调度工作流', detail: pick('workflow_name', 'workflow_id') }
+  if (name === 'ask_clarification')
+    return { verb: '发起澄清', detail: '' }
+  if (name === 'kb_retrieve' || name === 'search_kb')
+    return { verb: '知识库检索', detail: pick('query', 'keyword') }
+  if (name === 'todo_write')
+    return { verb: '更新任务清单', detail: '' }
+  return { verb: name || '调用工具', detail: '' }
 }
 
-/** 单个工具节点的详情(请求参数 / 执行结果),timeline 中点击节点后行内展开。 */
+/** 改写摘要单行：「动词 · 关键参数」（detail 为空则只返回动词）。 */
+function toolSummaryText(name: string, argsJson?: string): string {
+  const { verb, detail } = toolSummary(name, argsJson)
+  return detail ? `${verb} · ${detail}` : verb
+}
+
+/** 单个工具节点的详情(请求参数 / 执行结果),timeline 中点击节点后行内展开。
+ *  load_skill 不展示内容（技能全文对终端用户无意义）。 */
 function ToolNodeDetails({ tool }: { tool: ToolRun }) {
+  if (tool.name === 'load_skill' || tool.name === 'load_skills') return null
   return (
     <div className="tool-node-details">
       {tool.args ? (
@@ -477,7 +526,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   // 摘要文案
   const summary = isRunning
     ? running.length === 1
-      ? `${completedCount}/${tools.length} 完成 · 正在执行 ${toolDisplayName(running[0].name).text}...`
+      ? `${completedCount}/${tools.length} 完成 · 正在执行 ${toolSummaryText(running[0].name, running[0].args)}...`
       : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具...`
     : `使用了 ${tools.length} 个工具`
 
@@ -499,7 +548,6 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
           children: (
             <ol className="tool-timeline-list">
               {tools.map((tool, index) => {
-                const { text, isKnowledge } = toolDisplayName(tool.name)
                 const isLast = index === tools.length - 1
                 const isOpen = expandedToolId === tool.id
                 return (
@@ -515,8 +563,8 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                     >
                       <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
                       <span className="tool-timeline-node-label">
-                        {isKnowledge ? <DatabaseOutlined /> : <ToolOutlined />}
-                        <span className="tool-timeline-node-name">{text}</span>
+                        <ToolOutlined />
+                        <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
                         {tool.auto ? <Tag className="tool-timeline-node-tag">自动召回</Tag> : null}
                       </span>
                     </button>
@@ -763,8 +811,17 @@ function ToolResult({
   if (tool.name === 'todo_write' && parseTodoArgs(tool.args).length) {
     return <TodoCard tool={tool} />
   }
-  const isKnowledge = tool.name === 'kb_retrieve' || tool.name === 'search_kb'
-  const title = isKnowledge ? '知识库检索' : tool.name
+  // load_skill：只显示「加载技能 · 技能名」一行，内容（技能全文）不展示。
+  if (tool.name === 'load_skill' || tool.name === 'load_skills') {
+    return (
+      <div className={`tool-run tool-run-${tool.status} tool-run-plain`}>
+        <div className="tool-title">
+          {statusIcon(tool)}
+          <span>{toolSummaryText(tool.name, tool.args)}</span>
+        </div>
+      </div>
+    )
+  }
   return (
     <Collapse
       className={`tool-run tool-run-${tool.status}`}
@@ -776,8 +833,8 @@ function ToolResult({
           label: (
             <div className="tool-title">
               {statusIcon(tool)}
-              {isKnowledge ? <DatabaseOutlined /> : <ToolOutlined />}
-              <span>{title}</span>
+              <ToolOutlined />
+              <span>{toolSummaryText(tool.name, tool.args)}</span>
               {tool.auto ? <Tag>自动召回</Tag> : null}
             </div>
           ),

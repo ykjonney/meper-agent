@@ -1174,6 +1174,11 @@ textarea {
   transition: color 0.3s;
 }
 
+/* 无展开内容的工具行（load_skill）：自补 Collapse header 同款行距 */
+.tool-run-plain {
+  padding-block: 6px;
+}
+
 .tool-title > span {
   overflow: hidden;
   text-overflow: ellipsis;
