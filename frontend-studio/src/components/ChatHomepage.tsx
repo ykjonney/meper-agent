@@ -887,12 +887,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // 推断挂起类型强制 plan，刷新/多端下客户端状态失真也不受影响）；
             // 此处 plan_mode 仅为提示。
             plan_mode: planMode || undefined,
+            // 草稿预览与发起轮同源（含草稿的 agent 聊天即测试场）
+            preview_draft: agent.hasDraft || undefined,
           }, controller.signal)
         : await agentApi.stream(agent.id, {
             input: prompt,
             session_id: sessionId,
             thinking_level: thinkingLevel,
             plan_mode: planMode || undefined,
+            // 草稿预览：agent 有未发布修改时测的是草稿行为（publish 前线上版不受影响）
+            preview_draft: agent.hasDraft || undefined,
             // file_ids: persists the reference on the user message (history).
             // file_paths: backend embeds file contents into the LLM user message
             // (agents.py:589-610) — without this the agent never sees the content.

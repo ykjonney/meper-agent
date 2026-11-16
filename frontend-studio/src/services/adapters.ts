@@ -94,6 +94,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
     maxRetry: a.max_retry ?? 3,
     maxTokens: a.max_tokens ?? 0,
     version: a.version ?? 1,
+    hasDraft: a.draft != null,
   }
 }
 

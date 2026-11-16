@@ -34,6 +34,11 @@ class ExecutionRequest(BaseModel):
         description="思考强度档位（优先于 enable_thinking）：off 直答；low/medium/high "
         "按厂商映射（o-series reasoning_effort / Anthropic budget_tokens / Qwen·GLM 开关）。",
     )
+    preview_draft: bool = Field(
+        default=False,
+        description="草稿预览：agent 存在未发布草稿层时以草稿内容执行"
+        "（聊天即测试场——测的是改动后的行为，publish 前线上版不受影响）。",
+    )
 
     @property
     def resolved_thinking_level(self) -> str:
@@ -91,6 +96,11 @@ class ResumeRequest(BaseModel):
     thinking_level: ThinkingLevel | None = Field(
         default=None,
         description="思考强度档位（优先于 enable_thinking）。",
+    )
+    preview_draft: bool = Field(
+        default=False,
+        description="草稿预览（同 ExecutionRequest）：恢复轮与发起轮同源，"
+        "草稿预览会话的中断恢复也以草稿内容执行，避免行为突变。",
     )
 
     @property

@@ -30,6 +30,8 @@ export interface Agent {
   maxTokens?: number;
   /** 线上配置版本号（草稿制：published 编辑写草稿层，publish 合并时 +1） */
   version?: number;
+  /** 存在未发布草稿（published agent；聊天以此判断是否进入草稿预览） */
+  hasDraft?: boolean;
 }
 
 export interface Skill {

@@ -133,6 +133,8 @@ export interface ExecutionRequest {
   thinking_level?: ThinkingLevel
   /** 计划模式：只调研不执行（剥离副作用工具），propose_plan 提交计划审批 */
   plan_mode?: boolean
+  /** 草稿预览：agent 有未发布草稿时以草稿内容执行（聊天测试场） */
+  preview_draft?: boolean
   file_paths?: string[]
   file_ids?: string[]
 }
@@ -485,6 +487,8 @@ export const agentApi = {
       thinking_level?: ThinkingLevel
       /** 恢复语义：true=继续计划模式（反馈保持只读）；批准用默认 false 解除只读 */
       plan_mode?: boolean
+      /** 草稿预览（同 ExecutionRequest）：恢复轮与发起轮同源 */
+      preview_draft?: boolean
     },
     signal?: AbortSignal,
   ): Promise<Response> {

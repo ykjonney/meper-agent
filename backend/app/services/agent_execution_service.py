@@ -82,6 +82,7 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
+        exec_doc = _apply_draft_preview(exec_doc, body)
 
         # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）；否则用调用方
         # 声明的上下文（默认 chat）。
@@ -94,21 +95,23 @@ class AgentExecutionService:
         # chat 侧委派池（M2）：agent.subagent_ids 声明，published-only。
         subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
 
+        # session 文档提前取：total_tokens 预算 + local_dir（本地接入）
+        # 驱动环境段与 sandbox 选择（原先在 prompt 之后取，环境段需要它前移）
+        session_doc = await SessionService.get_session(session_id)
+        session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
+        local_dir = str((session_doc or {}).get("local_dir") or "")
+
         # Build messages (system prompt + user input with file attachments)
         system_text = await _build_system_prompt_checked(
             exec_doc, user_id, execution_context=exec_ctx,
             subagents=subagent_decls or None,
+            environment=_build_environment_section(user_id, session_id, local_dir),
         )
         user_content = await _build_user_content(body, user_id, session_id)
         initial_messages = _assemble_messages(system_text, user_content)
 
         # Legacy migration records
         legacy_records = await _load_legacy_records(session_id, body.input)
-
-        # Carry over the session's cumulative token spend so TokenBudgetGuard
-        # enforces the per-session budget across requests, not per-request.
-        session_doc = await SessionService.get_session(session_id)
-        session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
 
         initial_state = _build_initial_state(
             agent_id, session_id, user_id, request_id, call_chain,
@@ -130,6 +133,7 @@ class AgentExecutionService:
                 execution_context=exec_ctx,
                 subagents=subagent_bundles or None,
                 cancel_checker=cancel_checker,
+                local_dir=local_dir,
             )
         except Exception as exc:
             run_error = exc
@@ -215,6 +219,7 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
+        exec_doc = _apply_draft_preview(exec_doc, body)
 
         session_id = await _resolve_session(agent_id, body, user_id)
         request_id = str(uuid.uuid4())
@@ -224,9 +229,17 @@ class AgentExecutionService:
         exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
         # chat 侧委派池（M2）：同 invoke 路径。
         subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
+
+        # session 文档提前取：total_tokens 预算 + local_dir（本地接入）驱动
+        # 环境段与 sandbox 选择（_run 内原先重复取，统一收敛到此处）
+        session_doc = await SessionService.get_session(session_id)
+        session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
+        local_dir = str((session_doc or {}).get("local_dir") or "")
+
         system_text = await _build_system_prompt_checked(
             exec_doc, user_id, execution_context=exec_ctx,
             subagents=subagent_decls or None,
+            environment=_build_environment_section(user_id, session_id, local_dir),
         )
 
         event_queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -252,10 +265,7 @@ class AgentExecutionService:
             initial_messages = _assemble_messages(system_text, user_content)
             legacy_records = await _load_legacy_records(session_id, body.input)
 
-            # Carry over the session's cumulative token spend so the budget
-            # guard enforces the per-session ceiling across requests.
-            session_doc = await SessionService.get_session(session_id)
-            session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
+            # session_total_tokens/local_dir 已在 stream 顶部预取（环境段需要）
 
             initial_state = _build_initial_state(
                 agent_id, session_id, user_id, request_id, call_chain,
@@ -277,6 +287,7 @@ class AgentExecutionService:
                     recorder_sink=recorder_sink,
                     execution_context=exec_ctx,
                     subagents=subagent_bundles or None,
+                    local_dir=local_dir,
                 )
                 logger.info(
                     "agent_stream_completed",
@@ -393,6 +404,7 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
+        exec_doc = _apply_draft_preview(exec_doc, body)
 
         request_id = str(uuid.uuid4())
         session_id = body.session_id
@@ -813,9 +825,62 @@ async def _load_chat_subagents(exec_doc: dict) -> tuple[list[dict], list[dict]]:
         exclude_agent_id=str(exec_doc.get("_id", "")),
     )
 
+
+def _apply_draft_preview(exec_doc: dict, body) -> dict:
+    """草稿预览：preview_draft 且存在草稿层时，以草稿内容执行。
+
+    聊天即测试场——前端对含草稿的 agent 传 preview_draft=True，用户在
+    聊天页验证的是改动后的行为；publish 合并前线上版不受影响。
+    draft 不含 _id/status/version（_DRAFT_EXCLUDE_KEYS），合并保留身份字段。
+    """
+    if getattr(body, "preview_draft", False) and exec_doc.get("draft"):
+        return {**exec_doc, **exec_doc["draft"]}
+    return exec_doc
+
+
+def _build_environment_section(
+    user_id: str, session_id: str, local_dir: str = "",
+) -> str | None:
+    """Environment 段文本（workspace 布局，WorkspaceLayout.describe() 生成）。
+
+    workspace 语义统一住 prompt（工具描述只讲语法——见 docs/workspace.md）。
+    构建失败不阻断主流程：无环境卡时模型靠工具语法自解释 + 错误反馈兜底。
+    """
+    if not user_id or not session_id:
+        return None
+    try:
+        from app.engine.tool.workspace import (
+            WorkspaceManager,
+            layout_for_workspace,
+        )
+
+        ws = (
+            WorkspaceManager.get_local_workspace(local_dir)
+            if local_dir
+            else WorkspaceManager.get_workspace(user_id, session_id)
+        )
+        env_text = layout_for_workspace(ws).describe()
+        # turn 边界注入：后台任务状态（进行中/已完成未读）——模型回复前
+        # 自然看到（docs/background-tasks.md §4）
+        from app.engine.tool.workspace import collect_background_task_notices
+
+        notices = collect_background_task_notices(ws)
+        if notices:
+            env_text = f"{env_text}\n\n{notices}"
+        return env_text
+    except Exception:
+        logger.warning(
+            "environment_section_build_failed",
+            session_id=session_id,
+            local_dir=local_dir,
+        )
+        return None
+
+
 async def _build_system_prompt_checked(
     exec_doc: dict, user_id: str = "", *, execution_context: str = "chat",
     subagents: list[dict] | None = None,
+    environment: str | None = None,
 ) -> str:
     """Build system prompt, raising ValidationError on slot issues.
 
@@ -830,6 +895,8 @@ async def _build_system_prompt_checked(
 
     execution_context 透传给工具声明/计划纪律段（plan 语义时声明与
     运行时工具集保持一致——剥离副作用工具 + 注入 propose_plan）。
+    environment: 环境段（## Environment，describe() 生成），置于工具
+    声明之前。
     """
     personal_skills: list[dict] = []
     if user_id and exec_doc.get("user_skills_enabled", True):
@@ -851,6 +918,7 @@ async def _build_system_prompt_checked(
             exclude_skill_names=shadow_names,
             execution_context=execution_context,
             subagents=subagents,
+            environment=environment,
         )
     except ValueError as exc:
         raise ValidationError(code="AGENT_SYSTEM_PROMPT_MISSING", message=str(exc)) from exc
