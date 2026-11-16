@@ -171,7 +171,6 @@ textarea {
   background: var(--client-accent);
   color: #fff;
   font-family: var(--font-serif-brand);
-  font-style: italic;
   font-weight: 700;
   font-size: 14px;
 }
@@ -598,7 +597,6 @@ textarea {
 
 .wordmark {
   font-family: var(--font-serif-brand);
-  font-style: italic;
   font-weight: 700;
   font-size: 15px;
   color: var(--client-text);
@@ -1115,7 +1113,6 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--client-text-muted);
-  font-style: italic;
 }
 
 /* 流式期间末尾打字光标（参考 studio caret-blink） */
@@ -1191,20 +1188,119 @@ textarea {
   white-space: nowrap;
 }
 
-/* 消息级状态行（v6.3，主人演示定稿）：「✓ 已完成 · 用时」独立一行在消息顶部 */
-.msg-status-line {
+/* ── 过程外壳（v7.1）：「✓ 已完成 · 执行了 N 个工具 · 用时」最外部唯一一行 ── */
+.activity-card {
+  border: 1px solid var(--client-border);
+  border-radius: 12px;
+  background: var(--client-surface);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.activity-card-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 0 6px;
-  color: var(--client-text-muted);
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.activity-card-head:active {
+  background: var(--client-surface-muted);
+}
+.activity-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+  background: var(--client-surface-muted);
+  color: var(--client-text-faint);
+}
+.activity-dot .anticon {
+  font-size: 8px;
+}
+.activity-title {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--client-text);
+}
+.activity-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+.activity-meta .meta-seg {
+  color: var(--client-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.activity-meta .meta-dur {
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.activity-meta .meta-seg {
+  color: var(--client-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.activity-meta .meta-dur {
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.activity-body {
+  padding: 4px 12px 10px;
+  border-top: 1px solid var(--client-border);
+}
+.activity-dot.is-running {
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
 }
 
-.msg-status-line .anticon {
-  color: var(--client-text-faint);
-  font-size: 11px;
+/* 执行段合并行（v7.1）：连续 thinking+tool = 一行「执行了 x 个工具」（含思考），
+   点击展开段内思考折叠行 + 每工具明细 */
+.process-group {
+  border: 1px solid var(--client-border);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
 }
+.process-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11.5px;
+  color: var(--client-text);
+}
+.process-group-head:active {
+  background: var(--client-surface-muted);
+}
+.process-group-title {
+  font-weight: 600;
+}
+.process-group-dur {
+  margin-left: auto;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.process-group-body {
+  padding: 4px 0;
+  border-top: 1px solid var(--client-border);
+}
+
 
 .tool-title > span {
   overflow: hidden;
@@ -1314,6 +1410,38 @@ textarea {
 
 .tool-timeline-node-row:hover {
   background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
+}
+
+/* ── 工具直接行（v7.1 终稿）：内部工具逐行直接显示命令，批合并行可展开 ── */
+.tool-line-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--client-text);
+  text-align: left;
+  font-size: 11.5px;
+  border-radius: 4px;
+}
+
+.tool-line-row:hover {
+  background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
+}
+
+.tool-line-batch-label {
+  font-weight: 600;
+}
+
+.tool-line-details {
+  padding: 2px 0 6px 22px;
+}
+
+.tool-line-sub {
+  border-bottom: 1px solid var(--client-border);
 }
 
 /* 并行批合并行（v6）：整体一行「执行了 x 个命令」——不可展开，词重一点 */

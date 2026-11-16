@@ -84,6 +84,43 @@ function toRenderSegments(blocks: ContentBlock[]): RenderSegment[] {
   return segments
 }
 
+/** ── v7.1 过程段聚合（主人定稿）：
+ *  连续的 thinking/tool 块（无 text 隔断）= 一个执行段，合并为
+ *  「执行了 x 个工具」一行（含思考——展开看段内思考折叠行 + 每工具明细）。
+ *  例外：段内只有 thinking 无 tool → 不出合并行，只显示思考行本身。 */
+type FlatSegment =
+  | { kind: 'text'; text: string }
+  | {
+      kind: 'process'
+      items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>
+    }
+
+function toFlatSegments(blocks: ContentBlock[]): FlatSegment[] {
+  const segs: FlatSegment[] = []
+  let buf: Extract<FlatSegment, { kind: 'process' }> | null = null
+  const flush = () => {
+    if (buf) {
+      segs.push(buf)
+      buf = null
+    }
+  }
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      flush()
+      segs.push({ kind: 'text', text: block.text })
+      continue
+    }
+    const item =
+      block.type === 'reasoning'
+        ? ({ type: 'thinking', text: block.text } as const)
+        : ({ type: 'tool', tool: block.tool } as const)
+    if (!buf) buf = { kind: 'process', items: [item] }
+    else buf.items.push(item)
+  }
+  flush()
+  return segs
+}
+
 /** 共享的 react-markdown components 配置(无光标)。 */
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ href, children: label }) => (
@@ -988,6 +1025,153 @@ interface MessageContentProps {
 }
 
 
+/** 单工具直接行（v7.1 终稿）：命令直接显示，点击展开请求参数/结果明细。 */
+function ToolLine({ tool, onOpenTaskBoard }: {
+  tool: ToolRun
+  onOpenTaskBoard?: (taskId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="tool-line">
+      <button
+        type="button"
+        className="tool-line-row"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+        <span className="tool-timeline-node-label">
+          <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
+          {tool.durationMs ? (
+            <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+          ) : null}
+        </span>
+      </button>
+      {open ? (
+        <div className="tool-line-details">
+          <ToolNodeDetails tool={tool} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 并行批合并行（例外规则）：一轮调用了多个工具 → 整体一行「执行了 x 命令/工具」，
+ *  点击展开批内每工具明细。 */
+function BatchRow({ tools }: { tools: ToolRun[] }) {
+  const [open, setOpen] = useState(false)
+  const allBash = tools.every((t) => ['bash', 'run_command', 'execute'].includes(t.name))
+  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+  return (
+    <div className="tool-line">
+      <button
+        type="button"
+        className="tool-line-row"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="tool-timeline-node-icon">{statusIcon(tools[0])}</span>
+        <span className="tool-timeline-node-label">
+          <span className="tool-line-batch-label">
+            执行了 {tools.length} {allBash ? '命令' : '工具'}
+          </span>
+          {durSum > 0 ? (
+            <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
+          ) : null}
+        </span>
+      </button>
+      {open ? (
+        <div className="tool-line-details">
+          {tools.map((tool) => (
+            <div key={tool.id} className="tool-line-sub">
+              <div className="tool-line-row" style={{ cursor: 'default' }}>
+                <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+                <span className="tool-timeline-node-label">
+                  <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
+                  {tool.durationMs ? (
+                    <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+                  ) : null}
+                </span>
+              </div>
+              <ToolNodeDetails tool={tool} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 过程段内容渲染（v7.1 终稿）：思考行与工具行按原始顺序交错；
+ *  一轮并行多工具（同 batchId）合并为一行「执行了 x 命令/工具」。 */
+function renderProcessItems(
+  items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>,
+  onOpenTaskBoard?: (taskId: string) => void,
+): ReactNode[] {
+  const rows: ReactNode[] = []
+  const done = new Set<string>()
+  items.forEach((item, i) => {
+    if (item.type === 'thinking') {
+      rows.push(<ReasoningPanel key={`p-think:${i}`} text={item.text} streaming={false} />)
+      return
+    }
+    if (done.has(item.tool.id)) return
+    const batch =
+      item.tool.batchId != null
+        ? items
+            .filter(
+              (x): x is Extract<typeof items[number], { type: 'tool' }> =>
+                x.type === 'tool' && x.tool.batchId === item.tool.batchId,
+            )
+            .map((x) => x.tool)
+        : []
+    if (batch.length >= 2) {
+      batch.forEach((t) => done.add(t.id))
+      rows.push(
+        <BatchRow
+          key={`p-batch:${batch[0].id}`}
+          tools={batch}
+        />,
+      )
+    } else {
+      done.add(item.tool.id)
+      rows.push(<ToolLine key={`p-tool:${item.tool.id}`} tool={item.tool} onOpenTaskBoard={onOpenTaskBoard} />)
+    }
+  })
+  return rows
+}
+
+/** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
+ *  点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。 */
+function ActivityCard({ toolCount, durationLabel, children }: {
+  toolCount: number
+  durationLabel?: string
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="activity-card">
+      <div
+        className="activity-card-head"
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="activity-dot is-done">
+          <CheckOutlined />
+        </span>
+        <span className="activity-title">已完成</span>
+        {/* 外壳承载「执行了 N 个工具」——内部因此直接显示命令，不再重复统计 */}
+        <span className="activity-meta">
+          {toolCount > 0 ? <span className="meta-seg">执行了 {toolCount} 个工具</span> : null}
+          {durationLabel ? <span className="meta-dur">{durationLabel}</span> : null}
+        </span>
+      </div>
+      {open ? <div className="activity-body">{children}</div> : null}
+    </div>
+  )
+}
+
 export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenerate }: MessageContentProps) {
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
@@ -1058,19 +1242,36 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {/* 消息级状态行（v6.3，主人演示定稿）：「✓ 已完成 · 用时」独立一行在顶部，
-          与工具组折叠条分离——不再包卡。执行中不渲染（工具组摘要自表达进行中）。 */}
-      {message.status !== 'loading' && durationLabel ? (
-        <div className="msg-status-line">
-          <CheckOutlined />
-          <span>已完成 · {durationLabel}</span>
-        </div>
+      {/* v7.1 外壳（主人定稿）：「✓ 已完成 · 用时」最外部唯一一行（不显示工具数），
+          点击展开内部过程——执行段合并行「执行了 x 个工具」（含思考）/ 中间叙述文本平铺。
+          流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达当前阶段）。 */}
+      {activityBlocks.length > 0 ? (
+        <ActivityCard toolCount={activityToolCount} durationLabel={durationLabel}>
+          {toFlatSegments(activityBlocks).map((seg, index) => {
+            if (seg.kind === 'text') {
+              return <Markdown key={`flat:${index}`}>{seg.text}</Markdown>
+            }
+            // 纯思考段（无工具）：不出合并行，只显示思考行（「只有一个思考」例外）
+            const hasTool = seg.items.some((i) => i.type === 'tool')
+            if (!hasTool) {
+              return (
+                <div key={`flat:${index}`}>
+                  {seg.items.map((item, i) =>
+                    item.type === 'thinking' ? (
+                      <ReasoningPanel key={`flat-think:${index}:${i}`} text={item.text} streaming={false} />
+                    ) : null,
+                  )}
+                </div>
+              )
+            }
+            return (
+              <div key={`flat:${index}`}>
+                {renderProcessItems(seg.items, onOpenTaskBoard)}
+              </div>
+            )
+          })}
+        </ActivityCard>
       ) : null}
-      {/* 过程段平铺（主人演示定稿）：思考折叠行 / 工具组折叠条 / 中间叙述文本
-          按原始顺序散布在流里，工具组折叠条点开即执行细节 */}
-      {activityBlocks.length > 0
-        ? toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))
-        : null}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
         <div
