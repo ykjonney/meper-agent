@@ -646,7 +646,7 @@ function WorkflowConfirmAnsweredCard({ tool }: { tool: ToolRun }) {
         <span className="interactive-card-label">工作流确认</span>
         {answered ? (
           <Tag color={isConfirmed ? 'success' : 'default'} style={{ margin: 0 }}>
-            {isConfirmed ? '✓ 已确认' : '✗ 已取消'}
+            {isConfirmed ? '已确认' : '已取消'}
           </Tag>
         ) : (
           <Tag style={{ margin: 0 }}>等待确认</Tag>
@@ -880,6 +880,9 @@ function ActivityCard({ streaming, toolCount, durationLabel, children }: {
           {streaming ? '执行中' : '已完成'}
           {durationLabel ? ` · 用时 ${durationLabel}` : ''}
         </span>
+        {toolCount > 0 ? (
+          <span className="activity-meta">{toolCount} 次工具调用</span>
+        ) : null}
       </div>
       {open ? <div className="activity-body">{children}</div> : null}
     </div>

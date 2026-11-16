@@ -5,11 +5,9 @@ import {
   FileOutlined,
   MenuOutlined,
   PaperClipOutlined,
-  QuestionCircleOutlined,
   PlusOutlined,
   LikeOutlined,
   LikeFilled,
-  SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { Sender } from '@ant-design/x'
 import {
@@ -715,251 +713,279 @@ export function ChatView({
           <footer className="composer-dock">
             {hitl ? (
               hitl.kind === 'app_authorization' ? (
-                <Alert
-                  className="hitl-card"
-                  type="warning"
-                  showIcon
-                  icon={<SafetyCertificateOutlined />}
-                  message="需要应用授权"
-                  description={
-                    <div className="clarification-content">
-                      <Typography.Text>
-                        {hitl.errorKind === 'INVALID'
-                          ? `「${hitl.appName || hitl.appId}」的授权凭证已失效（可能修改过密码或用户名），请输入最新凭证后继续。`
-                          : `任务需要访问「${hitl.appName || hitl.appId}」，请完成授权后继续。`}
-                        {hitl.reason ? `（${hitl.reason}）` : ''}
-                      </Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        凭证仅用于本次授权，不会出现在对话中。
-                      </Typography.Text>
-                      {authError ? (
-                        <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                          {authError}
-                        </Typography.Text>
-                      ) : null}
-                      <div className="clarification-options">
-                        <Input
-                          value={authUsername}
-                          onChange={(event) => setAuthUsername(event.target.value)}
-                          placeholder={`「${hitl.appName || hitl.appId || '该应用'}」账号`}
-                          autoComplete="off"
-                          disabled={authSubmitting || running}
-                        />
-                        <Input.Password
-                          value={authPassword}
-                          onChange={(event) => setAuthPassword(event.target.value)}
-                          placeholder={`「${hitl.appName || hitl.appId || '该应用'}」密码`}
-                          autoComplete="new-password"
-                          disabled={authSubmitting || running}
-                          onPressEnter={() => {
-                            if (!authUsername.trim() || !authPassword) return
-                            setAuthSubmitting(true)
-                            void answerAppAuthorization(authUsername.trim(), authPassword)
-                              .then((error) => {
-                                setAuthError(error ?? '')
-                                if (!error) {
-                                  setAuthUsername('')
-                                  setAuthPassword('')
-                                }
-                              })
-                              .finally(() => setAuthSubmitting(false))
-                          }}
-                        />
-                        <Button
-                          type="primary"
-                          loading={authSubmitting}
-                          disabled={!authUsername.trim() || !authPassword || running}
-                          onClick={() => {
-                            setAuthSubmitting(true)
-                            void answerAppAuthorization(authUsername.trim(), authPassword)
-                              .then((error) => {
-                                setAuthError(error ?? '')
-                                if (!error) {
-                                  setAuthUsername('')
-                                  setAuthPassword('')
-                                }
-                              })
-                              .finally(() => setAuthSubmitting(false))
-                          }}
-                        >
-                          完成授权
-                        </Button>
-                        <Button
-                          type="text"
-                          disabled={authSubmitting || running}
-                          onClick={() => void declineAppAuthorization()}
-                        >
-                          暂不授权
-                        </Button>
-                      </div>
+                <div className="hitl-paper">
+                  <div className="hitl-paper-line" />
+                  <div className="hitl-paper-body">
+                    <div className="hitl-paper-badge-row">
+                      <span className="hitl-paper-badge">APP AUTHORIZATION</span>
                     </div>
-                  }
-                />
-              ) : hitl.kind === 'workflow_confirmation' ? (
-                <Alert
-                  className="hitl-card"
-                  type="warning"
-                  showIcon
-                  icon={<QuestionCircleOutlined />}
-                  message="工作流确认"
-                  description={
-                    <div className="clarification-content">
-                      <div className="workflow-confirmation-row">
-                        <Typography.Text type="secondary">工作流：</Typography.Text>
-                        <Typography.Text strong>
-                          {hitl.workflowName || '（未命名）'}
-                        </Typography.Text>
-                      </div>
-                      {hitl.workflowDescription ? (
-                        <Typography.Text type="secondary">
-                          {hitl.workflowDescription}
-                        </Typography.Text>
-                      ) : null}
-                      {hitl.inputPreview &&
-                      Object.keys(hitl.inputPreview).length > 0 ? (
-                        <div className="workflow-confirmation-params">
-                          <Typography.Text type="secondary">输入参数：</Typography.Text>
-                          <div className="workflow-confirmation-params-list">
-                            {Object.entries(hitl.inputPreview).map(([key, value]) => (
-                              <div key={key} className="workflow-confirmation-param">
-                                <span className="workflow-confirmation-param-key">
-                                  {key}
-                                </span>
-                                <span className="workflow-confirmation-param-value">
-                                  {typeof value === 'string'
-                                    ? value
-                                    : JSON.stringify(value)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="clarification-options">
-                        <Button
-                          danger
-                          type="primary"
-                          loading={running}
-                          onClick={() => submitClarification('拒绝')}
-                        >
-                          拒绝
-                        </Button>
-                        <Button
-                          type="primary"
-                          loading={running}
-                          onClick={() =>
-                            submitClarification(
-                              `确认执行 ${hitl.workflowName ?? ''}`.trim(),
-                            )
+                    <div className="hitl-paper-q">
+                      {hitl.errorKind === 'INVALID'
+                        ? `「${hitl.appName || hitl.appId}」的授权凭证已失效`
+                        : `需要访问「${hitl.appName || hitl.appId}」`}
+                    </div>
+                    <div className="hitl-paper-ctx">
+                      {hitl.errorKind === 'INVALID'
+                        ? '可能修改过密码或用户名，请输入最新凭证后继续。'
+                        : '任务需要访问该应用，请完成授权后继续。'}
+                      {hitl.reason ? `（${hitl.reason}）` : ''}
+                      凭证仅用于本次授权，不会出现在对话中。
+                    </div>
+                    {authError ? <div className="hitl-paper-error">{authError}</div> : null}
+                    <div className="hitl-paper-field">
+                      <label>账号</label>
+                      <input
+                        value={authUsername}
+                        onChange={(event) => setAuthUsername(event.target.value)}
+                        placeholder={`「${hitl.appName || hitl.appId || '该应用'}」账号`}
+                        autoComplete="off"
+                        disabled={authSubmitting || running}
+                      />
+                    </div>
+                    <div className="hitl-paper-field">
+                      <label>密码</label>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) => setAuthPassword(event.target.value)}
+                        placeholder={`「${hitl.appName || hitl.appId || '该应用'}」密码`}
+                        autoComplete="new-password"
+                        disabled={authSubmitting || running}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === 'Enter' &&
+                            authUsername.trim() &&
+                            authPassword &&
+                            !authSubmitting &&
+                            !running
+                          ) {
+                            setAuthSubmitting(true)
+                            void answerAppAuthorization(authUsername.trim(), authPassword)
+                              .then((error) => {
+                                setAuthError(error ?? '')
+                                if (!error) {
+                                  setAuthUsername('')
+                                  setAuthPassword('')
+                                }
+                              })
+                              .finally(() => setAuthSubmitting(false))
                           }
-                        >
-                          确认执行
-                        </Button>
-                        <Button type="text" disabled={running} onClick={() => void dismissClarification()}>
-                          忽略
-                        </Button>
-                      </div>
+                        }}
+                      />
                     </div>
-                  }
-                />
-              ) : (
-                <Alert
-                  className="hitl-card"
-                  type="warning"
-                  showIcon
-                  icon={<QuestionCircleOutlined />}
-                  message={
-                    hitl.clarificationType === 'risk_confirmation'
-                      ? '操作确认'
-                      : 'Agent 需要补充信息'
-                  }
-                  description={
-                    <div className="clarification-content">
-                      <Typography.Text>{hitl.question}</Typography.Text>
-                      {hitl.context ? (
-                        <Typography.Text type="secondary">{hitl.context}</Typography.Text>
-                      ) : null}
-                      {hitl.fields && hitl.fields.length > 0 ? (
-                        <>
-                          <ClarificationFormCard
-                            question=""
-                            context={hitl.context}
-                            fields={hitl.fields}
-                            answered={false}
-                            result={undefined}
-                            onSubmit={(jsonStr) => submitClarification(jsonStr)}
-                          />
-                          <div className="clarification-options">
-                            <Button
-                              type="text"
-                              disabled={running}
-                              onClick={() => void dismissClarification()}
-                            >
-                              忽略此问题，直接重新输入
-                            </Button>
+                    <div className="hitl-paper-actions">
+                      <button
+                        type="button"
+                        className="hitl-paper-opt primary"
+                        style={{ justifyContent: 'center' }}
+                        disabled={!authUsername.trim() || !authPassword || authSubmitting || running}
+                        onClick={() => {
+                          setAuthSubmitting(true)
+                          void answerAppAuthorization(authUsername.trim(), authPassword)
+                            .then((error) => {
+                              setAuthError(error ?? '')
+                              if (!error) {
+                                setAuthUsername('')
+                                setAuthPassword('')
+                              }
+                            })
+                            .finally(() => setAuthSubmitting(false))
+                        }}
+                      >
+                        <span>{authSubmitting ? '授权中…' : <><span className="hitl-paper-stamp">盖章</span>完成授权</>}</span>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="hitl-paper-skip"
+                      disabled={authSubmitting || running}
+                      onClick={() => void declineAppAuthorization()}
+                    >
+                      暂不授权
+                    </button>
+                  </div>
+                </div>
+              ) : hitl.kind === 'workflow_confirmation' ? (
+                <div className="hitl-paper">
+                  <div className="hitl-paper-line" />
+                  <div className="hitl-paper-body">
+                    <div className="hitl-paper-badge-row">
+                      <span className="hitl-paper-badge">WORKFLOW CONFIRMATION</span>
+                    </div>
+                    <div className="hitl-paper-q">
+                      确认执行工作流「{hitl.workflowName || '（未命名）'}」？
+                    </div>
+                    {hitl.workflowDescription ? (
+                      <div className="hitl-paper-ctx">{hitl.workflowDescription}</div>
+                    ) : null}
+                    {hitl.inputPreview && Object.keys(hitl.inputPreview).length > 0 ? (
+                      <div className="hitl-paper-params">
+                        {Object.entries(hitl.inputPreview).map(([key, value]) => (
+                          <div key={key} className="hitl-paper-param">
+                            <span className="hitl-paper-param-key">{key}</span>
+                            <span className="hitl-paper-param-value">
+                              {typeof value === 'string' ? value : JSON.stringify(value)}
+                            </span>
                           </div>
-                        </>
-                      ) : (
-                      <>
-                      {hitl.options.length > 0 ? (
-                        <div className="clarification-options">
-                          {hitl.options.map((option) => (
-                            <Button
-                              key={option}
-                              onClick={() => submitClarification(option)}
-                            >
-                              {option}
-                            </Button>
-                          ))}
-                        </div>
-                      ) : null}
-                      {hitl.clarificationType === 'risk_confirmation' ? (
-                        <div className="clarification-options">
-                          <Button onClick={() => submitClarification('取消')}>取消</Button>
-                          <Button
-                            danger
-                            type="primary"
-                            onClick={() => submitClarification('确认')}
-                          >
-                            确认执行
-                          </Button>
-                        </div>
-                      ) : null}
-                      <div className="clarification-input">
-                        <Input
-                          value={clarificationAnswer}
-                          onChange={(event) => setClarificationAnswer(event.target.value)}
-                          onPressEnter={() => submitClarification(clarificationAnswer)}
-                          placeholder="输入你的回答"
-                          disabled={running}
-                        />
-                        <Button
-                          type="primary"
-                          disabled={!clarificationAnswer.trim() || running}
-                          onClick={() => submitClarification(clarificationAnswer)}
-                        >
-                          发送
-                        </Button>
+                        ))}
                       </div>
-                      {/* 跳过入口：可选问题允许不回答直接继续（下一条消息走普通
-                          stream）。文案与 studio 端 ClarificationCard 保持一致。 */}
-                      <div className="clarification-options">
-                        <Button
-                          type="text"
+                    ) : null}
+                    <div className="hitl-paper-opts">
+                      <button
+                        type="button"
+                        className="hitl-paper-opt primary"
+                        disabled={running}
+                        onClick={() =>
+                          submitClarification(`确认执行 ${hitl.workflowName ?? ''}`.trim())
+                        }
+                      >
+                        <span><span className="hitl-paper-stamp">盖章</span>确认执行</span>
+                        <span className="go">→</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="hitl-paper-opt danger-opt"
+                        disabled={running}
+                        onClick={() => submitClarification('拒绝')}
+                      >
+                        <span>拒绝执行</span>
+                        <span className="go">→</span>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="hitl-paper-skip"
+                      disabled={running}
+                      onClick={() => void dismissClarification()}
+                    >
+                      忽略
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="hitl-paper">
+                  <div className="hitl-paper-line" />
+                  <div className="hitl-paper-body">
+                    <div className="hitl-paper-badge-row">
+                      <span className="hitl-paper-badge">
+                        {hitl.clarificationType === 'risk_confirmation'
+                          ? 'NEED CONFIRMATION'
+                          : 'NEED MORE INFO'}
+                      </span>
+                    </div>
+                    <div className="hitl-paper-q">{hitl.question}</div>
+                    {hitl.context ? (
+                      <div className="hitl-paper-ctx">{hitl.context}</div>
+                    ) : null}
+                    {hitl.fields && hitl.fields.length > 0 ? (
+                      <>
+                        <ClarificationFormCard
+                          question=""
+                          context={hitl.context}
+                          fields={hitl.fields}
+                          answered={false}
+                          result={undefined}
+                          onSubmit={(jsonStr) => submitClarification(jsonStr)}
+                        />
+                        <button
+                          type="button"
+                          className="hitl-paper-skip"
                           disabled={running}
                           onClick={() => void dismissClarification()}
                         >
-                          跳过此问题，直接继续 →
-                        </Button>
-                      </div>
+                          忽略此问题，直接重新输入
+                        </button>
                       </>
-                      )}
-                    </div>
-                  }
-                />
+                    ) : (
+                      <>
+                        {hitl.options.length > 0 ? (
+                          <div className="hitl-paper-opts">
+                            {hitl.options.map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                className="hitl-paper-opt"
+                                disabled={running}
+                                onClick={() => submitClarification(option)}
+                              >
+                                <span>{option}</span>
+                                <span className="go">→</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {hitl.clarificationType === 'risk_confirmation' ? (
+                          <div className="hitl-paper-opts">
+                            <button
+                              type="button"
+                              className="hitl-paper-opt"
+                              disabled={running}
+                              onClick={() => submitClarification('取消')}
+                            >
+                              <span>取消，暂不执行</span>
+                              <span className="go">→</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="hitl-paper-opt primary"
+                              disabled={running}
+                              onClick={() => submitClarification('确认')}
+                            >
+                              <span><span className="hitl-paper-stamp">盖章</span>确认执行</span>
+                              <span className="go">→</span>
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="hitl-paper-free">
+                          <input
+                            value={clarificationAnswer}
+                            onChange={(event) => setClarificationAnswer(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === 'Enter' &&
+                                clarificationAnswer.trim() &&
+                                !running
+                              ) {
+                                submitClarification(clarificationAnswer)
+                              }
+                            }}
+                            placeholder="或者输入你的回答…"
+                            disabled={running}
+                          />
+                          <button
+                            type="button"
+                            className="hitl-paper-free-send"
+                            aria-label="发送回答"
+                            disabled={!clarificationAnswer.trim() || running}
+                            onClick={() => submitClarification(clarificationAnswer)}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+                              <path
+                                d="M2.5 7h9M7.5 3l4 4-4 4"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                        {/* 跳过入口：可选问题允许不回答直接继续（下一条消息走普通
+                            stream）。文案与 studio 端 ClarificationCard 保持一致。 */}
+                        <button
+                          type="button"
+                          className="hitl-paper-skip"
+                          disabled={running}
+                          onClick={() => void dismissClarification()}
+                        >
+                          跳过此问题，直接继续
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               )
-            ) : null}
-            {files.length > 0 ? (
+            ) : null}            {files.length > 0 ? (
               <div className="composer-attachments">
                 {files.map((file, index) =>
                   file.type.startsWith('image/') ? (

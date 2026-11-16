@@ -706,10 +706,9 @@ textarea {
   font-weight: 700;
 }
 
-/* 欢迎词 Markdown：与聊天气泡 .message-content 共用排版 token，
-   轴线对齐 composer（820px），段落居中、列表/代码/引用左对齐 */
+/* 欢迎词 Markdown：与消息流共用 --flow-max 轴线，段落居中、列表/代码/引用左对齐 */
 .welcome-message {
-  width: min(100%, 820px);
+  width: min(100%, var(--flow-max));
   margin: 0 auto 8px;
   color: var(--client-text);
   font-size: 14px;
@@ -1025,21 +1024,26 @@ textarea {
  * 进行/结束靠色彩与动效区分(进行=琥珀底+琥珀描边+琥珀标题+动点,
  * 结束=中性淡底+灰字+状态图标);"体量"对比来自展开/收起,不来自缩放。
  * border 用 transparent 占位保持几何稳定,状态切换不跳动。── */
+/* 步骤行（v5）：过程卡内平铺 hairline 分隔行，去块感——
+   mono 语义（思考/工具名）+ 中文描述 + 状态点，点击展开详情 */
 .reasoning-panel,
 .tool-run {
-  margin: 4px 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--client-surface-muted) 30%, transparent);
-  transition:
-    border-color 0.3s,
-    background-color 0.3s;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--client-border);
+  border-radius: 0;
+  background: transparent;
 }
 
-/* 头部统一为一行高(约 32px),各状态相同 */
+.reasoning-panel:last-of-type,
+.tool-run:last-of-type {
+  border-bottom: none;
+}
+
+/* 头部统一为一行高,各状态相同 */
 .message-viewport .reasoning-panel .ant-collapse-header,
 .message-viewport .tool-run .ant-collapse-header {
-  padding-block: 5px;
+  padding-block: 6px;
 }
 
 /* 思考面板：标题行（正在思考 + 三点动效，复用 streaming-dots） */
@@ -1048,13 +1052,15 @@ textarea {
   align-items: center;
   gap: 6px;
   color: var(--client-text-muted);
-  font-size: 13px;
+  font-size: 11.5px;
   transition: color 0.3s;
 }
 
 .reasoning-count {
-  font-size: 10px;
-  opacity: 0.6;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  opacity: 1;
 }
 
 /* 思考内容：纯文本（流式半截 Markdown 会渲染错乱）、限高内部滚动 */
@@ -1095,19 +1101,19 @@ textarea {
   border-top: 1px solid var(--client-border);
 }
 
-/* 进行中:琥珀淡底 + 琥珀细描边 + 琥珀标题(配合转圈/动点即"当前执行") */
+/* 进行中:琥珀淡底 + 琥珀标题(配合转圈/动点即"当前执行")——token 化 */
 .tool-run-running,
 .reasoning-panel-streaming {
-  border-color: rgba(200, 140, 40, 0.4);
-  background: rgba(200, 140, 40, 0.07);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--client-amber) 7%, transparent);
 }
 
 .tool-run-running .tool-title,
 .reasoning-panel-streaming .reasoning-label {
-  color: #b27d24;
+  color: var(--client-amber);
 }
 
-/* 已结束:中性淡底(默认)保持安静;失败用红底提示,均不带描边 */
+/* 已结束:中性安静;失败用红底提示 */
 .tool-run-error {
   background: color-mix(in srgb, var(--client-danger) 6%, transparent);
 }
@@ -1121,7 +1127,7 @@ textarea {
   align-items: center;
   gap: 7px;
   color: var(--client-text-muted);
-  font-size: 13px;
+  font-size: 11.5px;
   transition: color 0.3s;
 }
 
@@ -1259,18 +1265,31 @@ textarea {
 
 /* 交互式工具已答卡片(ask_clarification / confirm_workflow) — 按角色配色 */
 .interactive-card {
+  position: relative;
   margin: 6px 0 10px;
   border-radius: 12px;
-  border: 1px solid;
+  border: 1px solid var(--client-border);
   overflow: hidden;
+}
+
+/* 顶部琥珀发丝线（v5 澄清/确认语义） */
+.interactive-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--client-amber) 0 14px, transparent 14px 22px);
+  opacity: 0.75;
 }
 
 .interactive-card-header {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: 12px 12px 8px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
@@ -1340,39 +1359,58 @@ textarea {
 }
 
 /* 澄清提问 — 蓝色(问答语义) */
+/* 已答交互卡纸化（v5）：白卡 + 琥珀发丝线，废弃蓝/紫硬编码语义色 */
 .interactive-card-clarification {
-  border-color: rgba(22, 119, 255, 0.3);
-  background: rgba(22, 119, 255, 0.06);
+  border-color: var(--client-border);
+  background: var(--client-surface);
 }
 .interactive-card-clarification .interactive-card-header {
-  color: #1668ff;
+  color: var(--client-amber);
 }
 .interactive-card-clarification .interactive-card-inner {
-  border-top-color: rgba(22, 119, 255, 0.15);
+  border-top-color: var(--client-border);
+}
+
+.interactive-card .ant-tag {
+  margin: 0;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--client-surface-muted);
+  color: var(--client-text-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.interactive-card .ant-tag-success {
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
 }
 
 /* 工作流确认 — 紫色(自动化语义) */
 .interactive-card-workflow {
-  border-color: rgba(114, 46, 209, 0.3);
-  background: rgba(114, 46, 209, 0.06);
+  border-color: var(--client-border);
+  background: var(--client-surface);
 }
 .interactive-card-workflow .interactive-card-header {
-  color: #722ed1;
+  color: var(--client-amber);
 }
 .interactive-card-workflow .interactive-card-inner {
-  border-top-color: rgba(114, 46, 209, 0.15);
+  border-top-color: var(--client-border);
 }
 
 /* 应用授权 — 琥珀(授权/凭证语义，与 tool-run-running 同族色) */
 .interactive-card-auth {
-  border-color: rgba(200, 140, 40, 0.35);
-  background: rgba(200, 140, 40, 0.06);
+  border-color: color-mix(in srgb, var(--client-amber) 35%, transparent);
+  background: color-mix(in srgb, var(--client-amber) 6%, transparent);
 }
 .interactive-card-auth .interactive-card-header {
-  color: #c88c28;
+  color: var(--client-amber);
 }
 .interactive-card-auth .interactive-card-inner {
-  border-top-color: rgba(200, 140, 40, 0.18);
+  border-top-color: color-mix(in srgb, var(--client-amber) 18%, transparent);
 }
 
 /* ── 工作流任务:消息内单行状态卡 + 右上角任务看板 Drawer ── */
@@ -1448,17 +1486,17 @@ textarea {
 
 /* 等待人工审批:紫色高亮(工作流语义),保证审批入口不因精简而弱化 */
 .workflow-task-inline-waiting_human {
-  border-color: rgba(114, 46, 209, 0.4);
-  background: rgba(114, 46, 209, 0.06);
+  border-color: color-mix(in srgb, var(--client-amber) 40%, transparent);
+  background: color-mix(in srgb, var(--client-amber) 6%, transparent);
 }
 
 .workflow-task-inline-waiting_human:hover {
-  border-color: rgba(114, 46, 209, 0.65);
-  background: rgba(114, 46, 209, 0.1);
+  border-color: color-mix(in srgb, var(--client-amber) 65%, transparent);
+  background: color-mix(in srgb, var(--client-amber) 10%, transparent);
 }
 
 .workflow-task-inline-waiting_human .workflow-task-inline-action {
-  color: #722ed1;
+  color: var(--client-amber);
   font-weight: 500;
 }
 
@@ -2057,6 +2095,265 @@ textarea {
   opacity: 0.85;
 }
 
+/* ── 确认纸卡（v5 signature：白卡+琥珀发丝线+mono徽章+印章主选项）──
+   四种 HITL 形态（授权/工作流确认/风险确认/澄清）共用同一纸壳。 */
+.hitl-paper {
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid var(--client-border);
+  border-radius: 12px;
+  background: var(--client-surface);
+}
+
+.hitl-paper-line {
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--client-amber) 0 14px, transparent 14px 22px);
+  opacity: 0.75;
+}
+
+.hitl-paper-body {
+  padding: 12px 14px;
+}
+
+.hitl-paper-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.hitl-paper-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--client-amber-soft);
+  color: var(--client-amber);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.hitl-paper-q {
+  color: var(--client-text);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.hitl-paper-ctx {
+  margin: 4px 0 10px;
+  color: var(--client-text-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.hitl-paper-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.hitl-paper-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--client-border);
+  border-radius: 10px;
+  background: var(--client-bg);
+  color: var(--client-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hitl-paper-opt:hover:not(:disabled) {
+  border-color: var(--client-accent);
+  color: var(--client-accent);
+}
+
+.hitl-paper-opt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hitl-paper-opt .go {
+  flex: 0 0 auto;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* 主选项 = 印章卡（批准=盖章） */
+.hitl-paper-opt.primary {
+  border: 1.5px solid var(--client-accent);
+  background: var(--client-surface);
+  color: var(--client-accent);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgb(28 28 26 / 7%);
+}
+
+.hitl-paper-opt.danger-opt {
+  border-color: color-mix(in srgb, var(--client-danger) 45%, transparent);
+  color: var(--client-danger);
+  font-weight: 700;
+}
+
+.hitl-paper-opt.danger-opt:hover:not(:disabled) {
+  border-color: var(--client-danger);
+  color: var(--client-danger);
+}
+
+.hitl-paper-stamp {
+  margin-right: 8px;
+  padding: 1px 5px;
+  border: 1.5px solid rgb(255 255 255 / 70%);
+  border-radius: 6px;
+  background: var(--client-accent);
+  color: #fff;
+  font-family: var(--font-serif-brand);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* 自由输入行（dashed 虚线框） */
+.hitl-paper-free {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 6px 6px 6px 11px;
+  border: 1px dashed var(--client-border-strong);
+  border-radius: 10px;
+}
+
+.hitl-paper-free input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--client-text);
+  font-size: 12px;
+}
+
+.hitl-paper-free input::placeholder {
+  color: var(--client-text-faint);
+}
+
+.hitl-paper-free-send {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: var(--client-accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.hitl-paper-free-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 次要文字动作（忽略/跳过/暂不） */
+.hitl-paper-skip {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--client-text-faint);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hitl-paper-skip:hover:not(:disabled) {
+  color: var(--client-text-muted);
+}
+
+.hitl-paper-skip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 字段表单行（授权凭证 / fields 表单） */
+.hitl-paper-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.hitl-paper-field label {
+  color: var(--client-text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.hitl-paper-field input {
+  padding: 8px 11px;
+  border: 1px solid var(--client-border);
+  border-radius: 10px;
+  background: var(--client-bg);
+  color: var(--client-text);
+  font-size: 12px;
+}
+
+.hitl-paper-field input:focus {
+  outline: none;
+  border-color: var(--client-accent);
+  background: var(--client-surface);
+}
+
+/* 工作流参数预览 */
+.hitl-paper-params {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.hitl-paper-param {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hitl-paper-param-key {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--client-surface-muted);
+  color: var(--client-text-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.hitl-paper-param-value {
+  color: var(--client-text);
+  word-break: break-all;
+}
+
+/* 操作行（授权提交按钮组等） */
+.hitl-paper-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hitl-paper-error {
+  margin-top: 8px;
+  color: var(--client-danger);
+  font-size: 11.5px;
+}
+
 .hitl-card {
   margin-bottom: 9px;
 }
@@ -2283,27 +2580,27 @@ textarea {
   gap: 8px;
 }
 
+/* fields 表单向导纸化（v5）：mono 进度、token 化文字、纸线选项与输入、方章主钮 */
 .clarification-form-progress {
-  font-size: 11px;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
   font-weight: 600;
-  color: #6366f1;
-  background: #eef2ff;
-  padding: 2px 8px;
-  border-radius: 10px;
+  letter-spacing: 0.08em;
   white-space: nowrap;
 }
 
 .clarification-form-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #1f2933;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--client-text);
   line-height: 1.5;
 }
 
 .clarification-form-desc {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.4;
+  font-size: 11.5px;
+  color: var(--client-text-muted);
+  line-height: 1.5;
 }
 
 .clarification-form-field {
@@ -2313,7 +2610,7 @@ textarea {
 .clarification-form-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
 .clarification-form-input {
@@ -2323,6 +2620,16 @@ textarea {
 .clarification-form-input .ant-input,
 .clarification-form-input .ant-input-number {
   width: 100%;
+  border-radius: 10px;
+  background: var(--client-bg);
+  border-color: var(--client-border);
+}
+
+.clarification-form-input .ant-input:focus,
+.clarification-form-input .ant-input:focus-within {
+  border-color: var(--client-accent);
+  background: var(--client-surface);
+  box-shadow: none;
 }
 
 .clarification-form-actions {
@@ -2331,6 +2638,36 @@ textarea {
   align-items: center;
   gap: 8px;
   margin-top: 4px;
+}
+
+.hitl-paper .clarification-form-actions .ant-btn-primary {
+  min-width: 84px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: var(--client-accent);
+  box-shadow: 0 1px 3px rgb(28 28 26 / 7%);
+}
+
+.hitl-paper .clarification-form-actions .ant-btn-primary:disabled {
+  background: var(--client-surface-muted);
+  color: var(--client-text-faint);
+  box-shadow: none;
+}
+
+.hitl-paper .clarification-form-actions .ant-btn-text,
+.hitl-paper .clarification-form-options .ant-btn:not(.ant-btn-primary) {
+  border-radius: 10px;
+  background: var(--client-bg);
+  border-color: var(--client-border);
+  color: var(--client-text);
+}
+
+.hitl-paper .clarification-form-options .ant-btn-primary {
+  border-radius: 10px;
+  background: var(--client-accent);
+  border-color: var(--client-accent);
+  font-weight: 600;
 }
 
 /* 已答态 */
@@ -2348,13 +2685,13 @@ textarea {
 }
 
 .clarification-form-key {
-  color: #6b7280;
+  color: var(--client-text-muted);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .clarification-form-val {
-  color: #1f2933;
+  color: var(--client-text);
   word-break: break-all;
 }
 
@@ -2476,6 +2813,14 @@ textarea {
   font-size: 12px;
   font-weight: 600;
   color: var(--client-text);
+}
+/* 摘要行右侧 mono 元信息（v5：「2 次工具调用」） */
+.activity-meta {
+  margin-left: auto;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
 }
 .activity-state {
   font-size: 10.5px;
