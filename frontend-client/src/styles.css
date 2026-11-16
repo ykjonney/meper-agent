@@ -1249,10 +1249,13 @@ textarea {
   margin-top: 2px;
   padding: 6px 10px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--client-surface-muted) 85%, transparent);
+  background: #efede6;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+:root[data-theme="dark"] .activity-body {
+  background: color-mix(in srgb, #fff 5%, transparent);
 }
 .activity-dot.is-running {
   background: var(--client-accent-soft);
