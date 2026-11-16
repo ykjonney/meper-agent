@@ -508,6 +508,16 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   // 行内展开详情的工具 id(null = 都不展开)
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
 
+  // ── 执行中直接暴露（v6.2，Manus 同款时序）：running 时 timeline 自动展开
+  //  （每个工具行实时可见：✓ 已完成的 + ● 当前执行带完整参数摘要），
+  //  整组落定后自动收起合并为「使用了 N 个工具」。用户手动收起过则尊重。 */
+  const [userToggled, setUserToggled] = useState(false)
+  const [open, setOpen] = useState(isRunning)
+  useEffect(() => {
+    if (userToggled) return
+    setOpen(isRunning)
+  }, [isRunning, userToggled])
+
   // 整体状态图标:任一 running→转圈,任一 error→红叉,否则→绿勾
   const overallIcon = isRunning ? (
     <ClockCircleOutlined spin />
@@ -517,10 +527,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
     <CheckCircleOutlined />
   )
 
-  // 卡片状态类:运行中 tool-run-running(琥珀底+琥珀标题,配合动效突出
-  // 当前执行);整组落定后回中性淡底(失败红底)。尺寸全状态一致,层级
-  // 靠色彩与展开/收起表达(见 styles.css 思考/工具卡段落)。timeline
-  // 节点始终按各自状态着色。
+  // 卡片状态类:运行中 tool-run-running;整组落定后回中性(失败红底)。
   const cls = isRunning ? 'running' : hasError ? 'error' : 'complete'
 
   // 摘要文案：running 时「N/M 完成 · 动词 参数摘要」——detail 截断防长命令
@@ -528,17 +535,24 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   const runningVerb = running.length === 1 ? toolSummary(running[0].name, running[0].args).verb : ''
   const runningDetail = running.length === 1 ? toolSummary(running[0].name, running[0].args).detail : ''
   const runningShort = runningDetail.length > 36 ? `${runningDetail.slice(0, 36)}…` : runningDetail
+  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+  const durLabel = durSum > 0 ? ` · ${(durSum / 1000).toFixed(1)}s` : ''
   const summary = isRunning
     ? running.length === 1
       ? `${completedCount}/${tools.length} 完成 · ${runningVerb}${runningShort ? ` ${runningShort}` : ''}`
       : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具`
-    : `使用了 ${tools.length} 个工具`
+    : `使用了 ${tools.length} 个工具${durLabel}`
 
   return (
     <Collapse
       className={`tool-run tool-run-group tool-run-${cls}`}
       size="small"
       ghost
+      activeKey={open ? ['group'] : []}
+      onChange={(keys) => {
+        setUserToggled(true)
+        setOpen((Array.isArray(keys) ? keys : [keys]).length > 0)
+      }}
       items={[
         {
           key: 'group',
