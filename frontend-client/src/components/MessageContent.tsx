@@ -497,7 +497,8 @@ function toolSummary(name: string, argsJson?: string): { verb: string; detail: s
     return { verb: '知识库检索', detail: pick('query', 'keyword') }
   if (name === 'todo_write')
     return { verb: '更新任务清单', detail: '' }
-  return { verb: name || '调用工具', detail: '' }
+  // MCP 工具名剥掉 mcp__<server>__ 前缀（未映射工具的可读化兜底）
+  return { verb: name.replace(/^mcp__[^_]+__/, '') || '调用工具', detail: '' }
 }
 
 /** 改写摘要单行：「动词 · 关键参数」（detail 为空则只返回动词）。 */
@@ -1024,64 +1025,120 @@ interface MessageContentProps {
 }
 
 
-/** 执行段合并行（v7.1）：一个执行段（连续 thinking+tool）= 一行
- *  「执行了 x 个工具」（含思考），点击展开段内思考折叠行 + 每工具明细。 */
-function ProcessGroup({ items, onOpenTaskBoard }: {
-  items: Extract<FlatSegment, { kind: 'process' }>['items']
+/** 单工具直接行（v7.1 终稿）：命令直接显示，点击展开请求参数/结果明细。 */
+function ToolLine({ tool, onOpenTaskBoard }: {
+  tool: ToolRun
   onOpenTaskBoard?: (taskId: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const tools = items.filter((i): i is Extract<typeof items[number], { type: 'tool' }> => i.type === 'tool').map((i) => i.tool)
-  const running = tools.some((t) => t.status === 'running')
-  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
-  // 展开区：按原始顺序渲染（连续 tool 聚合组，thinking 独立折叠行）
-  const renderBody = () => {
-    const body: ReactNode[] = []
-    let toolBuf: ToolRun[] = []
-    let k = 0
-    const flushBuf = () => {
-      if (!toolBuf.length) return
-      for (const g of groupTools(toolBuf)) {
-        body.push(
-          g.kind === 'single' ? (
-            <ToolResult key={`pg-tool:${k++}`} tool={g.tool} onOpenTaskBoard={onOpenTaskBoard} />
-          ) : (
-            <ToolRunsGroup key={`pg-group:${k++}`} tools={g.tools} />
-          ),
-        )
-      }
-      toolBuf = []
-    }
-    for (const [i, item] of items.entries()) {
-      if (item.type === 'tool') {
-        toolBuf.push(item.tool)
-        continue
-      }
-      flushBuf()
-      body.push(<ReasoningPanel key={`pg-think:${i}`} text={item.text} streaming={false} />)
-    }
-    flushBuf()
-    return body
-  }
   return (
-    <div className="process-group">
-      <div
-        className="process-group-head"
+    <div className="tool-line">
+      <button
+        type="button"
+        className="tool-line-row"
         onClick={() => setOpen((v) => !v)}
-        role="button"
-        tabIndex={0}
+        aria-expanded={open}
       >
-        <span className={`activity-dot ${running ? 'is-running' : 'is-done'}`}>
-          {running ? <LoadingOutlined /> : <CheckOutlined />}
+        <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+        <span className="tool-timeline-node-label">
+          <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
+          {tool.durationMs ? (
+            <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+          ) : null}
         </span>
-        <span className="process-group-title">执行了 {tools.length} 个工具</span>
-        {durSum > 0 ? (
-          <span className="process-group-dur">{(durSum / 1000).toFixed(1)}s</span>
-        ) : null}
-      </div>
-      {open ? <div className="process-group-body">{renderBody()}</div> : null}
+      </button>
+      {open ? (
+        <div className="tool-line-details">
+          <ToolNodeDetails tool={tool} />
+        </div>
+      ) : null}
     </div>
   )
+}
+
+/** 并行批合并行（例外规则）：一轮调用了多个工具 → 整体一行「执行了 x 命令/工具」，
+ *  点击展开批内每工具明细。 */
+function BatchRow({ tools }: { tools: ToolRun[] }) {
+  const [open, setOpen] = useState(false)
+  const allBash = tools.every((t) => ['bash', 'run_command', 'execute'].includes(t.name))
+  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+  return (
+    <div className="tool-line">
+      <button
+        type="button"
+        className="tool-line-row"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="tool-timeline-node-icon">{statusIcon(tools[0])}</span>
+        <span className="tool-timeline-node-label">
+          <span className="tool-line-batch-label">
+            执行了 {tools.length} {allBash ? '命令' : '工具'}
+          </span>
+          {durSum > 0 ? (
+            <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
+          ) : null}
+        </span>
+      </button>
+      {open ? (
+        <div className="tool-line-details">
+          {tools.map((tool) => (
+            <div key={tool.id} className="tool-line-sub">
+              <div className="tool-line-row" style={{ cursor: 'default' }}>
+                <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+                <span className="tool-timeline-node-label">
+                  <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
+                  {tool.durationMs ? (
+                    <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+                  ) : null}
+                </span>
+              </div>
+              <ToolNodeDetails tool={tool} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 过程段内容渲染（v7.1 终稿）：思考行与工具行按原始顺序交错；
+ *  一轮并行多工具（同 batchId）合并为一行「执行了 x 命令/工具」。 */
+function renderProcessItems(
+  items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>,
+  onOpenTaskBoard?: (taskId: string) => void,
+): ReactNode[] {
+  const rows: ReactNode[] = []
+  const done = new Set<string>()
+  items.forEach((item, i) => {
+    if (item.type === 'thinking') {
+      rows.push(<ReasoningPanel key={`p-think:${i}`} text={item.text} streaming={false} />)
+      return
+    }
+    if (done.has(item.tool.id)) return
+    const batch =
+      item.tool.batchId != null
+        ? items
+            .filter(
+              (x): x is Extract<typeof items[number], { type: 'tool' }> =>
+                x.type === 'tool' && x.tool.batchId === item.tool.batchId,
+            )
+            .map((x) => x.tool)
+        : []
+    if (batch.length >= 2) {
+      batch.forEach((t) => done.add(t.id))
+      rows.push(
+        <BatchRow
+          key={`p-batch:${batch[0].id}`}
+          tools={batch}
+        />,
+      )
+    } else {
+      done.add(item.tool.id)
+      rows.push(<ToolLine key={`p-tool:${item.tool.id}`} tool={item.tool} onOpenTaskBoard={onOpenTaskBoard} />)
+    }
+  })
+  return rows
 }
 
 /** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
@@ -1203,7 +1260,11 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
                 </div>
               )
             }
-            return <ProcessGroup key={`flat:${index}`} items={seg.items} onOpenTaskBoard={onOpenTaskBoard} />
+            return (
+              <div key={`flat:${index}`}>
+                {renderProcessItems(seg.items, onOpenTaskBoard)}
+              </div>
+            )
           })}
         </ActivityCard>
       ) : null}
