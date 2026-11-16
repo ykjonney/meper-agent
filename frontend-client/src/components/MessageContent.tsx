@@ -525,14 +525,17 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
 
   // 摘要文案：running 时「N/M 完成 · 动词 参数摘要」——detail 截断防长命令
   // 撑爆摘要行；不再叠加「正在执行」（spinner 已表达进行中，双动词冗余）。
+  // 完成态「使用了 N 个工具 · 总耗时」（组内 per-tool 求和，v6.1 承载总用时）。
   const runningVerb = running.length === 1 ? toolSummary(running[0].name, running[0].args).verb : ''
   const runningDetail = running.length === 1 ? toolSummary(running[0].name, running[0].args).detail : ''
   const runningShort = runningDetail.length > 36 ? `${runningDetail.slice(0, 36)}…` : runningDetail
+  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+  const durLabel = durSum > 0 ? ` · ${(durSum / 1000).toFixed(1)}s` : ''
   const summary = isRunning
     ? running.length === 1
       ? `${completedCount}/${tools.length} 完成 · ${runningVerb}${runningShort ? ` ${runningShort}` : ''}`
       : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具`
-    : `使用了 ${tools.length} 个工具`
+    : `使用了 ${tools.length} 个工具${durLabel}`
 
   return (
     <Collapse
@@ -973,43 +976,6 @@ interface MessageContentProps {
 }
 
 
-/** 过程折叠卡：连续的 reasoning/tool 段聚合为一个可展开卡（对齐 studio 形态）。
- *  摘要行 = 状态点 + 「执行过程 · N 次工具调用」；展开显示原始交错明细
- *  （reasoning 折叠面板 / 工具卡 / 中间轮 text）。完成后默认收起。 */
-function ActivityCard({ streaming, toolCount, durationLabel, children }: {
-  streaming: boolean
-  toolCount: number
-  /** 执行耗时（「6.8s」格式，来自 done usage/历史 token_usage）；流式中无值 */
-  durationLabel?: string
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="activity-card">
-      <div
-        className="activity-card-head"
-        onClick={() => setOpen((v) => !v)}
-        role="button"
-        tabIndex={0}
-      >
-        <span className={`activity-dot ${streaming ? 'is-running' : 'is-done'}`}>
-          {streaming ? <LoadingOutlined /> : <CheckOutlined />}
-        </span>
-        {/* v6：title 只留状态词，「步数 · 总用时」收进右侧 meta 一行 */}
-        <span className="activity-title">{streaming ? '执行中' : '已完成'}</span>
-        {toolCount > 0 || durationLabel ? (
-          <span className="activity-meta">
-            {toolCount > 0 ? `${toolCount} 步` : ''}
-            {toolCount > 0 && durationLabel ? ' · ' : ''}
-            {durationLabel ?? ''}
-          </span>
-        ) : null}
-      </div>
-      {open ? <div className="activity-body">{children}</div> : null}
-    </div>
-  )
-}
-
 export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenerate }: MessageContentProps) {
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
@@ -1020,33 +986,12 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
       : message.content
   const charts = [...promotedCharts(content), ...message.charts]
   const segments = toRenderSegments(content)
-  // ── 过程/回答分割（final 权威锚点，对齐 studio MessageItem 语义）──
-  // anchor = 最后一个 final=true 的 text block。流式中只认真 final（挂起/
-  // 中间态无 final → 全量平铺，澄清卡等 HITL 卡正常渲染）；非流式兜底最后
-  // 一个 text（历史终态，旧数据无 final 标志时最后 text 即答案）。
-  // 完成后：anchor 之前的 reasoning/tool 聚合为过程折叠卡，final text 平铺
-  // 在卡外作为回答；复制内容也只取回答区。 */
-  const isStreaming = message.status === 'loading'
-  let finalAnchor = -1
-  let lastTextIdx = -1
-  content.forEach((b, i) => {
-    if (b.type !== 'text') return
-    lastTextIdx = i
-    if (b.final) finalAnchor = i
-  })
-  const anchor = finalAnchor >= 0 ? finalAnchor : isStreaming ? -1 : lastTextIdx
-  const activityBlocks = anchor > 0 ? content.slice(0, anchor) : []
-  const answerContent = anchor >= 0 ? content.slice(anchor) : content
-  const answerSegments = anchor >= 0 ? toRenderSegments(answerContent) : segments
-  const activityToolCount = activityBlocks.filter((b) => b.type === 'tool').length
-  // 执行耗时（「已完成 · 用时X」）：llm+tool 毫秒求和 → 秒（1 位小数）
-  const durationLabel = (() => {
-    const ms = (message.execDuration?.llm ?? 0) + (message.execDuration?.tool ?? 0)
-    if (!ms) return undefined
-    return `${(ms / 1000).toFixed(1)}s`
-  })()
-  /** 渲染单个段（reasoning 折叠面板 / text Markdown / 工具卡）——过程卡明细
-   *  与回答区共用同一套段渲染。 */
+  // ── 全量平铺（v6.1：studio 同构的过程叙事）──
+  // text / reasoning / tool 段按原始顺序各自渲染：中间轮文本平铺可见
+  //（agent 的工作叙述），连续工具聚合为「使用了 x 个工具」折叠条，
+  // 思考折叠行——不再把 final 之前的内容整体塞进过程卡。
+  // 流式与完成态结构一致，消除「完成后布局突变」。 */
+  /** 渲染单个段（reasoning 折叠面板 / text Markdown / 工具卡）。 */
   const renderSegment = (segment: ReturnType<typeof toRenderSegments>[number], index: number) => {
     if (segment.kind === 'reasoning') {
       const streaming = message.status === 'loading' && index === (segments.length - 1)
@@ -1073,19 +1018,14 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     for (const att of message.attachments) map.set(att.id, att)
     return Array.from(map.values())
   }, [message.attachments])
-  // 复制内容 = 回答区 text（final 锚点之后）；过程区 reasoning 不进复制
-  const fullText = answerContent
-    .filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
+  // 复制内容 = 最后一段文本（最终回答）——中间轮叙述与工具摘要不进复制
+  const fullText = (() => {
+    const texts = content.filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text')
+    return texts.length ? texts[texts.length - 1].text : ''
+  })()
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {activityBlocks.length > 0 ? (
-        <ActivityCard streaming={false} toolCount={activityToolCount} durationLabel={durationLabel}>
-          {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
-        </ActivityCard>
-      ) : null}
-      {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
+      {segments.map((segment, index) => renderSegment(segment, index))}
       {uniqueAttachments.length > 0 ? (
         <div
           className={`message-attachments ${
