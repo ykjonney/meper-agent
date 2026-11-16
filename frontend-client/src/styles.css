@@ -1286,8 +1286,12 @@ textarea {
   white-space: nowrap;
 }
 .process-group-body {
-  padding: 4px 0 6px 20px;
-  border-top: 1px solid var(--client-border);
+  margin: 2px 0 4px 6px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 
