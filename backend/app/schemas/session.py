@@ -9,6 +9,12 @@ class SessionCreate(BaseModel):
 
     agent_id: str = Field(..., min_length=1, description="Agent ID to bind to this session")
     title: str | None = Field(default=None, max_length=200, description="Optional session title")
+    # 本地接入（workspace 重设计）：LOCAL_WORKSPACE_ROOT 白名单内相对目录；
+    # 非空时创建者需 local_workspace:write 权限（服务端校验白名单与目录存在性）。
+    local_dir: str | None = Field(
+        default=None, max_length=500,
+        description="Local workspace dir (relative to LOCAL_WORKSPACE_ROOT)",
+    )
 
 
 class SessionResponse(BaseModel):
@@ -21,6 +27,11 @@ class SessionResponse(BaseModel):
     status: str
     message_count: int
     total_tokens: int = 0
+    local_dir: str = ""
+    preview_draft: bool = Field(
+        default=False,
+        description="草稿预览会话——以 agent 草稿层执行（聊天测试场标记，创建时记录）",
+    )
     created_at: str
     updated_at: str
 

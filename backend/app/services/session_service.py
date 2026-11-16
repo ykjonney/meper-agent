@@ -49,6 +49,8 @@ class SessionService:
         user_id: str,
         agent_id: str,
         title: str = "",
+        local_dir: str = "",
+        preview_draft: bool = False,
     ) -> dict:
         """Create a new session for a user-agent pair.
 
@@ -56,6 +58,11 @@ class SessionService:
             user_id: Owner user ID.
             agent_id: Associated agent ID.
             title: Optional title (usually first message preview).
+            local_dir: 本地接入（workspace 重设计）：LOCAL_WORKSPACE_ROOT
+                白名单内相对目录；非空时该会话为 local 模式（调用方负责
+                权限与白名单校验，见 sessions API）。
+            preview_draft: 草稿预览会话——会话生命周期内以 agent 草稿层执行
+                （聊天测试场；发布合并后该会话继续跑新线上版，草稿层已清空）。
 
         Returns:
             Created session MongoDB document.
@@ -64,6 +71,7 @@ class SessionService:
             user_id=user_id,
             agent_id=agent_id,
             title=title[:200] if title else "",
+            local_dir=local_dir,
         )
         doc = {
             "_id": session.id,
@@ -74,6 +82,8 @@ class SessionService:
             "message_count": session.message_count,
             "total_tokens": session.total_tokens,
             "task_id": session.task_id,
+            "local_dir": session.local_dir,
+            "preview_draft": preview_draft,
             "created_at": session.created_at,
             "updated_at": session.updated_at,
         }
@@ -81,16 +91,18 @@ class SessionService:
         await SessionService._collection().insert_one(doc)
 
         # Create workspace directory tree for this session (AC: file isolation)
-        try:
-            from app.engine.tool.workspace import WorkspaceManager
+        # local 模式不建托管三目录（无 input/output 职能，用户目录已存在）
+        if not session.local_dir:
+            try:
+                from app.engine.tool.workspace import WorkspaceManager
 
-            WorkspaceManager.create_workspace(user_id, session.id)
-        except Exception as exc:
-            logger.warning(
-                "workspace_creation_failed",
-                session_id=session.id,
-                error=str(exc),
-            )
+                WorkspaceManager.create_workspace(user_id, session.id)
+            except Exception as exc:
+                logger.warning(
+                    "workspace_creation_failed",
+                    session_id=session.id,
+                    error=str(exc),
+                )
 
         logger.info("session_created", session_id=session.id, user_id=user_id, agent_id=agent_id)
         return doc

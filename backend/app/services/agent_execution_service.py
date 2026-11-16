@@ -82,7 +82,6 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
-        exec_doc = _apply_draft_preview(exec_doc, body)
 
         # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）；否则用调用方
         # 声明的上下文（默认 chat）。
@@ -92,14 +91,15 @@ class AgentExecutionService:
         request_id = str(uuid.uuid4())
         call_chain = [*(external_call_chain or []), agent_id]
 
-        # chat 侧委派池（M2）：agent.subagent_ids 声明，published-only。
-        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
-
         # session 文档提前取：total_tokens 预算 + local_dir（本地接入）
         # 驱动环境段与 sandbox 选择（原先在 prompt 之后取，环境段需要它前移）
         session_doc = await SessionService.get_session(session_id)
         session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
         local_dir = str((session_doc or {}).get("local_dir") or "")
+
+        # 草稿预览（请求声明或会话标记）→ 以草稿内容执行；委派池按草稿口径
+        exec_doc = _apply_draft_preview(exec_doc, body, session_doc)
+        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
 
         # Build messages (system prompt + user input with file attachments)
         system_text = await _build_system_prompt_checked(
@@ -219,7 +219,6 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
-        exec_doc = _apply_draft_preview(exec_doc, body)
 
         session_id = await _resolve_session(agent_id, body, user_id)
         request_id = str(uuid.uuid4())
@@ -227,14 +226,16 @@ class AgentExecutionService:
 
         # 计划模式 → plan 执行语义（只调研 + propose_plan 终结）。
         exec_ctx = "plan" if getattr(body, "plan_mode", False) else "chat"
-        # chat 侧委派池（M2）：同 invoke 路径。
-        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
 
         # session 文档提前取：total_tokens 预算 + local_dir（本地接入）驱动
         # 环境段与 sandbox 选择（_run 内原先重复取，统一收敛到此处）
         session_doc = await SessionService.get_session(session_id)
         session_total_tokens = int((session_doc or {}).get("total_tokens", 0) or 0)
         local_dir = str((session_doc or {}).get("local_dir") or "")
+
+        # 草稿预览（请求声明或会话标记）→ 以草稿内容执行；委派池按草稿口径
+        exec_doc = _apply_draft_preview(exec_doc, body, session_doc)
+        subagent_bundles, subagent_decls = await _load_chat_subagents(exec_doc)
 
         system_text = await _build_system_prompt_checked(
             exec_doc, user_id, execution_context=exec_ctx,
@@ -404,10 +405,13 @@ class AgentExecutionService:
         exec_doc = await AgentService.get_agent(agent_id)
         if exec_doc is None:
             raise NotFoundError(code="AGENT_NOT_FOUND", message=f"Agent {agent_id} 不存在")
-        exec_doc = _apply_draft_preview(exec_doc, body)
 
         request_id = str(uuid.uuid4())
         session_id = body.session_id
+
+        # 草稿预览：恢复轮以会话标记延续（刷新后前端 draftPreview 丢失也一致）
+        session_doc = await SessionService.get_session(session_id)
+        exec_doc = _apply_draft_preview(exec_doc, body, session_doc)
 
         # chat 侧委派池（M2）：恢复轮 resolve 重新装配工具集——不传则
         # delegate 工具在恢复轮消失（工具声明与运行时集不一致）。
@@ -793,6 +797,7 @@ async def _resolve_session(agent_id: str, body: ExecutionRequest, user_id: str) 
     if not session_id:
         session_doc = await SessionService.create_session(
             user_id=user_id, agent_id=agent_id, title=title_source[:200],
+            preview_draft=bool(body.preview_draft),
         )
         session_id = session_doc["_id"]
     if _should_persist_messages(user_id):
@@ -826,14 +831,18 @@ async def _load_chat_subagents(exec_doc: dict) -> tuple[list[dict], list[dict]]:
     )
 
 
-def _apply_draft_preview(exec_doc: dict, body) -> dict:
-    """草稿预览：preview_draft 且存在草稿层时，以草稿内容执行。
+def _apply_draft_preview(exec_doc: dict, body, session_doc: dict | None = None) -> dict:
+    """草稿预览：请求声明或会话标记存在时，以 agent 草稿层内容执行。
 
-    聊天即测试场——前端对含草稿的 agent 传 preview_draft=True，用户在
-    聊天页验证的是改动后的行为；publish 合并前线上版不受影响。
+    聊天即测试场——首轮由请求 preview_draft 声明（创建会话时写入 session
+    标记）；后续轮次/刷新后进旧会话/中断恢复由会话标记自动延续，前端无需
+    每轮传参。publish 合并清空草稿层后标记自然失效（跑新线上版）。
     draft 不含 _id/status/version（_DRAFT_EXCLUDE_KEYS），合并保留身份字段。
     """
-    if getattr(body, "preview_draft", False) and exec_doc.get("draft"):
+    want = getattr(body, "preview_draft", False) or bool(
+        (session_doc or {}).get("preview_draft")
+    )
+    if want and exec_doc.get("draft"):
         return {**exec_doc, **exec_doc["draft"]}
     return exec_doc
 

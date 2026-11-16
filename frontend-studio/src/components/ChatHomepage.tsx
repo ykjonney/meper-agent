@@ -95,6 +95,14 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
     agentsProp && agentsProp.length > 0
       ? agentsProp
       : (agentsData?.items ?? []).map(toStudioAgent);
+  // 草稿预览入口：含草稿的 agent 派生「· 草稿」影子条目——显式区分
+  // 测试（草稿行为）与使用（稳定线上版），正常使用者不会被卷进未发布修改。
+  const pickerAgents: Agent[] = useMemo(
+    () => agents.flatMap((a) =>
+      a.hasDraft ? [a, { ...a, name: `${a.name} · 草稿`, draftPreview: true }] : [a],
+    ),
+    [agents],
+  );
   // `agents` is recomputed (new array ref) on every render via .map(), so it
   // must NOT be a dependency of the history-loading effect — otherwise that
   // effect re-fires mid-stream and wipes the optimistic first message. Keep a
@@ -104,6 +112,8 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
   const { modelLabel } = useModelLabels();
 
+  // 空白新对话态选中的执行者对象（可能是「· 草稿」影子条目，含 draftPreview 标记）
+  const [draftAgentSel, setDraftAgentSel] = useState<Agent | null>(null);
   const { data: voiceStatus } = useQuery({
     queryKey: voiceConfigKeys.status,
     queryFn: voiceConfigApi.status,
@@ -371,12 +381,17 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
 
   const activeSession = sessions.find((s) => s._id === activeSessionId) ?? null;
   // 固定 agent 模式无会话时恒为该 agent；普通模式按 activeSession → draft → 首个。
+  // 源用 pickerAgents（含「· 草稿」影子条目）：新会话态选中的是影子对象（draftPreview
+  // 标记 → 首轮请求声明草稿预览）；旧会话按 id 命中本体，预览由 session 标记接管。
   const activeAgent =
-    agents.find((a) => a.id === activeSession?.agent_id) ??
-    (fixedAgentId ? agents.find((a) => a.id === fixedAgentId) : null) ??
-    agents.find((a) => a.id === draftAgentId) ??
-    agents[0] ??
+    (activeSession
+      ? pickerAgents.find((a) => a.id === activeSession.agent_id)
+      : (draftAgentSel ?? pickerAgents.find((a) => a.id === draftAgentId))) ??
+    (fixedAgentId ? pickerAgents.find((a) => a.id === fixedAgentId) : null) ??
+    pickerAgents[0] ??
     null;
+  // 当前会话是否为草稿预览会话（服务端标记，刷新/旧会话也延续）
+  const sessionPreview = !!activeSession?.preview_draft;
   const voiceAvailable = voiceConfigured && activeAgent?.voiceEnabled === true;
   // 语音按钮常显，tooltip 按不可用原因给出引导（未选 Agent / 服务未配置 / Agent 未开语音）
   const voiceHint = !activeAgent
@@ -608,6 +623,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
   // 创建（见 handleSendMessage），避免用户未输入就在后端留下空会话。
   const handleStartNewWithAgent = (agent: Agent) => {
     setDraftAgentId(agent.id);
+    setDraftAgentSel(agent.draftPreview ? agent : null);
     setActiveSessionId(null);
     setPendingSessionId(null);
     setInputMode('text');
@@ -887,16 +903,16 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
             // 推断挂起类型强制 plan，刷新/多端下客户端状态失真也不受影响）；
             // 此处 plan_mode 仅为提示。
             plan_mode: planMode || undefined,
-            // 草稿预览与发起轮同源（含草稿的 agent 聊天即测试场）
-            preview_draft: agent.hasDraft || undefined,
+            // 草稿预览：影子条目发起或草稿预览会话（服务端标记延续）
+            preview_draft: agent.draftPreview || sessionPreview || undefined,
           }, controller.signal)
         : await agentApi.stream(agent.id, {
             input: prompt,
             session_id: sessionId,
             thinking_level: thinkingLevel,
             plan_mode: planMode || undefined,
-            // 草稿预览：agent 有未发布修改时测的是草稿行为（publish 前线上版不受影响）
-            preview_draft: agent.hasDraft || undefined,
+            // 草稿预览：影子条目首轮声明，会话建立后由服务端标记延续
+            preview_draft: agent.draftPreview || sessionPreview || undefined,
             // file_ids: persists the reference on the user message (history).
             // file_paths: backend embeds file contents into the LLM user message
             // (agents.py:589-610) — without this the agent never sees the content.
@@ -1469,7 +1485,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         sessions={sessions} sessionsLoading={sessionsLoading}
         activeSessionId={activeSessionId ?? pendingSessionId}
         onSelectSession={handleSelectSession} onDeleteSession={handleDeleteSession}
-        activeAgent={activeAgent} agents={agents}
+        activeAgent={activeAgent} agents={pickerAgents}
         onStartNewWithAgent={handleStartNewWithAgent}
         userInitial={userInitial} username={username}
         userMenuOpen={userMenuOpen} setUserMenuOpen={setUserMenuOpen}
@@ -1495,7 +1511,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         {(!activeSession && liveMessages.length === 0) ? (
         <EmptySession
           composerEl={composerEl}
-          agents={agents}
+          agents={pickerAgents}
           activeAgent={activeAgent}
           agentMenuOpen={agentMenuOpen}
           setAgentMenuOpen={setAgentMenuOpen}
@@ -1507,7 +1523,7 @@ export function ChatHomepage({ agents: agentsProp, theme = 'dark', fixedAgentId,
         <>
         <SessionHeader
           activeSession={activeSession}
-          agents={agents}
+          agents={pickerAgents}
           activeAgent={activeAgent}
           agentMenuOpen={agentMenuOpen}
           setAgentMenuOpen={setAgentMenuOpen}

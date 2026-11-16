@@ -16,6 +16,10 @@ export interface Session {
   status: string
   message_count: number
   total_tokens?: number
+  /** 非空 = 本地接入会话（绑定 LOCAL_WORKSPACE_ROOT 白名单内相对目录） */
+  local_dir?: string
+  /** 草稿预览会话——以 agent 草稿层执行（创建时记录，服务端延续） */
+  preview_draft?: boolean
   created_at: string
   updated_at: string
 }

@@ -46,6 +46,8 @@ def _doc_to_response(doc: dict) -> SessionResponse:
         status=doc.get("status", "active"),
         message_count=doc.get("message_count", 0),
         total_tokens=doc.get("total_tokens", 0),
+        local_dir=doc.get("local_dir", ""),
+        preview_draft=bool(doc.get("preview_draft", False)),
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
     )
@@ -89,12 +91,65 @@ async def create_session(
     user: UserResponse = Depends(get_current_user),
 ) -> SessionResponse:
     """Create a new chat session for the current user."""
+    # 本地接入（workspace 重设计）：local_dir 非空 → 校验权限 + 白名单
+    # + 目录存在性（判权限不判角色，docs/PERMISSIONS.md；端点级 Depends
+    # 无法条件化，无 local_dir 请求零开销）
+    if body.local_dir:
+        from app.core.security import get_role_permissions
+
+        perms = await get_role_permissions(user.role)
+        if "local_workspace:write" not in perms:
+            raise HTTPException(
+                status_code=403,
+                detail="权限不足，需要 local_workspace:write 权限（本地目录接入）",
+            )
+        from app.engine.tool.workspace import WorkspaceManager
+
+        try:
+            WorkspaceManager.get_local_workspace(body.local_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     doc = await SessionService.create_session(
         user_id=user.id,
         agent_id=body.agent_id,
         title=body.title or "",
+        local_dir=body.local_dir or "",
     )
     return _doc_to_response(doc)
+
+
+@router.get(
+    "/local-workspace/enabled",
+    summary="Whether local workspace access is enabled",
+)
+async def get_local_workspace_enabled(
+    user: UserResponse = Depends(get_current_user),
+) -> dict:
+    """本地接入是否启用（LOCAL_WORKSPACE_ROOT 已配置）——前端据此决定
+    是否渲染"绑定本地目录"输入项。"""
+    from app.core.config import settings
+
+    return {"enabled": bool((settings.LOCAL_WORKSPACE_ROOT or "").strip())}
+
+
+@router.get(
+    "/{session_id}/bg-tasks",
+    summary="List background tasks for a session",
+)
+async def list_session_background_tasks(
+    session_id: str,
+    user: UserResponse = Depends(get_current_user),
+) -> dict:
+    """列出会话工作区的后台任务（进行中/已完成未读），供前端角标轮询。
+
+    语义与 turn 边界注入完全一致（纯宿主 FS 读取，running 判定不含
+    容器探活——见 docs/background-tasks.md §4）。
+    """
+    ws = await _verify_session_ownership(session_id, user.id)
+    from app.engine.tool.workspace import list_background_tasks
+
+    return {"items": list_background_tasks(ws)}
 
 
 @router.get(
@@ -290,6 +345,13 @@ async def upload_chat_file(
     # Verify session ownership
     ws = await _verify_session_ownership(session_id, user.id)
 
+    # 本地接入会话无 input/ 附件语义（目录即用户工作区），拒绝上传
+    if ws.is_local:
+        raise HTTPException(
+            status_code=400,
+            detail="本地目录会话不支持文件上传——文件请直接放入绑定的本地目录",
+        )
+
     # Read file data
     data = await file.read()
     if len(data) > MAX_FILE_SIZE:
@@ -379,6 +441,9 @@ async def _verify_session_ownership(session_id: str, user_id: str) -> Workspace:
             message=f"Session {session_id} 不存在",
         )
 
+    # 本地接入会话返回 local workspace（is_local=True，uploads 等端点据此拒绝）
+    if session_doc.get("local_dir"):
+        return WorkspaceManager.get_local_workspace(session_doc["local_dir"])
     return WorkspaceManager.get_workspace(user_id, session_id)
 
 

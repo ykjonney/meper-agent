@@ -33,11 +33,11 @@ export function SessionHeader({
         onSelect={onSelectAgent} modelLabel={modelLabel}
         menuClassName="absolute left-5 top-12"
       />
-      {/* 草稿预览徽标：该 agent 有未发布修改，聊天跑的是草稿行为（测试场） */}
-      {activeAgent?.hasDraft && (
+      {/* 草稿预览徽标：影子条目发起或草稿预览会话——当前对话以草稿层执行 */}
+      {(activeAgent?.draftPreview || activeSession?.preview_draft) && (
         <span
           className="af-pill af-pill-wait shrink-0"
-          title="该 Agent 存在未发布的草稿修改——当前对话以草稿内容执行，发布后对所有会话生效"
+          title="当前对话以该 Agent 的草稿内容执行（测试场）——发布后对所有会话生效"
         >草稿预览</span>
       )}
       <span className="text-[13.5px] font-bold text-ink truncate flex-1" style={{ fontFamily: 'var(--font-serif)' }}>
