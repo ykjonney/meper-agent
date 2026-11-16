@@ -81,7 +81,7 @@ export default function HelpHint({ text }: Props) {
                 ? { position: 'fixed', top: coords.top, left: coords.left, zIndex: 210 }
                 : { position: 'fixed', left: -9999, top: -9999, visibility: 'hidden' }
             }
-            className="w-56 max-h-[70vh] overflow-hidden rounded-md border border-line-strong bg-well px-2.5 py-2 text-left text-[11px] leading-relaxed text-ink-soft shadow-lg pointer-events-none"
+            className="w-56 max-h-[70vh] overflow-hidden rounded-lg border border-line-strong bg-well px-2.5 py-2 text-left text-[11px] leading-relaxed text-ink-soft shadow-[var(--shadow-pop)] pointer-events-none"
           >
             {text}
           </div>,

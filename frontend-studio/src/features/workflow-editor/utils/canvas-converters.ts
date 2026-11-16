@@ -90,10 +90,8 @@ export function toXyflowEdges(
     label: we.label || undefined,
     type: 'default',
     animated: !!we.condition,
-    style: we.condition
-      ? { stroke: '#8B5CF6', strokeWidth: 1.2, borderRadius: 8 }
-      : { stroke: '#94A3B8', strokeWidth: 0.8 },
-    labelStyle: { fontSize: 10, color: '#64748B' },
+    // 颜色交给 index.css react-flow 主题层按 className 控制（与派生边同路径）
+    className: we.condition ? 'workflow-edge--condition' : undefined,
     data: { workflowEdge: we },
   }))
 }
@@ -113,27 +111,28 @@ export function fromXyflowNodes(
   })
 }
 
-/* ─── 内联类型元数据（避免循环依赖） ─── */
-
-const TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
-  start: { label: '开始', color: '#10B981', bg: '#D1FAE5' },
-  end: { label: '结束', color: '#EF4444', bg: '#FEE2E2' },
-  agent: { label: 'Agent', color: '#3B82F6', bg: '#DBEAFE' },
-  tool: { label: '工具', color: '#F59E0B', bg: '#FEF3C7' },
-  gateway: { label: '网关', color: '#8B5CF6', bg: '#EDE9FE' },
-  parallel: { label: '并行', color: '#06B6D4', bg: '#CFFAFE' },
-  human: { label: '人工审批', color: '#F97316', bg: '#FFF7ED' },
-  loop: { label: '循环', color: '#A855F7', bg: '#FAF5FF' },
+/* ─── 内联类型元数据（避免循环依赖；node-type-configs.ts 复用此处取色） ───
+   类型色收敛版（对齐 Harness 降饱和色板）：颜色只出现在图标 chip，
+   卡体一律中性表面；bg 统一 8% 透明度公式，不再逐色手调浅底。 */
+const TYPE_META: Record<string, { label: string; color: string }> = {
+  start: { label: '开始', color: '#2E9E77' },
+  end: { label: '结束', color: '#C25B6B' },
+  agent: { label: 'Agent', color: '#5B7FC4' },
+  tool: { label: '工具', color: '#C09234' },
+  gateway: { label: '网关', color: '#8D74D8' },
+  parallel: { label: '并行', color: '#4D9BB5' },
+  human: { label: '人工审批', color: '#CD7D46' },
+  loop: { label: '循环', color: '#9A6FC9' },
 }
 
 function getTypeLabel(type: string): string {
   return TYPE_META[type]?.label ?? type
 }
 export function getTypeColor(type: string): string {
-  return TYPE_META[type]?.color ?? '#64748B'
+  return TYPE_META[type]?.color ?? '#6B7280'
 }
-function getTypeBg(type: string): string {
-  return TYPE_META[type]?.bg ?? '#F1F5F9'
+export function getTypeBg(type: string): string {
+  return `color-mix(in oklab, ${getTypeColor(type)} 8%, transparent)`
 }
 
 /* ─── next_nodes → xyflow Edges（新路由方式） ─── */
@@ -220,7 +219,6 @@ function makeDerivedEdge(
     selectable: true,
     deletable: true,
     className: hasCondition ? 'workflow-edge--condition' : undefined,
-    labelStyle: hasCondition ? { fill: '#8B5CF6' } : undefined,
   }
 }
 

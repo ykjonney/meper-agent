@@ -1,9 +1,11 @@
 /**
  * WorkflowNodePalette — 左侧拖拽节点面板。
  *
- * Dify 风格：列出所有可添加的节点类型，支持拖拽到 canvas。
- * 展开态：彩色图标 + 名称 + 描述卡片。
- * 收缩态：仅彩色图标（垂直），hover 出 Tooltip 显示名称+描述。
+ * Harness 菜单行语言：36px 行高、8px 圆角、hover 中性灰底（导航 hover
+ * 不用彩色）；icon chip（8% 类型色底）与节点卡同源（node-type-configs
+ * 取色自 canvas-converters.TYPE_META，单一事实源）。
+ * 展开态：icon + 名称 + 右侧弱化描述（单行菜单行）。
+ * 收缩态：仅 icon chip 列 + Tooltip 显示名称+描述。
  * 外层背景/边框由父容器提供，本组件只负责内容。
  */
 import type { DragEvent } from 'react'
@@ -24,7 +26,7 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
     e.dataTransfer.effectAllowed = 'copy'
   }
 
-  // 收缩态：窄列，仅图标，Tooltip 补全名称/描述
+  // 收缩态：窄列，仅 icon chip，Tooltip 补全名称/描述
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-1 py-2">
@@ -35,10 +37,10 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
               <div
                 draggable
                 onDragStart={(e) => handleDragStart(e, type)}
-                className="w-9 h-9 flex items-center justify-center rounded-md cursor-grab active:cursor-grabbing hover:bg-brand-soft transition-colors"
+                className="w-9 h-9 flex items-center justify-center rounded-lg cursor-grab active:cursor-grabbing hover:bg-well transition-colors"
               >
                 <span
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-xs"
+                  className="w-6 h-6 flex items-center justify-center rounded-[7px]"
                   style={{ color: cfg.color, backgroundColor: cfg.bg }}
                 >
                   {cfg.icon}
@@ -52,8 +54,8 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
   }
 
   return (
-    <div className="p-3 overflow-y-auto scrollbar-custom">
-      <div className="space-y-1.5">
+    <div className="px-2 py-2 overflow-y-auto scrollbar-custom">
+      <div className="space-y-0.5">
         {NODE_TYPE_KEYS.map((type) => {
           const cfg = NODE_TYPE_CONFIGS[type]
           return (
@@ -61,20 +63,18 @@ export default function WorkflowNodePalette({ collapsed = false }: WorkflowNodeP
               key={type}
               draggable
               onDragStart={(e) => handleDragStart(e, type)}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-line/60 bg-page cursor-grab active:cursor-grabbing hover:border-brand hover:bg-brand-soft transition-all select-none"
+              className="flex items-center gap-2.5 h-9 px-2 rounded-lg cursor-grab active:cursor-grabbing hover:bg-well transition-colors select-none"
               title={cfg.description}
             >
-              {/* 彩色图标 */}
+              {/* icon chip：与节点卡同源（8% 类型色底 + 彩 icon） */}
               <span
-                className="w-7 h-7 flex items-center justify-center rounded-md text-xs"
+                className="shrink-0 w-6 h-6 flex items-center justify-center rounded-[7px]"
                 style={{ color: cfg.color, backgroundColor: cfg.bg }}
               >
                 {cfg.icon}
               </span>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-ink">{cfg.label}</div>
-                <div className="text-[11px] text-ink-dim truncate">{cfg.description}</div>
-              </div>
+              <span className="text-[12.5px] text-ink truncate">{cfg.label}</span>
+              <span className="ml-auto text-[11px] text-ink-faint truncate">{cfg.description}</span>
             </div>
           )
         })}

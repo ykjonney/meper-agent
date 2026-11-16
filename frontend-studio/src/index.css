@@ -56,6 +56,7 @@
 
   /* ── 阴影 ───────────────────────────────────────────────────── */
   --shadow-card: 0 1px 2px rgb(20 20 25 / 0.04);
+  --shadow-card-hover: 0 2px 8px rgb(20 20 25 / 0.09);
   --shadow-pop: 0 8px 28px rgb(20 20 25 / 0.14);
 
   /* Animation utilities (animate-fade-in / animate-slide-left / thinking 流式) */
@@ -94,6 +95,7 @@
   --color-danger-text: #ef5e63;
 
   --shadow-card: none;
+  --shadow-card-hover: 0 2px 10px rgb(0 0 0 / 0.35);
   --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.45);
 }
 
@@ -119,6 +121,7 @@
   --color-brand-soft: rgb(43 74 158 / 0.08);
 
   --shadow-card: 0 1px 3px rgb(40 50 80 / 0.06);
+  --shadow-card-hover: 0 2px 8px rgb(40 50 80 / 0.11);
   --shadow-pop: 0 8px 28px rgb(30 40 70 / 0.12);
   --shadow-send: 0 2px 8px rgb(43 74 158 / 0.30);
 }
@@ -630,6 +633,22 @@ button:not(:disabled):not(.cursor-not-allowed) {
   overflow: hidden;
 }
 .react-flow__minimap-svg { border-radius: 8px; }
+
+/* 小地图遮罩：token 化（替代 JS 侧 rgba 硬编码，明暗自适应） */
+.react-flow__minimap-mask { fill: color-mix(in oklab, var(--color-ink) 22%, transparent) !important; }
+
+/* 边标签：白底细边胶囊（替代 JS 注入彩色文字），条件/普通边同规格 */
+.react-flow__edge-textbg {
+  fill: var(--color-panel);
+  stroke: var(--color-line-strong);
+  stroke-width: 1;
+  rx: 10;
+}
+.react-flow__edge-text {
+  fill: var(--color-ink-dim);
+  font-size: 10.5px;
+  font-weight: 500;
+}
 
 /* 属性面板（react-flow 内置，本项目未用但防第三方插件弹出白块） */
 .react-flow__panel { margin: 12px; }

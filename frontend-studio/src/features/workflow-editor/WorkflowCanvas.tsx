@@ -368,7 +368,7 @@ export default function WorkflowCanvas({
             const meta = (n.data as unknown as WorkflowNodeData)
             return meta?.typeColor ?? 'var(--color-ink-faint)'
           }}
-          maskColor={'rgba(0,0,0,0.5)'}
+          maskColor="transparent" /* 遮罩改由 index.css .react-flow__minimap-mask token 化 */
           style={{ width: 150, height: 100 }}
         />
         <Background

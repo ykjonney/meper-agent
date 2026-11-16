@@ -495,7 +495,7 @@ export default function AgentNodeConfig({ config, onChange, currentNodeId, allNo
         <button
           type="button"
           onClick={() => setZoomOpen(true)}
-          className="w-full flex items-center gap-1.5 text-left rounded border border-line bg-well px-2 py-1.5 hover:border-[#1E5EFF]/50 transition-colors cursor-pointer"
+          className="w-full flex items-center gap-1.5 text-left rounded border border-line bg-well px-2 py-1.5 hover:border-brand/50 transition-colors cursor-pointer"
         >
           <span className="text-[11px] font-medium text-link">response</span>
           <span className="text-[11px] text-ink-dim truncate">{responseSummary}</span>

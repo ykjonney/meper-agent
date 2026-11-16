@@ -8,7 +8,7 @@
  *
  * antd 组件 → 原生 Tailwind ui 封装；@ant-design/icons → lucide-react。
  */
-import { Input, Tag, Button, Popconfirm } from '../../components/ui'
+import { Input, Popconfirm } from '../../components/ui'
 import { Trash2 } from 'lucide-react'
 import { ListTree } from 'lucide-react'
 import type { WorkflowNode } from '../../services/workflows-api'
@@ -128,20 +128,26 @@ export default function WorkflowNodeConfigPanel({
           <button
             type="button"
             onClick={() => onSelectNode(ownerLoop)}
-            className="mb-2 flex items-center gap-1 text-[11px] text-[#d8b4fe] hover:text-ink cursor-pointer"
+            className="mb-2 flex items-center gap-1 text-[11px] text-link hover:underline cursor-pointer"
           >
             ← 返回循环配置
           </button>
         )}
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: nt?.color }} />
-            <span className="text-sm font-medium text-ink">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* 类型 chip：与节点卡/Palette 同源（8% 类型色底 + 彩 icon） */}
+            <span
+              className="shrink-0 w-6 h-6 rounded-[7px] flex items-center justify-center"
+              style={{ color: nt?.color, backgroundColor: nt?.bg }}
+            >
+              {nt?.icon}
+            </span>
+            <span className="text-sm font-medium text-ink truncate">
               {nt?.label ?? selectedNode.type} 配置
             </span>
             {nt?.description && <HelpHint text={nt.description} />}
           </div>
-          <Tag className="!m-0 !text-[11px]">{selectedNode.node_id}</Tag>
+          <span className="ml-2 shrink-0 font-mono text-[10.5px] text-ink-faint">{selectedNode.node_id}</span>
         </div>
 
         {/* 节点名称（label）：节点级字段，所有类型通用，随保存透传后端 */}
@@ -173,13 +179,16 @@ export default function WorkflowNodeConfigPanel({
               cancelText="取消"
               okButtonProps={{ danger: true }}
             >
-              <Button
-                danger
-                icon={<Trash2 size={12} />}
-                className="w-full"
+              {/* danger-outline 规格：红字红描边、hover 只变底色/边框色 */}
+              <button
+                type="button"
+                className="w-full h-8 rounded-[7px] flex items-center justify-center gap-1.5 text-[12.5px]
+                  border border-sig-fail/45 text-sig-fail
+                  hover:bg-sig-fail/10 hover:border-sig-fail transition-colors cursor-pointer"
               >
+                <Trash2 size={12} />
                 删除节点
-              </Button>
+              </button>
             </Popconfirm>
           </div>
         )}

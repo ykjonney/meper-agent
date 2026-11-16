@@ -1,20 +1,21 @@
 /**
  * WorkflowBaseNode — 通用自定义节点底座。
  *
- * 卡片（Dify/Coze 节奏）：头部 = 28px 类型色淡底圆角图标块（类型识别的
+ * 卡片（Harness 语言）：头部 = 24px 类型色 chip（8% 淡底圆角块，类型识别的
  * 第一要素）+ 节点标题（12.5px semibold；WorkflowNode.label 用户命名 ||
  * 类型名，二选一永不并排）；内容区 = 头部以淡分隔线断开的配置摘要
  * （Agent/工具名、模型、输入变量清单、分支数等）。
  *
  * 样式规范：
- * - 卡体：rounded-[10px] + panel 底 + 卡片阴影；选中态品牌色边框 +
- *   ring 光晕；配置不完整 sig-wait 虚线框 + 角标；循环成员紫边 + 🔁。
+ * - 卡体：rounded-[12px] + panel 底 + 细边框；hover 只加影/边框色（不改布局）；
+ *   选中态 brand 边框 + 3px 10% ring（与表单 focus 同公式）；
+ *   配置不完整 = sig-wait 虚线框 + 头部「未配置」胶囊徽标；循环成员紫边 + 🔁。
  * - 尺寸：宽度按类型固定（180-240px 呼吸感宽度），高度随信息行数自适应。
- * - 连接点：9px 圆点、panel 色描边、hover 放大（index.css react-flow 层）。
+ * - 连接点：9px 圆点、panel 色描边、hover 光圈（index.css react-flow 层）。
  *
  * lucide-react 版本（替换原 @ant-design/icons）。
  */
-import { memo, type ReactNode } from 'react'
+import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
   PlayCircle,
@@ -33,7 +34,7 @@ import { useAgentInfo, useToolNames } from '../agent-info'
 
 type Props = NodeProps & { data: WorkflowNodeData }
 
-/** 节点类型 → 图标组件映射（badge 11px / 循环步骤行 8px 复用同源） */
+/** 节点类型 → 图标组件映射（chip 15px / 循环步骤行 9px 复用同源） */
 const TYPE_ICON_COMPS: Record<string, LucideIcon> = {
   start: PlayCircle,
   end: StopCircle,
@@ -44,10 +45,6 @@ const TYPE_ICON_COMPS: Record<string, LucideIcon> = {
   human: UserCheck,
   loop: Repeat,
 }
-
-const TYPE_ICONS: Record<string, ReactNode> = Object.fromEntries(
-  Object.entries(TYPE_ICON_COMPS).map(([k, C]) => [k, <C key={k} size={11} strokeWidth={2} />]),
-)
 
 /** 节点类型 → 类别名（上行固定展示） */
 const TYPE_NAMES: Record<string, string> = {
@@ -73,6 +70,8 @@ const TYPE_WIDTH: Record<string, number> = {
   human: 170,
   loop: 200,
 }
+
+/** 循环体/成员统一紫色（= canvas-converters loop 类型色，收敛版） */
 
 /** 信息区单行（text 必填时可带红色 * 标记；循环步骤行带节点类型小图标） */
 interface InfoRow {
@@ -232,11 +231,11 @@ function isIncomplete(type: string, config: Record<string, unknown>): boolean {
 }
 
 function WorkflowBaseNode({ data, selected }: Props) {
-  const { typeColor, workflowNode } = data
+  const { typeColor, typeBg, workflowNode } = data
   const nodeType = workflowNode.type
   const isStart = nodeType === 'start'
   const isEnd = nodeType === 'end'
-  const icon = TYPE_ICONS[nodeType]
+  const ChipIcon = TYPE_ICON_COMPS[nodeType]
   const typeName = TYPE_NAMES[nodeType] ?? nodeType
   const size = TYPE_WIDTH[nodeType] ?? 130
   const agentInfoMap = useAgentInfo()
@@ -248,15 +247,8 @@ function WorkflowBaseNode({ data, selected }: Props) {
   )
   const incomplete = isIncomplete(nodeType, workflowNode.config as Record<string, unknown>)
 
-  // 左侧 accent 色随状态让位：选中 > 配置不完整 > 循环成员紫 > 类型色。
+  // 循环成员紫边（循环体标识）；hover 只加影和边框色，不改尺寸布局。
   const inLoop = !!data.isInLoop
-  const accentColor = selected
-    ? 'var(--color-brand)'
-    : incomplete
-      ? 'var(--color-sig-wait)'
-      : inLoop
-        ? '#A855F7'
-        : typeColor
   // hover 全文：主标题 + 各摘要行（必带回退类型名，与卡片所见一致）
   const hoverText = [nodeLabel || typeName, ...rows.map((r) => `${r.text}${r.required ? ' *' : ''}`)]
     .join('\n')
@@ -264,62 +256,53 @@ function WorkflowBaseNode({ data, selected }: Props) {
   return (
     <div
       className={`
-        relative rounded-[10px] bg-panel shadow-[var(--shadow-card)] border transition-all duration-150 cursor-pointer
+        relative rounded-[12px] bg-panel border transition-[border-color,box-shadow] duration-150 cursor-pointer
+        shadow-[var(--shadow-card)] hover:border-line-strong hover:shadow-[var(--shadow-card-hover)]
         ${selected
-          ? 'border-brand ring-[3px] ring-brand/10 shadow-md'
+          ? 'border-brand ring-[3px] ring-brand/10'
           : incomplete
-            ? 'border-sig-wait border-dashed hover:shadow-md'
+            ? 'border-sig-wait border-dashed'
             : inLoop
-              ? 'border-[#A855F7]/50 hover:shadow-md'
-              : 'border-line hover:shadow-md'}
+              ? 'border-[#9A6FC9]/50'
+              : 'border-line'}
       `}
       style={{ width: size }}
     >
-      {/* 配置不完整角标 */}
-      {incomplete && (
-        <span
-          title="配置不完整：缺少必填项（如未选择 Agent），执行前校验会拦截"
-          className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-sig-wait border-2 border-panel"
-        />
-      )}
-      {/* 循环体成员角标（🔁 左上，与 loop 节点同紫色） */}
-      {inLoop && !incomplete && (
-        <span
-          title="循环节点成员（每轮执行）"
-          className="absolute -top-2.5 -left-2 text-[11px] leading-none"
-        >
-          <Repeat size={11} className="text-sig-wait" />
-        </span>
-      )}
-      {/* 头部：28px 类型色淡底图标块 + 标题（12.5px semibold，Dify/Coze 节奏）。
-          主标题 = 节点名称 || 类型名（二选一，永不并排）；类型识别靠图标色。
+      {/* 头部：24px 类型色 chip（8% 淡底 + 彩 icon）+ 标题（12.5px semibold）。
+          类型识别靠 chip；不完整时右侧 warn 胶囊徽标（8% 底 + 25% 描边公式）。
           leading-tight 防 "g" 等字母下伸部被裁。 */}
-      <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1">
-        <div
-          className="shrink-0 w-5 h-5 flex items-center justify-center [&>svg]:w-[17px] [&>svg]:h-[17px]"
-          style={{ color: typeColor }}
+      <div className="flex items-center gap-2 px-2.5 pt-2 pb-1.5">
+        <span
+          className="shrink-0 w-6 h-6 rounded-[7px] flex items-center justify-center"
+          style={{ color: typeColor, backgroundColor: typeBg }}
         >
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1 text-[11.5px] font-semibold text-ink truncate leading-tight" title={hoverText}>
+          {ChipIcon && <ChipIcon size={14} strokeWidth={2} />}
+        </span>
+        <div className="min-w-0 flex-1 text-[12.5px] font-semibold text-ink truncate leading-tight" title={hoverText}>
           {nodeLabel || typeName}
         </div>
-        {accentColor !== typeColor && !selected && (
+        {incomplete && (
           <span
-            className="shrink-0 w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: accentColor }}
-            title={incomplete ? '配置不完整' : '循环节点成员'}
-          />
+            title="配置不完整：缺少必填项（如未选择 Agent），执行前校验会拦截"
+            className="shrink-0 inline-flex items-center h-5 px-2 rounded-full text-[11px] leading-none
+              bg-sig-wait/10 border border-sig-wait/25 text-sig-wait"
+          >
+            未配置
+          </span>
+        )}
+        {/* 循环体成员标记（🔁 与 loop 节点同紫色） */}
+        {inLoop && !incomplete && (
+          <Repeat size={11} className="shrink-0 text-[#9A6FC9]" />
         )}
       </div>
 
-      {/* 内容摘要区：与头部以淡分隔线断开（Dify 内容区节奏） */}
+      {/* 内容摘要区：与头部以淡分隔线断开 */}
       {rows.length > 0 && (
-        <div className="border-t border-line/70 px-2 pb-1.5 pt-1 space-y-0.5">
+        <div className="border-t border-line/70 px-2.5 pb-2 pt-1.5 space-y-0.5">
           {rows.map((row, i) => {
             const StepIcon = row.iconType ? TYPE_ICON_COMPS[row.iconType] : null
             return (
-              <div key={i} className="flex items-center gap-1 leading-snug">
+              <div key={i} className="flex items-center gap-1.5 leading-snug">
                 {StepIcon && (
                   <StepIcon
                     size={9}
@@ -340,8 +323,8 @@ function WorkflowBaseNode({ data, selected }: Props) {
         </div>
       )}
 
-      {/* Source Handle — End 节点隐藏（9px 圆点，panel 白底 + 类型色描边，
-          hover 放大见 index.css react-flow 主题层） */}
+      {/* Source Handle — End 节点隐藏（9px 圆点，panel 白底 + 类型色，
+          hover 光圈见 index.css react-flow 主题层） */}
       {!isEnd && (
         <Handle
           type="source"
