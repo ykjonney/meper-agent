@@ -1143,7 +1143,8 @@ function renderProcessItems(
 
 /** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
  *  点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。 */
-function ActivityCard({ durationLabel, children }: {
+function ActivityCard({ toolCount, durationLabel, children }: {
+  toolCount: number
   durationLabel?: string
   children: ReactNode
 }) {
@@ -1160,8 +1161,11 @@ function ActivityCard({ durationLabel, children }: {
           <CheckOutlined />
         </span>
         <span className="activity-title">已完成</span>
-        {/* v7.1：外壳只显示状态 + 用时——工具数在内部合并行表达 */}
-        {durationLabel ? <span className="activity-meta">{durationLabel}</span> : null}
+        {/* 外壳承载「执行了 N 个工具」——内部因此直接显示命令，不再重复统计 */}
+        <span className="activity-meta">
+          {toolCount > 0 ? <span className="meta-seg">执行了 {toolCount} 个工具</span> : null}
+          {durationLabel ? <span className="meta-dur">{durationLabel}</span> : null}
+        </span>
       </div>
       {open ? <div className="activity-body">{children}</div> : null}
     </div>
@@ -1242,7 +1246,7 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
           点击展开内部过程——执行段合并行「执行了 x 个工具」（含思考）/ 中间叙述文本平铺。
           流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达当前阶段）。 */}
       {activityBlocks.length > 0 ? (
-        <ActivityCard durationLabel={durationLabel}>
+        <ActivityCard toolCount={activityToolCount} durationLabel={durationLabel}>
           {toFlatSegments(activityBlocks).map((seg, index) => {
             if (seg.kind === 'text') {
               return <Markdown key={`flat:${index}`}>{seg.text}</Markdown>
