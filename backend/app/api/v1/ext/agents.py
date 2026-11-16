@@ -426,6 +426,7 @@ async def get_session_detail(
                 display_text=msg.get("display_text", ""),
                 timeline_entries=msg.get("timeline_entries", []),
                 created_at=msg.get("created_at", ""),
+                token_usage=msg.get("token_usage"),
                 files=files,
             )
         )

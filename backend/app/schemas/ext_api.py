@@ -235,6 +235,10 @@ class ExtMessageResponse(BaseModel):
     display_text: str = Field(default="", description="展示文案（快捷指令 label）；空则前端回退 content")
     timeline_entries: list[dict] = Field(default_factory=list)
     created_at: str
+    token_usage: dict | None = Field(
+        default=None,
+        description="本轮 token/耗时统计（llm_duration/tool_duration 秒）——前端过程卡「已完成 · 用时X」数据源",
+    )
     files: list[FileRefResponse] | None = Field(
         default=None,
         description="用户消息携带的上传文件详情（由 file_ids 水合）；无附件时为 None",

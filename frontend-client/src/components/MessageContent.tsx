@@ -523,11 +523,15 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   // 节点始终按各自状态着色。
   const cls = isRunning ? 'running' : hasError ? 'error' : 'complete'
 
-  // 摘要文案
+  // 摘要文案：running 时「N/M 完成 · 动词 参数摘要」——detail 截断防长命令
+  // 撑爆摘要行；不再叠加「正在执行」（spinner 已表达进行中，双动词冗余）。
+  const runningVerb = running.length === 1 ? toolSummary(running[0].name, running[0].args).verb : ''
+  const runningDetail = running.length === 1 ? toolSummary(running[0].name, running[0].args).detail : ''
+  const runningShort = runningDetail.length > 36 ? `${runningDetail.slice(0, 36)}…` : runningDetail
   const summary = isRunning
     ? running.length === 1
-      ? `${completedCount}/${tools.length} 完成 · 正在执行 ${toolSummaryText(running[0].name, running[0].args)}...`
-      : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具...`
+      ? `${completedCount}/${tools.length} 完成 · ${runningVerb}${runningShort ? ` ${runningShort}` : ''}`
+      : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具`
     : `使用了 ${tools.length} 个工具`
 
   return (
