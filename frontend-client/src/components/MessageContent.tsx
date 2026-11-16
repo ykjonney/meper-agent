@@ -498,7 +498,7 @@ function toolSummary(name: string, argsJson?: string): { verb: string; detail: s
   if (name === 'todo_write')
     return { verb: '更新任务清单', detail: '' }
   // MCP 工具名剥掉 mcp__<server>__ 前缀（未映射工具的可读化兜底）
-  return { verb: name.replace(/^mcp__[^_]+__/, '') || '调用工具', detail: '' }
+  return { verb: name.replace(/^mcp__.+?__/, '') || '调用工具', detail: '' }
 }
 
 /** 改写摘要单行：「动词 · 关键参数」（detail 为空则只返回动词）。 */

@@ -1286,7 +1286,7 @@ textarea {
   white-space: nowrap;
 }
 .process-group-body {
-  padding: 4px 0;
+  padding: 4px 0 6px 20px;
   border-top: 1px solid var(--client-border);
 }
 
@@ -1402,6 +1402,10 @@ textarea {
 }
 
 /* ── 工具直接行（v7.1 终稿）：内部工具逐行直接显示命令，批合并行可展开 ── */
+.tool-line .tool-timeline-node-name {
+  flex: 1;
+  min-width: 0;
+}
 .tool-line-row {
   display: flex;
   width: 100%;
@@ -1419,6 +1423,11 @@ textarea {
 
 .tool-line-row:hover {
   background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
+}
+
+.tool-line + .reasoning-panel,
+.reasoning-panel + .tool-line {
+  margin-top: 1px;
 }
 
 .tool-line-batch-label {
