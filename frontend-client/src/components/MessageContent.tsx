@@ -987,6 +987,36 @@ interface MessageContentProps {
 }
 
 
+/** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
+ *  点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。 */
+function ActivityCard({ toolCount, durationLabel, children }: {
+  toolCount: number
+  durationLabel?: string
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="activity-card">
+      <div
+        className="activity-card-head"
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="activity-dot is-done">
+          <CheckOutlined />
+        </span>
+        <span className="activity-title">已完成</span>
+        <span className="activity-meta">
+          {toolCount > 0 ? <span className="meta-seg">执行了 {toolCount} 个工具</span> : null}
+          {durationLabel ? <span className="meta-dur">{durationLabel}</span> : null}
+        </span>
+      </div>
+      {open ? <div className="activity-body">{children}</div> : null}
+    </div>
+  )
+}
+
 export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenerate }: MessageContentProps) {
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
@@ -1057,19 +1087,14 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {/* 消息级状态行（v6.3，主人演示定稿）：「✓ 已完成 · 用时」独立一行在顶部，
-          与工具组折叠条分离——不再包卡。执行中不渲染（工具组摘要自表达进行中）。 */}
-      {message.status !== 'loading' && durationLabel ? (
-        <div className="msg-status-line">
-          <CheckOutlined />
-          <span>已完成 · {durationLabel}</span>
-        </div>
+      {/* v7.1 外壳（主人定稿）：「✓ 已完成 · 执行了 N 个工具 · 用时」最外部唯一一行，
+          点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。
+          流式中不渲染外壳（过程平铺可见，工具组摘要实时表达当前阶段）。 */}
+      {activityBlocks.length > 0 ? (
+        <ActivityCard toolCount={activityToolCount} durationLabel={durationLabel}>
+          {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
+        </ActivityCard>
       ) : null}
-      {/* 过程段平铺（主人演示定稿）：思考折叠行 / 工具组折叠条 / 中间叙述文本
-          按原始顺序散布在流里，工具组折叠条点开即执行细节 */}
-      {activityBlocks.length > 0
-        ? toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))
-        : null}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
         <div
