@@ -2855,3 +2855,80 @@ textarea {
 }
 
 /* ════════ 过程折叠卡（对齐 studio 过程卡形态） ════════ */
+.activity-card {
+  border: 1px solid var(--client-border);
+  border-radius: 12px;
+  background: var(--client-surface);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.activity-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.activity-card-head:active {
+  background: var(--client-surface-muted);
+}
+.activity-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+.activity-dot .anticon {
+  font-size: 8px;
+}
+.activity-chev {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  color: var(--client-text-muted);
+}
+.activity-dot.is-done {
+  background: var(--client-surface-muted);
+  color: var(--client-text-faint);
+}
+.activity-dot.is-running {
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
+}
+.activity-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--client-text);
+}
+/* 摘要行右侧 mono 元信息（v5：「2 次工具调用」） */
+.activity-meta {
+  margin-left: auto;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.activity-state {
+  font-size: 10.5px;
+  margin-left: auto;
+}
+.activity-state.is-done {
+  color: var(--client-text-muted);
+}
+.activity-state.is-running {
+  color: var(--client-accent);
+}
+.activity-chev {
+  font-size: 10px;
+  color: var(--client-text-muted);
+}
+.activity-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--client-border);
+  background: var(--client-bg);
+}
