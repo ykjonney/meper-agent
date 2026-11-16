@@ -93,6 +93,7 @@ export function toStudioAgent(a: BackendAgent): Agent {
     lastActive: a.updated_at ? new Date(a.updated_at).toLocaleString() : '—',
     maxRetry: a.max_retry ?? 3,
     maxTokens: a.max_tokens ?? 0,
+    version: a.version ?? 1,
   }
 }
 

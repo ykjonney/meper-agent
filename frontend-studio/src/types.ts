@@ -28,6 +28,8 @@ export interface Agent {
   maxRetry?: number;
   /** Session token budget (backend max_tokens; 0 = use global default). */
   maxTokens?: number;
+  /** 线上配置版本号（草稿制：published 编辑写草稿层，publish 合并时 +1） */
+  version?: number;
 }
 
 export interface Skill {

@@ -50,6 +50,10 @@ export interface Agent {
   /** Session token budget (0 = use global DEFAULT_SESSION_MAX_TOKENS). */
   max_tokens: number
   status: AgentStatus
+  /** 配置版本号（draft 编辑不动，publish 合并草稿时 +1） */
+  version: number
+  /** 草稿层（仅 published agent）：未发布的修改，publish 时合并生效 */
+  draft: Partial<Omit<Agent, 'id' | 'status' | 'version' | 'created_at' | 'updated_at'>> | null
   created_at: string
   updated_at: string
 }
@@ -343,7 +347,7 @@ export const agentApi = {
 
   /**
    * Update an agent (full PUT).
-   * Published agents are immutable — returns 409 if agent is published.
+   * Published agents：写入草稿层（publish 时合并生效）；draft/archived：直写顶层。
    * PUT /api/v1/agents/{id}
    */
   async update(agentId: string, input: AgentUpdateInput): Promise<Agent> {

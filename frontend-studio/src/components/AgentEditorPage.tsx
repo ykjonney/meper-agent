@@ -5,6 +5,10 @@
  * 基本信息 / Prompt 配置 / 执行参数 / 工具绑定. Loaded from a single agent
  * detail query; saves via PUT. Publish/archive actions in the header.
  *
+ * 草稿制（对齐 Dify/n8n）：published agent 的编辑写入草稿层（表单呈现 draft
+ * 优先）——「保存」只存草稿，「发布」合并草稿为新的线上版（version+1）；
+ * 「归档」下架并把未发布草稿合并回可编辑层。draft/archived 状态下保存直写顶层。
+ *
  * Used for both editing existing agents and completing a freshly-created one
  * (backend POST only takes name+description, so the editor fills the rest).
  */
@@ -59,6 +63,8 @@ export function AgentEditorPage({
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Agent | null>(null);
+  // 表单是否有未保存改动（published 的发布按钮门控：有草稿或 dirty 才可发布）
+  const [dirty, setDirty] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: agentKeys.detail(agentId),
@@ -66,8 +72,13 @@ export function AgentEditorPage({
   });
 
   // Sync remote data into the local form once loaded.
+  // 草稿制：published 且存在草稿层时，表单呈现草稿内容（编辑作用于草稿，
+  // 线上版在 publish 合并前不受影响）——顶层字段被 draft 覆盖。
   useEffect(() => {
-    if (data) setForm(toStudioAgent(data));
+    if (data) {
+      setForm(toStudioAgent(data.draft ? { ...data, ...data.draft } : data));
+      setDirty(false);
+    }
   }, [data]);
 
   // Tool-binding + model data sources.
@@ -157,17 +168,19 @@ export function AgentEditorPage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
       refetch();
-      // 统一 Toast 反馈（替代旧的 savedMsg 临时横幅），然后交回父级跳转。
-      toast.success('配置已保存');
+      // 草稿制：published 保存的是草稿层——明确「发布后生效」，防「保存了怎么没生效」困惑
+      toast.success(form?.status === 'online' ? '草稿已保存——发布后生效' : '配置已保存');
+      setDirty(false);
       if (onSaved) onSaved(agentId);
     },
   });
 
   const publishM = useMutation({
     mutationFn: () => agentApi.publish(agentId),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('已发布');
+      refetch();
+      toast.success(`已发布——线上 v${updated?.version ?? '?'}`);
     },
   });
 
@@ -252,8 +265,8 @@ export function AgentEditorPage({
     updateM.mutate(fromStudioAgent(form));
   };
 
-  // 发布/归档前先落库当前表单：状态变更必须作用在用户眼前的版本上——
-  // 否则会出现「发布成功但修改没保存」（发布后不可变，无法补救）。
+  // 发布/归档前先保存当前表单（published → 写草稿层；draft/archived → 写顶层）：
+  // 状态变更必须作用在用户眼前的版本上，未保存的修改不丢。
   const handleStateAction = async (mutate: () => void) => {
     if (!form) return;
     if (!form.systemPrompt?.trim()) {
@@ -266,6 +279,7 @@ export function AgentEditorPage({
       toast.error('保存修改失败，操作已取消');
       return;
     }
+    setDirty(false);
     queryClient.invalidateQueries({ queryKey: agentKeys.all });
     mutate();
   };
@@ -279,7 +293,13 @@ export function AgentEditorPage({
   }
 
   const isPublished = form.status === 'online';
-  const set = (patch: Partial<Agent>) => setForm({ ...form, ...patch });
+  // 草稿层存在 = 有待发布修改（后端 publish 合并）；本会话表单改动未保存时也允许发布
+  const hasDraft = !!data?.draft;
+  const canPublish = isPublished ? hasDraft || dirty : true;
+  const set = (patch: Partial<Agent>) => {
+    setForm({ ...form, ...patch });
+    setDirty(true);
+  };
 
   // ── 推荐项（快捷输入）操作 ──
   const recommendedItems = form.recommendedItems ?? [];
@@ -700,7 +720,10 @@ export function AgentEditorPage({
           />
         </div>
         {isPublished && (
-          <span className="af-pill af-pill-ok shrink-0">已发布</span>
+          <span className="af-pill af-pill-ok shrink-0">线上 v{form.version ?? 1}</span>
+        )}
+        {isPublished && (hasDraft || dirty) && (
+          <span className="af-pill af-pill-wait shrink-0">有未发布修改</span>
         )}
         {!isPublished && form?.name && (
           <span className="af-pill af-pill-wait shrink-0">未发布</span>
@@ -718,14 +741,26 @@ export function AgentEditorPage({
           {updateM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '保存'}
         </button>
         {isPublished ? (
-          <button
-            onClick={() => handleStateAction(() => archiveM.mutate())}
-            disabled={archiveM.isPending}
-            className="af-btn af-btn-ghost border border-line disabled:opacity-60"
-          >
-            {archiveM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
-            归档
-          </button>
+          <>
+            <button
+              onClick={() => { if (confirm('归档将下架该 Agent——子代理、工作流与外部 API 将无法再调用它。未发布的草稿修改会保留到可编辑层。确定归档？')) { handleStateAction(() => archiveM.mutate()); } }}
+              disabled={archiveM.isPending}
+              className="af-btn af-btn-ghost border border-line disabled:opacity-60"
+              title="下架并解锁编辑"
+            >
+              {archiveM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+              归档
+            </button>
+            <button
+              onClick={() => handleStateAction(() => publishM.mutate())}
+              disabled={!canPublish || publishM.isPending}
+              className="af-btn af-btn-primary disabled:opacity-60"
+              title={canPublish ? '将当前草稿发布为新线上版本' : '无待发布修改——修改内容并保存草稿后可发布'}
+            >
+              {publishM.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+              发布
+            </button>
+          </>
         ) : (
           <button
             onClick={() => handleStateAction(() => publishM.mutate())}
