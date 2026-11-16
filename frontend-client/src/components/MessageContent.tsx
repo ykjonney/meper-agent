@@ -84,6 +84,43 @@ function toRenderSegments(blocks: ContentBlock[]): RenderSegment[] {
   return segments
 }
 
+/** ── v7.1 过程段聚合（主人定稿）：
+ *  连续的 thinking/tool 块（无 text 隔断）= 一个执行段，合并为
+ *  「执行了 x 个工具」一行（含思考——展开看段内思考折叠行 + 每工具明细）。
+ *  例外：段内只有 thinking 无 tool → 不出合并行，只显示思考行本身。 */
+type FlatSegment =
+  | { kind: 'text'; text: string }
+  | {
+      kind: 'process'
+      items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>
+    }
+
+function toFlatSegments(blocks: ContentBlock[]): FlatSegment[] {
+  const segs: FlatSegment[] = []
+  let buf: Extract<FlatSegment, { kind: 'process' }> | null = null
+  const flush = () => {
+    if (buf) {
+      segs.push(buf)
+      buf = null
+    }
+  }
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      flush()
+      segs.push({ kind: 'text', text: block.text })
+      continue
+    }
+    const item =
+      block.type === 'reasoning'
+        ? ({ type: 'thinking', text: block.text } as const)
+        : ({ type: 'tool', tool: block.tool } as const)
+    if (!buf) buf = { kind: 'process', items: [item] }
+    else buf.items.push(item)
+  }
+  flush()
+  return segs
+}
+
 /** 共享的 react-markdown components 配置(无光标)。 */
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ href, children: label }) => (
@@ -987,10 +1024,69 @@ interface MessageContentProps {
 }
 
 
+/** 执行段合并行（v7.1）：一个执行段（连续 thinking+tool）= 一行
+ *  「执行了 x 个工具」（含思考），点击展开段内思考折叠行 + 每工具明细。 */
+function ProcessGroup({ items, onOpenTaskBoard }: {
+  items: Extract<FlatSegment, { kind: 'process' }>['items']
+  onOpenTaskBoard?: (taskId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const tools = items.filter((i): i is Extract<typeof items[number], { type: 'tool' }> => i.type === 'tool').map((i) => i.tool)
+  const running = tools.some((t) => t.status === 'running')
+  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
+  // 展开区：按原始顺序渲染（连续 tool 聚合组，thinking 独立折叠行）
+  const renderBody = () => {
+    const body: ReactNode[] = []
+    let toolBuf: ToolRun[] = []
+    let k = 0
+    const flushBuf = () => {
+      if (!toolBuf.length) return
+      for (const g of groupTools(toolBuf)) {
+        body.push(
+          g.kind === 'single' ? (
+            <ToolResult key={`pg-tool:${k++}`} tool={g.tool} onOpenTaskBoard={onOpenTaskBoard} />
+          ) : (
+            <ToolRunsGroup key={`pg-group:${k++}`} tools={g.tools} />
+          ),
+        )
+      }
+      toolBuf = []
+    }
+    for (const [i, item] of items.entries()) {
+      if (item.type === 'tool') {
+        toolBuf.push(item.tool)
+        continue
+      }
+      flushBuf()
+      body.push(<ReasoningPanel key={`pg-think:${i}`} text={item.text} streaming={false} />)
+    }
+    flushBuf()
+    return body
+  }
+  return (
+    <div className="process-group">
+      <div
+        className="process-group-head"
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        tabIndex={0}
+      >
+        <span className={`activity-dot ${running ? 'is-running' : 'is-done'}`}>
+          {running ? <LoadingOutlined /> : <CheckOutlined />}
+        </span>
+        <span className="process-group-title">执行了 {tools.length} 个工具</span>
+        {durSum > 0 ? (
+          <span className="process-group-dur">{(durSum / 1000).toFixed(1)}s</span>
+        ) : null}
+      </div>
+      {open ? <div className="process-group-body">{renderBody()}</div> : null}
+    </div>
+  )
+}
+
 /** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
  *  点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。 */
-function ActivityCard({ toolCount, durationLabel, children }: {
-  toolCount: number
+function ActivityCard({ durationLabel, children }: {
   durationLabel?: string
   children: ReactNode
 }) {
@@ -1007,10 +1103,8 @@ function ActivityCard({ toolCount, durationLabel, children }: {
           <CheckOutlined />
         </span>
         <span className="activity-title">已完成</span>
-        <span className="activity-meta">
-          {toolCount > 0 ? <span className="meta-seg">执行了 {toolCount} 个工具</span> : null}
-          {durationLabel ? <span className="meta-dur">{durationLabel}</span> : null}
-        </span>
+        {/* v7.1：外壳只显示状态 + 用时——工具数在内部合并行表达 */}
+        {durationLabel ? <span className="activity-meta">{durationLabel}</span> : null}
       </div>
       {open ? <div className="activity-body">{children}</div> : null}
     </div>
@@ -1087,12 +1181,30 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {/* v7.1 外壳（主人定稿）：「✓ 已完成 · 执行了 N 个工具 · 用时」最外部唯一一行，
-          点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。
-          流式中不渲染外壳（过程平铺可见，工具组摘要实时表达当前阶段）。 */}
+      {/* v7.1 外壳（主人定稿）：「✓ 已完成 · 用时」最外部唯一一行（不显示工具数），
+          点击展开内部过程——执行段合并行「执行了 x 个工具」（含思考）/ 中间叙述文本平铺。
+          流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达当前阶段）。 */}
       {activityBlocks.length > 0 ? (
-        <ActivityCard toolCount={activityToolCount} durationLabel={durationLabel}>
-          {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
+        <ActivityCard durationLabel={durationLabel}>
+          {toFlatSegments(activityBlocks).map((seg, index) => {
+            if (seg.kind === 'text') {
+              return <Markdown key={`flat:${index}`}>{seg.text}</Markdown>
+            }
+            // 纯思考段（无工具）：不出合并行，只显示思考行（「只有一个思考」例外）
+            const hasTool = seg.items.some((i) => i.type === 'tool')
+            if (!hasTool) {
+              return (
+                <div key={`flat:${index}`}>
+                  {seg.items.map((item, i) =>
+                    item.type === 'thinking' ? (
+                      <ReasoningPanel key={`flat-think:${index}:${i}`} text={item.text} streaming={false} />
+                    ) : null,
+                  )}
+                </div>
+              )
+            }
+            return <ProcessGroup key={`flat:${index}`} items={seg.items} onOpenTaskBoard={onOpenTaskBoard} />
+          })}
         </ActivityCard>
       ) : null}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
