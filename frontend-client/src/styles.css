@@ -2139,9 +2139,10 @@ textarea {
 }
 
 /* ── 确认纸卡（v5 signature：白卡+琥珀发丝线+mono徽章+印章主选项）──
-   四种 HITL 形态（授权/工作流确认/风险确认/澄清）共用同一纸壳。 */
+   四种 HITL 形态（授权/工作流确认/风险确认/澄清）共用同一纸壳。
+   左缩进 33px = 消息头像位（24 + gap 9）——与 agent 书写文本列同宽对齐。 */
 .hitl-paper {
-  margin: 10px 0;
+  margin: 10px 0 10px 33px;
   overflow: hidden;
   border: 1px solid var(--client-border);
   border-radius: 12px;

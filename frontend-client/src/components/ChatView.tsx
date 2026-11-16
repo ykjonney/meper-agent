@@ -878,24 +878,25 @@ export function ChatView({
                       <div className="hitl-paper-ctx">{hitl.context}</div>
                     ) : null}
                     {hitl.fields && hitl.fields.length > 0 ? (
-                      <>
-                        <ClarificationFormCard
-                          question=""
-                          context={hitl.context}
-                          fields={hitl.fields}
-                          answered={false}
-                          result={undefined}
-                          onSubmit={(jsonStr) => submitClarification(jsonStr)}
-                        />
-                        <button
-                          type="button"
-                          className="hitl-paper-skip"
-                          disabled={running}
-                          onClick={() => void dismissClarification()}
-                        >
-                          忽略此问题，直接重新输入
-                        </button>
-                      </>
+                      <ClarificationFormCard
+                        question=""
+                        context={hitl.context}
+                        fields={hitl.fields}
+                        answered={false}
+                        result={undefined}
+                        onSubmit={(jsonStr) => submitClarification(jsonStr)}
+                        footerExtra={
+                          <button
+                            type="button"
+                            className="hitl-paper-skip"
+                            style={{ marginTop: 0 }}
+                            disabled={running}
+                            onClick={() => void dismissClarification()}
+                          >
+                            忽略
+                          </button>
+                        }
+                      />
                     ) : (
                       <>
                         {hitl.options.length > 0 ? (

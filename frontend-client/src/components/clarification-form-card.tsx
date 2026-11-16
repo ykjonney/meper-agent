@@ -14,7 +14,7 @@
  * 用 client 原生 CSS（不依赖 Tailwind）。
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Input, InputNumber, Button } from 'antd'
 import { LeftOutlined, SendOutlined } from '@ant-design/icons'
 
@@ -35,9 +35,11 @@ interface ClarificationFormCardProps {
   answered: boolean
   result?: string
   onSubmit: (jsonStr: string) => void
+  /** 追加到按钮行（提交左侧）的次要动作——如「忽略」，与提交同排 */
+  footerExtra?: ReactNode
 }
 
-export function ClarificationFormCard({ question, context, fields, answered, result, onSubmit }: ClarificationFormCardProps) {
+export function ClarificationFormCard({ question, context, fields, answered, result, onSubmit, footerExtra }: ClarificationFormCardProps) {
   // 已答态：渲染摘要
   if (answered) {
     let parsed: Record<string, unknown> = {}
@@ -206,6 +208,7 @@ export function ClarificationFormCard({ question, context, fields, answered, res
         {!field.required && (
           <Button type="text" onClick={handleSkip}>跳过此题</Button>
         )}
+        {footerExtra}
         <Button
           type="primary"
           icon={isLast ? <SendOutlined /> : undefined}
