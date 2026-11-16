@@ -62,7 +62,7 @@ export function LoginPage() {
             <Typography.Title
               id="login-title"
               level={2}
-              style={{ fontFamily: 'Georgia, "Songti SC", "STSong", serif', fontStyle: 'italic', marginBottom: 0 }}
+              style={{ fontFamily: 'Georgia, "Songti SC", "STSong", serif', marginBottom: 0 }}
             >
               MEPER Agent
             </Typography.Title>

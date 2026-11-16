@@ -229,7 +229,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
     ['completed', 'failed', 'task_failed', 'cancelled'].includes(e.event_type))
 
   if (stages.length === 0 && !createdEvt) {
-    return <div className="text-xs text-ink-dim italic">暂无执行事件</div>
+    return <div className="text-xs text-ink-dim">暂无执行事件</div>
   }
 
   const mutedText = 'text-ink-dim'
@@ -369,7 +369,7 @@ export function TaskFlowTimeline({ task, theme = 'dark', resolveTemplateId }: Ta
                   <div>
                     <div className={`text-[11px] uppercase tracking-wider mb-1 ${mutedText}`}>节点输出</div>
                     {output === undefined ? (
-                      <div className={`text-[11px] italic ${mutedText}`}>无</div>
+                      <div className={`text-[11px] ${mutedText}`}>无</div>
                     ) : (
                       <div className="rounded-lg bg-well p-2.5">
                         <DataView value={output} context="node_output" nodeType={stage.nodeType} showRaw={false} />
@@ -630,7 +630,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
           <Spin />
         </div>
       ) : error ? (
-        <div className={`text-[11px] italic text-ink-dim`}>
+        <div className={`text-[11px] text-ink-dim`}>
           {is404 ? '该节点暂无执行记录' : `加载失败：${errAny?.message ?? '请稍后重试'}`}
         </div>
       ) : nodeTimeline?.timeline?.length ? (
@@ -641,7 +641,7 @@ function NodeAgentTrace({ taskId, nodeId, theme }: { taskId: string; nodeId: str
           <AgentTimeline entries={nodeTimeline.timeline} theme={theme} />
         </div>
       ) : (
-        <div className={`text-[11px] italic ${mutedText}`}>该节点暂无执行记录</div>
+        <div className={`text-[11px] ${mutedText}`}>该节点暂无执行记录</div>
       ))}
     </div>
   )

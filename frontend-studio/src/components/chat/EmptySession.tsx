@@ -27,7 +27,7 @@ export function EmptySession({
   return (
     <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-10 pb-8">
       <p className="text-[10px] text-ink-faint tracking-[.22em] mb-4 font-semibold">NEW SESSION</p>
-      <div className="text-[21px] font-bold text-ink mb-7" style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}>
+      <div className="text-[21px] font-bold text-ink mb-7" style={{ fontFamily: 'var(--font-serif)' }}>
         今天想完成什么？
       </div>
       <div className="w-full max-w-[680px]">

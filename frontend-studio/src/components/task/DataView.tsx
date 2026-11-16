@@ -155,7 +155,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
 
   // 5. 数组
   if (Array.isArray(value)) {
-    if (ancestors.includes(value)) return <span className="text-ink-dim italic text-[11px]">[循环引用]</span>
+    if (ancestors.includes(value)) return <span className="text-ink-dim text-[11px]">[循环引用]</span>
     if (value.length === 0) return <EmptyState text="空数组" />
     // 同质原始值 → 标签组
     if (isHomogeneousPrimitiveArray(value)) {
@@ -182,7 +182,7 @@ function RenderNode({ value, fieldKey, context, nodeType, depth, ancestors }: Re
 
   // 6. 对象
   if (isPlainObject(value)) {
-    if (ancestors.includes(value)) return <span className="text-ink-dim italic text-[11px]">[循环引用]</span>
+    if (ancestors.includes(value)) return <span className="text-ink-dim text-[11px]">[循环引用]</span>
     const entries = Object.entries(value)
     if (entries.length === 0) return <EmptyState text="空对象" />
     return (
@@ -472,7 +472,7 @@ function TagList({ items }: { items: (string | number | boolean)[] }) {
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <span className="text-ink-dim italic text-[11px]">{text}</span>
+  return <span className="text-ink-dim text-[11px]">{text}</span>
 }
 
 /** 超出 MAX_DEPTH 的折叠占位 */
@@ -482,7 +482,7 @@ function DeepFallback({ value }: { value: unknown }) {
     : isPlainObject(value)
       ? Object.keys(value).length
       : 0
-  return <span className="text-ink-dim italic text-[11px]">深度嵌套（{count} 项），已折叠</span>
+  return <span className="text-ink-dim text-[11px]">深度嵌套（{count} 项），已折叠</span>
 }
 
 /** Markdown 文本块（output_summary / response 等 LLM 文本）：复用聊天渲染栈，超长可滚动 */

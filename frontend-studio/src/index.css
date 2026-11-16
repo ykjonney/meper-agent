@@ -500,7 +500,7 @@
 }
 .prose-chat a:hover { color: var(--color-brand-hover); }
 .prose-chat strong { font-weight: 700; color: var(--color-ink); }
-.prose-chat em { font-style: italic; }
+.prose-chat em { font-style: normal; }
 .prose-chat hr { margin: 1em 0; border: 0; border-top: 1px solid var(--color-line); }
 .prose-chat table {
   width: 100%;

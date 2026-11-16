@@ -399,7 +399,7 @@ export function WorkflowDesigner({
                 placeholder="工作流名称"
                 title="修改工作流名称（保存后生效）"
                 className="w-44 bg-transparent border-0 border-b border-transparent focus:border-b-line-strong hover:border-b-line text-[15px] font-bold text-ink placeholder:text-ink-faint focus:outline-none px-0 truncate"
-                style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}
+                style={{ fontFamily: 'var(--font-serif)' }}
               />
               <Pencil size={11} className="text-ink-faint opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
             </div>

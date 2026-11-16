@@ -276,7 +276,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
           <div className="min-w-0 flex-1">
             <div className="af-label">任务详情</div>
             <div className="flex items-center gap-2 mt-0.5 min-w-0">
-              <h3 className="text-[15px] font-bold text-ink truncate" style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic' }}>
+              <h3 className="text-[15px] font-bold text-ink truncate" style={{ fontFamily: 'var(--font-serif)' }}>
                 {taskDetail ? (workflowNameMap[taskDetail.workflow_id] ?? taskDetail.workflow_id) : '加载中…'}
               </h3>
               {/* ID 短码：折叠展示 + 点击复制全码（规范 §5.3） */}
@@ -564,7 +564,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
                 {/* 输入参数 */}
                 <CollapsibleSection title="输入参数" open={inputOpen} onToggle={() => setInputOpen((v) => !v)}>
                   {Object.keys(taskDetail.input ?? {}).length === 0 ? (
-                    <div className="text-xs text-ink-dim italic">无</div>
+                    <div className="text-xs text-ink-dim">无</div>
                   ) : (
                     <DataView value={taskDetail.input} context="task_input" showRaw={false} />
                   )}
@@ -615,7 +615,7 @@ export function TaskDetailPage({ taskId, mode, onBack, theme = 'dark' }: TaskDet
               <div className="border border-line rounded-lg p-3 bg-panel">
                 {ctx.title && <div className="text-sm font-medium text-ink mb-1.5">{ctx.title}</div>}
                 {ctx.description && <div className="text-xs text-ink-dim whitespace-pre-wrap break-words leading-relaxed">{ctx.description}</div>}
-                {!ctx.title && !ctx.description && <div className="text-xs text-ink-dim italic">该审批节点未配置说明</div>}
+                {!ctx.title && !ctx.description && <div className="text-xs text-ink-dim">该审批节点未配置说明</div>}
               </div>
             )
           })()}

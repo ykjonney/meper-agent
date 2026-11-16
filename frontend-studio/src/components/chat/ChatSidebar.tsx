@@ -72,7 +72,7 @@ export function ChatSidebar({
             className="cursor-pointer select-none w-fit flex items-center gap-2">
             <img src="/AFLogo.png" alt="MEPER Agent"
               className="w-[26px] h-[26px] rounded-[7px] object-contain select-none" draggable={false} />
-            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontSize: 14, fontWeight: 700 }}>
+            <span style={{ fontFamily: 'var(--font-serif)', fontSize: 14, fontWeight: 700 }}>
               MEPER Agent
             </span>
           </div>

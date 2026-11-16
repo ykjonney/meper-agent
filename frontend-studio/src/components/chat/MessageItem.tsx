@@ -163,7 +163,7 @@ export function MessageItem({
         <div
           className={`font-sans select-text ${
             msg.status === 'thinking'
-              ? 'text-[14px] leading-[1.75] text-brand italic'
+              ? 'text-[14px] leading-[1.75] text-brand'
               : isUser
                 ? 'p-3 px-3.5 rounded-[10px] text-[13.5px] leading-relaxed bg-panel shadow-[var(--shadow-card)] text-ink w-fit max-w-full ml-auto'
                 : 'text-[14px] leading-[1.75] text-ink'
