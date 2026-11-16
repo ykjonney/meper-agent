@@ -874,7 +874,7 @@ function ActivityCard({ streaming, toolCount, durationLabel, children }: {
         tabIndex={0}
       >
         <span className={`activity-dot ${streaming ? 'is-running' : 'is-done'}`}>
-          {streaming ? '⋯' : '✓'}
+          {streaming ? <LoadingOutlined /> : <CheckOutlined />}
         </span>
         <span className="activity-title">
           {streaming ? '执行中' : '已完成'}

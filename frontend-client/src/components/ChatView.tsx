@@ -11,7 +11,7 @@ import {
   LikeFilled,
   SafetyCertificateOutlined,
 } from '@ant-design/icons'
-import { Bubble, Sender } from '@ant-design/x'
+import { Sender } from '@ant-design/x'
 import {
   Alert,
   App,
@@ -35,6 +35,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { useChat } from '../hooks/use-chat'
+import { useAuthStore } from '../store/auth'
 import { fetchAuthBootstrap, fetchMyAuthorizations } from '../api/authorizations'
 import { fetchVoiceStatus } from '../api/voice'
 import type { AgentSummary, ChatMessage } from '../types'
@@ -243,6 +244,10 @@ export function ChatView({
     if (text) void send(text, [])
   }, [messages, running, send])
   const lastAssistantId = messages.length ? messages[messages.length - 1].id : null
+  // 批注贴头像：终端用户名首字符（zhangsan→Z，中文名取首字）
+  const extUserName = useAuthStore((state) => state.extUserName)
+  const authUser = useAuthStore((state) => state.user)
+  const userInitial = (extUserName || authUser?.username || '客')[0].toUpperCase()
 
   // 看板打开期间把当前任务标记为已读（含打开期间新到的任务），并持久化
   useEffect(() => {
@@ -505,11 +510,12 @@ export function ChatView({
           onClick={onOpenNavigation}
           aria-label="打开对话列表"
         />
-        <div className="chat-agent-title">
-          <strong>{agent.name}</strong>
-          <Typography.Text type="secondary" ellipsis>
-            {agent.description || '智能 Agent'}
-          </Typography.Text>
+        {/* 品牌字标 + 当前助手胶囊（v5：品牌露出是功能） */}
+        <div className="chat-brand">
+          <span className="wordmark">
+            <span className="wordmark-m">M</span>EPER Agent
+          </span>
+          <span className="agent-pill">{agent.name}</span>
         </div>
         {/* todo 清单胶囊：agent 用 todo_write 建清单后显示进度（点击展开明细） */}
         {latestTodos && latestTodos.items.length > 0 ? (
@@ -535,14 +541,17 @@ export function ChatView({
             </Badge>
           </Popover>
         ) : null}
-        <Button
-          type="text"
-          icon={<FileOutlined />}
-          disabled={!sessionId}
-          onClick={() => setFilesOpen(true)}
-        >
-          <span className="desktop-only-label">会话文件</span>
-        </Button>
+        {/* 会话文件：仅 jwt 模式（内部测试）保留——内嵌终端用户无工作区概念（v5 裁剪清单） */}
+        {!IS_EMBEDDED ? (
+          <Button
+            type="text"
+            icon={<FileOutlined />}
+            disabled={!sessionId}
+            onClick={() => setFilesOpen(true)}
+          >
+            <span className="desktop-only-label">会话文件</span>
+          </Button>
+        ) : null}
         {/* 工作流任务看板入口：仅本会话出现过工作流任务时显示；角标=未查看的新任务数 */}
         {sessionTasks.length > 0 ? (
           <Badge count={unseenTaskCount} size="small" title="未查看的工作流任务">
@@ -619,36 +628,38 @@ export function ChatView({
                 )}
               </div>
             ) : (
-              <Bubble.List
-                autoScroll={false}
-                items={messages.map((chatMessage) => ({
-                  key: chatMessage.id,
-                  role: chatMessage.role === 'user' ? 'user' : 'ai',
-                  status:
-                    chatMessage.status === 'loading'
-                      ? 'updating'
-                      : chatMessage.status,
-                  content: (
-                    <div>
-                      <MessageContent
-                        message={chatMessage}
-                        sessionId={sessionId}
-                        onOpenTaskBoard={(taskId) => {
-                          setBoardFocusTaskId(taskId)
-                          setBoardOpen(true)
-                        }}
-                        onRegenerate={
-                          running
-                            ? undefined
-                            : chatMessage.id === lastAssistantId
-                              ? handleRegenerate
-                              : undefined
-                        }
-                      />
-                      {chatMessage.role === 'assistant' &&
-                        chatMessage.status !== 'loading' &&
-                        chatMessage.requestId && (
-                          <div className="flex items-center gap-1 pt-1">
+              <div className="message-flow">
+                {/* v5 形制：书写流 + 批注贴（脱离 ant-bubble 范式）。
+                    agent = 通栏书写流墨字；user = 右贴边靛蓝批注贴 + 姓氏圆点。 */}
+                {messages.map((chatMessage) =>
+                  chatMessage.role === 'user' ? (
+                    <div className="msg-row msg-row-user" key={chatMessage.id}>
+                      <div className="note-user">
+                        <MessageContent message={chatMessage} sessionId={sessionId} />
+                      </div>
+                      <div className="msg-avatar msg-avatar-user">{userInitial}</div>
+                    </div>
+                  ) : (
+                    <div className="msg-row msg-row-ai" key={chatMessage.id}>
+                      <div className="msg-avatar msg-avatar-agent">{agent.name.slice(0, 1)}</div>
+                      <div className="msg-body">
+                        <MessageContent
+                          message={chatMessage}
+                          sessionId={sessionId}
+                          onOpenTaskBoard={(taskId) => {
+                            setBoardFocusTaskId(taskId)
+                            setBoardOpen(true)
+                          }}
+                          onRegenerate={
+                            running
+                              ? undefined
+                              : chatMessage.id === lastAssistantId
+                                ? handleRegenerate
+                                : undefined
+                          }
+                        />
+                        {chatMessage.status !== 'loading' && chatMessage.requestId && (
+                          <div className="msg-feedback">
                             <Button
                               aria-label="msg-vote-up"
                               type="text"
@@ -683,21 +694,11 @@ export function ChatView({
                             />
                           </div>
                         )}
+                      </div>
                     </div>
                   ),
-                  streaming: chatMessage.status === 'loading',
-                }))}
-                role={{
-                  ai: {
-                    placement: 'start',
-                    variant: 'borderless',
-                  },
-                  user: {
-                    placement: 'end',
-                    variant: 'filled',
-                  },
-                }}
-              />
+                )}
+              </div>
             )}
           </section>
 

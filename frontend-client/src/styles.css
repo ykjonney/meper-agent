@@ -1,36 +1,44 @@
 :root {
-  /* 对齐 studio v4 纸墨×靛蓝设计语言（语义值同 .theme-indigo） */
+  /* 对齐 studio v4 纸墨×靛蓝设计语言（client v5 实施定稿：暖纸白纸系） */
   font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
-  color: #1f2933;
-  background: #f7f8fa;
+  color: #1c1c1a;
+  background: #fafaf7;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --client-bg: #f7f8fa;
+  --client-bg: #fafaf7;
   --client-surface: #ffffff;
-  --client-surface-muted: #eef1f4;
-  --client-border: #e2e6ee;
-  --client-text: #1f2933;
-  --client-text-muted: #687481;
+  --client-surface-muted: #f3f2ed;
+  --client-border: #e5e3dd;
+  --client-border-strong: #d6d3cb;
+  --client-text: #1c1c1a;
+  --client-text-muted: #55554f;
+  --client-text-faint: #a0a09a;
   --client-accent: #2b4a9e;
-  --client-accent-soft: #e9edf7;
+  --client-accent-soft: #edf0f8;
   --client-danger: #d93a3f;
-  --client-code: #f0f3f6;
+  --client-amber: #b45309;
+  --client-amber-soft: #fbf3e4;
+  --client-code: #f3f2ed;
   --font-serif-brand: Georgia, "Songti SC", "STSong", serif;
 }
 
 :root[data-theme="dark"] {
-  color: #e6e9ed;
-  background: #13151c;
-  --client-bg: #13151c;
-  --client-surface: #1a1d26;
-  --client-surface-muted: #20242f;
-  --client-border: #30373d;
-  --client-text: #e6e9ed;
-  --client-text-muted: #9aa5ae;
-  --client-accent: #6a97ff;
-  --client-accent-soft: #1d2d55;
+  color: #e8e6df;
+  background: #151410;
+  --client-bg: #151410;
+  --client-surface: #1e1d18;
+  --client-surface-muted: #26241e;
+  --client-border: #37342c;
+  --client-border-strong: #454138;
+  --client-text: #e8e6df;
+  --client-text-muted: #a5a299;
+  --client-text-faint: #6f6d64;
+  --client-accent: #7ea0e8;
+  --client-accent-soft: #22305a;
   --client-danger: #ff8a93;
-  --client-code: #20242f;
+  --client-amber: #e0a458;
+  --client-amber-soft: #3a2f1d;
+  --client-code: #26241e;
 }
 
 * {
@@ -141,65 +149,162 @@ textarea {
   background: var(--client-surface);
 }
 
+/* ── 抽屉侧栏（v5 纸卡语言） ── */
 .sidebar-brand {
   display: flex;
-  height: 72px;
-  flex: 0 0 72px;
   align-items: center;
-  padding: 14px 20px;
+  gap: 9px;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--client-border);
 }
 
-.sidebar-brand img {
-  width: auto;
-  max-width: 190px;
-  height: 42px;
-  object-fit: contain;
-}
-
-.agent-switcher {
-  padding: 18px 16px 10px;
+.brand-seal {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--client-accent);
+  color: #fff;
+  font-family: var(--font-serif-brand);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .sidebar-label {
   display: block;
-  margin: 0 0 8px 4px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
   font-weight: 600;
+  letter-spacing: 0.16em;
 }
 
-.agent-trigger {
+.agent-switcher {
+  padding: 14px 10px 4px;
+}
+
+/* 分段一：2-4 位 → 纵向展开（一眼全见） */
+.agent-list {
   display: flex;
-  height: 48px;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.agent-trigger > span:last-child {
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-item:hover:not(.active) {
+  background: var(--client-surface-muted);
+}
+
+.agent-item.active {
+  border-color: color-mix(in srgb, var(--client-accent) 25%, transparent);
+  background: var(--client-accent-soft);
+}
+
+.agent-item-av {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
+  font-family: var(--font-serif-brand);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.agent-item-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-item-name {
   overflow: hidden;
+  color: var(--client-text);
+  font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.agent-item.active .agent-item-name {
+  color: var(--client-accent);
+  font-weight: 600;
+}
+
+.agent-item-sub {
+  overflow: hidden;
+  color: var(--client-text-faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-item-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--client-accent);
+}
+
+/* 分段二：≥5 位 → 收纳「当前助手」行 + 弹出纸卡 */
+.agent-current {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--client-border-strong);
+  border-radius: 10px;
+  background: var(--client-surface);
+  box-shadow: 0 1px 3px rgb(28 28 26 / 7%);
+  cursor: pointer;
+}
+
+.agent-current .agent-item-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-weight: 600;
+}
+
+.agent-current-chev {
+  flex: 0 0 auto;
+  color: var(--client-text-faint);
+}
+
 .agent-menu-item {
   display: flex;
-  min-width: 220px;
+  min-width: 200px;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
+  padding: 4px 0;
 }
 
-.agent-menu-item > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.agent-menu-item small,
-.account-copy small {
-  color: var(--client-text-muted);
-  font-size: 11px;
+.agent-menu-item .agent-item-name {
+  font-size: 12.5px;
 }
 
 /* The agent-switcher Dropdown renders in a portal, so it isn't a flex child of
@@ -219,47 +324,202 @@ textarea {
   overflow: visible;
 }
 
-.new-session-button {
-  min-height: 42px;
-  margin: 4px 16px 18px;
+/* 新建对话：描边纸卡 + 靛蓝小方章（替代 antd 主按钮） */
+.new-chat-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 10px 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--client-border-strong);
+  border-radius: 12px;
+  background: var(--client-surface);
+  color: var(--client-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.new-chat-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.new-chat-card:not(:disabled):hover {
+  border-color: var(--client-accent);
+  color: var(--client-accent);
+}
+
+.new-chat-plus {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--client-accent);
+  color: #fff;
 }
 
 .conversation-list {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 0 10px 12px;
-}
-
-.conversation-list .ant-conversations {
-  width: 100%;
+  padding: 4px 10px 12px;
 }
 
 .conversation-list .ant-empty {
   margin-block: 28px;
 }
 
+/* 会话纸卡：靛蓝 wash 选中 + 左竖线；meta 走 mono */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sess {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.sess:hover:not(.active) {
+  background: var(--client-surface-muted);
+}
+
+.sess.active {
+  background: var(--client-accent-soft);
+}
+
+.sess.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--client-accent);
+}
+
+.sess-t {
+  overflow: hidden;
+  padding-right: 24px;
+  color: var(--client-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sess.active .sess-t {
+  color: var(--client-accent);
+}
+
+.sess-m {
+  margin-top: 3px;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+}
+
+.sess-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--client-text-faint);
+  cursor: pointer;
+}
+
+.sess:hover .sess-del {
+  display: inline-flex;
+}
+
+.sess-del:hover {
+  background: rgb(217 58 63 / 8%);
+  color: var(--client-danger);
+}
+
+/* 底部用户区：姓氏圆点 + 名字 + 授权动作 */
 .sidebar-account {
   display: flex;
-  min-height: 68px;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px max(12px, env(safe-area-inset-bottom));
+  gap: 9px;
+  padding: 11px 14px max(11px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--client-border);
 }
 
-.account-copy {
+.u-av {
   display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--client-text);
+  color: var(--client-surface);
+  font-size: 11px;
 }
 
-.account-copy strong {
+.u-name {
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+}
+
+.revoke-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--client-border);
+  border-radius: 999px;
+  background: none;
+  color: var(--client-text-faint);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.revoke-pill:hover {
+  border-color: var(--client-danger);
+  color: var(--client-danger);
+}
+
+.account-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--client-text-faint);
+  cursor: pointer;
+}
+
+.account-action:hover {
+  background: var(--client-surface-muted);
+  color: var(--client-text);
 }
 
 .chat-view {
@@ -273,36 +533,139 @@ textarea {
 
 .chat-header {
   display: flex;
-  height: 64px;
-  min-height: 64px;
+  height: 54px;
+  min-height: 54px;
   align-items: center;
-  gap: 12px;
-  padding: 0 20px;
+  gap: 8px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--client-border);
-  background: color-mix(in srgb, var(--client-surface) 94%, transparent);
+  background: var(--client-surface);
 }
 
-.chat-agent-title {
+/* 品牌字标 + 当前助手胶囊（v5：品牌露出是功能） */
+.chat-brand {
   display: flex;
   min-width: 0;
   flex: 1;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
-.chat-agent-title strong,
-.chat-agent-title .ant-typography {
+.wordmark {
+  font-family: var(--font-serif-brand);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--client-text);
+  white-space: nowrap;
+}
+
+.wordmark-m {
+  color: var(--client-accent);
+}
+
+.agent-pill {
   overflow: hidden;
+  max-width: 32vw;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chat-agent-title .ant-typography {
-  max-width: min(600px, 65vw);
-  font-size: 12px;
-}
-
 .mobile-nav-button {
   display: inline-flex;
+}
+
+/* ── 消息流（v5 形制：书写流 + 批注贴，替代 ant-bubble） ── */
+.message-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 860px;
+  padding: 16px 16px 14px;
+  margin: 0 auto;
+}
+
+.msg-row {
+  display: flex;
+  gap: 9px;
+}
+
+.msg-row-user {
+  justify-content: flex-end;
+}
+
+.msg-avatar {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.msg-avatar-agent {
+  background: var(--client-accent-soft);
+  color: var(--client-accent);
+  font-family: var(--font-serif-brand);
+  font-weight: 700;
+}
+
+.msg-avatar-user {
+  background: color-mix(in srgb, var(--client-accent) 78%, #000);
+  color: #fff;
+}
+
+/* 用户批注贴：右贴边靛蓝底白字（面板唯一大色块） */
+.note-user {
+  overflow: hidden;
+  max-width: min(76%, 520px);
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--client-accent);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.7;
+  box-shadow: 0 1px 3px rgb(28 28 26 / 12%);
+  overflow-wrap: break-word;
+}
+
+/* 批注贴内 MessageContent（快捷指令文案/附件）白字适配 */
+.note-user .message-content {
+  color: #fff;
+}
+
+.note-user .message-content p {
+  margin: 0;
+}
+
+.note-user .message-attachments {
+  margin-top: 8px;
+}
+
+.msg-body {
+  min-width: 0;
+  max-width: 92%;
+}
+
+/* agent 书写流 = 纸上墨字（无气泡） */
+.msg-row-ai .message-content {
+  color: var(--client-text);
+  font-size: 13px;
+  line-height: 1.78;
+}
+
+.msg-feedback {
+  display: flex;
+  gap: 2px;
+  padding-top: 2px;
 }
 
 .chat-empty,
@@ -612,34 +975,43 @@ textarea {
   max-width: 100%;
 }
 
+/* 表格纸化（v5）：白卡壳 + 横 hairline，无竖线无外框；mono 表头 */
 .markdown-table-wrap {
   max-width: 100%;
-  overflow-x: auto;
   margin: 12px 0;
+  overflow-x: auto;
+  border: 1px solid var(--client-border);
+  border-radius: 12px;
+  background: var(--client-surface);
 }
 
 .markdown-table-wrap table {
   width: max-content;
   min-width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+  border-collapse: collapse;
 }
 
 .markdown-table-wrap th,
 .markdown-table-wrap td {
-  padding: 9px 12px;
-  border-right: 1px solid var(--client-border);
+  padding: 8px 12px;
+  border: none;
   border-bottom: 1px solid var(--client-border);
   text-align: left;
+  line-height: 1.5;
 }
 
-.markdown-table-wrap tr > :first-child {
-  border-left: 1px solid var(--client-border);
+.markdown-table-wrap tr:last-child td {
+  border-bottom: none;
 }
 
 .markdown-table-wrap thead th {
-  border-top: 1px solid var(--client-border);
-  background: var(--client-surface-muted);
+  border-bottom: 1px solid var(--client-border-strong);
+  background: var(--client-bg);
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
 }
 
 /* ── 思考/工具卡:主流 agent 风格——无边框淡底圆角行,全状态尺寸一致,
@@ -1173,10 +1545,11 @@ textarea {
   background: linear-gradient(180deg, transparent, var(--client-bg) 18%);
 }
 
+/* 落笔行（v5）：paper 底 + 聚焦靛蓝描边 + 轻光环 + 单层浅影 */
 .composer-dock .ant-sender {
-  border-color: var(--client-border);
-  background: var(--client-surface);
-  box-shadow: 0 10px 30px rgb(20 35 50 / 9%);
+  border-color: var(--client-border-strong);
+  background: var(--client-bg);
+  box-shadow: 0 1px 3px rgb(28 28 26 / 7%);
 }
 
 /* Sender 内部 textarea 是 borderless 形态：antd v6 的 focus outline 会在文字区
@@ -1189,6 +1562,22 @@ textarea {
 
 .composer-dock .ant-sender:focus-within {
   border-color: var(--client-accent);
+  background: var(--client-surface);
+  box-shadow: 0 0 0 3px rgb(43 74 158 / 8%);
+}
+
+/* 发送钮 = 靛蓝圆角方章（替代 antd 圆钮） */
+.composer-dock .ant-sender .ant-sender-btn,
+.composer-dock .ant-sender button.ant-btn-circle,
+.composer-dock .ant-sender .ant-btn {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.composer-dock .ant-sender .ant-sender-btn:not(:disabled),
+.composer-dock .ant-sender .ant-btn-color-primary:not(:disabled) {
+  background: var(--client-accent);
 }
 
 /* 附件预览区：图片缩略图方卡 + 文件 chip 混排换行（≤8 个，wrap 不溢出） */
@@ -1433,8 +1822,11 @@ textarea {
 .composer-note {
   display: block;
   margin-top: 7px;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
   text-align: center;
-  font-size: 11px;
 }
 
 /* ── 语音输入面板（VoiceComposer） ── */
@@ -1741,8 +2133,28 @@ textarea {
   margin: 0;
 }
 
+/* 抽屉 = 与面板同圆角的浮层纸片（v5：上下留缝 + 全圆角 + 右缘投影，纸叠纸）。
+   antd6 Drawer：className 落在 ant-drawer-section 上，wrapper 是其父级
+   （inline top/left/height）——用 :has 选中 wrapper，!important 压过 inline。 */
+.ant-drawer-content-wrapper:has(> .mobile-navigation-drawer) {
+  inset: 10px auto 10px 0;
+  height: auto !important;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mobile-navigation-drawer {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--client-border);
+  border-radius: 16px;
+  background: var(--client-surface);
+  box-shadow: 10px 0 32px rgb(28 28 26 / 18%);
+}
+
 .mobile-navigation-drawer .ant-drawer-body {
   overflow: hidden;
+  padding: 0;
 }
 
 @media (max-width: 768px) {
@@ -1750,10 +2162,6 @@ textarea {
     height: 58px;
     min-height: 58px;
     padding: 0 10px;
-  }
-
-  .chat-agent-title .ant-typography {
-    max-width: 52vw;
   }
 
   .desktop-only-label {
@@ -2013,7 +2421,7 @@ textarea {
 /* ════════ 过程折叠卡（对齐 studio 过程卡形态） ════════ */
 .activity-card {
   border: 1px solid var(--client-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--client-surface);
   overflow: hidden;
   margin-bottom: 8px;
@@ -2049,8 +2457,8 @@ textarea {
   color: var(--client-text-muted);
 }
 .activity-dot.is-done {
-  background: rgba(31, 157, 85, 0.12);
-  color: var(--sig-ok, #1f9d55);
+  background: var(--client-surface-muted);
+  color: var(--client-text-faint);
 }
 .activity-dot.is-running {
   background: var(--client-accent-soft);
