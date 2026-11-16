@@ -82,18 +82,34 @@ class TestUpdateAgent:
         assert args[1]["$set"]["voice_enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_update_published_agent_raises_conflict(self, mock_database):
-        """Published agents are immutable."""
+    async def test_update_published_agent_writes_draft_layer(self, mock_database):
+        """Published agents 不再拒绝编辑——写入草稿层，顶层 name 不变。
+
+        （草稿制改造：旧断言为 update published 抛 AGENT_PUBLISHED_IMMUTABLE，
+        现行为对齐 Dify/n8n——编辑进 draft，publish 合并生效。）
+        """
         mock_col = MagicMock()
-        mock_col.find_one = AsyncMock(return_value=_fake_doc(status="published"))
+        mock_col.find_one = AsyncMock(
+            side_effect=[
+                _fake_doc(status="published"),  # existing agent
+                None,  # no name conflict
+                _fake_doc(status="published"),  # after update
+            ]
+        )
+        mock_col.update_one = AsyncMock()
         mock_database.__getitem__.return_value = mock_col
 
-        with pytest.raises(ConflictError) as exc_info:
-            await AgentService.update_agent(
-                agent_id="agent_01HTEST",
-                name="Should Fail",
-            )
-        assert exc_info.value.code == "AGENT_PUBLISHED_IMMUTABLE"
+        doc = await AgentService.update_agent(
+            agent_id="agent_01HTEST",
+            name="Draft Name",
+        )
+        assert doc is not None
+        args, _kwargs = mock_col.update_one.call_args
+        # 写入 draft 子文档，顶层 name/version 不动
+        assert "draft" in args[1]["$set"]
+        assert args[1]["$set"]["draft"]["name"] == "Draft Name"
+        assert "version" not in args[1]["$set"]
+        assert "name" not in args[1]["$set"]
 
     @pytest.mark.asyncio
     async def test_update_archived_agent(self, mock_database):

@@ -151,6 +151,8 @@ class AgentSnapshotService:
         restored["_id"] = agent_id
 
         col = AgentService._collection()
+        # 快照 doc 若意外携带草稿层则丢弃——回滚后旧草稿基于回滚前内容，会脱节
+        restored.pop("draft", None)
         await col.replace_one({"_id": agent_id}, restored)
 
         logger.info(

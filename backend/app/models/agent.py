@@ -121,6 +121,12 @@ class Agent(BaseModel):
         "kernel-update 语义——优化循环严格提升门控的回滚前提）",
     )
     status: AgentStatus = Field(default=AgentStatus.DRAFT)
+    draft: dict | None = Field(
+        default=None,
+        description="草稿层（仅 published agent 持有）：线上版的全量字段副本，"
+        "编辑写入此处，publish 时合并生效（对齐 Dify/n8n 草稿制——"
+        "运行时只读顶层=线上版，草稿不影响在跑行为）",
+    )
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 

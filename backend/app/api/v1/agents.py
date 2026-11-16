@@ -106,6 +106,7 @@ def _doc_to_response(doc: dict) -> AgentResponse:
         max_retry=max_retry,
         max_tokens=max_tokens,
         status=AgentStatus(doc["status"]),
+        draft=doc.get("draft"),
         created_at=_as_iso(doc.get("created_at")),
         updated_at=_as_iso(doc.get("updated_at")),
     )

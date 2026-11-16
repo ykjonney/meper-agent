@@ -211,6 +211,10 @@ class AgentResponse(BaseModel):
     max_retry: int = Field(default=3, description="Max LLM call retries")
     max_tokens: int = Field(default=0, description="Session token budget (0 = global default)")
     status: AgentStatus
+    draft: dict | None = Field(
+        default=None,
+        description="草稿层（仅 published agent）：未发布的修改，publish 时合并生效",
+    )
     created_at: str
     updated_at: str
 

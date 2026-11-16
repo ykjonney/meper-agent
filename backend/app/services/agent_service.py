@@ -9,6 +9,13 @@ from app.core.errors import ConflictError, ValidationError
 from app.db.mongodb import get_database
 from app.models.agent import Agent, AgentStatus
 
+# 草稿层（draft 子文档）不携带的字段：身份/生命周期/审计由顶层管辖。
+# draft 副本 = 全量可变配置；publish/archive 合并时按本集合过滤回写。
+_DRAFT_EXCLUDE_KEYS = {
+    "_id", "status", "version", "created_at", "updated_at", "draft",
+    "spawned_by_agent_id", "spawned_by_session_id",
+}
+
 
 async def _resolve_custom_tools(
     custom_tools: list[dict] | None,
@@ -283,13 +290,6 @@ class AgentService:
         if existing_doc is None:
             return None
 
-        # Published agents are immutable — must archive or duplicate to make changes
-        if existing_doc.get("status") == AgentStatus.PUBLISHED.value:
-            raise ConflictError(
-                code="AGENT_PUBLISHED_IMMUTABLE",
-                message=f"Agent '{existing_doc.get('name')}' 已发布，不可直接编辑。请先将其下架或复制为新 Agent。",
-            )
-
         # Check name uniqueness (exclude self)
         name_conflict = await col.find_one(
             {"name": name, "_id": {"$ne": agent_id}}
@@ -305,10 +305,13 @@ class AgentService:
 
         now_iso = utc_now().isoformat()
 
-        # 版本化：每次 update 前自动快照当前状态（回滚锚点）+ version 递增。
-        from app.services.agent_snapshot_service import AgentSnapshotService
+        is_published = existing_doc.get("status") == AgentStatus.PUBLISHED.value
 
-        await AgentSnapshotService.take_snapshot(existing_doc, label="update")
+        if not is_published:
+            # 版本化：每次 update 前自动快照当前状态（回滚锚点）+ version 递增。
+            from app.services.agent_snapshot_service import AgentSnapshotService
+
+            await AgentSnapshotService.take_snapshot(existing_doc, label="update")
         current_version = int(existing_doc.get("version", 1) or 1)
 
         # 部分更新语义：None = 保留现值，显式传入（含空列表/False）才替换。
@@ -317,7 +320,6 @@ class AgentService:
         # 前端全量提交行为不变（所有字段显式传入）。
         set_fields: dict = {
             "name": name,
-            "version": current_version + 1,
             "updated_at": now_iso,
         }
         if description is not None:
@@ -358,15 +360,32 @@ class AgentService:
             set_fields["custom_tools"] = await _resolve_custom_tools(
                 custom_tools or [], custom_tool_ids or [], encrypt=True,
             )
-        await col.update_one(
-            {"_id": agent_id},
-            {"$set": set_fields},
-        )
+
+        if is_published:
+            # ── 草稿层：published 的编辑写入 draft 子文档，线上版与 version 不动 ──
+            # （运行时——子代理/工作流/触发器/ext API——读顶层即线上版，不受影响；
+            #   publish 时合并生效。对齐 Dify/n8n 草稿制。）
+            draft = {
+                k: v for k, v in existing_doc.items()
+                if k not in _DRAFT_EXCLUDE_KEYS
+            }
+            draft.update(set_fields)
+            await col.update_one(
+                {"_id": agent_id},
+                {"$set": {"draft": draft, "updated_at": now_iso}},
+            )
+        else:
+            set_fields["version"] = current_version + 1
+            await col.update_one(
+                {"_id": agent_id},
+                {"$set": set_fields},
+            )
 
         updated = await AgentService.get_agent(agent_id)
         logger.info(
             "agent_updated",
             agent_id=agent_id,
+            draft_layer=is_published,
         )
         return updated
 
@@ -482,13 +501,14 @@ class AgentService:
 
     @staticmethod
     async def publish_agent(agent_id: str) -> dict | None:
-        """Publish an Agent (draft/archived → published).
+        """Publish an Agent (draft/archived → published, or merge draft overlay).
 
-        Args:
-            agent_id: The Agent's ID.
+        有草稿层时（published agent 编辑产生）：草稿合并到顶层成为新的线上版，
+        version +1，发布前线上版进快照（label="publish"，回滚锚点）。
+        无草稿层时：仅状态翻转（draft/archived 首次上架/重新上架）。
 
-        Returns:
-            Updated Agent document, or None if not found.
+        Raises:
+            ConflictError: 草稿中的 name 与其他 Agent 冲突（发布才真正占用名字）。
         """
         col = AgentService._collection()
 
@@ -500,15 +520,37 @@ class AgentService:
 
         now_iso = utc_now().isoformat()
 
-        await col.update_one(
-            {"_id": agent_id},
-            {
-                "$set": {
-                    "status": AgentStatus.PUBLISHED.value,
-                    "updated_at": now_iso,
-                },
-            },
-        )
+        set_update: dict = {
+            "status": AgentStatus.PUBLISHED.value,
+            "updated_at": now_iso,
+        }
+        update_op: dict = {"$set": set_update}
+
+        draft = existing_doc.get("draft")
+        if draft:
+            # 草稿里的名字此时才真正占用（草稿期校验过，发布时强校验兜底）
+            draft_name = draft.get("name")
+            if draft_name:
+                name_conflict = await col.find_one(
+                    {"name": draft_name, "_id": {"$ne": agent_id}}
+                )
+                if name_conflict is not None:
+                    raise ConflictError(
+                        code="AGENT_NAME_CONFLICT",
+                        message=f"Agent 名称 '{draft_name}' 已被占用，无法发布",
+                        details={"field": "name"},
+                    )
+            # 发布前线上版进快照（同 version 重复发布 DuplicateKey 被吞，幂等）
+            from app.services.agent_snapshot_service import AgentSnapshotService
+
+            await AgentSnapshotService.take_snapshot(existing_doc, label="publish")
+            set_update.update(
+                {k: v for k, v in draft.items() if k not in _DRAFT_EXCLUDE_KEYS}
+            )
+            set_update["version"] = int(existing_doc.get("version", 1) or 1) + 1
+            update_op["$unset"] = {"draft": ""}
+
+        await col.update_one({"_id": agent_id}, update_op)
 
         updated = await AgentService.get_agent(agent_id)
 
@@ -552,6 +594,9 @@ class AgentService:
     async def archive_agent(agent_id: str) -> dict | None:
         """Archive an Agent (published → archived).
 
+        归档 = 下架解锁编辑：若存在未发布的草稿层，草稿修改合并进顶层
+        （archived 状态顶层即可编辑层），未发布的工作不丢失。
+
         Args:
             agent_id: The Agent's ID.
 
@@ -568,15 +613,20 @@ class AgentService:
 
         now_iso = utc_now().isoformat()
 
-        await col.update_one(
-            {"_id": agent_id},
-            {
-                "$set": {
-                    "status": AgentStatus.ARCHIVED.value,
-                    "updated_at": now_iso,
-                },
-            },
-        )
+        set_update: dict = {
+            "status": AgentStatus.ARCHIVED.value,
+            "updated_at": now_iso,
+        }
+        update_op: dict = {"$set": set_update}
+
+        draft = existing_doc.get("draft")
+        if draft:
+            set_update.update(
+                {k: v for k, v in draft.items() if k not in _DRAFT_EXCLUDE_KEYS}
+            )
+            update_op["$unset"] = {"draft": ""}
+
+        await col.update_one({"_id": agent_id}, update_op)
 
         updated = await AgentService.get_agent(agent_id)
 
