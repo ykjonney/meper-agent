@@ -541,7 +541,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
     ? running.length === 1
       ? `${completedCount}/${tools.length} 完成 · ${runningVerb}${runningShort ? ` ${runningShort}` : ''}`
       : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具`
-    : `使用了 ${tools.length} 个工具${durLabel}`
+    : `执行了 ${tools.length} 个工具${durLabel}`
 
   return (
     <Collapse
@@ -987,43 +987,6 @@ interface MessageContentProps {
 }
 
 
-/** 过程折叠卡：连续的 reasoning/tool 段聚合为一个可展开卡（对齐 studio 形态）。
- *  摘要行 = 状态点 + 「执行过程 · N 次工具调用」；展开显示原始交错明细
- *  （reasoning 折叠面板 / 工具卡 / 中间轮 text）。完成后默认收起。 */
-function ActivityCard({ streaming, toolCount, durationLabel, children }: {
-  streaming: boolean
-  toolCount: number
-  /** 执行耗时（「6.8s」格式，来自 done usage/历史 token_usage）；流式中无值 */
-  durationLabel?: string
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="activity-card">
-      <div
-        className="activity-card-head"
-        onClick={() => setOpen((v) => !v)}
-        role="button"
-        tabIndex={0}
-      >
-        <span className={`activity-dot ${streaming ? 'is-running' : 'is-done'}`}>
-          {streaming ? <LoadingOutlined /> : <CheckOutlined />}
-        </span>
-        {/* v6：title 只留状态词，「步数 · 总用时」收进右侧 meta 一行 */}
-        <span className="activity-title">{streaming ? '执行中' : '已完成'}</span>
-        {toolCount > 0 || durationLabel ? (
-          <span className="activity-meta">
-            {toolCount > 0 ? `${toolCount} 步` : ''}
-            {toolCount > 0 && durationLabel ? ' · ' : ''}
-            {durationLabel ?? ''}
-          </span>
-        ) : null}
-      </div>
-      {open ? <div className="activity-body">{children}</div> : null}
-    </div>
-  )
-}
-
 export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenerate }: MessageContentProps) {
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
@@ -1094,11 +1057,19 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {activityBlocks.length > 0 ? (
-        <ActivityCard streaming={false} toolCount={activityToolCount} durationLabel={durationLabel}>
-          {toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))}
-        </ActivityCard>
+      {/* 消息级状态行（v6.3，主人演示定稿）：「✓ 已完成 · 用时」独立一行在顶部，
+          与工具组折叠条分离——不再包卡。执行中不渲染（工具组摘要自表达进行中）。 */}
+      {message.status !== 'loading' && durationLabel ? (
+        <div className="msg-status-line">
+          <CheckOutlined />
+          <span>已完成 · {durationLabel}</span>
+        </div>
       ) : null}
+      {/* 过程段平铺（主人演示定稿）：思考折叠行 / 工具组折叠条 / 中间叙述文本
+          按原始顺序散布在流里，工具组折叠条点开即执行细节 */}
+      {activityBlocks.length > 0
+        ? toRenderSegments(activityBlocks).map((segment, index) => renderSegment(segment, index))
+        : null}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
         <div

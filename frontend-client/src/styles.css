@@ -1191,6 +1191,21 @@ textarea {
   white-space: nowrap;
 }
 
+/* 消息级状态行（v6.3，主人演示定稿）：「✓ 已完成 · 用时」独立一行在消息顶部 */
+.msg-status-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0 6px;
+  color: var(--client-text-muted);
+  font-size: 12px;
+}
+
+.msg-status-line .anticon {
+  color: var(--client-text-faint);
+  font-size: 11px;
+}
+
 .tool-title > span {
   overflow: hidden;
   text-overflow: ellipsis;
