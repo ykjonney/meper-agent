@@ -203,9 +203,14 @@ function fromHistory(record: MessageRecord): ChatMessage {
     status: 'success',
     createdAt: record.created_at ? new Date(record.created_at) : undefined,
     requestId: record.request_id ?? undefined,
-    // 过程卡「已完成 · 用时X」数据源（token_usage 的毫秒级耗时拆分）
+    // 过程卡「已完成 · 用时X」数据源。注意单位：落库的 llm/tool_duration 是
+    // 浮点秒（UsageMiddleware 累计），这里统一换算成毫秒——与流式 done 的
+    // *_duration_ms 同单位，MessageContent 单一换算口径。
     execDuration: record.token_usage
-      ? { llm: record.token_usage.llm_duration, tool: record.token_usage.tool_duration }
+      ? {
+          llm: (record.token_usage.llm_duration ?? 0) * 1000,
+          tool: (record.token_usage.tool_duration ?? 0) * 1000,
+        }
       : undefined,
   }
 }
