@@ -570,6 +570,9 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                         <ToolOutlined />
                         <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
                         {tool.auto ? <Tag className="tool-timeline-node-tag">自动召回</Tag> : null}
+                        {tool.durationMs ? (
+                          <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+                        ) : null}
                       </span>
                     </button>
                     {isOpen ? (
@@ -840,6 +843,9 @@ function ToolResult({
               <ToolOutlined />
               <span>{toolSummaryText(tool.name, tool.args)}</span>
               {tool.auto ? <Tag>自动召回</Tag> : null}
+              {tool.durationMs ? (
+                <span className="tool-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+              ) : null}
             </div>
           ),
           children: (
@@ -937,12 +943,14 @@ function ActivityCard({ streaming, toolCount, durationLabel, children }: {
         <span className={`activity-dot ${streaming ? 'is-running' : 'is-done'}`}>
           {streaming ? <LoadingOutlined /> : <CheckOutlined />}
         </span>
-        <span className="activity-title">
-          {streaming ? '执行中' : '已完成'}
-          {durationLabel ? ` · 用时 ${durationLabel}` : ''}
-        </span>
-        {toolCount > 0 ? (
-          <span className="activity-meta">{toolCount} 次工具调用</span>
+        {/* v6：title 只留状态词，「步数 · 总用时」收进右侧 meta 一行 */}
+        <span className="activity-title">{streaming ? '执行中' : '已完成'}</span>
+        {toolCount > 0 || durationLabel ? (
+          <span className="activity-meta">
+            {toolCount > 0 ? `${toolCount} 步` : ''}
+            {toolCount > 0 && durationLabel ? ' · ' : ''}
+            {durationLabel ?? ''}
+          </span>
         ) : null}
       </div>
       {open ? <div className="activity-body">{children}</div> : null}

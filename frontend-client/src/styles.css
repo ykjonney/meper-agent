@@ -1144,16 +1144,17 @@ textarea {
   border-top: 1px solid var(--client-border);
 }
 
-/* 进行中:琥珀淡底 + 琥珀标题(配合转圈/动点即"当前执行")——token 化 */
+/* 进行中（v6 原则②轻提示）：无大色块——spinner 本身表达进行中，
+   琥珀只留给步骤行的运行中标记，不再铺满卡片 */
 .tool-run-running,
 .reasoning-panel-streaming {
   border-color: transparent;
-  background: color-mix(in srgb, var(--client-amber) 7%, transparent);
+  background: transparent;
 }
 
 .tool-run-running .tool-title,
 .reasoning-panel-streaming .reasoning-label {
-  color: var(--client-amber);
+  color: var(--client-text);
 }
 
 /* 已结束:中性安静;失败用红底提示 */
@@ -1177,6 +1178,17 @@ textarea {
 /* 无展开内容的工具行（load_skill）：自补 Collapse header 同款行距 */
 .tool-run-plain {
   padding-block: 6px;
+}
+
+/* 步骤行右侧 mono 耗时（v6 原则⑤：每步自身耗时，Manus 模式） */
+.tool-timeline-node-dur,
+.tool-title .tool-dur {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--client-text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
 }
 
 .tool-title > span {

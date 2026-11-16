@@ -131,6 +131,7 @@ function rebuildFromTimeline(entries: TimelineEntry[]): {
         const isError = entry.is_error === true || entry.status === 'error'
         matched.isError = isError
         matched.status = isError ? 'error' : 'complete'
+        matched.durationMs = entry.duration_ms || undefined
         if (resultId) pendingById.delete(resultId)
         pendingByName.delete(entry.tool_name || 'tool')
       }
@@ -580,6 +581,7 @@ export function useChat(
               toolBlock.tool.result = event.content
               toolBlock.tool.isError = isError
               toolBlock.tool.status = isError ? 'error' : 'complete'
+              toolBlock.tool.durationMs = event.duration_ms || undefined
             }
             // MCP 凭证错误兜底识别：记录待授权应用（若 LLM 已走
             // request_app_authorization interrupt，此记录在 done 时不生效）

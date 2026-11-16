@@ -143,6 +143,8 @@ export interface TimelineEntry {
   /** 流式持久化的 tool_result entry 写的是 status 字段(与 SSE 事件一致);
    *  is_error 仅存在于 invoke/任务 trace 路径,两者都兼容。 */
   status?: 'success' | 'error'
+  /** per-tool 耗时毫秒（适配器 on_tool_start/end 计时，随 entry 落库）。 */
+  duration_ms?: number
   /** 该文本块是否为最终回复（final_answer 或流式 done 对齐产物）。
    *  注：本字段补全的是工作区既有 WIP（use-chat.ts 的 final 标记）。 */
   final?: boolean
@@ -153,6 +155,9 @@ export interface ToolRun {  id: string
   /** LangGraph tool_call id,用于精确配对 tool_call ↔ tool_result。 */
   toolCallId?: string
   args?: string
+  /** per-tool 耗时毫秒（tool_result 事件携带）——步骤行右侧 mono 数字，
+   *  undefined/0 = 无数据不显示。 */
+  durationMs?: number
   result?: string
   isError?: boolean
   auto?: boolean
@@ -292,6 +297,8 @@ export interface StreamEvent {
   id?: string
   /** tool_result 事件对应的 tool_call id(来自 ToolMessage.tool_call_id)。 */
   tool_call_id?: string
+  /** tool_result 事件携带——per-tool 耗时毫秒（适配器计时）。 */
+  duration_ms?: number
   // interrupt payload — clarification (ask_clarification) fields
   question?: string
   clarification_type?: string

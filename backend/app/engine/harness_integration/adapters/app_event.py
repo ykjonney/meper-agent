@@ -98,6 +98,9 @@ class ToolResultEvent(_Base):
     content by id after context compression has truncated the in-context
     copy. Empty for results produced before this field was added.
     """
+    duration_ms: int = 0
+    """Per-tool wall time in ms（适配器 on_tool_start/end 计时）——
+    过程卡步骤行「执行命令 git status  0.4s」的数据源；0 = 旧数据无计时。"""
 
 
 class InterruptEvent(_Base):

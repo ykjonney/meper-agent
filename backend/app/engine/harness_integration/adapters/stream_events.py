@@ -19,6 +19,7 @@ Event mapping (see Story v0.1-3 §1):
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -59,11 +60,24 @@ _SUPPRESSED_EVENT_TAGS = frozenset({"llm_summary", "subagent"})
 # run_id → tool_call_id 映射（on_tool_start 时记录，on_tool_error 时查回）。
 # 每次 stream 开始时清空（见函数体开头的 _run_id_to_tool_call_id.clear()）。
 _run_id_to_tool_call_id: dict[str, str] = {}
+# run_id → monotonic 起始时间（on_tool_start 记录，on_tool_end/error 取出算
+# per-tool 耗时 → ToolResultEvent.duration_ms → 过程卡步骤行「执行命令 0.4s」）。
+_tool_timings: dict[str, float] = {}
 # 待完成的 tool_call 列表（on_chat_model_end 时记录，on_tool_end 时移除）。
 # on_tool_error 时按工具名取最近的一个作为 fallback。
 _pending_tool_calls: list[dict[str, str]] = []
 # 已发出 ToolResultEvent 的 tool_call_id（防 on_tool_error + on_tool_end 重复发）
 _sent_tool_results: set[str] = set()
+
+
+def _tool_duration_ms(event: dict) -> int:
+    """按 run_id 取 on_tool_start 记录的起始时间，算 per-tool 耗时 ms。
+    无记录（旧数据/异常路径）返回 0，前端不显示耗时。"""
+    rid = event.get("run_id") or ""
+    t0 = _tool_timings.pop(rid, None)
+    if t0 is None:
+        return 0
+    return max(0, int((time.monotonic() - t0) * 1000))
 
 
 def _extract_interrupt(error: Any) -> dict[str, Any] | None:
@@ -167,6 +181,7 @@ async def stream_events_to_app_events(
     """
     accumulator = _StreamingAccumulator(enable_thinking=enable_thinking)
     _run_id_to_tool_call_id.clear()
+    _tool_timings.clear()
     _pending_tool_calls.clear()
     _sent_tool_results.clear()
 
@@ -239,7 +254,10 @@ async def stream_events_to_app_events(
         elif kind == "on_tool_start":
             # 不发事件。tool_call 已在 on_chat_model_end 中发出（含 id），
             # 并记录到 _pending_tool_calls。on_tool_error 时按工具名从那里查回。
-            pass
+            # 记录起始时间——per-tool 耗时（步骤行右侧 mono 数字）。
+            rid = event.get("run_id") or ""
+            if rid:
+                _tool_timings[rid] = time.monotonic()
 
         elif kind == "on_tool_end":
             output = data.get("output")
@@ -278,6 +296,7 @@ async def stream_events_to_app_events(
                         content=content,
                         status=status,
                         tool_call_id=tcid,
+                        duration_ms=_tool_duration_ms(event),
                     )
                 )
             # 正常完成的工具从 pending 列表移除
@@ -342,6 +361,7 @@ async def stream_events_to_app_events(
                                 content=_error_message(data),
                                 status="error",
                                 tool_call_id=tool_call_id,
+                                duration_ms=_tool_duration_ms(event),
                             )
                         )
                 else:
