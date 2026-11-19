@@ -1027,101 +1027,108 @@ function ToolLine({ tool, onOpenTaskBoard }: {
   )
 }
 
-/** 类型聚合行（v10 方案一主人定稿）：一类动作一行「图标 + 类型 + 统计」，
- *  可展开看该类明细；图表组不可展开（成品已在正文产物层展示）。 */
-function TypeGroup({ icon, label, count, note, expandable, children }: {
-  icon: ReactNode
-  label: string
-  count: string
-  note?: string
-  expandable: boolean
-  children?: ReactNode
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <div
-        className={`type-line${expandable ? '' : ' type-line-static'}`}
-        onClick={expandable ? () => setOpen((v) => !v) : undefined}
-        role={expandable ? 'button' : undefined}
-        aria-expanded={expandable ? open : undefined}
-      >
-        <span className="type-line-icon">{icon}</span>
-        <span className="type-line-label">{label}</span>
-        {note ? <span className="type-line-note">{note}</span> : null}
-        <span className="type-line-cnt">{count}</span>
-      </div>
-      {expandable && open ? <div className="type-detail">{children}</div> : null}
-    </>
-  )
-}
-
-/** 类型聚合展开区（v10 方案一）：过程按类型统计——💭思考 / ▸命令 / 📄文件 /
- *  🌐网页 / 📊图表 / 其他，每行点开看该类明细；中间叙述文本（时序 text）按
- *  原序以轻样式排在聚合区后。明细行复用 ToolLine（mono/类型形态已就位）。 */
-function TypeGroupedBody({ blocks }: { blocks: ContentBlock[] }) {
-  const thinkings = blocks
-    .filter((b): b is Extract<ContentBlock, { type: 'reasoning' }> => b.type === 'reasoning')
-    .map((b) => b.text)
-  const tools = blocks
-    .filter((b): b is Extract<ContentBlock, { type: 'tool' }> => b.type === 'tool')
-    .map((b) => b.tool)
-  const texts = blocks
-    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-  const byKey = (key: ReturnType<typeof toolGroupKey>) => tools.filter((t) => toolGroupKey(t.name) === key)
-  const thinkZi = thinkings.reduce((s, t) => s + countZi(t), 0)
-  const bash = byKey('bash')
-  const files = byKey('file')
-  const web = byKey('web')
-  const charts = byKey('chart')
-  const others = byKey('other')
-  return (
-    <>
-      {thinkings.length > 0 ? (
-        <TypeGroup
-          icon="💭"
-          label="思考"
-          count={`${thinkings.length} 段 · ${thinkZi} 字`}
-          expandable
+/** 过程时序叙述区（v10.1 主人定稿）：严格按执行顺序——顺序是过程可读性的
+ *  底线，类型聚合破坏时序（主人否）。形态是分段自然文字（非行列表/非表格）：
+ *  思考=斜体淡灰可点开全文；命令=动词+mono 命令；并行批=「一次调用 · A、B」；
+ *  每步点击展开参数/结果明细；中间叙述文本按原序轻样式排入。 */
+function TimelineProse({ blocks }: { blocks: ContentBlock[] }) {
+  const [openId, setOpenId] = useState<string | null>(null)
+  const rows: ReactNode[] = []
+  const pushTool = (tool: ToolRun) => {
+    const isOpen = openId === tool.id
+    const { verb, detail } = toolSummary(tool.name, tool.args)
+    const cmdLike = ['bash', 'run_command', 'execute'].includes(tool.name)
+    rows.push(
+      <div key={`step:${tool.id}`}>
+        <div
+          className={`prose-step prose-click${tool.isError ? ' tool-line-error' : ''}`}
+          onClick={() => setOpenId(isOpen ? null : tool.id)}
+          role="button"
+          aria-expanded={isOpen}
         >
-          {thinkings.map((text, i) => (
-            <div key={`think:${i}`} className="type-sub-reason">{text}</div>
-          ))}
-        </TypeGroup>
-      ) : null}
-      {bash.length > 0 ? (
-        <TypeGroup icon="▸" label="命令" count={`${bash.length} 条`} expandable>
-          {bash.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
-        </TypeGroup>
-      ) : null}
-      {files.length > 0 ? (
-        <TypeGroup icon="📄" label="文件" count={`${files.length} 个`} expandable>
-          {files.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
-        </TypeGroup>
-      ) : null}
-      {web.length > 0 ? (
-        <TypeGroup icon="🌐" label="网页" count={`${web.length} 次`} expandable>
-          {web.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
-        </TypeGroup>
-      ) : null}
-      {charts.length > 0 ? (
-        <TypeGroup icon="📊" label="图表" count={`${charts.length} 张`} note="已在正文展示" expandable={false} />
-      ) : null}
-      {others.length > 0 ? (
-        <TypeGroup icon="🔧" label="其他" count={`${others.length} 个`} expandable>
-          {others.map((tool) => (
-            <ToolLine key={tool.id} tool={tool} onOpenTaskBoard={undefined} />
-          ))}
-        </TypeGroup>
-      ) : null}
-      {texts.map((text, i) => (
-        <div key={`ptext:${i}`} className="process-text">
-          <Markdown>{text}</Markdown>
+          <span className="prose-verb">{verb}</span>
+          {detail ? <code className="prose-arg">{detail}</code> : null}
         </div>
-      ))}
-    </>
-  )
+        {isOpen ? (
+          <div className="prose-detail">
+            <ToolNodeDetails tool={tool} />
+          </div>
+        ) : null}
+      </div>,
+    )
+  }
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    if (block.type === 'text') {
+      rows.push(
+        <div key={`ptext:${i}`} className="process-text">
+          <Markdown>{block.text}</Markdown>
+        </div>,
+      )
+      continue
+    }
+    if (block.type === 'reasoning') {
+      const isOpen = openId === `think:${i}`
+      rows.push(
+        <div key={`think:${i}`}>
+          <div
+            className="prose-step prose-click"
+            onClick={() => setOpenId(isOpen ? null : `think:${i}`)}
+            role="button"
+            aria-expanded={isOpen}
+          >
+            <span className="prose-think">思考 · {countZi(block.text)} 字</span>
+          </div>
+          {isOpen ? (
+            <div className="prose-detail">
+              <div className="type-sub-reason">{block.text}</div>
+            </div>
+          ) : null}
+        </div>,
+      )
+      continue
+    }
+    // 并行批（连续同 batchId 的 tool_call）：一次调用产生的多个动作合并一段
+    if (block.tool.batchId != null) {
+      const batch: ToolRun[] = []
+      let j = i
+      while (
+        j < blocks.length &&
+        blocks[j].type === 'tool' &&
+        (blocks[j] as Extract<ContentBlock, { type: 'tool' }>).tool.batchId === block.tool.batchId
+      ) {
+        batch.push((blocks[j] as Extract<ContentBlock, { type: 'tool' }>).tool)
+        j += 1
+      }
+      if (batch.length >= 2) {
+        const isOpen = openId === `batch:${block.tool.batchId}`
+        rows.push(
+          <div key={`batch:${block.tool.batchId}`}>
+            <div
+              className="prose-step prose-click"
+              onClick={() => setOpenId(isOpen ? null : `batch:${block.tool.batchId}`)}
+              role="button"
+              aria-expanded={isOpen}
+            >
+              <span className="prose-verb">一次调用</span>
+              <span className="prose-batch-list">
+                {batch.map((t) => toolSummaryText(t.name, t.args)).join('；')}
+              </span>
+            </div>
+            {isOpen ? (
+              <div className="prose-detail">
+                {batch.map((t) => <ToolLine key={t.id} tool={t} />)}
+              </div>
+            ) : null}
+          </div>,
+        )
+        i = j - 1
+        continue
+      }
+    }
+    pushTool(block.tool)
+  }
+  return <>{rows}</>
 }
 
 /** 过程外壳（v10 方案一主人定稿）：脚注化收起态——无图标无粗体，11px 淡灰
@@ -1233,7 +1240,7 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
           叙述文本。流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达）。 */}
       {activityBlocks.length > 0 ? (
         <ActivityCard durationLabel={durationLabel} actionCount={activityToolCount}>
-          <TypeGroupedBody blocks={activityBlocks} />
+          <TimelineProse blocks={activityBlocks} />
         </ActivityCard>
       ) : null}
       {/* 产物层（对齐 studio MessageItem）：图表在正文前常驻平铺——

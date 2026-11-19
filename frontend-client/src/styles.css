@@ -3322,3 +3322,50 @@ textarea {
 .type-sub-reason + .type-sub-reason {
   border-top: 1px dashed var(--client-border);
 }
+
+/* ════════ 过程时序叙述区（v10.1）：按时序的分段文字形态——不是表格 ════════ */
+.activity-body {
+  gap: 2px;
+  padding: 6px 12px;
+}
+.prose-step {
+  padding: 4px 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--client-text-muted);
+}
+.prose-click {
+  cursor: pointer;
+  border-radius: 6px;
+}
+.prose-click:hover {
+  background: color-mix(in srgb, var(--client-surface) 60%, transparent);
+}
+.prose-think {
+  font-style: italic;
+  font-size: 11px;
+  color: var(--client-text-faint);
+}
+.prose-verb {
+  color: var(--client-text);
+  margin-right: 6px;
+}
+.prose-arg,
+.prose-batch-list {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--client-text-muted);
+  overflow-wrap: anywhere;
+}
+.prose-verb + .prose-arg::before {
+  content: "· ";
+  color: var(--client-text-faint);
+}
+.prose-detail {
+  margin: 2px 0 4px 10px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--client-border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
