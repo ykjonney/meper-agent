@@ -10,6 +10,7 @@ import {
   CopyOutlined,
   DatabaseOutlined,
   EditOutlined,
+  CloseOutlined,
   FileOutlined,
   FileSearchOutlined,
   FileTextOutlined,
@@ -205,18 +206,13 @@ const countZi = (s: string): number => {
 
 /** 思考面板 —— 与 ToolLine 完全同构的自绘行（弃用 antd Collapse：
  *  Collapse 的 header/expand-icon 结构偏移导致思考行与命令行无法对齐）。
- * - 流式期间（streaming）：展开 + 贴底跟随 + 末尾光标；
- * - 思考结束：自动收起（用户手动操作过则尊重），行变「思考过程 · N 字」；
- * - 内容 pre-wrap 纯文本（流式半截 Markdown 渲染错乱防护），限高内部滚动。 */
+ * - 执行中（streaming）默认只显示「正在思考…」一行（v8.1 设计：过程不抢正文），
+ *   用户点击才展开（展开态贴底跟随 + 末尾光标）；
+ * - 思考结束：行变「思考过程 · N 字」；内容 pre-wrap 纯文本
+ *  （流式半截 Markdown 渲染错乱防护），限高内部滚动。 */
 function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState(streaming)
-  const [userToggled, setUserToggled] = useState(false)
+  const [open, setOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (userToggled) return
-    setOpen(streaming)
-  }, [streaming, userToggled])
 
   useEffect(() => {
     if (streaming && open && contentRef.current) {
@@ -229,10 +225,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
       <button
         type="button"
         className={`tool-line-row${streaming ? ' tool-line-thinking' : ''}`}
-        onClick={() => {
-          setUserToggled(true)
-          setOpen((v) => !v)
-        }}
+        onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
         <span className="tool-timeline-node-icon">
@@ -581,13 +574,18 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   // ChatGPT 式（主人定稿）：执行中组保持收起——正在执行的命令在摘要行
   // 以斜体实时切换（不展开明细），完成后摘要定格为「执行了 N 个工具」。
 
-  // 整体状态图标:任一 running→转圈,任一 error→红叉,否则→绿勾
-  const overallIcon = isRunning ? (
-    <ClockCircleOutlined spin />
-  ) : hasError ? (
-    <CloseCircleOutlined />
-  ) : (
-    <CheckCircleOutlined />
+  // 整体状态点：与外壳/执行段合并行同语言（activity-dot）——running 琥珀转圈、
+  // error 红叉、完成灰勾。不用 Collapse 自带展开箭头（主人明确砍过「下拉图标」）
+  const overallIcon = (
+    <span className={`activity-dot ${isRunning ? 'is-running' : hasError ? 'is-error' : 'is-done'}`}>
+      {isRunning ? (
+        <LoadingOutlined spin />
+      ) : hasError ? (
+        <CloseOutlined />
+      ) : (
+        <CheckOutlined />
+      )}
+    </span>
   )
 
   // 卡片状态类:运行中 tool-run-running;整组落定后回中性(失败红底)。
@@ -599,7 +597,8 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   const runningDetail = running.length === 1 ? toolSummary(running[0].name, running[0].args).detail : ''
   const runningShort = runningDetail.length > 36 ? `${runningDetail.slice(0, 36)}…` : runningDetail
   const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
-  const durLabel = durSum > 0 ? ` · ${(durSum / 1000).toFixed(1)}s` : ''
+  // <100ms 显示「0.0s」没有信息量，直接不显示
+  const durLabel = durSum >= 100 ? ` · ${(durSum / 1000).toFixed(1)}s` : ''
   const summary = isRunning
     ? running.length === 1
       ? `正在${runningVerb}${runningShort ? ` ${runningShort}` : ''}…`
@@ -611,6 +610,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
       className={`tool-run tool-run-group tool-run-${cls}`}
       size="small"
       ghost
+      expandIcon={() => <span />}
       items={[
         {
           key: 'group',
@@ -651,7 +651,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                         <span className="tool-timeline-node-label">
                           <ToolOutlined />
                           <span className="tool-timeline-node-name">{label}</span>
-                          {durSum > 0 ? (
+                          {durSum >= 100 ? (
                             <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
                           ) : null}
                         </span>
@@ -677,7 +677,7 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                         <ToolOutlined />
                         <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
                         {tool.auto ? <Tag className="tool-timeline-node-tag">自动召回</Tag> : null}
-                        {tool.durationMs ? (
+                        {tool.durationMs != null && tool.durationMs >= 100 ? (
                           <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
                         ) : null}
                       </span>
@@ -966,7 +966,7 @@ function ToolResult({
               <ToolOutlined />
               <span>{toolSummaryText(tool.name, tool.args)}</span>
               {tool.auto ? <Tag>自动召回</Tag> : null}
-              {tool.durationMs ? (
+              {tool.durationMs != null && tool.durationMs >= 100 ? (
                 <span className="tool-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
               ) : null}
             </div>
@@ -1069,7 +1069,7 @@ function ProcessGroup({ items, onOpenTaskBoard }: {
           {running ? <LoadingOutlined /> : <CheckOutlined />}
         </span>
         <span className="process-group-title">执行了 {tools.length} 个工具</span>
-        {durSum > 0 ? (
+        {durSum >= 100 ? (
           <span className="process-group-dur">{(durSum / 1000).toFixed(1)}s</span>
         ) : null}
       </div>
@@ -1097,7 +1097,7 @@ function ToolLine({ tool, onOpenTaskBoard }: {
         <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
         <span className="tool-timeline-node-label">
           <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
-          {tool.durationMs ? (
+          {tool.durationMs != null && tool.durationMs >= 100 ? (
             <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
           ) : null}
         </span>
@@ -1132,7 +1132,7 @@ function BatchRow({ tools }: { tools: ToolRun[] }) {
           <span className="tool-line-batch-label">
             执行了 {tools.length} {allBash ? '命令' : '工具'}
           </span>
-          {durSum > 0 ? (
+          {durSum >= 100 ? (
             <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
           ) : null}
         </span>
@@ -1145,7 +1145,7 @@ function BatchRow({ tools }: { tools: ToolRun[] }) {
                 <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
                 <span className="tool-timeline-node-label">
                   <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
-                  {tool.durationMs ? (
+                  {tool.durationMs != null && tool.durationMs >= 100 ? (
                     <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
                   ) : null}
                 </span>

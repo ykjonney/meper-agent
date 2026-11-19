@@ -3072,6 +3072,10 @@ textarea {
   background: var(--client-accent-soft);
   color: var(--client-accent);
 }
+.activity-dot.is-error {
+  background: color-mix(in srgb, var(--client-danger) 10%, transparent);
+  color: var(--client-danger);
+}
 .activity-title {
   font-size: 12px;
   font-weight: 600;
