@@ -1067,7 +1067,6 @@ textarea {
  * border 用 transparent 占位保持几何稳定,状态切换不跳动。── */
 /* 步骤行（v5）：过程卡内平铺 hairline 分隔行，去块感——
    mono 语义（思考/工具名）+ 中文描述 + 状态点，点击展开详情 */
-.reasoning-panel,
 .tool-run {
   margin: 0;
   border: none;
@@ -1076,25 +1075,13 @@ textarea {
   background: transparent;
 }
 
-.reasoning-panel:last-of-type,
 .tool-run:last-of-type {
   border-bottom: none;
 }
 
 /* 头部统一为一行高,各状态相同 */
-.message-viewport .reasoning-panel .ant-collapse-header,
 .message-viewport .tool-run .ant-collapse-header {
   padding-block: 6px;
-}
-
-/* 思考面板：标题行（正在思考 + 三点动效，复用 streaming-dots） */
-.reasoning-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--client-text-muted);
-  font-size: 11.5px;
-  transition: color 0.3s;
 }
 
 .reasoning-count {
@@ -1136,21 +1123,23 @@ textarea {
 
 /* 展开面板与头部之间的分隔线(antd v6 类名为 -panel-active;
  * 旧 -content 类自 v6 起不存在,该规则此前一直未生效) */
-.reasoning-panel .ant-collapse-panel-active,
 .tool-run .ant-collapse-panel-active {
   border-top: 1px solid var(--client-border);
 }
 
 /* 进行中（v6 原则②轻提示）：无大色块——spinner 本身表达进行中，
    琥珀只留给步骤行的运行中标记，不再铺满卡片 */
-.tool-run-running,
-.reasoning-panel-streaming {
+.tool-run-running {
   border-color: transparent;
   background: transparent;
 }
 
-.tool-run-running .tool-title,
-.reasoning-panel-streaming .reasoning-label {
+.tool-run-running .tool-title {
+  color: var(--client-text);
+}
+
+/* 思考行流式态（自绘行，与命令行同构）：标题加深一档 */
+.tool-line-thinking .tool-timeline-node-name {
   color: var(--client-text);
 }
 
@@ -1164,13 +1153,13 @@ textarea {
 
 /* 思考灯泡 + 类型图标（v8.2）：思考行灯泡语义、工具行类型图标 */
 .think-bulb {
-  color: var(--ink-faint);
+  color: var(--client-text-faint);
   font-size: 11px;
 }
 .tool-line-type-icon,
 .tool-line .tool-timeline-node-label > .anticon:first-child,
 .process-group-body .tool-timeline-node-label .anticon {
-  color: var(--ink-faint);
+  color: var(--client-text-faint);
   font-size: 11px;
 }
 
@@ -1438,6 +1427,12 @@ textarea {
   flex: 1;
   min-width: 0;
 }
+/* 直显行内的图标回正常流：tool-timeline-node-icon 的 absolute/left:0
+   是旧时间轴设计（图标钉在轴线、文本让位），直显行是同构单行，图标随流排 */
+.tool-line-row .tool-timeline-node-icon {
+  position: static;
+  flex-shrink: 0;
+}
 .tool-line-row {
   display: flex;
   width: 100%;
@@ -1457,8 +1452,12 @@ textarea {
   background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
 }
 
-.tool-line + .reasoning-panel,
-.reasoning-panel + .tool-line {
+.tool-line-error .tool-timeline-node-name,
+.tool-line-error .tool-timeline-node-icon {
+  color: var(--client-danger);
+}
+
+.tool-line + .tool-line {
   margin-top: 1px;
 }
 

@@ -203,76 +203,70 @@ const countZi = (s: string): number => {
   return n
 }
 
-/** 思考面板 —— 对齐 studio ThinkingEntryCard 行为：
- * - 流式期间（streaming）：展开 + 头部三点动效 + 内容贴底跟随 + 末尾打字光标；
- * - 本轮思考结束（后续 text/tool 块到达）：自动收起（用户手动操作过则尊重用户），
- *   头部变静态「思考过程」+ 字数；
- * - 内容按纯文本 pre-wrap 渲染（思考是原始文本，流式期间半截 Markdown 会渲染错乱），
- *   限高内部滚动，长思考不撑爆消息流。 */
+/** 思考面板 —— 与 ToolLine 完全同构的自绘行（弃用 antd Collapse：
+ *  Collapse 的 header/expand-icon 结构偏移导致思考行与命令行无法对齐）。
+ * - 流式期间（streaming）：展开 + 贴底跟随 + 末尾光标；
+ * - 思考结束：自动收起（用户手动操作过则尊重），行变「思考过程 · N 字」；
+ * - 内容 pre-wrap 纯文本（流式半截 Markdown 渲染错乱防护），限高内部滚动。 */
 function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean }) {
   const [open, setOpen] = useState(streaming)
   const [userToggled, setUserToggled] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
-  // 流式状态切换时跟随展开/收起（用户手动操作过则不再自动）
   useEffect(() => {
     if (userToggled) return
     setOpen(streaming)
   }, [streaming, userToggled])
 
-  // 流式期间内容超出限高时，内部滚动贴底跟随最新输出
   useEffect(() => {
-    if (streaming && contentRef.current) {
+    if (streaming && open && contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight
     }
-  }, [text, streaming])
+  }, [text, streaming, open])
 
   return (
-    <Collapse
-      className={`reasoning-panel${streaming ? ' reasoning-panel-streaming' : ''}`}
-      ghost
-      size="small"
-      expandIcon={() => <span />}
-      activeKey={open ? ['reasoning'] : []}
-      onChange={(keys) => {
-        setUserToggled(true)
-        setOpen((Array.isArray(keys) ? keys : [keys]).length > 0)
-      }}
-      items={[
-        {
-          key: 'reasoning',
-          label: (
-            <span className="reasoning-label">
-              {streaming ? (
-                <>
-                  <BulbOutlined className="think-bulb" />
-                  正在思考
-                  <span className="streaming-dots" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </>
-              ) : (
-                <>
-                  <BulbOutlined className="think-bulb" />
-                  思考过程
-                  {text ? (
-                    <span className="reasoning-count">{countZi(text)} 字</span>
-                  ) : null}
-                </>
-              )}
-            </span>
-          ),
-          children: (
-            <div ref={contentRef} className="reasoning-text">
-              {text}
-              {streaming ? <span className="reasoning-caret">▍</span> : null}
-            </div>
-          ),
-        },
-      ]}
-    />
+    <div className="tool-line think-line">
+      <button
+        type="button"
+        className={`tool-line-row${streaming ? ' tool-line-thinking' : ''}`}
+        onClick={() => {
+          setUserToggled(true)
+          setOpen((v) => !v)
+        }}
+        aria-expanded={open}
+      >
+        <span className="tool-timeline-node-icon">
+          {streaming ? <LoadingOutlined spin /> : <BulbOutlined className="think-bulb" />}
+        </span>
+        <span className="tool-timeline-node-label">
+          <span className="tool-timeline-node-name">
+            {streaming ? (
+              <>
+                正在思考
+                <span className="streaming-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </>
+            ) : (
+              <>
+                思考过程
+                {text ? <span className="reasoning-count">{countZi(text)} 字</span> : null}
+              </>
+            )}
+          </span>
+        </span>
+      </button>
+      {open ? (
+        <div className="tool-line-details">
+          <div ref={contentRef} className="reasoning-text">
+            {text}
+            {streaming ? <span className="reasoning-caret">▍</span> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1096,13 +1090,12 @@ function ToolLine({ tool, onOpenTaskBoard }: {
     <div className="tool-line">
       <button
         type="button"
-        className="tool-line-row"
+        className={`tool-line-row${tool.isError ? ' tool-line-error' : ''}`}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+        <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
         <span className="tool-timeline-node-label">
-          <span className="tool-line-type-icon">{toolTypeIcon(tool.name)}</span>
           <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
           {tool.durationMs ? (
             <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
@@ -1132,7 +1125,9 @@ function BatchRow({ tools }: { tools: ToolRun[] }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="tool-timeline-node-icon">{statusIcon(tools[0])}</span>
+        <span className="tool-timeline-node-icon">
+          {tools.some((t) => t.isError) ? <CloseCircleOutlined /> : <CheckCircleOutlined />}
+        </span>
         <span className="tool-timeline-node-label">
           <span className="tool-line-batch-label">
             执行了 {tools.length} {allBash ? '命令' : '工具'}
