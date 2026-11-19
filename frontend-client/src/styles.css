@@ -3207,3 +3207,118 @@ textarea {
 .process-text .md-host :last-child {
   margin-bottom: 0;
 }
+
+/* ════════ 执行过程 v10 方案一（主人定稿）：脚注化收起 + 类型聚合展开 ════════ */
+
+/* 收起态：脚注行——无图标无粗体，11px 淡灰，比正文低两级 */
+.activity-card {
+  border: none;
+  background: none;
+  margin-bottom: 2px;
+}
+.activity-card-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  margin-left: 33px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  color: var(--client-text-faint);
+}
+.activity-card-head:hover {
+  color: var(--client-text-muted);
+  background: color-mix(in srgb, var(--client-surface-muted) 60%, transparent);
+}
+.activity-sep {
+  color: var(--client-border-strong);
+}
+.activity-dur {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+.activity-toggle {
+  margin-left: 4px;
+}
+.activity-card-head[aria-expanded="true"] .activity-toggle {
+  color: var(--client-text-muted);
+}
+.activity-card:has(.activity-body) .activity-card-head {
+  margin-left: 0;
+}
+/* 展开态容器：淡底圆角区 */
+.activity-body {
+  margin: 4px 0 0 33px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #efede6;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+:root[data-theme="dark"] .activity-body {
+  background: color-mix(in srgb, #fff 5%, transparent);
+}
+
+/* 类型聚合行：💭思考 / ▸命令 / 📄文件 / 🌐网页 / 📊图表 各一行 */
+.type-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--client-text-muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.type-line:hover {
+  background: color-mix(in srgb, var(--client-surface) 75%, transparent);
+}
+.type-line-static {
+  cursor: default;
+}
+.type-line-static:hover {
+  background: none;
+}
+.type-line-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--client-text-faint);
+}
+.type-line-label {
+  font-weight: 500;
+}
+.type-line-note {
+  font-size: 10.5px;
+  color: var(--client-text-faint);
+}
+.type-line-cnt {
+  margin-left: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  color: var(--client-text-faint);
+}
+/* 类型明细区 + 思考明细 */
+.type-detail {
+  margin: 2px 0 3px 10px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--client-border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.type-sub-reason {
+  padding: 4px 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--client-text-faint);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.type-sub-reason + .type-sub-reason {
+  border-top: 1px dashed var(--client-border);
+}

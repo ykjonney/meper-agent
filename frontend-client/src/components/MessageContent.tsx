@@ -100,43 +100,6 @@ function toRenderSegments(blocks: ContentBlock[]): RenderSegment[] {
   return segments
 }
 
-/** ── v7.1 过程段聚合（主人定稿）：
- *  连续的 thinking/tool 块（无 text 隔断）= 一个执行段，合并为
- *  「执行了 x 个工具」一行（含思考——展开看段内思考折叠行 + 每工具明细）。
- *  例外：段内只有 thinking 无 tool → 不出合并行，只显示思考行本身。 */
-type FlatSegment =
-  | { kind: 'text'; text: string }
-  | {
-      kind: 'process'
-      items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>
-    }
-
-function toFlatSegments(blocks: ContentBlock[]): FlatSegment[] {
-  const segs: FlatSegment[] = []
-  let buf: Extract<FlatSegment, { kind: 'process' }> | null = null
-  const flush = () => {
-    if (buf) {
-      segs.push(buf)
-      buf = null
-    }
-  }
-  for (const block of blocks) {
-    if (block.type === 'text') {
-      flush()
-      segs.push({ kind: 'text', text: block.text })
-      continue
-    }
-    const item =
-      block.type === 'reasoning'
-        ? ({ type: 'thinking', text: block.text } as const)
-        : ({ type: 'tool', tool: block.tool } as const)
-    if (!buf) buf = { kind: 'process', items: [item] }
-    else buf.items.push(item)
-  }
-  flush()
-  return segs
-}
-
 /** 共享的 react-markdown components 配置(无光标)。 */
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ href, children: label }) => (
@@ -296,6 +259,18 @@ function toolTypeClass(name: string): string {
 
 /** 工具类型图标（对齐 studio ToolTypeIcon 语义，antd 实现）——
  *  明细行左侧的类型标识，让用户一眼看出这步在干什么。 */
+/** 工具类型 → 聚合组 key（类型聚合展开区的分组依据）。 */
+function toolGroupKey(name: string): 'bash' | 'file' | 'web' | 'chart' | 'other' {
+  if (['bash', 'run_command', 'execute'].includes(name)) return 'bash'
+  if (name === 'render_chart') return 'chart'
+  if (['web_search', 'search_web', 'fetch_url', 'open_url'].includes(name)) return 'web'
+  if (
+    ['read_file', 'read', 'write_file', 'write', 'create_file', 'edit_file', 'edit',
+     'apply_patch', 'glob', 'list_files', 'list_dir', 'parse_file'].includes(name)
+  ) return 'file'
+  return 'other'
+}
+
 function toolTypeIcon(name: string): ReactNode {
   if (['bash', 'run_command', 'execute'].includes(name)) return <CodeOutlined />
   if (['read_file', 'read'].includes(name)) return <FileTextOutlined />
@@ -1008,42 +983,6 @@ interface MessageContentProps {
 }
 
 
-/** 执行段合并行（v7.3 主人定稿）：文本之间的一段执行过程（连续 thinking+tool，
- *  含思考）合并为「执行了 x 个工具」一行，点击展开——段内思考折叠行 + 工具命令
- *  直显行交错（renderProcessItems），并行批仍合并「执行了 x 命令」。 */
-function ProcessGroup({ items, onOpenTaskBoard }: {
-  items: Extract<FlatSegment, { kind: 'process' }>['items']
-  onOpenTaskBoard?: (taskId: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const tools = items
-    .filter((i): i is Extract<typeof items[number], { type: 'tool' }> => i.type === 'tool')
-    .map((i) => i.tool)
-  const running = tools.some((t) => t.status === 'running')
-  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
-  return (
-    <div className="process-group">
-      <div
-        className="process-group-head"
-        onClick={() => setOpen((v) => !v)}
-        role="button"
-        tabIndex={0}
-      >
-        <span className={`activity-dot ${running ? 'is-running' : 'is-done'}`}>
-          {running ? <LoadingOutlined /> : <CheckOutlined />}
-        </span>
-        <span className="process-group-title">执行了 {tools.length} 个工具</span>
-        {durSum >= 100 ? (
-          <span className="process-group-dur">{(durSum / 1000).toFixed(1)}s</span>
-        ) : null}
-      </div>
-      {open ? (
-        <div className="process-group-body">{renderProcessItems(items, onOpenTaskBoard)}</div>
-      ) : null}
-    </div>
-  )
-}
-
 /** 单工具直接行（v7.1 终稿）：命令直接显示，点击展开请求参数/结果明细。
  *  render_chart 例外：成品已在外部产物层展示，行不可展开（无详情）。 */
 function ToolLine({ tool, onOpenTaskBoard }: {
@@ -1088,98 +1027,108 @@ function ToolLine({ tool, onOpenTaskBoard }: {
   )
 }
 
-/** 并行批合并行：一轮调用（同 batchId）产生多个工具 → 合并一行
- *  「一次调用 · x 个命令/工具」——命名与样式都区别于外部段头
- *  「执行了 x 个工具」（分支图标 + 非粗体轻量文字），点击展开批内明细。 */
-function BatchRow({ tools }: { tools: ToolRun[] }) {
+/** 类型聚合行（v10 方案一主人定稿）：一类动作一行「图标 + 类型 + 统计」，
+ *  可展开看该类明细；图表组不可展开（成品已在正文产物层展示）。 */
+function TypeGroup({ icon, label, count, note, expandable, children }: {
+  icon: ReactNode
+  label: string
+  count: string
+  note?: string
+  expandable: boolean
+  children?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
-  const allBash = tools.every((t) => ['bash', 'run_command', 'execute'].includes(t.name))
-  const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
   return (
-    <div className="tool-line tool-line-batch">
-      <button
-        type="button"
-        className="tool-line-row"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+    <>
+      <div
+        className={`type-line${expandable ? '' : ' type-line-static'}`}
+        onClick={expandable ? () => setOpen((v) => !v) : undefined}
+        role={expandable ? 'button' : undefined}
+        aria-expanded={expandable ? open : undefined}
       >
-        <span className="tool-timeline-node-icon">
-          <BranchesOutlined className="tool-line-type-icon" />
-        </span>
-        <span className="tool-timeline-node-label">
-          <span className="tool-line-batch-name">
-            一次调用 · {tools.length} 个{allBash ? '命令' : '工具'}
-          </span>
-          {durSum >= 100 ? (
-            <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
-          ) : null}
-        </span>
-      </button>
-      {open ? (
-        <div className="tool-line-details">
-          {tools.map((tool) => (
-            <div key={tool.id} className="tool-line-sub">
-              <div className="tool-line-row" style={{ cursor: 'default' }}>
-                <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
-                <span className="tool-timeline-node-label">
-                  <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
-                  {tool.durationMs != null && tool.durationMs >= 100 ? (
-                    <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
-                  ) : null}
-                </span>
-              </div>
-              <ToolNodeDetails tool={tool} />
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
+        <span className="type-line-icon">{icon}</span>
+        <span className="type-line-label">{label}</span>
+        {note ? <span className="type-line-note">{note}</span> : null}
+        <span className="type-line-cnt">{count}</span>
+      </div>
+      {expandable && open ? <div className="type-detail">{children}</div> : null}
+    </>
   )
 }
 
-/** 过程段内容渲染（v7.1 终稿）：思考行与工具行按原始顺序交错；
- *  一轮并行多工具（同 batchId）合并为一行「执行了 x 命令/工具」。 */
-function renderProcessItems(
-  items: Array<{ type: 'thinking'; text: string } | { type: 'tool'; tool: ToolRun }>,
-  onOpenTaskBoard?: (taskId: string) => void,
-): ReactNode[] {
-  const rows: ReactNode[] = []
-  const done = new Set<string>()
-  items.forEach((item, i) => {
-    if (item.type === 'thinking') {
-      rows.push(<ReasoningPanel key={`p-think:${i}`} text={item.text} streaming={false} />)
-      return
-    }
-    if (done.has(item.tool.id)) return
-    const batch =
-      item.tool.batchId != null
-        ? items
-            .filter(
-              (x): x is Extract<typeof items[number], { type: 'tool' }> =>
-                x.type === 'tool' && x.tool.batchId === item.tool.batchId,
-            )
-            .map((x) => x.tool)
-        : []
-    if (batch.length >= 2) {
-      batch.forEach((t) => done.add(t.id))
-      rows.push(
-        <BatchRow
-          key={`p-batch:${batch[0].id}`}
-          tools={batch}
-        />,
-      )
-    } else {
-      done.add(item.tool.id)
-      rows.push(<ToolLine key={`p-tool:${item.tool.id}`} tool={item.tool} onOpenTaskBoard={onOpenTaskBoard} />)
-    }
-  })
-  return rows
+/** 类型聚合展开区（v10 方案一）：过程按类型统计——💭思考 / ▸命令 / 📄文件 /
+ *  🌐网页 / 📊图表 / 其他，每行点开看该类明细；中间叙述文本（时序 text）按
+ *  原序以轻样式排在聚合区后。明细行复用 ToolLine（mono/类型形态已就位）。 */
+function TypeGroupedBody({ blocks }: { blocks: ContentBlock[] }) {
+  const thinkings = blocks
+    .filter((b): b is Extract<ContentBlock, { type: 'reasoning' }> => b.type === 'reasoning')
+    .map((b) => b.text)
+  const tools = blocks
+    .filter((b): b is Extract<ContentBlock, { type: 'tool' }> => b.type === 'tool')
+    .map((b) => b.tool)
+  const texts = blocks
+    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text)
+  const byKey = (key: ReturnType<typeof toolGroupKey>) => tools.filter((t) => toolGroupKey(t.name) === key)
+  const thinkZi = thinkings.reduce((s, t) => s + countZi(t), 0)
+  const bash = byKey('bash')
+  const files = byKey('file')
+  const web = byKey('web')
+  const charts = byKey('chart')
+  const others = byKey('other')
+  return (
+    <>
+      {thinkings.length > 0 ? (
+        <TypeGroup
+          icon="💭"
+          label="思考"
+          count={`${thinkings.length} 段 · ${thinkZi} 字`}
+          expandable
+        >
+          {thinkings.map((text, i) => (
+            <div key={`think:${i}`} className="type-sub-reason">{text}</div>
+          ))}
+        </TypeGroup>
+      ) : null}
+      {bash.length > 0 ? (
+        <TypeGroup icon="▸" label="命令" count={`${bash.length} 条`} expandable>
+          {bash.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
+        </TypeGroup>
+      ) : null}
+      {files.length > 0 ? (
+        <TypeGroup icon="📄" label="文件" count={`${files.length} 个`} expandable>
+          {files.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
+        </TypeGroup>
+      ) : null}
+      {web.length > 0 ? (
+        <TypeGroup icon="🌐" label="网页" count={`${web.length} 次`} expandable>
+          {web.map((tool) => <ToolLine key={tool.id} tool={tool} />)}
+        </TypeGroup>
+      ) : null}
+      {charts.length > 0 ? (
+        <TypeGroup icon="📊" label="图表" count={`${charts.length} 张`} note="已在正文展示" expandable={false} />
+      ) : null}
+      {others.length > 0 ? (
+        <TypeGroup icon="🔧" label="其他" count={`${others.length} 个`} expandable>
+          {others.map((tool) => (
+            <ToolLine key={tool.id} tool={tool} onOpenTaskBoard={undefined} />
+          ))}
+        </TypeGroup>
+      ) : null}
+      {texts.map((text, i) => (
+        <div key={`ptext:${i}`} className="process-text">
+          <Markdown>{text}</Markdown>
+        </div>
+      ))}
+    </>
+  )
 }
 
-/** 过程外壳（v7.1 主人定稿）：最外部唯一一行——「✓ 已完成 · 执行了 N 个工具 · 用时」，
- *  点击展开内部过程（思考折叠行 / 文本之间的工具组合并行 / 中间叙述文本平铺）。 */
-function ActivityCard({ durationLabel, children }: {
+/** 过程外壳（v10 方案一主人定稿）：脚注化收起态——无图标无粗体，11px 淡灰
+ *  「已完成 · N 个动作 · 用时 · 展开↓」，比正文低两级；展开为类型聚合区。 */
+function ActivityCard({ durationLabel, actionCount, children }: {
   durationLabel?: string
+  actionCount: number
   children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -1189,14 +1138,15 @@ function ActivityCard({ durationLabel, children }: {
         className="activity-card-head"
         onClick={() => setOpen((v) => !v)}
         role="button"
+        aria-expanded={open}
         tabIndex={0}
       >
-        <span className="activity-dot is-done">
-          <CheckOutlined />
-        </span>
-        <span className="activity-title">已完成</span>
-        {/* v7.3：外壳只显示状态 + 用时——「执行了 x 个工具」在内部文本之间 */}
-        {durationLabel ? <span className="activity-meta">{durationLabel}</span> : null}
+        <span>已完成</span>
+        {actionCount > 0 ? <span className="activity-sep">·</span> : null}
+        {actionCount > 0 ? <span>{actionCount} 个动作</span> : null}
+        {durationLabel ? <span className="activity-sep">·</span> : null}
+        {durationLabel ? <span className="activity-dur">{durationLabel}</span> : null}
+        <span className="activity-toggle">{open ? '收起 ↑' : '展开 ↓'}</span>
       </div>
       {open ? <div className="activity-body">{children}</div> : null}
     </div>
@@ -1278,35 +1228,12 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
     .join('')
   return (
     <div className={`message-content message-content-${message.role}`}>
-      {/* v7.1 外壳（主人定稿）：「✓ 已完成 · 用时」最外部唯一一行（不显示工具数），
-          点击展开内部过程——执行段合并行「执行了 x 个工具」（含思考）/ 中间叙述文本平铺。
-          流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达当前阶段）。 */}
+      {/* v10 外壳（主人定稿方案一）：脚注化收起态「已完成 · N 个动作 · 用时 · 展开↓」，
+          展开为类型聚合区（💭思考 / ▸命令 / 📄文件 / 🌐网页 / 📊图表 各一行）+ 中间
+          叙述文本。流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达）。 */}
       {activityBlocks.length > 0 ? (
-        <ActivityCard durationLabel={durationLabel}>
-          {toFlatSegments(activityBlocks).map((seg, index) => {
-            if (seg.kind === 'text') {
-              // 过程叙述：轻样式容器（小字/muted/缩进）——注意力留给正文
-              return (
-                <div key={`flat:${index}`} className="process-text">
-                  <Markdown>{seg.text}</Markdown>
-                </div>
-              )
-            }
-            // 纯思考段（无工具）：不出合并行，只显示思考行（「只有一个思考」例外）
-            const hasTool = seg.items.some((i) => i.type === 'tool')
-            if (!hasTool) {
-              return (
-                <div key={`flat:${index}`}>
-                  {seg.items.map((item, i) =>
-                    item.type === 'thinking' ? (
-                      <ReasoningPanel key={`flat-think:${index}:${i}`} text={item.text} streaming={false} />
-                    ) : null,
-                  )}
-                </div>
-              )
-            }
-            return <ProcessGroup key={`flat:${index}`} items={seg.items} onOpenTaskBoard={onOpenTaskBoard} />
-          })}
+        <ActivityCard durationLabel={durationLabel} actionCount={activityToolCount}>
+          <TypeGroupedBody blocks={activityBlocks} />
         </ActivityCard>
       ) : null}
       {/* 产物层（对齐 studio MessageItem）：图表在正文前常驻平铺——
