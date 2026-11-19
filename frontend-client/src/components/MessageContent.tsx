@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   BarChartOutlined,
+  BranchesOutlined,
   BookOutlined,
   BulbOutlined,
   CheckCircleOutlined,
@@ -575,15 +576,14 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                 const segments = batchSegments(tools)
                 return segments.map((seg, segIndex) => {
                 const isLast = segIndex === segments.length - 1
-                // 并行批（≥2 个连续 tool_call）：整体一行「执行了 x 个命令/工具」
+                // 并行批（≥2 个连续 tool_call）：一次调用产生的多个工具合并一行，
+                // 命名区别于外部段头（「一次调用 · x 个」而非「执行了 x 个」）
                 if (seg.length >= 2) {
                   const allBash = seg.every((t) =>
                     ['bash', 'run_command', 'execute'].includes(t.name),
                   )
                   const durSum = seg.reduce((s, t) => s + (t.durationMs ?? 0), 0)
-                  const label = allBash
-                    ? `执行了 ${seg.length} 个命令`
-                    : `执行了 ${seg.length} 个工具`
+                  const label = `一次调用 · ${seg.length} 个${allBash ? '命令' : '工具'}`
                   return (
                     <li
                       key={`batch-${seg[0].id}`}
@@ -591,14 +591,9 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
                     >
                       <div className="tool-timeline-node-row">
                         <span className="tool-timeline-node-icon">
-                          {seg.some((t) => t.status === 'error') ? (
-                            <CloseCircleOutlined />
-                          ) : (
-                            <CheckCircleOutlined />
-                          )}
+                          <BranchesOutlined />
                         </span>
                         <span className="tool-timeline-node-label">
-                          <ToolOutlined />
                           <span className="tool-timeline-node-name">{label}</span>
                           {durSum >= 100 ? (
                             <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
@@ -1063,14 +1058,15 @@ function ToolLine({ tool, onOpenTaskBoard }: {
   )
 }
 
-/** 并行批合并行（例外规则）：一轮调用了多个工具 → 整体一行「执行了 x 命令/工具」，
- *  点击展开批内每工具明细。 */
+/** 并行批合并行：一轮调用（同 batchId）产生多个工具 → 合并一行
+ *  「一次调用 · x 个命令/工具」——命名与样式都区别于外部段头
+ *  「执行了 x 个工具」（分支图标 + 非粗体轻量文字），点击展开批内明细。 */
 function BatchRow({ tools }: { tools: ToolRun[] }) {
   const [open, setOpen] = useState(false)
   const allBash = tools.every((t) => ['bash', 'run_command', 'execute'].includes(t.name))
   const durSum = tools.reduce((s, t) => s + (t.durationMs ?? 0), 0)
   return (
-    <div className="tool-line">
+    <div className="tool-line tool-line-batch">
       <button
         type="button"
         className="tool-line-row"
@@ -1078,11 +1074,11 @@ function BatchRow({ tools }: { tools: ToolRun[] }) {
         aria-expanded={open}
       >
         <span className="tool-timeline-node-icon">
-          {tools.some((t) => t.isError) ? <CloseCircleOutlined /> : <CheckCircleOutlined />}
+          <BranchesOutlined className="tool-line-type-icon" />
         </span>
         <span className="tool-timeline-node-label">
-          <span className="tool-line-batch-label">
-            执行了 {tools.length} {allBash ? '命令' : '工具'}
+          <span className="tool-line-batch-name">
+            一次调用 · {tools.length} 个{allBash ? '命令' : '工具'}
           </span>
           {durSum >= 100 ? (
             <span className="tool-timeline-node-dur">{(durSum / 1000).toFixed(1)}s</span>
@@ -1094,7 +1090,7 @@ function BatchRow({ tools }: { tools: ToolRun[] }) {
           {tools.map((tool) => (
             <div key={tool.id} className="tool-line-sub">
               <div className="tool-line-row" style={{ cursor: 'default' }}>
-                <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
+                <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
                 <span className="tool-timeline-node-label">
                   <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
                   {tool.durationMs != null && tool.durationMs >= 100 ? (

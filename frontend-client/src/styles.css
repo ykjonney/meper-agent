@@ -1461,8 +1461,10 @@ textarea {
   margin-top: 1px;
 }
 
-.tool-line-batch-label {
-  font-weight: 600;
+/* 并行批合并行（一次调用 · x 个）：命名与样式均区别于外部段头——
+   分支图标 + 非粗体轻量文字，不与段头的勾点状态语言重复 */
+.tool-line-batch-name {
+  color: var(--client-text-muted);
 }
 
 .tool-line-details {
