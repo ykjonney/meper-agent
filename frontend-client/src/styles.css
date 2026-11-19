@@ -3152,3 +3152,9 @@ textarea {
   font-size: 11.5px;
   color: var(--client-text-faint);
 }
+.tool-line-static {
+  cursor: default;
+}
+.tool-line-static:hover {
+  background: none;
+}

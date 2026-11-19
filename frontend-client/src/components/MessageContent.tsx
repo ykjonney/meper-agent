@@ -486,6 +486,9 @@ function toolSummaryText(name: string, argsJson?: string): string {
  *  load_skill 不展示内容（技能全文对终端用户无意义）。 */
 function ToolNodeDetails({ tool }: { tool: ToolRun }) {
   if (tool.name === 'load_skill' || tool.name === 'load_skills') return null
+  // render_chart 成品已在外部产物层常驻展示，行内详情（参数 JSON + 结果再渲染
+  // 一遍图表）纯冗余——统一不给详情（覆盖批内明细/工具组展开路径）
+  if (tool.name === 'render_chart') return null
   return (
     <div className="tool-node-details">
       {tool.args ? (
@@ -1027,29 +1030,42 @@ function ProcessGroup({ items, onOpenTaskBoard }: {
   )
 }
 
-/** 单工具直接行（v7.1 终稿）：命令直接显示，点击展开请求参数/结果明细。 */
+/** 单工具直接行（v7.1 终稿）：命令直接显示，点击展开请求参数/结果明细。
+ *  render_chart 例外：成品已在外部产物层展示，行不可展开（无详情）。 */
 function ToolLine({ tool, onOpenTaskBoard }: {
   tool: ToolRun
   onOpenTaskBoard?: (taskId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const interactive = tool.name !== 'render_chart'
+  const content = (
+    <>
+      <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
+      <span className="tool-timeline-node-label">
+        <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
+        {tool.durationMs != null && tool.durationMs >= 100 ? (
+          <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
+        ) : null}
+      </span>
+    </>
+  )
   return (
     <div className="tool-line">
-      <button
-        type="button"
-        className={`tool-line-row${tool.isError ? ' tool-line-error' : ''}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span className="tool-timeline-node-icon">{toolTypeIcon(tool.name)}</span>
-        <span className="tool-timeline-node-label">
-          <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
-          {tool.durationMs != null && tool.durationMs >= 100 ? (
-            <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
-          ) : null}
-        </span>
-      </button>
-      {open ? (
+      {interactive ? (
+        <button
+          type="button"
+          className={`tool-line-row${tool.isError ? ' tool-line-error' : ''}`}
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className={`tool-line-row tool-line-static${tool.isError ? ' tool-line-error' : ''}`}>
+          {content}
+        </div>
+      )}
+      {interactive && open ? (
         <div className="tool-line-details">
           <ToolNodeDetails tool={tool} />
         </div>
