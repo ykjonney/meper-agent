@@ -1162,6 +1162,18 @@ textarea {
 /* ── 卡片宽度:全状态与容器最大宽度一致(全宽统一),层级仅靠
  * 色彩与动效表达(进行=琥珀,结束=中性淡底),不做宽度区分 ── */
 
+/* 思考灯泡 + 类型图标（v8.2）：思考行灯泡语义、工具行类型图标 */
+.think-bulb {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+.tool-line-type-icon,
+.tool-line .tool-timeline-node-label > .anticon:first-child,
+.process-group-body .tool-timeline-node-label .anticon {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
 /* ChatGPT 式执行行（v8.1）：执行中斜体灰字实时切换，完成后灰字定格 */
 .tool-title.gpt-running {
   font-style: italic;

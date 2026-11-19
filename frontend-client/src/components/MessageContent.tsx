@@ -1,17 +1,31 @@
 import {
+  ApartmentOutlined,
+  BarChartOutlined,
+  BookOutlined,
+  BulbOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
+  CodeOutlined,
   CopyOutlined,
+  DatabaseOutlined,
+  EditOutlined,
   FileOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
-  OrderedListOutlined,
-  CheckOutlined,
+  FolderOpenOutlined,
+  FormOutlined,
+  GlobalOutlined,
+  LinkOutlined,
   LoadingOutlined,
+  OrderedListOutlined,
   QuestionCircleOutlined,
   RedoOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
+  CheckOutlined,
+  SearchOutlined,
+  TeamOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
 import { Mermaid } from '@ant-design/x'
@@ -218,6 +232,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
       className={`reasoning-panel${streaming ? ' reasoning-panel-streaming' : ''}`}
       ghost
       size="small"
+      expandIcon={() => <span />}
       activeKey={open ? ['reasoning'] : []}
       onChange={(keys) => {
         setUserToggled(true)
@@ -230,6 +245,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
             <span className="reasoning-label">
               {streaming ? (
                 <>
+                  <BulbOutlined className="think-bulb" />
                   正在思考
                   <span className="streaming-dots" aria-hidden="true">
                     <span />
@@ -239,6 +255,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
                 </>
               ) : (
                 <>
+                  <BulbOutlined className="think-bulb" />
                   思考过程
                   {text ? (
                     <span className="reasoning-count">{countZi(text)} 字</span>
@@ -273,6 +290,27 @@ function promotedCharts(blocks: ContentBlock[]): string[] {
     charts.push(source)
   }
   return charts
+}
+
+/** 工具类型图标（对齐 studio ToolTypeIcon 语义，antd 实现）——
+ *  明细行左侧的类型标识，让用户一眼看出这步在干什么。 */
+function toolTypeIcon(name: string): ReactNode {
+  if (['bash', 'run_command', 'execute'].includes(name)) return <CodeOutlined />
+  if (['read_file', 'read'].includes(name)) return <FileTextOutlined />
+  if (['write_file', 'write', 'create_file'].includes(name)) return <EditOutlined />
+  if (['edit_file', 'edit', 'apply_patch'].includes(name)) return <FormOutlined />
+  if (['glob', 'list_files', 'list_dir'].includes(name)) return <FolderOpenOutlined />
+  if (['grep', 'search_content'].includes(name)) return <SearchOutlined />
+  if (['web_search', 'search_web'].includes(name)) return <GlobalOutlined />
+  if (['fetch_url', 'open_url'].includes(name)) return <LinkOutlined />
+  if (name === 'render_chart') return <BarChartOutlined />
+  if (name === 'parse_file') return <FileSearchOutlined />
+  if (['load_skill', 'load_skills'].includes(name)) return <BookOutlined />
+  if (name === 'delegate_to_subagent') return <TeamOutlined />
+  if (name === 'propose_plan') return <OrderedListOutlined />
+  if (['dispatch_workflow', 'confirm_workflow'].includes(name)) return <ApartmentOutlined />
+  if (['kb_retrieve', 'search_kb'].includes(name)) return <DatabaseOutlined />
+  return <ToolOutlined />
 }
 
 function statusIcon(tool: ToolRun): ReactNode {
@@ -1064,6 +1102,7 @@ function ToolLine({ tool, onOpenTaskBoard }: {
       >
         <span className="tool-timeline-node-icon">{statusIcon(tool)}</span>
         <span className="tool-timeline-node-label">
+          <span className="tool-line-type-icon">{toolTypeIcon(tool.name)}</span>
           <span className="tool-timeline-node-name">{toolSummaryText(tool.name, tool.args)}</span>
           {tool.durationMs ? (
             <span className="tool-timeline-node-dur">{(tool.durationMs / 1000).toFixed(1)}s</span>
