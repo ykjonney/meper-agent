@@ -111,7 +111,7 @@ export function GeneratedFiles({
   return (
     <>
       <Drawer
-        title="会话文件"
+        title="产物"
         width={380}
         open={open}
         onClose={onClose}
@@ -134,7 +134,7 @@ export function GeneratedFiles({
         {loading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
         ) : files.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无会话文件" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无产物" />
         ) : (
           <List
             dataSource={files}

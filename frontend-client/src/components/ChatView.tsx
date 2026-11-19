@@ -3,6 +3,7 @@ import {
   CloseOutlined,
   DeploymentUnitOutlined,
   FileOutlined,
+  FolderOpenOutlined,
   MenuOutlined,
   PaperClipOutlined,
   PlusOutlined,
@@ -15,6 +16,7 @@ import {
   App,
   Badge,
   Button,
+  Drawer,
   Empty,
   Image,
   Input,
@@ -45,7 +47,8 @@ import { sessionFeedback, voteMessage, type SessionFeedbackItem , listBackground
 import { ClarificationFormCard } from './clarification-form-card'
 import { VoiceComposer } from './voice/VoiceComposer'
 
-/** 最新 todo 快照（todo_write 工具最后一次调用的清单）——header 胶囊展示。 */
+/** 最新 todo 快照——倒序找最后一条**非空** todo_write（agent 收尾常写空清单
+ *  「清空」标记闭环，跳过它），闭环后清单保留为完成态淡化收尾，而不是消失。 */
 interface TodoSnapshot {
   items: { content: string; status: string }[]
   done: number
@@ -60,7 +63,8 @@ function extractLatestTodos(messages: ChatMessage[]): TodoSnapshot | null {
       try {
         const parsed = JSON.parse(b.tool.args)
         const todos = Array.isArray(parsed.todos) ? parsed.todos : []
-        if (!todos.length) return { items: [], done: 0 }
+        // 空清单 = 闭环标记，不是快照——继续向前找上一份非空清单
+        if (!todos.length) continue
         return {
           items: todos.map((t: { content?: string; status?: string }) => ({
             content: t.content ?? '',
@@ -145,6 +149,8 @@ export function ChatView({
   const [files, setFiles] = useState<File[]>([])
   const [filesOpen, setFilesOpen] = useState(false)
   const [filesRefreshKey, setFilesRefreshKey] = useState(0)
+  // 执行状态面板（todo 清单 + 工作流任务）——header「执行」按钮
+  const [execOpen, setExecOpen] = useState(false)
   // 工作流任务看板：header 按钮 / 消息内一行状态卡进入；focusTaskId 用于定位展开
   const [boardOpen, setBoardOpen] = useState(false)
   const [boardFocusTaskId, setBoardFocusTaskId] = useState<string | null>(null)
@@ -524,56 +530,26 @@ export function ChatView({
           </span>
           <span className="agent-pill">{agent.name}</span>
         </div>
-        {/* todo 清单胶囊：agent 用 todo_write 建清单后显示进度（点击展开明细） */}
-        {latestTodos && latestTodos.items.length > 0 ? (
-          <Popover
-            title="任务清单"
-            content={
-              <div style={{ minWidth: 220, maxWidth: 300 }}>
-                {latestTodos.items.map((t, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 0', fontSize: 12 }}>
-                    <span style={{ color: t.status === 'completed' ? '#1f9d55' : t.status === 'in_progress' ? '#2b4a9e' : '#98a2b0', flexShrink: 0 }}>
-                      {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○'}
-                    </span>
-                    <span style={{ color: t.status === 'completed' ? '#98a2b0' : '#1f2933' }}>{t.content}</span>
-                  </div>
-                ))}
-              </div>
-            }
-          >
-            <Badge count={`${latestTodos.done}/${latestTodos.items.length}`} style={{ background: '#2b4a9e' }} title="任务清单进度">
-              <Button type="text" icon={<OrderedListOutlined />}>
-                <span className="desktop-only-label">清单</span>
-              </Button>
-            </Badge>
-          </Popover>
-        ) : null}
-        {/* 会话文件：仅 jwt 模式（内部测试）保留——内嵌终端用户无工作区概念（v5 裁剪清单） */}
-        {!IS_EMBEDDED ? (
+        {/* 产物（主人定稿）：本会话产出的文件，预览 + 下载 + 打包 */}
+        <Button
+          type="text"
+          icon={<FolderOpenOutlined />}
+          disabled={!sessionId}
+          onClick={() => setFilesOpen(true)}
+        >
+          <span className="desktop-only-label">产物</span>
+        </Button>
+        {/* 执行状态（主人定稿）：todo 清单 + 工作流任务统一管理；角标=未查看任务 */}
+        <Badge count={unseenTaskCount} size="small" title="未查看的工作流任务">
           <Button
             type="text"
-            icon={<FileOutlined />}
+            icon={<DeploymentUnitOutlined />}
             disabled={!sessionId}
-            onClick={() => setFilesOpen(true)}
+            onClick={() => setExecOpen(true)}
           >
-            <span className="desktop-only-label">会话文件</span>
+            <span className="desktop-only-label">执行</span>
           </Button>
-        ) : null}
-        {/* 工作流任务看板入口：仅本会话出现过工作流任务时显示；角标=未查看的新任务数 */}
-        {sessionTasks.length > 0 ? (
-          <Badge count={unseenTaskCount} size="small" title="未查看的工作流任务">
-            <Button
-              type="text"
-              icon={<DeploymentUnitOutlined />}
-              onClick={() => {
-                setBoardFocusTaskId(null) // header 进入不定位，平铺看板
-                setBoardOpen(true)
-              }}
-            >
-              <span className="desktop-only-label">工作流</span>
-            </Button>
-          </Badge>
-        ) : null}
+        </Badge>
         {IS_EMBEDDED ? (
           <Button
             type="text"
@@ -1139,6 +1115,66 @@ export function ChatView({
         onClose={() => setFilesOpen(false)}
         refreshKey={filesRefreshKey}
       />
+      {/* 执行状态面板：todo 清单（完成态保留淡化收尾）+ 工作流任务（点击进看板） */}
+      <Drawer
+        title="执行状态"
+        width={380}
+        open={execOpen}
+        onClose={() => setExecOpen(false)}
+        className="files-drawer"
+      >
+        <div className="exec-section">
+          <div className="exec-section-title">任务清单</div>
+          {latestTodos && latestTodos.items.length > 0 ? (
+            <>
+              {latestTodos.items.map((t, i) => (
+                <div key={i} className="exec-todo-item">
+                  <span className={`exec-todo-glyph exec-todo-${t.status}`}>
+                    {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○'}
+                  </span>
+                  <span>{t.content}</span>
+                </div>
+              ))}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {latestTodos.done}/{latestTodos.items.length} 完成
+              </Typography.Text>
+            </>
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              本轮对话还没有任务清单
+            </Typography.Text>
+          )}
+        </div>
+        <div className="exec-section">
+          <div className="exec-section-title">工作流任务</div>
+          {sessionTasks.length > 0 ? (
+            <>
+              {sessionTasks.map((t) => (
+                <Button
+                  key={t.task_id}
+                  type="text"
+                  className="exec-task-item"
+                  onClick={() => {
+                    setBoardFocusTaskId(t.task_id)
+                    setBoardOpen(true)
+                    setExecOpen(false)
+                  }}
+                  block
+                >
+                  <span className="exec-task-name">{t.workflow_name || '工作流任务'}</span>
+                </Button>
+              ))}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                共 {sessionTasks.length} 个任务
+              </Typography.Text>
+            </>
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              本会话还没有派发过工作流
+            </Typography.Text>
+          )}
+        </div>
+      </Drawer>
       <WorkflowBoard
         tasks={sessionTasks}
         open={boardOpen}

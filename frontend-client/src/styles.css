@@ -3035,3 +3035,52 @@ textarea {
   font-size: 10px;
   color: var(--client-text-muted);
 }
+
+/* ── 执行状态面板（header「执行」按钮 → Drawer）：todo 清单 + 工作流任务 ── */
+.exec-section {
+  margin-bottom: 20px;
+}
+.exec-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--client-text-muted);
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+.exec-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.exec-todo-glyph {
+  flex-shrink: 0;
+  width: 1.1em;
+  text-align: center;
+}
+.exec-todo-completed {
+  color: #1f9d55;
+}
+.exec-todo-in_progress {
+  color: #2b4a9e;
+}
+.exec-todo-pending {
+  color: #98a2b0;
+}
+.exec-todo-completed + span,
+.exec-todo-item span:last-child {
+  color: var(--client-text);
+}
+.exec-todo-item:has(.exec-todo-completed) span:last-child {
+  color: var(--client-text-faint);
+  text-decoration: line-through;
+}
+.exec-task-item {
+  text-align: left;
+  padding: 4px 0;
+}
+.exec-task-name {
+  font-size: 13px;
+}
