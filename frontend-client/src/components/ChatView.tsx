@@ -1,10 +1,16 @@
 import {
+  ApartmentOutlined,
   AudioOutlined,
+  CheckCircleFilled,
+  ClockCircleOutlined,
   CloseOutlined,
   DeploymentUnitOutlined,
+  FileDoneOutlined,
   FileOutlined,
   FolderOpenOutlined,
+  InboxOutlined,
   MenuOutlined,
+  MinusCircleOutlined,
   PaperClipOutlined,
   PlusOutlined,
   LikeOutlined,
@@ -44,46 +50,86 @@ import { MessageContent } from './MessageContent'
 import { collectSessionTasks, WorkflowBoard } from './WorkflowBoard'
 import { QuickActionsBar } from './QuickActionsBar'
 import { sessionFeedback, voteMessage, type SessionFeedbackItem , listBackgroundTasks } from '../api/chat'
+import type { TaskStatusValue } from '../api/tasks'
 import { ClarificationFormCard } from './clarification-form-card'
 import { VoiceComposer } from './voice/VoiceComposer'
 
-/** 最新 todo 快照——倒序找最后一条**非空** todo_write（agent 收尾常写空清单
- *  「清空」标记闭环，跳过它），闭环后清单保留为完成态淡化收尾，而不是消失。 */
+/** 最新 todo 状态（跨全部快照合并）——agent 常漏写最终 completed 快照就直接
+ *  写空清单收尾，只看「最后一份非空快照」会永远停在 in_progress。合并规则：
+ *  - 同一条目（按 content）取最近一次快照的 status；
+ *  - 出现过空清单 = agent 主动闭环收尾 → 仍 in_progress 的条目视为完成
+ *   （没做完 agent 不会清空清单）。 */
 interface TodoSnapshot {
   items: { content: string; status: string }[]
   done: number
 }
 function extractLatestTodos(messages: ChatMessage[]): TodoSnapshot | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
+  const snapshots: { content: string; status: string }[][] = []
+  let closed = false
+  for (const m of messages) {
     if (m.role !== 'assistant') continue
-    for (let j = m.content.length - 1; j >= 0; j--) {
-      const b = m.content[j]
+    for (const b of m.content) {
       if (b.type !== 'tool' || b.tool.name !== 'todo_write' || !b.tool.args) continue
       try {
-        const parsed = JSON.parse(b.tool.args)
-        const todos = Array.isArray(parsed.todos) ? parsed.todos : []
-        // 空清单 = 闭环标记，不是快照——继续向前找上一份非空清单
-        if (!todos.length) continue
-        return {
-          items: todos.map((t: { content?: string; status?: string }) => ({
+        const parsed: unknown = JSON.parse(b.tool.args)
+        const todos = (parsed as { todos?: unknown }).todos
+        if (!Array.isArray(todos)) continue
+        if (!todos.length) {
+          closed = true
+          continue
+        }
+        snapshots.push(
+          todos.map((t: { content?: string; status?: string }) => ({
             content: t.content ?? '',
             status: t.status ?? 'pending',
           })),
-          done: todos.filter((t: { status?: string }) => t.status === 'completed').length,
-        }
+        )
       } catch {
         return null
       }
     }
   }
-  return null
+  if (!snapshots.length) return null
+  // 合并最终状态；条目顺序/集合以最后一份快照为准
+  const final = new Map<string, string>()
+  let order: string[] = []
+  for (const snap of snapshots) {
+    order = snap.map((t) => t.content)
+    for (const t of snap) final.set(t.content, t.status)
+  }
+  if (closed) {
+    for (const [c, s] of final) {
+      if (s === 'in_progress') final.set(c, 'completed')
+    }
+  }
+  const items = order.map((c) => ({ content: c, status: final.get(c) ?? 'pending' }))
+  return { items, done: items.filter((t) => t.status === 'completed').length }
 }
 
 /** 嵌入模式（chat-widget.js iframe 内）检测：仅此模式显示 header 关闭按钮，
  * 点击经 postMessage 通知 widget 收起面板（widget 侧悬浮关闭/全屏按钮已移除，
  * 悬浮样式会遮挡 header 内容；桌面端仍可点面板外部或 ESC 关闭）。 */
 const IS_EMBEDDED = window.parent !== window
+
+/** 工作流任务状态 Tag：执行卡片里的状态标识（色彩对齐 antd 语义色）。 */
+function TaskStatusTag({ status }: { status?: TaskStatusValue }) {
+  if (!status) return null
+  const map: Partial<Record<TaskStatusValue, { color: string; label: string }>> = {
+    pending: { color: 'default', label: '待执行' },
+    running: { color: 'processing', label: '执行中' },
+    waiting_human: { color: 'warning', label: '待人工' },
+    completed: { color: 'success', label: '已完成' },
+    failed: { color: 'error', label: '失败' },
+    cancelled: { color: 'default', label: '已取消' },
+  }
+  const conf = map[status]
+  if (!conf) return null
+  return (
+    <Tag color={conf.color} style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>
+      {conf.label}
+    </Tag>
+  )
+}
 
 function closeEmbeddedPanel() {
   window.parent.postMessage({ type: 'agentflow:close' }, '*')
@@ -530,6 +576,97 @@ export function ChatView({
           </span>
           <span className="agent-pill">{agent.name}</span>
         </div>
+        {/* 执行状态（主人定稿）：弹出纸卡（非侧边抽屉）——todo 清单 + 工作流任务；
+            角标 = 未查看工作流任务数 */}
+        <Badge count={unseenTaskCount} size="small" title="未查看的工作流任务">
+          <Popover
+            placement="bottomRight"
+            trigger="click"
+            open={execOpen}
+            onOpenChange={setExecOpen}
+            overlayClassName="exec-popover"
+            content={
+              <div className="exec-card">
+                <div className="exec-section">
+                  <div className="exec-section-title">任务清单</div>
+                  {latestTodos && latestTodos.items.length > 0 ? (
+                    <>
+                      <div className="exec-todo-meta">
+                        <span className="exec-todo-count">
+                          {latestTodos.done}/{latestTodos.items.length} 完成
+                        </span>
+                        {latestTodos.done === latestTodos.items.length ? (
+                          <Tag color="success" style={{ margin: 0 }}>已闭环</Tag>
+                        ) : null}
+                      </div>
+                      {latestTodos.items.map((t, i) => (
+                        <div key={i} className={`exec-todo-item exec-todo-${t.status}`}>
+                          <span className="exec-todo-glyph">
+                            {t.status === 'completed' ? (
+                              <CheckCircleFilled />
+                            ) : t.status === 'in_progress' ? (
+                              <ClockCircleOutlined spin />
+                            ) : (
+                              <MinusCircleOutlined />
+                            )}
+                          </span>
+                          <span className="exec-todo-content">{t.content}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="exec-empty">
+                      <FileDoneOutlined />
+                      <span>本轮对话还没有任务清单</span>
+                    </div>
+                  )}
+                </div>
+                <div className="exec-section">
+                  <div className="exec-section-title">工作流任务</div>
+                  {sessionTasks.length > 0 ? (
+                    <>
+                      {sessionTasks.map((t) => (
+                        <Button
+                          key={t.task_id}
+                          type="text"
+                          className="exec-task-item"
+                          block
+                          onClick={() => {
+                            setBoardFocusTaskId(t.task_id)
+                            setBoardOpen(true)
+                            setExecOpen(false)
+                          }}
+                        >
+                          <ApartmentOutlined className="exec-task-icon" />
+                          <span className="exec-task-name">{t.workflow_name || '工作流任务'}</span>
+                          <TaskStatusTag status={t.status} />
+                        </Button>
+                      ))}
+                      <div className="exec-todo-meta">
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          共 {sessionTasks.length} 个任务 · 点击进入看板
+                        </Typography.Text>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="exec-empty">
+                      <InboxOutlined />
+                      <span>本会话还没有派发过工作流</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            }
+          >
+            <Button
+              type="text"
+              icon={<DeploymentUnitOutlined />}
+              disabled={!sessionId}
+            >
+              <span className="desktop-only-label">执行</span>
+            </Button>
+          </Popover>
+        </Badge>
         {/* 产物（主人定稿）：本会话产出的文件，预览 + 下载 + 打包 */}
         <Button
           type="text"
@@ -539,17 +676,6 @@ export function ChatView({
         >
           <span className="desktop-only-label">产物</span>
         </Button>
-        {/* 执行状态（主人定稿）：todo 清单 + 工作流任务统一管理；角标=未查看任务 */}
-        <Badge count={unseenTaskCount} size="small" title="未查看的工作流任务">
-          <Button
-            type="text"
-            icon={<DeploymentUnitOutlined />}
-            disabled={!sessionId}
-            onClick={() => setExecOpen(true)}
-          >
-            <span className="desktop-only-label">执行</span>
-          </Button>
-        </Badge>
         {IS_EMBEDDED ? (
           <Button
             type="text"
@@ -1115,66 +1241,6 @@ export function ChatView({
         onClose={() => setFilesOpen(false)}
         refreshKey={filesRefreshKey}
       />
-      {/* 执行状态面板：todo 清单（完成态保留淡化收尾）+ 工作流任务（点击进看板） */}
-      <Drawer
-        title="执行状态"
-        width={380}
-        open={execOpen}
-        onClose={() => setExecOpen(false)}
-        className="files-drawer"
-      >
-        <div className="exec-section">
-          <div className="exec-section-title">任务清单</div>
-          {latestTodos && latestTodos.items.length > 0 ? (
-            <>
-              {latestTodos.items.map((t, i) => (
-                <div key={i} className="exec-todo-item">
-                  <span className={`exec-todo-glyph exec-todo-${t.status}`}>
-                    {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○'}
-                  </span>
-                  <span>{t.content}</span>
-                </div>
-              ))}
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {latestTodos.done}/{latestTodos.items.length} 完成
-              </Typography.Text>
-            </>
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              本轮对话还没有任务清单
-            </Typography.Text>
-          )}
-        </div>
-        <div className="exec-section">
-          <div className="exec-section-title">工作流任务</div>
-          {sessionTasks.length > 0 ? (
-            <>
-              {sessionTasks.map((t) => (
-                <Button
-                  key={t.task_id}
-                  type="text"
-                  className="exec-task-item"
-                  onClick={() => {
-                    setBoardFocusTaskId(t.task_id)
-                    setBoardOpen(true)
-                    setExecOpen(false)
-                  }}
-                  block
-                >
-                  <span className="exec-task-name">{t.workflow_name || '工作流任务'}</span>
-                </Button>
-              ))}
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                共 {sessionTasks.length} 个任务
-              </Typography.Text>
-            </>
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              本会话还没有派发过工作流
-            </Typography.Text>
-          )}
-        </div>
-      </Drawer>
       <WorkflowBoard
         tasks={sessionTasks}
         open={boardOpen}

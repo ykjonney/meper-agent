@@ -1,7 +1,11 @@
 import {
   DownloadOutlined,
+  EyeOutlined,
+  FileDoneOutlined,
   FileImageOutlined,
   FileOutlined,
+  FilePdfOutlined,
+  FileTextOutlined,
   FileZipOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
@@ -16,7 +20,7 @@ import {
   Space,
   Typography,
 } from 'antd'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import {
   downloadSessionFile,
@@ -41,6 +45,20 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 文件类型 → 图标 / 色彩 / 中文标签（产物列表的类型标识）。 */
+function fileKindMeta(name: string): { icon: ReactNode; color: string; label: string } {
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name))
+    return { icon: <FileImageOutlined />, color: '#1f9d55', label: '图片' }
+  if (/\.(zip|tar|gz|tgz|7z|rar)$/i.test(name))
+    return { icon: <FileZipOutlined />, color: '#b45309', label: '压缩包' }
+  if (/\.pdf$/i.test(name)) return { icon: <FilePdfOutlined />, color: '#d93a3f', label: 'PDF' }
+  if (/\.(md|txt|docx?|rtf)$/i.test(name))
+    return { icon: <FileTextOutlined />, color: '#2b4a9e', label: '文档' }
+  if (/\.(json|csv|ya?ml|xml|html?)$/i.test(name))
+    return { icon: <FileOutlined />, color: '#8a6dcd', label: '数据' }
+  return { icon: <FileOutlined />, color: '#8a94a0', label: '文件' }
 }
 
 export function GeneratedFiles({
@@ -134,35 +152,61 @@ export function GeneratedFiles({
         {loading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
         ) : files.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无产物" />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FileDoneOutlined style={{ color: '#1f9d55' }} />
+                还没有产物——让 Agent 生成图表或写文件吧
+              </span>
+            }
+          />
         ) : (
           <List
             dataSource={files}
             renderItem={(file) => {
               const name = fileName(file)
-              const image = /\.(png|jpe?g|gif|webp|svg)$/i.test(name)
+              const kind = fileKindMeta(name)
               return (
                 <List.Item
+                  className="generated-file-item"
                   actions={[
+                    <Button
+                      key="preview"
+                      type="text"
+                      size="small"
+                      icon={<EyeOutlined />}
+                      onClick={() => void openPreview(file)}
+                      aria-label={`预览 ${name}`}
+                    >
+                      预览
+                    </Button>,
                     <Button
                       key="download"
                       type="text"
+                      size="small"
                       icon={<DownloadOutlined />}
                       onClick={() => {
                         if (sessionId) void downloadSessionFile(sessionId, name)
                       }}
                       aria-label={`下载 ${name}`}
-                    />,
+                    >
+                      下载
+                    </Button>,
                   ]}
                 >
                   <List.Item.Meta
-                    avatar={image ? <FileImageOutlined /> : <FileOutlined />}
-                    title={
-                      <Button type="link" onClick={() => void openPreview(file)}>
-                        {name}
-                      </Button>
+                    avatar={
+                      <span className="generated-file-icon" style={{ color: kind.color }}>
+                        {kind.icon}
+                      </span>
                     }
-                    description={humanSize(file.size)}
+                    title={<span className="generated-file-name">{name}</span>}
+                    description={
+                      <span className="generated-file-desc">
+                        {kind.label} · {humanSize(file.size)}
+                      </span>
+                    }
                   />
                 </List.Item>
               )
