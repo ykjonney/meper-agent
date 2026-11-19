@@ -3158,3 +3158,52 @@ textarea {
 .tool-line-static:hover {
   background: none;
 }
+
+/* ════════ 执行过程紧凑化 + 类型形态区分（主人反馈：不像表格、过程文本与
+   正文区分、注意力在正文、类型间有差异） ════════ */
+
+/* 行距紧凑：padding 与字号同步收一档，整段高度明显变矮 */
+.tool-line-row {
+  padding: 2px 0;
+  font-size: 11px;
+}
+.process-group-body {
+  gap: 1px;
+  padding: 3px 8px;
+}
+
+/* 思考行：斜体 + faint——过程中最轻的元素（背景板，不与动作行抢眼） */
+.think-line .tool-line-row {
+  padding: 1px 0;
+}
+.think-line .tool-timeline-node-name {
+  font-style: italic;
+  font-size: 11px;
+  color: var(--client-text-faint);
+}
+.think-line .reasoning-count {
+  font-style: normal;
+}
+
+/* 命令行（bash/run_command）：命令文本 mono——技术内容的形态天然区分叙述 */
+.tool-type-bash .tool-timeline-node-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+}
+
+/* 过程叙述（执行段之间的中间文本）：小字 muted + 左缩进轻竖线，
+   明显轻于正文（正文 14px ink 无缩进）——注意力留给正文 */
+.process-text {
+  margin: 3px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--client-border);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--client-text-muted);
+}
+.process-text .md-host :first-child {
+  margin-top: 0;
+}
+.process-text .md-host :last-child {
+  margin-bottom: 0;
+}

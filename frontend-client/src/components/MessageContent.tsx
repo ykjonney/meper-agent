@@ -280,6 +280,20 @@ function promotedCharts(blocks: ContentBlock[]): string[] {
   return charts
 }
 
+/** 工具类型 → 行类名：思考/命令/文件/网页/图表在形态上彼此区分
+ *  （思考斜体最轻、命令 mono、其余常规——打破等高行的表格感）。 */
+function toolTypeClass(name: string): string {
+  if (['bash', 'run_command', 'execute'].includes(name)) return 'tool-type-bash'
+  if (
+    ['read_file', 'read', 'write_file', 'write', 'create_file', 'edit_file', 'edit',
+     'apply_patch', 'glob', 'list_files', 'list_dir', 'parse_file'].includes(name)
+  ) return 'tool-type-file'
+  if (['web_search', 'search_web', 'fetch_url', 'open_url'].includes(name)) return 'tool-type-web'
+  if (['load_skill', 'load_skills'].includes(name)) return 'tool-type-skill'
+  if (name === 'render_chart') return 'tool-type-chart'
+  return 'tool-type-other'
+}
+
 /** 工具类型图标（对齐 studio ToolTypeIcon 语义，antd 实现）——
  *  明细行左侧的类型标识，让用户一眼看出这步在干什么。 */
 function toolTypeIcon(name: string): ReactNode {
@@ -1050,7 +1064,7 @@ function ToolLine({ tool, onOpenTaskBoard }: {
     </>
   )
   return (
-    <div className="tool-line">
+    <div className={`tool-line ${toolTypeClass(tool.name)}`}>
       {interactive ? (
         <button
           type="button"
@@ -1271,7 +1285,12 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
         <ActivityCard durationLabel={durationLabel}>
           {toFlatSegments(activityBlocks).map((seg, index) => {
             if (seg.kind === 'text') {
-              return <Markdown key={`flat:${index}`}>{seg.text}</Markdown>
+              // 过程叙述：轻样式容器（小字/muted/缩进）——注意力留给正文
+              return (
+                <div key={`flat:${index}`} className="process-text">
+                  <Markdown>{seg.text}</Markdown>
+                </div>
+              )
             }
             // 纯思考段（无工具）：不出合并行，只显示思考行（「只有一个思考」例外）
             const hasTool = seg.items.some((i) => i.type === 'tool')
