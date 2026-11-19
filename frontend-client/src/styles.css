@@ -3328,11 +3328,18 @@ textarea {
   gap: 2px;
   padding: 6px 12px;
 }
+/* 步骤行 flex 化：命令/参数单行截断（主人：命令不要超过一行） */
 .prose-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   padding: 4px 0;
   font-size: 11.5px;
   line-height: 1.65;
   color: var(--client-text-muted);
+}
+.prose-step > span:first-child {
+  flex-shrink: 0;
 }
 .prose-click {
   cursor: pointer;
@@ -3352,10 +3359,14 @@ textarea {
 }
 .prose-arg,
 .prose-batch-list {
+  flex: 1;
+  min-width: 0;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 10.5px;
   color: var(--client-text-muted);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .prose-verb + .prose-arg::before {
   content: "· ";
