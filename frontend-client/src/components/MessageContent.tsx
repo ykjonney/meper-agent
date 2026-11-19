@@ -47,14 +47,14 @@ import { ChartBlock } from './ChartBlock'
 import { parseTaskCreated } from './WorkflowTaskCard'
 import { WorkflowTaskInlineCard } from './WorkflowTaskInlineCard'
 
-/** 特殊工具:不参与聚合,各自独立渲染(WorkflowTaskCard / chat 层 HITL)。 */
+/** 特殊工具:不参与聚合,各自独立渲染(WorkflowTaskCard / chat 层 HITL)。
+ *  todo_write 不在此列——它在 MessageContent 入口被整体滤除（走顶栏胶囊）。 */
 const SPECIAL_TOOLS = new Set([
   'dispatch_workflow',
   'ask_clarification',
   'confirm_workflow',
   'request_app_authorization',
   'delegate_to_subagent',
-  'todo_write',
 ])
 
 /** 一段连续的普通工具分组。特殊工具作为独立的 ToolRun 单独渲染,打断聚合。 */
@@ -402,57 +402,6 @@ function SubagentCard({ tool }: { tool: ToolRun }) {
         },
       ]}
     />
-  )
-}
-
-/** 解析 todo_write 的 args → 清单项数组(失败回退空,走通用卡片)。 */
-function parseTodoArgs(args?: string): { content: string; status: string }[] {
-  try {
-    const a: { todos?: { content?: unknown; status?: unknown }[] } = args
-      ? JSON.parse(args)
-      : {}
-    if (!Array.isArray(a.todos)) return []
-    return a.todos
-      .filter((t): t is { content: string; status: string } => typeof t === 'object' && t !== null)
-      .map((t) => ({
-        content: String(t.content ?? ''),
-        status: String(t.status ?? 'pending'),
-      }))
-  } catch {
-    return []
-  }
-}
-
-const TODO_STATUS_GLYPH: Record<string, string> = {
-  pending: '☐',
-  in_progress: '◐',
-  completed: '☑',
-}
-
-/** todo_write 专属卡片:checkbox 清单(全量替换语义,卡片展示该次更新的
- * 完整清单快照)。完成项划线灰显、进行中高亮,摘要行显示完成度。 */
-function TodoCard({ tool }: { tool: ToolRun }) {
-  const todos = parseTodoArgs(tool.args)
-  if (!todos.length) return null
-  const done = todos.filter((t) => t.status === 'completed').length
-  return (
-    <div className={`todo-card tool-run-${tool.status}`}>
-      <div className="todo-card-header">
-        <OrderedListOutlined />
-        <span className="todo-card-label">任务清单</span>
-        <span className="todo-card-count">
-          {done}/{todos.length} 完成
-        </span>
-      </div>
-      <ul className="todo-card-list">
-        {todos.map((t, i) => (
-          <li key={i} className={`todo-item todo-item-${t.status}`}>
-            <span className="todo-item-glyph">{TODO_STATUS_GLYPH[t.status] ?? '☐'}</span>
-            <span className="todo-item-content">{t.content}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
   )
 }
 
@@ -937,10 +886,6 @@ function ToolResult({
   if (tool.name === 'delegate_to_subagent') {
     return <SubagentCard tool={tool} />
   }
-  // todo_write：任务清单专属卡片(checkbox 清单快照)。解析失败落通用卡片。
-  if (tool.name === 'todo_write' && parseTodoArgs(tool.args).length) {
-    return <TodoCard tool={tool} />
-  }
   // load_skill：只显示「加载技能 · 技能名」一行，内容（技能全文）不展示。
   if (tool.name === 'load_skill' || tool.name === 'load_skills') {
     return (
@@ -1020,10 +965,17 @@ function AttachmentItem({
       className="message-file"
       icon={<FileOutlined />}
       onClick={() => {
+        // output 产物：id 存 `output:<相对 output/ 的路径>`，还原完整工作区路径
+        const rel = attachment.id.startsWith('output:')
+          ? attachment.id.slice('output:'.length)
+          : attachment.name
         const download =
           attachment.source === 'upload'
             ? downloadUploadedFile(attachment.id, attachment.name)
-            : downloadSessionFile(sessionId, attachment.name)
+            : downloadSessionFile(
+                sessionId,
+                attachment.source === 'output' ? `output/${rel}` : attachment.name,
+              )
         void download.catch(() =>
           message.error('文件下载失败'),
         )
@@ -1229,10 +1181,15 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
   const { message: toast } = App.useApp()
   // 快捷指令消息：user 气泡只渲染展示文案（label），隐藏实际发送给 AI 的指令。
   // 下游 segments / charts / fullText（复制）全部基于替换后的内容，保证不泄漏。
-  const content: ContentBlock[] =
+  const rawContent: ContentBlock[] =
     message.role === 'user' && message.displayText
       ? [{ type: 'text', text: message.displayText }]
       : message.content
+  // todo_write 走顶栏「任务清单」胶囊（仅最新快照），会话流内零渲染（对齐
+  // studio ActivityGroup 过滤语义）——入口滤除，下游聚合/明细/计数统一不见它。
+  const content = rawContent.filter(
+    (b) => !(b.type === 'tool' && b.tool.name === 'todo_write'),
+  )
   const charts = [...promotedCharts(content), ...message.charts]
   const segments = toRenderSegments(content)
   // ── 过程/回答分割（final 权威锚点，对齐 studio MessageItem 语义）──
@@ -1321,6 +1278,11 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
           })}
         </ActivityCard>
       ) : null}
+      {/* 产物层（对齐 studio MessageItem）：图表在正文前常驻平铺——
+          过程已收进外壳，图表是本轮「看得见的产出」，不随过程折叠 */}
+      {charts.map((source, index) => (
+        <ChartBlock key={`chart:${index}:${source.slice(0, 32)}`} source={source} />
+      ))}
       {answerSegments.map((segment, index) => renderSegment(segment, index + activityBlocks.length))}
       {uniqueAttachments.length > 0 ? (
         <div
@@ -1339,9 +1301,6 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
           ))}
         </div>
       ) : null}
-      {charts.map((source, index) => (
-        <ChartBlock key={`chart:${index}:${source.slice(0, 32)}`} source={source} />
-      ))}
       {/* 执行中动效:三点跳动,放在消息末尾(不碰 markdown 内部,稳定不抖)。
           首 token 前额外显示「正在响应」文字,内容开始后只剩三点。 */}
       {message.role === 'assistant' && message.status === 'loading' ? (

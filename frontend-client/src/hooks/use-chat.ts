@@ -45,14 +45,15 @@ function outputAttachments(text: string): AttachmentView[] {
   const seen = new Set<string>()
   const result: AttachmentView[] = []
   for (const match of text.matchAll(OUTPUT_PATH_RE)) {
-    const name = match[1]
-    if (!name || seen.has(name)) continue
-    seen.add(name)
+    const rel = match[1]
+    if (!rel || seen.has(rel)) continue
+    seen.add(rel)
     result.push({
-      id: `output:${name}`,
-      name,
+      // id 存完整相对路径（下载时还原 output/ 前缀），name 只显示 basename
+      id: `output:${rel}`,
+      name: rel.split('/').pop() || rel,
       contentType: 'application/octet-stream',
-      kind: /\.(png|jpe?g|gif|webp|svg)$/i.test(name) ? 'image' : 'file',
+      kind: /\.(png|jpe?g|gif|webp|svg)$/i.test(rel) ? 'image' : 'file',
       source: 'output',
     })
   }
@@ -404,7 +405,10 @@ export function useChat(
               const tools = allToolsFromBlocks(message.content)
               const outputNames = new Set(
                 tools.flatMap((tool) =>
-                  outputAttachments(tool.result ?? '').map((item) => item.name),
+                  // id 存完整相对路径（`output:<rel>`）——basename 显示名拉不到子目录文件
+                  outputAttachments(tool.result ?? '').map((item) =>
+                    item.id.replace(/^output:/, ''),
+                  ),
                 ),
               )
               for (const name of outputNames) {
@@ -629,9 +633,11 @@ export function useChat(
             }
             for (const attachment of outputAttachments(event.content ?? '')) {
               acc.attachments.set(attachment.id, attachment)
+              // 拉取文件内容用完整相对路径（id 里），basename 只用于显示
+              const rel = attachment.id.replace(/^output:/, '')
               if (isImageName(attachment.name)) {
                 try {
-                  const blob = await getSessionFile(sessionId!, attachment.name)
+                  const blob = await getSessionFile(sessionId!, rel)
                   const url = URL.createObjectURL(blob)
                   urlsRef.current.add(url)
                   acc.attachments.set(attachment.id, { ...attachment, url })
@@ -641,7 +647,7 @@ export function useChat(
               } else if (attachment.name.toLowerCase().endsWith('.json')) {
                 try {
                   const raw = await (
-                    await getSessionFile(sessionId!, attachment.name)
+                    await getSessionFile(sessionId!, rel)
                   ).text()
                   if (isChartOption(raw)) {
                     acc.charts.set(attachment.name, raw.trim())
