@@ -1162,6 +1162,14 @@ textarea {
 /* ── 卡片宽度:全状态与容器最大宽度一致(全宽统一),层级仅靠
  * 色彩与动效表达(进行=琥珀,结束=中性淡底),不做宽度区分 ── */
 
+/* ChatGPT 式执行行（v8.1）：执行中斜体灰字实时切换，完成后灰字定格 */
+.tool-title.gpt-running {
+  font-style: italic;
+}
+.tool-title.gpt-running .gpt-label {
+  color: var(--ink-soft);
+}
+
 .tool-title {
   display: flex;
   min-width: 0;

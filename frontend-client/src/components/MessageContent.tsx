@@ -546,15 +546,8 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   // 行内展开详情的工具 id(null = 都不展开)
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
 
-  // ── 执行中直接暴露（v6.2，Manus 同款时序）：running 时 timeline 自动展开
-  //  （每个工具行实时可见：✓ 已完成的 + ● 当前执行带完整参数摘要），
-  //  整组落定后自动收起合并为「使用了 N 个工具」。用户手动收起过则尊重。 */
-  const [userToggled, setUserToggled] = useState(false)
-  const [open, setOpen] = useState(isRunning)
-  useEffect(() => {
-    if (userToggled) return
-    setOpen(isRunning)
-  }, [isRunning, userToggled])
+  // ChatGPT 式（主人定稿）：执行中组保持收起——正在执行的命令在摘要行
+  // 以斜体实时切换（不展开明细），完成后摘要定格为「执行了 N 个工具」。
 
   // 整体状态图标:任一 running→转圈,任一 error→红叉,否则→绿勾
   const overallIcon = isRunning ? (
@@ -577,8 +570,8 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
   const durLabel = durSum > 0 ? ` · ${(durSum / 1000).toFixed(1)}s` : ''
   const summary = isRunning
     ? running.length === 1
-      ? `${completedCount}/${tools.length} 完成 · ${runningVerb}${runningShort ? ` ${runningShort}` : ''}`
-      : `${completedCount}/${tools.length} 完成 · 正在执行 ${running.length} 个工具`
+      ? `正在${runningVerb}${runningShort ? ` ${runningShort}` : ''}…`
+      : `正在执行 ${running.length} 个工具…`
     : `执行了 ${tools.length} 个工具${durLabel}`
 
   return (
@@ -586,19 +579,13 @@ function ToolRunsGroup({ tools }: { tools: ToolRun[] }) {
       className={`tool-run tool-run-group tool-run-${cls}`}
       size="small"
       ghost
-      activeKey={open ? ['group'] : []}
-      onChange={(keys) => {
-        setUserToggled(true)
-        setOpen((Array.isArray(keys) ? keys : [keys]).length > 0)
-      }}
       items={[
         {
           key: 'group',
           label: (
-            <div className="tool-title">
+            <div className="tool-title gpt-running">
               {overallIcon}
-              <ToolOutlined />
-              <span>{summary}</span>
+              <span className="gpt-label">{summary}</span>
             </div>
           ),
           children: (
