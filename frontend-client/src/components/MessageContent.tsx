@@ -168,6 +168,43 @@ const countZi = (s: string): number => {
   return n
 }
 
+/** ── 过程段聚合：连续的 thinking/tool 块（无 text 隔断）= 一个执行段——
+ *  段头「执行了 x 个工具」收起该段（点开段内明细），叙述文本隔断各段。
+ *  顺序是过程可读性的底线（主人明确）。 */
+type ProcessItem =
+  | { type: 'thinking'; text: string }
+  | { type: 'tool'; tool: ToolRun }
+
+type FlatSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'process'; items: ProcessItem[] }
+
+function toFlatSegments(blocks: ContentBlock[]): FlatSegment[] {
+  const segs: FlatSegment[] = []
+  let buf: Extract<FlatSegment, { kind: 'process' }> | null = null
+  const flush = () => {
+    if (buf) {
+      segs.push(buf)
+      buf = null
+    }
+  }
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      flush()
+      segs.push({ kind: 'text', text: block.text })
+      continue
+    }
+    const item: ProcessItem =
+      block.type === 'reasoning'
+        ? { type: 'thinking', text: block.text }
+        : { type: 'tool', tool: block.tool }
+    if (!buf) buf = { kind: 'process', items: [item] }
+    else buf.items.push(item)
+  }
+  flush()
+  return segs
+}
+
 /** 思考面板 —— 与 ToolLine 完全同构的自绘行（弃用 antd Collapse：
  *  Collapse 的 header/expand-icon 结构偏移导致思考行与命令行无法对齐）。
  * - 执行中（streaming）默认只显示「正在思考…」一行（v8.1 设计：过程不抢正文），
@@ -1027,86 +1064,54 @@ function ToolLine({ tool, onOpenTaskBoard }: {
   )
 }
 
-/** 过程时序叙述区（v10.1 主人定稿）：严格按执行顺序——顺序是过程可读性的
- *  底线，类型聚合破坏时序（主人否）。形态是分段自然文字（非行列表/非表格）：
- *  思考=斜体淡灰可点开全文；命令=动词+mono 命令；并行批=「一次调用 · A、B」；
- *  每步点击展开参数/结果明细；中间叙述文本按原序轻样式排入。 */
-function TimelineProse({ blocks }: { blocks: ContentBlock[] }) {
-  const [openId, setOpenId] = useState<string | null>(null)
+/** 段内明细渲染（严格时序）：思考=斜体淡灰可点开全文；命令=动词+mono 参数；
+ *  并行批=「一次调用 · A；B」合并一段；每步点击展开参数/结果明细。
+ *  openStepId 由 MessageContent 提供（跨段共享一个展开位）。 */
+function renderProcessItems(items: ProcessItem[], openStepId: string | null, setOpenStepId: (v: string | null) => void): ReactNode[] {
   const rows: ReactNode[] = []
-  const pushTool = (tool: ToolRun) => {
-    const isOpen = openId === tool.id
-    const { verb, detail } = toolSummary(tool.name, tool.args)
-    const cmdLike = ['bash', 'run_command', 'execute'].includes(tool.name)
-    rows.push(
-      <div key={`step:${tool.id}`}>
-        <div
-          className={`prose-step prose-click${tool.isError ? ' tool-line-error' : ''}`}
-          onClick={() => setOpenId(isOpen ? null : tool.id)}
-          role="button"
-          aria-expanded={isOpen}
-        >
-          <span className="prose-verb">{verb}</span>
-          {detail ? <code className="prose-arg">{detail}</code> : null}
-        </div>
-        {isOpen ? (
-          <div className="prose-detail">
-            <ToolNodeDetails tool={tool} />
-          </div>
-        ) : null}
-      </div>,
-    )
-  }
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]
-    if (block.type === 'text') {
-      rows.push(
-        <div key={`ptext:${i}`} className="process-text">
-          <Markdown>{block.text}</Markdown>
-        </div>,
-      )
-      continue
-    }
-    if (block.type === 'reasoning') {
-      const isOpen = openId === `think:${i}`
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.type === 'thinking') {
+      const isOpen = openStepId === `think:${i}`
       rows.push(
         <div key={`think:${i}`}>
           <div
             className="prose-step prose-click"
-            onClick={() => setOpenId(isOpen ? null : `think:${i}`)}
+            onClick={() => setOpenStepId(isOpen ? null : `think:${i}`)}
             role="button"
             aria-expanded={isOpen}
           >
-            <span className="prose-think">思考 · {countZi(block.text)} 字</span>
+            <span className="prose-think">思考 · {countZi(item.text)} 字</span>
           </div>
           {isOpen ? (
             <div className="prose-detail">
-              <div className="type-sub-reason">{block.text}</div>
+              <div className="type-sub-reason">{item.text}</div>
             </div>
           ) : null}
         </div>,
       )
       continue
     }
-    // 并行批（连续同 batchId 的 tool_call）：一次调用产生的多个动作合并一段
-    if (block.tool.batchId != null) {
+    // 并行批（连续同 batchId）：一次调用产生的多个动作合并一段
+    if (item.tool.batchId != null) {
       const batch: ToolRun[] = []
       let j = i
       while (
-        j < blocks.length &&
-        blocks[j].type === 'tool' &&
-        (blocks[j] as Extract<ContentBlock, { type: 'tool' }>).tool.batchId === block.tool.batchId
+        j < items.length &&
+        items[j].type === 'tool' &&
+        (items[j] as Extract<ProcessItem, { type: 'tool' }>).tool.batchId === item.tool.batchId
       ) {
-        batch.push((blocks[j] as Extract<ContentBlock, { type: 'tool' }>).tool)
+        batch.push((items[j] as Extract<ProcessItem, { type: 'tool' }>).tool)
         j += 1
       }
       if (batch.length >= 2) {
-        const isOpen = openId === `batch:${block.tool.batchId}`
+        const batchId = item.tool.batchId
+        const isOpen = openStepId === `batch:${batchId}`
         rows.push(
-          <div key={`batch:${block.tool.batchId}`}>
+          <div key={`batch:${batchId}`}>
             <div
               className="prose-step prose-click"
-              onClick={() => setOpenId(isOpen ? null : `batch:${block.tool.batchId}`)}
+              onClick={() => setOpenStepId(isOpen ? null : `batch:${batchId}`)}
               role="button"
               aria-expanded={isOpen}
             >
@@ -1126,9 +1131,95 @@ function TimelineProse({ blocks }: { blocks: ContentBlock[] }) {
         continue
       }
     }
-    pushTool(block.tool)
+    const tool = item.tool
+    const isOpen = openStepId === `tool:${tool.id}`
+    const { verb, detail } = toolSummary(tool.name, tool.args)
+    rows.push(
+      <div key={`tool:${tool.id}`}>
+        <div
+          className={`prose-step prose-click${tool.isError ? ' tool-line-error' : ''}`}
+          onClick={() => setOpenStepId(isOpen ? null : `tool:${tool.id}`)}
+          role="button"
+          aria-expanded={isOpen}
+        >
+          <span className="prose-verb">{verb}</span>
+          {detail ? <code className="prose-arg">{detail}</code> : null}
+        </div>
+        {isOpen ? (
+          <div className="prose-detail">
+            <ToolNodeDetails tool={tool} />
+          </div>
+        ) : null}
+      </div>,
+    )
   }
-  return <>{rows}</>
+  return rows
+}
+
+/** 执行段（文本之间的过程段）：段头「执行了 x 个工具」收起该段——
+ *  点开段内时序明细（思考/命令/一次调用交错）。纯思考段不岀段头。 */
+function ProcessGroup({ items, openStepId, setOpenStepId }: {
+  items: ProcessItem[]
+  openStepId: string | null
+  setOpenStepId: (v: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const toolCount = items.filter((i) => i.type === 'tool').length
+  if (!toolCount) {
+    return (
+      <>
+        {items.map((item, i) =>
+          item.type === 'thinking' ? (
+            <div key={`pure-think:${i}`} className="prose-step">
+              <span className="prose-think">思考 · {countZi(item.text)} 字</span>
+            </div>
+          ) : null,
+        )}
+      </>
+    )
+  }
+  return (
+    <div className="process-group">
+      <div
+        className="process-group-head"
+        onClick={() => setOpen((v) => !v)}
+        role="button"
+        aria-expanded={open}
+      >
+        <span>执行了 {toolCount} 个工具</span>
+        <span className="process-group-toggle">{open ? '收起 ↑' : '展开 ↓'}</span>
+      </div>
+      {open ? (
+        <div className="process-group-body">
+          {renderProcessItems(items, openStepId, setOpenStepId)}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 外壳展开内容：按时序渲染段序列——叙述文本（正常墨色轻样式）与
+ *  执行段（ProcessGroup：段头收起 + 段内明细）交错。 */
+function ProcessSegments({ blocks }: { blocks: ContentBlock[] }) {
+  const [openStepId, setOpenStepId] = useState<string | null>(null)
+  return (
+    <>
+      {toFlatSegments(blocks).map((seg, index) =>
+        seg.kind === 'text' ? (
+          <div key={`flat:${index}`} className="process-text">
+            <Markdown>{seg.text}</Markdown>
+          </div>
+        ) : (
+          <ProcessGroup
+            key={`flat:${index}`}
+            items={seg.items}
+            openStepId={openStepId}
+            setOpenStepId={setOpenStepId}
+          />
+        ),
+      )}
+    </>
+  )
 }
 
 /** 过程外壳（v10 方案一主人定稿）：脚注化收起态——无图标无粗体，11px 淡灰
@@ -1240,7 +1331,7 @@ export function MessageContent({ message, sessionId, onOpenTaskBoard, onRegenera
           叙述文本。流式中不渲染外壳（过程平铺可见：思考行 + 工具组摘要实时表达）。 */}
       {activityBlocks.length > 0 ? (
         <ActivityCard durationLabel={durationLabel} actionCount={activityToolCount}>
-          <TimelineProse blocks={activityBlocks} />
+          <ProcessSegments blocks={activityBlocks} />
         </ActivityCard>
       ) : null}
       {/* 产物层（对齐 studio MessageItem）：图表在正文前常驻平铺——

@@ -3191,15 +3191,13 @@ textarea {
   font-size: 10.5px;
 }
 
-/* 过程叙述（执行段之间的中间文本）：小字 muted + 左缩进轻竖线，
-   明显轻于正文（正文 14px ink 无缩进）——注意力留给正文 */
+/* 过程叙述（执行段之间的中间文本）：主人定稿「中间文本保持正常」——
+   墨色正常、无缩进竖线（在淡靛蓝区里靠背景已与正文区分），仅字号轻一档 */
 .process-text {
-  margin: 3px 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--client-border);
+  margin: 4px 0;
   font-size: 12px;
-  line-height: 1.65;
-  color: var(--client-text-muted);
+  line-height: 1.7;
+  color: var(--client-text);
 }
 .process-text .md-host :first-child {
   margin-top: 0;
@@ -3221,7 +3219,6 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 2px 4px;
-  margin-left: 33px;
   border-radius: 6px;
   cursor: pointer;
   user-select: none;
@@ -3245,21 +3242,16 @@ textarea {
 .activity-card-head[aria-expanded="true"] .activity-toggle {
   color: var(--client-text-muted);
 }
-.activity-card:has(.activity-body) .activity-card-head {
-  margin-left: 0;
-}
-/* 展开态容器：淡底圆角区 */
+/* 展开态容器：淡靛蓝底（区别于正文代码块米灰 #f3f2ed——色系区分），
+   无缩进错位（主人：靠字体和背景差异，不靠错位） */
 .activity-body {
-  margin: 4px 0 0 33px;
-  padding: 8px 10px;
+  margin: 4px 0 0;
+  padding: 8px 12px;
   border-radius: 10px;
-  background: #efede6;
+  background: var(--client-accent-soft);
   display: flex;
   flex-direction: column;
   gap: 1px;
-}
-:root[data-theme="dark"] .activity-body {
-  background: color-mix(in srgb, #fff 5%, transparent);
 }
 
 /* 类型聚合行：💭思考 / ▸命令 / 📄文件 / 🌐网页 / 📊图表 各一行 */
@@ -3354,7 +3346,7 @@ textarea {
   color: var(--client-text-faint);
 }
 .prose-verb {
-  color: var(--client-text);
+  color: var(--client-text-muted);
   margin-right: 6px;
 }
 .prose-arg,
@@ -3379,4 +3371,38 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* 执行段（文本之间的过程段）：段头淡色小字收起行 + 段内明细（无大缩进） */
+.process-group {
+  margin: 2px 0;
+}
+.process-group-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  color: var(--client-text-muted);
+}
+.process-group-head:hover {
+  background: color-mix(in srgb, var(--client-surface) 65%, transparent);
+}
+.process-group-head > span:first-child {
+  font-weight: 500;
+}
+.process-group-toggle {
+  font-size: 10px;
+  color: var(--client-text-faint);
+}
+.process-group-body {
+  margin: 2px 0 2px 4px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--client-border-strong) 60%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
