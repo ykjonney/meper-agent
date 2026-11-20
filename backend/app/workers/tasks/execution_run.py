@@ -113,6 +113,37 @@ async def _run_async(execution_id: str) -> dict[str, Any]:
         logger.warning("execution_run_fenced_midway execution={}", execution_id)
         return {"outcome": "fenced"}
 
+    except Exception as exc:  # noqa: BLE001 - 记录可恢复中断，不伪造终态
+        # Runner 的普通异常不等同于“没有发生外部副作用”：工具/远端请求
+        # 可能已成功但结果尚未持久化。这里不标记 failed、不释放 lease，
+        # 也不立即重跑；记录中断事实后让 lease 自然过期，由 Supervisor
+        # 接管。后续恢复必须由 ToolLedger 对 UNKNOWN 副作用作裁决。
+        try:
+            async with repo.transaction(
+                execution_id, expected_token=lease.fencing_token
+            ) as txn:
+                await txn.append_event(
+                    ExecutionEvent(
+                        execution_id=execution_id,
+                        seq=0,
+                        type="execution.worker_error",
+                        producer="worker",
+                        payload={
+                            "error_type": type(exc).__name__,
+                            "error": str(exc)[:2000],
+                            "recovery": "await_lease_expiry_and_supervisor_takeover",
+                        },
+                    )
+                )
+        except LeaseLostError:
+            # 原 lease 已失效，不能再以旧 token 写诊断事件。
+            logger.warning("execution_worker_error_after_fencing execution={}", execution_id)
+        except Exception:
+            # 记录事件本身失败不能覆盖 Runner 原始异常；lease 仍会自然过期。
+            logger.exception("execution_worker_error_event_failed execution={}", execution_id)
+        logger.exception("execution_runner_failed execution={}", execution_id)
+        raise
+
 
 def _now_iso() -> str:
     from app.models.base import utc_now
