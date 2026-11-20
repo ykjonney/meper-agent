@@ -4,7 +4,6 @@ from app import _cycompat as _cycompat_module
 
 _cycompat_module.install()
 
-import asyncio
 import threading
 
 from celery import Celery  # type: ignore[import-untyped]
@@ -177,12 +176,14 @@ def _license_contract_ok() -> bool:
 
 
 async def _bootstrap_worker_execution() -> None:
-    """Initialize durable execution dependencies on the worker's shared loop."""
+    """Initialize Mongo-backed worker dependencies on the worker's shared loop."""
+    from app.core.checkpointer import configure_mongo_checkpointer
     from app.core.execution_runtime import check_execution_runtime
     from app.engine.execution.tool_ledger import configure_tool_ledger
 
-    # Both operations use the process-wide Motor client. Keep them on the same
-    # persistent loop that subsequent synchronous Celery tasks drive via run_async.
+    # Construct the process-wide Motor client while the persistent worker loop
+    # is running, then use it for every async bootstrap operation and task.
+    configure_mongo_checkpointer(log_on_error=True)
     await check_execution_runtime()
     await configure_tool_ledger()
 
@@ -233,12 +234,7 @@ def _init_worker(**_kwargs: object) -> None:
         logger.critical("license_integrity_worker_exit")
         raise SystemExit(78)
 
-    # 2. Checkpointer 配置 — shared with FastAPI lifespan via app.core.checkpointer
-    from app.core.checkpointer import configure_mongo_checkpointer
-
-    configure_mongo_checkpointer(log_on_error=True)
-
-    # 2b. 执行域前提检查 + 副作用账本装配必须共用 worker 的持久事件循环。
+    # 2. Mongo-backed execution dependencies share one persistent worker loop.
     #     Mongo AsyncIOMotorClient 是进程级单例，不能先后交给两个
     #     asyncio.run() 创建并关闭的不同 loop；否则后续 Celery task 会在
     #     已关闭/不匹配的 loop 上使用 Motor client。

@@ -17,6 +17,10 @@ def _run_init_worker(monkeypatch) -> tuple[list[str], list[asyncio.AbstractEvent
     calls: list[str] = []
     loops: list[asyncio.AbstractEventLoop] = []
 
+    def _fake_checkpointer(*, log_on_error=True):
+        loops.append(asyncio.get_running_loop())
+        calls.append("configure_mongo_checkpointer")
+
     async def _fake_check():
         loops.append(asyncio.get_running_loop())
         calls.append("check_execution_runtime")
@@ -33,6 +37,9 @@ def _run_init_worker(monkeypatch) -> tuple[list[str], list[asyncio.AbstractEvent
         code = ""
 
     monkeypatch.setattr(lic, "evaluate_license", lambda force=False: _NotEnforced())
+    monkeypatch.setattr(
+        "app.core.checkpointer.configure_mongo_checkpointer", _fake_checkpointer
+    )
     monkeypatch.setattr(
         "app.core.execution_runtime.check_execution_runtime", _fake_check
     )
@@ -52,10 +59,10 @@ def test_init_worker_installs_tool_ledger(monkeypatch):
     assert calls.index("configure_tool_ledger") > calls.index(
         "check_execution_runtime"
     )
-    # Mongo client and ledger bootstrap must share the persistent worker loop;
-    # separate asyncio.run() calls would create and close different loops.
-    assert len(loops) == 2
-    assert loops[0] is loops[1]
+    # Checkpointer construction, Mongo probe and ledger bootstrap must all run
+    # on the persistent worker loop; asyncio.run() would create/close a new loop.
+    assert len(loops) == 3
+    assert loops[0] is loops[1] is loops[2]
     from app.workers.loop import get_worker_loop
 
     assert get_worker_loop() is loops[0]
