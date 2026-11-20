@@ -36,7 +36,7 @@ def _idempotency_scope(idempotency_key: str) -> tuple[str, str]:
 
 
 class MongoToolLedger(SideEffectLedger):
-    """生产实现。全部操作 best-effort：异常告警不上抛（协议要求）。"""
+    """生产实现。准备/认领失败必须向上抛出，避免无账本保护地执行副作用。"""
 
     async def prepare(self, draft: ToolInvocationDraft) -> None:
         execution_id, key = _idempotency_scope(draft.idempotency_key)
@@ -166,5 +166,7 @@ async def configure_tool_ledger() -> None:
     if not settings.EXECUTION_DURABLE:
         logger.info("tool_ledger_disabled reason=non-durable mode")
         return
+    await get_database()[TOOL_INVOCATIONS].create_index([("execution_id", 1), ("idempotency_key", 1)], unique=True)
+    await get_database()[TOOL_INVOCATIONS].create_index([("execution_id", 1), ("status", 1)])
     set_ledger(MongoToolLedger())
     logger.info("tool_ledger_ready implementation=mongo")
