@@ -155,6 +155,8 @@ class Execution(BaseModel):
     write_version: int = 0
     event_seq_counter: int = 0
     checkpoint_seq_counter: int = 0  # Manifest 序号的原子分配器（同事务 $inc）
+    # E4 workflow shadow identity: only one active shadow per task+trigger.
+    shadow_active: bool | None = None
 
     graph_threads: list[GraphThread] = Field(default_factory=list)
     dispatch: DispatchInfo = Field(default_factory=DispatchInfo)
