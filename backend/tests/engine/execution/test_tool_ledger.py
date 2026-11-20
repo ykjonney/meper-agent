@@ -71,8 +71,10 @@ async def test_mark_transitions(fake_db):
                  "idempotency_key": "exec_A:s:call_1",
                  "status": "prepared", "request_digest": "d"},
     }
-    assert await ledger.claim("exec_A:s:call_1") is True
-    assert await ledger.claim("exec_A:s:call_1") is False
+    assert await ledger.claim("exec_A:s:call_1", "d") is True
+    # 已认领（in_progress）：再 claim 拒绝；digest 不匹配（P1-3）同样拒绝
+    assert await ledger.claim("exec_A:s:call_1", "d") is False
+    assert await ledger.claim("exec_A:s:call_1", "sha256:other") is False
     await ledger.mark(
         "exec_A:s:call_1", LedgerStatus.UNKNOWN, error="smtp timeout"
     )

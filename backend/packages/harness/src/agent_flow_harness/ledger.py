@@ -71,7 +71,7 @@ class SideEffectLedger(Protocol):
 
     async def prepare(self, draft: ToolInvocationDraft) -> None: ...
 
-    async def claim(self, idempotency_key: str) -> bool: ...
+    async def claim(self, idempotency_key: str, expected_digest: str) -> bool: ...
 
     async def mark(
         self,
@@ -91,7 +91,9 @@ class NoLedger:
     async def prepare(self, draft: ToolInvocationDraft) -> None:  # noqa: ARG002
         return None
 
-    async def claim(self, idempotency_key: str) -> bool:  # noqa: ARG002
+    async def claim(
+        self, idempotency_key: str, expected_digest: str  # noqa: ARG002
+    ) -> bool:
         return True
 
     async def mark(
@@ -150,7 +152,9 @@ async def ledger_protected_call(
     # A durable side-effect ledger is a safety boundary, not best-effort
     # telemetry. If persistence/claim fails, fail closed before the tool runs.
     await ledger.prepare(draft)
-    if not await ledger.claim(draft.idempotency_key):
+    # digest 是原子 claim 谓词的一部分（follow-up P1-3）：lookup 瞬态失败
+    # 不能让"旧 PREPARED + 不同 digest"的记录被认领后以旧身份执行新参数。
+    if not await ledger.claim(draft.idempotency_key, draft.request_digest):
         raise LedgerClaimError(
             f"tool invocation is not claimable: {draft.idempotency_key}"
         )
@@ -168,20 +172,32 @@ async def ledger_protected_call(
         raise
     else:
         try:
-            # Only plain-text ToolMessage results are safely replayable by the
-            # current schema. Command/state updates and structured/multimodal
-            # payloads must not be flattened into str() and replayed as text.
-            if isinstance(result, ToolMessage) and isinstance(result.content, str):
+            # Only plain-text *success* ToolMessage results are safely
+            # replayable. ToolNode converts raised exceptions into
+            # ToolMessage(status="error") RETURNED (not raised)——副作用可能
+            # 已发生，记 SUCCEEDED 会让恢复时把失败当成功回放（follow-up
+            # P1-2）。Command/结构化结果同样不可文本化回放 → UNKNOWN。
+            if (
+                isinstance(result, ToolMessage)
+                and isinstance(result.content, str)
+                and getattr(result, "status", "success") != "error"
+            ):
                 await ledger.mark(
                     draft.idempotency_key,
                     LedgerStatus.SUCCEEDED,
                     result_summary=result.content[:4000] or None,
                 )
             else:
+                reason = (
+                    "tool_returned_error_status"
+                    if isinstance(result, ToolMessage)
+                    and getattr(result, "status", "success") == "error"
+                    else "result_not_replayable_by_current_ledger_schema"
+                )
                 await ledger.mark(
                     draft.idempotency_key,
                     LedgerStatus.UNKNOWN,
-                    error="result_not_replayable_by_current_ledger_schema",
+                    error=reason,
                 )
         except Exception:  # noqa: BLE001
             logger.warning("ledger_mark_succeeded_failed", tool=draft.tool_name)

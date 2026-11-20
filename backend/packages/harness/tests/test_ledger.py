@@ -39,12 +39,14 @@ class MemoryLedger:
             "draft": draft, "status": LedgerStatus.PREPARED, "summary": None,
         })
 
-    async def claim(self, key: str) -> bool:
+    async def claim(self, key: str, expected_digest: str) -> bool:
         if self.broken:
             raise RuntimeError("ledger down")
         rec = self.records.get(key)
         if rec is None or rec["status"] != LedgerStatus.PREPARED:
             return False
+        if rec["draft"].request_digest != expected_digest:
+            return False  # invocation identity conflict
         self.order.append("in_progress")
         rec["status"] = LedgerStatus.IN_PROGRESS
         return True
@@ -275,3 +277,55 @@ async def test_wrapper_connection_error_marks_unknown():
     assert isinstance(result, ToolMessage)
     assert result.status == "error"
     assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.UNKNOWN
+
+
+# ── follow-up review P1-2/P1-3 ────────────────────────────────────────
+
+
+async def test_error_tool_message_marked_unknown_not_succeeded():
+    """ToolNode 把工具异常转成 ToolMessage(status=error) **返回**（不 raise）——
+    记 SUCCEEDED 会让恢复把失败当成功回放。必须记 UNKNOWN。"""
+    ledger = MemoryLedger()
+    set_ledger(ledger)
+
+    async def returns_error():
+        return ToolMessage(
+            content="Error executing tool: smtp refused",
+            tool_call_id="call_1",
+            status="error",
+        )
+
+    await ledger_protected_call(_draft(), returns_error)
+    rec = ledger.records["exec_1:step_1:call_1"]
+    assert rec["status"] == LedgerStatus.UNKNOWN
+    assert rec.get("error") == "tool_returned_error_status"
+    # 结果摘要不得写入（否则 wrapper 回放路径命中）
+    assert rec["summary"] is None
+
+
+async def test_digest_conflict_rejected_at_claim():
+    """旧 PREPARED + 不同 digest → claim 拒绝 → LedgerClaimError，不执行。
+
+    覆盖 lookup 瞬态失败场景：即使 lookup 没拦住，原子 claim 谓词也拦住。"""
+    from agent_flow_harness.ledger import LedgerClaimError
+
+    ledger = MemoryLedger()
+    set_ledger(ledger)
+    key = "exec_1:step_1:call_1"
+    # 预置：同幂等键、不同 digest 的 PREPARED 记录（lookup 故障/历史残留）
+    stale = _draft(key)
+    stale.request_digest = "sha256:other"
+    ledger.records[key] = {
+        "draft": stale, "status": LedgerStatus.PREPARED, "summary": None,
+    }
+
+    executed: list[str] = []
+
+    async def side_effect():
+        executed.append("ran")
+        return ToolMessage(content="done", tool_call_id="call_1")
+
+    with pytest.raises(LedgerClaimError):
+        await ledger_protected_call(_draft(key), side_effect)
+    assert executed == []  # 副作用未发生
+    assert ledger.records[key]["status"] == LedgerStatus.PREPARED  # 原状

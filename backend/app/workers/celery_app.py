@@ -234,6 +234,13 @@ def _init_worker(**_kwargs: object) -> None:
 
     asyncio.run(check_execution_runtime())
 
+    # 2c. 副作用账本（E5 follow-up P1-1）：worker 是执行工具调用的进程，
+    #     不装配则 NoLedger（claim 恒 True）= 无保护。与 lifespan 同口径：
+    #     durable 模式索引创建失败 → 启动失败（fail-closed），不静默旁路。
+    from app.engine.execution.tool_ledger import configure_tool_ledger
+
+    asyncio.run(configure_tool_ledger())
+
     # 3. MCP 用户凭证兑换器 — 与 FastAPI lifespan（app/main.py）对齐
     try:
         from agent_flow_harness.mcp.loader import set_credential_resolver

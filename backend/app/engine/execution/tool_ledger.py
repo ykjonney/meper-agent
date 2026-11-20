@@ -60,16 +60,18 @@ class MongoToolLedger(SideEffectLedger):
             upsert=True,
         )
 
-    async def claim(self, idempotency_key: str) -> bool:
-        """CAS claim: only PREPARED can transition to IN_PROGRESS.
+    async def claim(self, idempotency_key: str, expected_digest: str) -> bool:
+        """CAS claim: only PREPARED *with matching digest* → IN_PROGRESS.
 
-        UNKNOWN, IN_PROGRESS and terminal records are never re-executed by
-        ordinary recovery. A separate reconciliation decision is required.
+        digest 是原子谓词的一部分（follow-up P1-3）：lookup 瞬态失败时，
+        旧 PREPARED + 不同 digest 的记录不能被认领后以旧身份执行新参数。
+        UNKNOWN/IN_PROGRESS/终态记录不被普通恢复路径重执行（需专门裁决）。
         """
         execution_id, key = _idempotency_scope(idempotency_key)
         result = await get_database()[TOOL_INVOCATIONS].update_one(
             {"execution_id": execution_id, "idempotency_key": key,
-             "status": LedgerStatus.PREPARED.value},
+             "status": LedgerStatus.PREPARED.value,
+             "request_digest": expected_digest},
             {"$set": {"status": LedgerStatus.IN_PROGRESS.value,
                       "started_at": utc_now()}},
         )
@@ -135,10 +137,12 @@ class CollectingLedger(SideEffectLedger):
             request_digest=draft.request_digest,
         )
 
-    async def claim(self, idempotency_key: str) -> bool:
+    async def claim(self, idempotency_key: str, expected_digest: str) -> bool:
         rec = self.records.get(idempotency_key)
         if rec is None or rec.status != LedgerStatus.PREPARED:
             return False
+        if rec.request_digest != expected_digest:
+            return False  # invocation identity conflict（P1-3 同语义）
         self.calls.append((idempotency_key, "in_progress"))
         rec.status = LedgerStatus.IN_PROGRESS
         return True
