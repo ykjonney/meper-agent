@@ -109,30 +109,53 @@ class RecoverySupervisor:
         return count
 
     async def _redispatch(self, execution_id: str, dispatch: dict) -> bool:
-        attempts = int(dispatch.get("attempts", 0)) + 1
-        # 先落 dispatch 元数据（原子 CAS 防双 supervisor 并发重复计数），
-        # 再投递——顺序与创建路径一致：状态先行，投递可失败由下轮兜底。
+        state = dispatch.get("state", "pending")
+        previous_attempts = int(dispatch.get("attempts", 0))
+        attempts = previous_attempts + 1
+        now = utc_now()
+
+        # dispatched 重试必须在退避到期后才可认领。pending 首投不受
+        # next_dispatch_at 约束（通常为 None）。
+        next_dispatch_at = dispatch.get("next_dispatch_at")
+        if state == "dispatched":
+            if next_dispatch_at is None or next_dispatch_at > now:
+                return False
+            expected_dispatch = {
+                "dispatch.state": "dispatched",
+                "dispatch.attempts": previous_attempts,
+                # 精确比较快照值：另一 Supervisor 若已推进退避时间，
+                # 本次 CAS 即失配，不会再次增加 attempts 或重复投递。
+                "dispatch.next_dispatch_at": next_dispatch_at,
+            }
+        elif state == "pending":
+            expected_dispatch = {
+                "dispatch.state": "pending",
+                "dispatch.attempts": previous_attempts,
+            }
+        else:
+            return False
+
+        # 真正的 CAS：只允许从读取到的那一代 dispatch 状态转换。
+        # 两个 Supervisor 即使读取同一快照，也只有一个能匹配旧 attempts /
+        # next_dispatch_at；输家 matched_count=0，不会重复发送 Celery 消息。
         result = await self._collection().update_one(
             {
                 "_id": execution_id,
                 "status": "queued",
-                "$or": [
-                    {"dispatch.state": "pending"},
-                    {"dispatch.state": "dispatched"},
-                ],
+                **expected_dispatch,
             },
             {
                 "$set": {
                     "dispatch.state": "dispatched",
                     "dispatch.attempts": attempts,
-                    "dispatch.last_dispatch_at": utc_now(),
-                    "dispatch.next_dispatch_at": utc_now()
+                    "dispatch.last_dispatch_at": now,
+                    "dispatch.next_dispatch_at": now
                     + timedelta(seconds=_backoff_seconds(attempts)),
                 }
             },
         )
         if result.matched_count == 0:
-            return False  # 已被并发处理/状态变化
+            return False
         try:
             await self._dispatcher.dispatch(execution_id)
         except Exception as exc:  # noqa: BLE001 - 投递失败留下轮退避重试
