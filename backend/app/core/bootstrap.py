@@ -97,6 +97,9 @@ async def ensure_all_indexes() -> TriggerRepository:
 
     trigger_repo = TriggerRepository(get_database())
 
+    # 执行域索引（#64 E1）：幂等创建，缺列不影响既有集合。
+    from app.engine.execution.collections import ensure_execution_indexes
+
     await asyncio.gather(
         trigger_repo.ensure_indexes(),
         RoleService.ensure_indexes(),
@@ -104,6 +107,7 @@ async def ensure_all_indexes() -> TriggerRepository:
         ExecutionLogService.ensure_indexes(),
         ToolOutputArchiveService.ensure_indexes(),
         AgentSnapshotService.ensure_indexes(),
+        ensure_execution_indexes(get_database()),
         # 全量核心索引（users/agents/tools/kb/user_skills/skill_logs/
         # message_feedback 等）——此前只能手动 python -m app.db.indexes，
         # 新环境部署会缺（含消息反馈唯一索引的并发防线）

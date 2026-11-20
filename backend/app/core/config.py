@@ -374,6 +374,13 @@ class Settings(BaseSettings):
     #   模式运行，/health 明示 non-durable，生产环境启用会打 error 级日志。
     EXECUTION_DURABLE: bool = True
 
+    # Lease 参数起点（架构 v2 §3.2，压测后调整）：与 Celery 解耦——
+    # 发现与接管由 RecoverySupervisor 扫描承担（E3），不依赖 visibility_timeout。
+    # 心跳 10–15s / TTL 45–60s；接管延迟 ≈ TTL + 扫描间隔。
+    EXECUTION_LEASE_TTL_SECONDS: int = 60
+    EXECUTION_LEASE_HEARTBEAT_SECONDS: int = 15
+    EXECUTION_SCAN_INTERVAL_SECONDS: int = 10
+
     # Fallback gate when the sandbox is disabled or Docker is unavailable.
     # "local" (default, backward-compatible) degrades to host subprocess
     # execution — every fallback is logged as ERROR because the isolation
