@@ -96,6 +96,12 @@ celery_app.conf.update(
             "task": "app.workers.tasks.maintenance.cleanup_orphan_sandboxes",
             "schedule": 60.0,  # 1 分钟
         },
+        # 执行域三类扫描（#64 E3）：待派发重试 / 过期 lease 接管 / 活跃防重。
+        # 频率即接管延迟下限（≈ TTL + 本间隔；默认 60s+10s）。
+        "execution-recovery-scan": {
+            "task": "app.workers.tasks.execution_recovery.scan",
+            "schedule": float(settings.EXECUTION_SCAN_INTERVAL_SECONDS),
+        },
     },
 )
 

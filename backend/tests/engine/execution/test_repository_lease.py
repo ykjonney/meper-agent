@@ -29,6 +29,10 @@ class FakeCollection:
     @staticmethod
     def _match(doc: dict, flt: dict) -> bool:
         for k, v in flt.items():
+            if k == "$or":
+                if not any(FakeCollection._match(doc, sub) for sub in v):
+                    return False
+                continue
             cur: object = doc
             for part in k.split("."):
                 if not isinstance(cur, dict) or part not in cur:
@@ -109,6 +113,9 @@ class FakeCollection:
                     raise StopAsyncIteration from None
 
         return _Cursor(matched)
+
+    async def count_documents(self, flt, **_):
+        return sum(1 for d in self.docs.values() if self._match(d, flt))
 
     async def update_one(self, flt, update, *, session=None, **_):
         matched = 0
