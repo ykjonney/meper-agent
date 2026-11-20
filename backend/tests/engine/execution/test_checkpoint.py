@@ -170,3 +170,17 @@ async def test_reconcile_detects_task_without_any_shadow(fake_db, monkeypatch):
 
     report = await rec_mod.reconcile()
     assert report["missing_shadow"] == 1
+
+
+async def test_commit_boundary_rejects_incomplete_graph_identity(fake_db):
+    exe = _base._seed_execution(fake_db, token=11)
+    coord = CheckpointCoordinator(repo_mod.ExecutionRepository())
+
+    with pytest.raises(ValueError, match="both thread_id and checkpoint_id"):
+        await coord.commit_boundary(
+            exe.id,
+            11,
+            kind="pause",
+            graph_thread_id="thread-1",
+            graph_checkpoint_id=None,
+        )
