@@ -202,6 +202,7 @@ def make_tool_wrapper(
                 args=dict(tc.get("args") or {}),
                 idempotency_key=identity.tool_idempotency_key(str(tc.get("id", ""))),
                 request_digest=digest_args(dict(tc.get("args") or {})),
+                step_id=identity.step_id,
             )
             try:
                 record = await get_ledger().lookup(draft.idempotency_key)
