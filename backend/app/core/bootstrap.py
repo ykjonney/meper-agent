@@ -54,6 +54,12 @@ async def init_critical_path() -> None:
 
     set_notifier(RedisNotifier())
 
+    # 副作用账本（E5，#71）：durable 模式注入 Mongo 实现；失败不阻断
+    # 启动（NoLedger 旁路——工具执行不受影响，仅无账本）。
+    from app.engine.execution.tool_ledger import configure_tool_ledger
+
+    await configure_tool_ledger()
+
     # 后台任务软超时：backend settings → harness 工具层（bash_output 的
     # 软超时与清扫豁免共用该值；docs/background-tasks.md §5）。
     from agent_flow_harness.sandbox import bg_tasks as _bg_tasks

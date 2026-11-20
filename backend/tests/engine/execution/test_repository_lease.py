@@ -123,22 +123,41 @@ class FakeCollection:
     async def count_documents(self, flt, **_):
         return sum(1 for d in self.docs.values() if self._match(d, flt))
 
-    async def update_one(self, flt, update, *, session=None, **_):
+    async def update_one(self, flt, update, *, session=None, upsert=False, **_):
         matched = 0
         for doc in self.docs.values():
             if self._match(doc, flt):
                 matched += 1
-                if isinstance(update, list):
-                    for stage in update:
-                        self._apply_pipeline_set(doc, stage["$set"])
-                else:
-                    if "$set" in update:
-                        for k, v in update["$set"].items():
-                            self._set_path(doc, k, v)
-                    if "$inc" in update:
-                        for k, amt in update["$inc"].items():
-                            doc[k] = doc.get(k, 0) + amt
+                self._apply_update(doc, update)
+        if matched == 0 and upsert:
+            new_doc: dict = {}
+            # 等值条件进新文档（Mongo upsert 语义）；$setOnInsert 提供完整插入体
+            for k, v in flt.items():
+                if not isinstance(v, dict):
+                    self._set_path(new_doc, k, v)
+            self._apply_update(new_doc, update, set_on_insert=True)
+            if "_id" not in new_doc:
+                new_doc["_id"] = f"upsert_{len(self.docs)}"
+            self.docs[new_doc["_id"]] = new_doc
+            matched = 1
         return type("R", (), {"matched_count": matched})()
+
+    @classmethod
+    def _apply_update(cls, doc, update, set_on_insert=False):
+        if isinstance(update, list):
+            for stage in update:
+                cls._apply_pipeline_set(doc, stage["$set"])
+            return
+        if set_on_insert and "$setOnInsert" in update:
+            for k, v in update["$setOnInsert"].items():
+                cls._set_path(doc, k, v)
+            return  # $setOnInsert 独占（账本 prepare 语义）
+        if "$set" in update:
+            for k, v in update["$set"].items():
+                cls._set_path(doc, k, v)
+        if "$inc" in update:
+            for k, amt in update["$inc"].items():
+                doc[k] = doc.get(k, 0) + amt
 
     @staticmethod
     def _set_path(doc: dict, path: str, value):
