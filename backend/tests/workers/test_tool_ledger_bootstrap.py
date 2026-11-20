@@ -7,17 +7,22 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 
-def _run_init_worker(monkeypatch) -> list[str]:
+def _run_init_worker(monkeypatch) -> tuple[list[str], list[asyncio.AbstractEventLoop]]:
     """绕过 license/checkpointer 等真实副作用，只观察装配顺序。"""
     calls: list[str] = []
+    loops: list[asyncio.AbstractEventLoop] = []
 
     async def _fake_check():
+        loops.append(asyncio.get_running_loop())
         calls.append("check_execution_runtime")
 
     async def _fake_configure():
+        loops.append(asyncio.get_running_loop())
         calls.append("configure_tool_ledger")
 
     from app.core import license as lic
@@ -37,16 +42,24 @@ def _run_init_worker(monkeypatch) -> list[str]:
     import app.workers.celery_app as celery_mod
 
     celery_mod._init_worker()
-    return calls
+    return calls, loops
 
 
 def test_init_worker_installs_tool_ledger(monkeypatch):
-    calls = _run_init_worker(monkeypatch)
+    calls, loops = _run_init_worker(monkeypatch)
     assert "configure_tool_ledger" in calls
     # 顺序：前提检查 → 账本（账本不得晚于任务可执行点）
     assert calls.index("configure_tool_ledger") > calls.index(
         "check_execution_runtime"
     )
+    # Mongo client and ledger bootstrap must share the persistent worker loop;
+    # separate asyncio.run() calls would create and close different loops.
+    assert len(loops) == 2
+    assert loops[0] is loops[1]
+    from app.workers.loop import get_worker_loop
+
+    assert get_worker_loop() is loops[0]
+    assert not loops[0].is_closed()
 
 
 async def test_configure_tool_ledger_fails_closed_on_index_error(monkeypatch):

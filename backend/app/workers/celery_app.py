@@ -176,6 +176,17 @@ def _license_contract_ok() -> bool:
     return lic.evaluate_license().enforced
 
 
+async def _bootstrap_worker_execution() -> None:
+    """Initialize durable execution dependencies on the worker's shared loop."""
+    from app.core.execution_runtime import check_execution_runtime
+    from app.engine.execution.tool_ledger import configure_tool_ledger
+
+    # Both operations use the process-wide Motor client. Keep them on the same
+    # persistent loop that subsequent synchronous Celery tasks drive via run_async.
+    await check_execution_runtime()
+    await configure_tool_ledger()
+
+
 @worker_process_init.connect
 def _init_worker(**_kwargs: object) -> None:
     """每个 Celery worker 子进程启动时的初始化。
@@ -227,19 +238,13 @@ def _init_worker(**_kwargs: object) -> None:
 
     configure_mongo_checkpointer(log_on_error=True)
 
-    # 2b. 执行域前提检查（#64/PR #73 E0）——worker 也将写执行事实，
-    #     与 FastAPI lifespan 同口径 fail-closed（durable 模式探测失败
-    #     即退出，不带病消费任务）。
-    from app.core.execution_runtime import check_execution_runtime
+    # 2b. 执行域前提检查 + 副作用账本装配必须共用 worker 的持久事件循环。
+    #     Mongo AsyncIOMotorClient 是进程级单例，不能先后交给两个
+    #     asyncio.run() 创建并关闭的不同 loop；否则后续 Celery task 会在
+    #     已关闭/不匹配的 loop 上使用 Motor client。
+    from app.workers.loop import run_async
 
-    asyncio.run(check_execution_runtime())
-
-    # 2c. 副作用账本（E5 follow-up P1-1）：worker 是执行工具调用的进程，
-    #     不装配则 NoLedger（claim 恒 True）= 无保护。与 lifespan 同口径：
-    #     durable 模式索引创建失败 → 启动失败（fail-closed），不静默旁路。
-    from app.engine.execution.tool_ledger import configure_tool_ledger
-
-    asyncio.run(configure_tool_ledger())
+    run_async(_bootstrap_worker_execution())
 
     # 3. MCP 用户凭证兑换器 — 与 FastAPI lifespan（app/main.py）对齐
     try:
