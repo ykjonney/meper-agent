@@ -122,6 +122,7 @@ export function ToolMarketPage({ theme = 'dark' }: Props) {
       )}
       {(creating || editing) && (
         <ToolEditModal
+          key={editing?.id ?? 'create'}
           theme={theme}
           initial={editing ?? undefined}
           // AI 修改经工坊保存（save_tool=update）后刷新列表，不关表单

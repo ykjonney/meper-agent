@@ -257,7 +257,10 @@ export function ExternalAccessPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* 左：创建/编辑表单（col-span-5） */}
         <div className="lg:col-span-5 min-w-0">
+          {/* key 切换强制重挂载：表单 state 由 useState(keyItem) 初始化，
+              同一实例从创建切编辑不会重跑初始化，原数据载不进来 */}
           <KeyFormCard
+            key={editingKey?.id ?? 'create'}
             keyItem={editingKey ?? undefined}
             agents={agentsData?.items ?? []}
             workflows={workflowsData?.items ?? []}

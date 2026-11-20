@@ -30,6 +30,7 @@ import { voiceConfigApi, voiceConfigKeys } from '../services/voice-config-api';
 import { toStudioAgent, fromStudioAgent } from '../services/adapters';
 import { Select, Modal, type SelectOptionGroup } from './ui';
 import { toast } from './ui/toast';
+import { confirmDialog } from './ui/confirm';
 import { IconAgent, IconWrench, IconSkill, IconPlug, IconBook, IconSubAgent, IconChip, IconVoice } from './IndigoIcons';
 import type { Agent } from '../types';
 import AvatarField, { type AvatarFieldHandle } from './AvatarField';
@@ -282,6 +283,17 @@ export function AgentEditorPage({
     setDirty(false);
     queryClient.invalidateQueries({ queryKey: agentKeys.all });
     mutate();
+  };
+
+  // 删除确认走统一 confirmDialog（ConfirmHost 全局挂载）；归档可逆（可再发布），直接执行 + toast
+  const handleDelete = async () => {
+    const ok = await confirmDialog({
+      title: `删除 Agent「${form?.name}」？`,
+      description: '删除后不可恢复。',
+      okText: '删除',
+      danger: true,
+    });
+    if (ok) deleteM.mutate();
   };
 
   if (isLoading || !form) {
@@ -730,7 +742,7 @@ export function AgentEditorPage({
         )}
         <span className="t-sp flex-1" />
         <button
-          onClick={() => { if (confirm(`确认删除「${form?.name}」？此操作不可恢复。`)) { deleteM.mutate(); } }}
+          onClick={handleDelete}
           disabled={deleteM?.isPending}
           className="af-btn af-btn-ghost border border-line !text-sig-fail hover:!border-sig-fail disabled:opacity-60"
           title="删除该 Agent"
@@ -743,7 +755,7 @@ export function AgentEditorPage({
         {isPublished ? (
           <>
             <button
-              onClick={() => { if (confirm('归档将下架该 Agent——子代理、工作流与外部 API 将无法再调用它。未发布的草稿修改会保留到可编辑层。确定归档？')) { handleStateAction(() => archiveM.mutate()); } }}
+              onClick={() => handleStateAction(() => archiveM.mutate())}
               disabled={archiveM.isPending}
               className="af-btn af-btn-ghost border border-line disabled:opacity-60"
               title="下架并解锁编辑"

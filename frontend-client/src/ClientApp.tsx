@@ -1,8 +1,10 @@
-import { App as AntApp, Drawer } from 'antd'
+import { App as AntApp, Drawer, Input, Modal, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   createSession,
+  getLocalWorkspaceEnabled,
+  listBackgroundTasks,
   deleteSession,
   listAvailableAgents,
   listSessions,
@@ -111,11 +113,29 @@ export function ClientApp() {
     }
   }
 
-  const createNewSession = async () => {
+  // 本地接入（workspace 重设计）：启用态拉取 + 权限门控
+  // （local_workspace:write，PERMISSIONS.md 四层规范——无权限不渲染入口）
+  const user = useAuthStore((state) => state.user)
+  const [localEnabled, setLocalEnabled] = useState(false)
+  const [localModalOpen, setLocalModalOpen] = useState(false)
+  const [localDirInput, setLocalDirInput] = useState('')
+  const canBindLocal =
+    localEnabled && (user?.permissions ?? []).includes('local_workspace:write')
+
+  useEffect(() => {
+    void getLocalWorkspaceEnabled()
+      .then((result) => setLocalEnabled(result.enabled))
+      .catch(() => setLocalEnabled(false))
+  }, [])
+
+  const doCreateSession = async (localDir?: string) => {
     if (!selectedAgentId || creating) return
     setCreating(true)
     try {
-      const created = await createSession(selectedAgentId)
+      const created = await createSession(
+        selectedAgentId,
+        localDir ? { localDir } : undefined,
+      )
       setSessions((current) => [created, ...current])
       setActiveSessionId(created.id)
       setNavigationOpen(false)
@@ -124,6 +144,17 @@ export function ClientApp() {
     } finally {
       setCreating(false)
     }
+  }
+
+  const createNewSession = async () => {
+    if (!selectedAgentId || creating) return
+    if (canBindLocal) {
+      // 有本地接入权限：弹窗让用户选择是否绑定本地目录
+      setLocalDirInput('')
+      setLocalModalOpen(true)
+      return
+    }
+    await doCreateSession()
   }
 
   const confirmDeleteSession = (session: ChatSession) => {
@@ -213,6 +244,7 @@ export function ClientApp() {
         agentLoading={agentsLoading}
         sessionsLoading={sessionsLoading}
         sessionId={activeSessionId}
+        localDir={sessions.find((item) => item.id === activeSessionId)?.local_dir}
         onOpenNavigation={() => setNavigationOpen(true)}
         onCreateSession={() => void createNewSession()}
         onSessionChanged={() => void refreshSessions()}
@@ -221,6 +253,24 @@ export function ClientApp() {
           void refreshSessions()
         }}
       />
+      <Modal
+        title="新建对话"
+        open={localModalOpen}
+        onCancel={() => setLocalModalOpen(false)}
+        okText="创建"
+        confirmLoading={creating}
+        onOk={() => void doCreateSession(localDirInput.trim() || undefined)}
+      >
+        <Input
+          value={localDirInput}
+          onChange={(event) => setLocalDirInput(event.target.value)}
+          placeholder="可选：绑定本地目录（LOCAL_WORKSPACE_ROOT 内相对路径）"
+          onPressEnter={() => void doCreateSession(localDirInput.trim() || undefined)}
+        />
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+          留空创建普通对话；绑定后 Agent 将直接在该本地目录中读写文件、执行命令。
+        </Typography.Text>
+      </Modal>
     </div>
   )
 }
