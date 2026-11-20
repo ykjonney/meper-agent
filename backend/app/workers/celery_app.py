@@ -33,6 +33,8 @@ celery_app = Celery(
         "app.workers.tasks.wiki_build",
         "app.workers.tasks.checkpoint_prune",
         "app.workers.tasks.running_task_scan",
+        "app.workers.tasks.execution_run",
+        "app.workers.tasks.execution_recovery",
     ],
 )
 
