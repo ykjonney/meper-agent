@@ -16,7 +16,6 @@ producer 恒为 ``system``（提案 §5.2）。
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from types import TracebackType
 from typing import Any, TypeVar
 
 from motor.motor_asyncio import (
