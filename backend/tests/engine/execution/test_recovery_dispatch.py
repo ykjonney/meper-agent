@@ -79,6 +79,57 @@ async def test_scan_skips_unretired_retry(env):
     assert dispatcher.dispatched == []
 
 
+async def test_two_supervisors_cannot_claim_same_dispatch_snapshot(env):
+    """两个 Supervisor 使用同一旧快照并发 CAS：仅一个增加 attempts 并投递。
+
+    这是基于内存 FakeCollection 的原子条件更新单测；MongoDB 并发语义仍需
+    Replica Set 集成测试验证，不能把本测试当作真实数据库证明。
+    """
+    import asyncio
+
+    db, dispatcher, sup = env
+    exe = _seed_queued(db)
+    snapshot = dict(db.collections["executions"][exe.id]["dispatch"])
+
+    results = await asyncio.gather(
+        sup._redispatch(exe.id, snapshot),
+        sup._redispatch(exe.id, snapshot),
+    )
+
+    assert sorted(results) == [False, True]
+    assert dispatcher.dispatched == [exe.id]
+    doc = db.collections["executions"][exe.id]
+    assert doc["dispatch"]["attempts"] == 1
+
+
+async def test_stale_dispatched_snapshot_cannot_override_new_backoff(env):
+    """旧 attempts/next_dispatch_at 快照不能覆盖已推进的新一代派发。"""
+    db, dispatcher, sup = env
+    exe = _seed_queued(
+        db, state="dispatched", attempts=1,
+        next_dispatch_at=utc_now() - timedelta(seconds=1),
+    )
+    stale = dict(db.collections["executions"][exe.id]["dispatch"])
+    assert await sup._redispatch(exe.id, stale) is True
+    assert await sup._redispatch(exe.id, stale) is False
+
+    doc = db.collections["executions"][exe.id]
+    assert doc["dispatch"]["attempts"] == 2
+    assert dispatcher.dispatched == [exe.id]
+
+
+def test_execution_celery_tasks_are_included_and_registered():
+    """worker include 与实际 task registry 必须同时覆盖 E3 两个任务。"""
+    from app.workers.celery_app import celery_app
+    from app.workers.tasks import execution_recovery, execution_run  # noqa: F401
+
+    included = set(celery_app.conf.include or ())
+    assert "app.workers.tasks.execution_run" in included
+    assert "app.workers.tasks.execution_recovery" in included
+    assert "app.workers.tasks.execution_run.run_execution" in celery_app.tasks
+    assert "app.workers.tasks.execution_recovery.scan" in celery_app.tasks
+
+
 async def test_scan_retries_when_backoff_elapsed(env):
     db, dispatcher, sup = env
     exe = _seed_queued(
