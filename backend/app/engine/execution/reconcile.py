@@ -72,7 +72,7 @@ async def reconcile(fix_status: bool = False) -> dict[str, int]:
         # Prefer the active shadow for an in-flight Task; for completed Tasks,
         # inspect the most recently created shadow, including terminal records.
         candidates = active if active else execs
-        candidate = max(candidates, key=lambda e: e.get("created_at") or 0)
+        candidate = max(candidates, key=lambda e: (e.get("created_at") is not None, e.get("created_at")))
         execution_id = candidate["_id"]
         latest_manifest = await db[CHECKPOINT_MANIFESTS].find_one(
             {"execution_id": execution_id}, sort=[("checkpoint_seq", -1)]
