@@ -208,6 +208,30 @@ def make_tool_wrapper(
             except Exception:  # noqa: BLE001 - 账本故障不阻断执行
                 logger.warning("ledger_lookup_failed", tool=draft.tool_name)
                 record = None
+            if record is not None and record.request_digest != draft.request_digest:
+                # Reusing one invocation identity for different arguments is a
+                # protocol conflict, never permission to execute a second side effect.
+                return ToolMessage(
+                    content="Tool invocation identity conflict: request digest changed; "
+                    "the original invocation requires reconciliation.",
+                    name=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                    status="error",
+                )
+            if record is not None and record.status in (
+                LedgerStatus.UNKNOWN,
+                LedgerStatus.IN_PROGRESS,
+                LedgerStatus.FAILED,
+            ):
+                # IN_PROGRESS may represent a worker that died after the remote
+                # side effect. UNKNOWN is explicitly non-retryable without adjudication.
+                return ToolMessage(
+                    content=f"Tool invocation is {record.status.value}; automatic "
+                    "re-execution is blocked pending reconciliation.",
+                    name=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                    status="error",
+                )
             if (
                 record is not None
                 and record.status == LedgerStatus.SUCCEEDED
