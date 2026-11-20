@@ -204,17 +204,30 @@ async def lease_heartbeat(
 
     from app.core.config import settings
 
-    async def _loop() -> None:
-        interval = settings.EXECUTION_LEASE_HEARTBEAT_SECONDS
-        while True:
-            await asyncio.sleep(interval)
-            # 被接管/过期 → 抛 LeaseLostError 终止整个执行体
-            await manager.heartbeat(execution_id, owner, token)
+    parent_task = asyncio.current_task()
+    if parent_task is None:  # pragma: no cover - async context always has a task
+        raise RuntimeError("lease_heartbeat must run inside an asyncio Task")
 
-    task = asyncio.create_task(_loop())
+    async def _loop() -> None:
+        try:
+            interval = settings.EXECUTION_LEASE_HEARTBEAT_SECONDS
+            while True:
+                await asyncio.sleep(interval)
+                await manager.heartbeat(execution_id, owner, token)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            # A failed child task does not automatically stop its parent.
+            # Cancel the Runner immediately; awaiting this task in finally
+            # then propagates the original LeaseLostError to the caller.
+            parent_task.cancel()
+            raise
+
+    task = asyncio.create_task(_loop(), name=f"lease-heartbeat:{execution_id}")
     try:
         yield
     finally:
-        task.cancel()
+        if not task.done():
+            task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
