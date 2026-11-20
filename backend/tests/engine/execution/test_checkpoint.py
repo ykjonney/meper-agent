@@ -87,6 +87,21 @@ async def test_shadow_commit_creates_execution_and_boundary(fake_db):
     shadows = [e for e in fake_db.collections["executions"].values()
                if e.get("task_id") == "task_1"]
     assert len(shadows) == 1
+    assert shadows[0]["status"] == "succeeded"
+    assert shadows[0]["completed_at"] is not None
+    assert shadows[0]["lease"] is None
+    assert shadows[0]["dispatch"]["state"] == "done"
+    assert shadows[0]["shadow_active"] is False
+
+    # A later workflow run for the same Task gets a new Execution identity.
+    seq3 = await coord.shadow_commit_workflow_boundary(
+        "task_1", kind="progress", step_id="new_run",
+    )
+    assert seq3 == 1
+    shadows = [e for e in fake_db.collections["executions"].values()
+               if e.get("task_id") == "task_1"]
+    assert len(shadows) == 2
+    assert len({e["_id"] for e in shadows}) == 2
 
 
 async def test_shadow_commit_never_raises(fake_db, monkeypatch):
@@ -135,8 +150,23 @@ async def test_reconcile_detects_drift_and_dangling(fake_db, monkeypatch):
     report = await reconcile()
     assert report["drifted"] == 1
     assert report["dangling"] == 1
+    assert report["missing_shadow"] == 0
 
-    # fix-status：非终态影子执行对齐 succeeded（task_g 悬空 + task_ok 完成
-    # 但影子未闭环——两个都该修）
+    # --fix-status must not manufacture success from Task.status alone.
     report2 = await reconcile(fix_status=True)
-    assert report2["fixed"] == 2
+    assert report2["fixed"] == 0
+    assert report2["manual_repair_required"] == 1
+
+
+async def test_reconcile_detects_task_without_any_shadow(fake_db, monkeypatch):
+    import app.engine.execution.reconcile as rec_mod
+
+    monkeypatch.setattr(rec_mod, "get_database", lambda: fake_db)
+    fake_db.collections.setdefault("tasks", {})["task_missing"] = {
+        "_id": "task_missing",
+        "status": "completed",
+        "checkpoint": None,
+    }
+
+    report = await rec_mod.reconcile()
+    assert report["missing_shadow"] == 1
