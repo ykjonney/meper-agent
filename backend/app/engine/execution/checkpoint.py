@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from pymongo.errors import DuplicateKeyError
+
 from loguru import logger
 from pymongo import ReturnDocument
 
@@ -103,28 +105,53 @@ class CheckpointCoordinator:
     # ── E4 影子执行（workflow 双写期） ────────────────────────────────
 
     async def ensure_workflow_execution(self, task_id: str) -> tuple[str, int] | None:
-        """find-or-create workflow 任务的影子 Execution，返回 (id, token)。
+        """Atomically find or create the sole active workflow shadow for a Task.
 
-        幂等：按 task_id+trigger 查活跃（非终态）影子执行；创建原子性由
-        唯一性需求保证——无唯一索引时并发可能创建多条，取查询到的第一条
-        即可（对账脚本会发现；E6 建索引时收紧）。失败返回 None（影子
-        双写尽力而为，绝不阻断权威路径）。
+        The partial unique index on (task_id, trigger) where shadow_active=True
+        is the concurrency authority. A duplicate-key loser rereads the winner.
+        Legacy rows without shadow_active remain discoverable and are claimed
+        with a conditional update before being used.
         """
         from app.db.mongodb import get_database
 
+        db = get_database()
+        active_filter = {
+            "task_id": task_id,
+            "trigger": "workflow",
+            "status": {"$nin": [
+                "succeeded", "failed", "cancelled", "timed_out", "expired",
+            ]},
+        }
         try:
-            db = get_database()
             existing = await db[EXECUTIONS].find_one(
-                {"task_id": task_id, "trigger": "workflow", "status": {"$nin": [
-                    "succeeded", "failed", "cancelled", "timed_out", "expired",
-                ]}},
+                {**active_filter, "$or": [
+                    {"shadow_active": True},
+                    {"shadow_active": {"$exists": False}},
+                ]},
                 sort=[("created_at", -1)],
             )
             if existing is not None:
+                # Upgrade a legacy row to the uniquely constrained identity.
+                if existing.get("shadow_active") is not True:
+                    try:
+                        claimed = await db[EXECUTIONS].find_one_and_update(
+                            {"_id": existing["_id"], "shadow_active": {"$exists": False}},
+                            {"$set": {"shadow_active": True}},
+                            return_document=ReturnDocument.AFTER,
+                        )
+                        if claimed is None:
+                            existing = await db[EXECUTIONS].find_one(
+                                {"_id": existing["_id"]}
+                            )
+                        else:
+                            existing = claimed
+                    except DuplicateKeyError:
+                        existing = await db[EXECUTIONS].find_one(active_filter)
+                if existing is None:
+                    return None
                 lease = existing.get("lease")
                 if lease and lease.get("fencing_token"):
                     return existing["_id"], lease["fencing_token"]
-                # 无 lease 的遗留影子：补一个长期 lease
                 return await self._attach_shadow_lease(existing["_id"])
 
             now = utc_now()
@@ -134,37 +161,68 @@ class CheckpointCoordinator:
                 status=ExecutionStatus.RUNNING,
                 started_at=now,
             )
-            token = 1
             exe.lease = LeaseInfo(
                 owner=_SHADOW_LEASE_OWNER,
-                fencing_token=token,
+                fencing_token=1,
                 expires_at=now + timedelta(days=_SHADOW_LEASE_DAYS),
             )
-            await db[EXECUTIONS].insert_one(exe.model_dump(by_alias=True))
-            return exe.id, token
-        except Exception as exc:  # noqa: BLE001 - 影子路径不反噬权威执行
+            doc = exe.model_dump(by_alias=True)
+            doc["shadow_active"] = True
+            doc["fencing_token_counter"] = 1
+            try:
+                await db[EXECUTIONS].insert_one(doc)
+                return exe.id, 1
+            except DuplicateKeyError:
+                # Another writer won the unique active-shadow slot.
+                winner = await db[EXECUTIONS].find_one(active_filter)
+                if winner is None:
+                    raise
+                lease = winner.get("lease")
+                if lease and lease.get("fencing_token"):
+                    return winner["_id"], lease["fencing_token"]
+                return await self._attach_shadow_lease(winner["_id"])
+        except Exception as exc:  # noqa: BLE001 - shadow path is best effort
             logger.warning(
                 "execution_shadow_ensure_failed task={} error={}", task_id, exc
             )
             return None
 
     async def _attach_shadow_lease(self, execution_id: str) -> tuple[str, int] | None:
+        """Attach a lease without resetting the Execution-level fencing counter."""
         from app.db.mongodb import get_database
 
         db = get_database()
         now = utc_now()
         doc = await db[EXECUTIONS].find_one_and_update(
             {"_id": execution_id, "lease": None},
-            {
-                "$set": {
-                    "lease": LeaseInfo(
-                        owner=_SHADOW_LEASE_OWNER,
-                        fencing_token=1,
-                        expires_at=now + timedelta(days=_SHADOW_LEASE_DAYS),
-                    ).model_dump(),
-                    "fencing_token_counter": 1,
-                }
-            },
+            [
+                {
+                    "$set": {
+                        "fencing_token_counter": {
+                            "$add": [
+                                {
+                                    "$ifNull": [
+                                        "$fencing_token_counter",
+                                        {"$ifNull": ["$lease.fencing_token", 0]},
+                                    ]
+                                },
+                                1,
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$set": {
+                        "lease": {
+                            "owner": _SHADOW_LEASE_OWNER,
+                            "lease_id": f"shadow-{execution_id}",
+                            "fencing_token": "$fencing_token_counter",
+                            "heartbeat_at": now,
+                            "expires_at": now + timedelta(days=_SHADOW_LEASE_DAYS),
+                        }
+                    }
+                },
+            ],
             return_document=ReturnDocument.AFTER,
         )
         if doc is None:
