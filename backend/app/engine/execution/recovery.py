@@ -76,14 +76,44 @@ class RecoverySupervisor:
         report.redispatched = await self._scan_due_dispatches()
         report.taken_over = await self._scan_expired_leases()
         report.skipped_active = await self._count_active()
-        if report.redispatched or report.taken_over:
+        resumed = await self._scan_waiting_inputs()
+        if report.redispatched or report.taken_over or resumed:
             logger.info(
-                "execution_scan redispatched={} taken_over={} active={}",
+                "execution_scan redispatched={} taken_over={} resumed_waiting={} active={}",
                 report.redispatched,
                 report.taken_over,
+                resumed,
                 report.skipped_active,
             )
         return report
+
+    # ── 扫描类 4：waiting_input 恢复兜底（E6 follow-up P1-3） ─────────
+    # 输入已提交（Task 已离开 waiting_human）但执行仍挂 waiting_input——
+    # 典型为「输入持久化后、resume_waiting_execution 前崩溃」的窗口。
+    # CAS 回 queued+pending 后由扫描类 1 正常派发。
+
+    async def _scan_waiting_inputs(self) -> int:
+        cursor = self._collection().find({"status": "waiting_input"}).limit(_SCAN_BATCH)
+        resumed = 0
+        async for doc in cursor:
+            task_id = doc.get("task_id")
+            if not task_id:
+                continue
+            task = await self._repo._database()["tasks"].find_one(  # noqa: SLF001
+                {"_id": task_id}, {"status": 1}
+            )
+            task_status = (task or {}).get("status")
+            if task_status in (None, "waiting_human"):
+                continue  # 输入未提交，继续等
+            from app.engine.execution.workflow_adapter import resume_waiting_execution
+
+            if await resume_waiting_execution(self._repo, doc["_id"]):
+                resumed += 1
+                logger.info(
+                    "execution_waiting_input_resumed execution={} task_status={}",
+                    doc["_id"], task_status,
+                )
+        return resumed
 
     # ── 扫描类 1：待派发 / 派发重试 ──────────────────────────────────
 

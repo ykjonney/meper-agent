@@ -171,36 +171,39 @@ async def ledger_protected_call(
             logger.warning("ledger_mark_unknown_failed", tool=draft.tool_name)
         raise
     else:
-        try:
-            # Only plain-text *success* ToolMessage results are safely
-            # replayable. ToolNode converts raised exceptions into
-            # ToolMessage(status="error") RETURNED (not raised)——副作用可能
-            # 已发生，记 SUCCEEDED 会让恢复时把失败当成功回放（follow-up
-            # P1-2）。Command/结构化结果同样不可文本化回放 → UNKNOWN。
-            if (
-                isinstance(result, ToolMessage)
-                and isinstance(result.content, str)
-                and getattr(result, "status", "success") != "error"
-            ):
-                await ledger.mark(
-                    draft.idempotency_key,
-                    LedgerStatus.SUCCEEDED,
-                    result_summary=result.content[:4000] or None,
-                )
-            else:
-                reason = (
-                    "tool_returned_error_status"
-                    if isinstance(result, ToolMessage)
-                    and getattr(result, "status", "success") == "error"
-                    else "result_not_replayable_by_current_ledger_schema"
-                )
-                await ledger.mark(
-                    draft.idempotency_key,
-                    LedgerStatus.UNKNOWN,
-                    error=reason,
-                )
-        except Exception:  # noqa: BLE001
-            logger.warning("ledger_mark_succeeded_failed", tool=draft.tool_name)
+        # Only plain-text *success* ToolMessage results are safely
+        # replayable. ToolNode converts raised exceptions into
+        # ToolMessage(status="error") RETURNED (not raised)——副作用可能
+        # 已发生，记 SUCCEEDED 会让恢复把失败当成功回放。Command/结构化
+        # 结果同样不可文本化回放 → UNKNOWN。
+        #
+        # 终态落库 fail-closed（E6 follow-up P1-1）：LeaseLostError 原样
+        # 传播（旧 Worker 不得带着失效 token 继续推进）；普通持久化故障
+        # 同样上抛——副作用已发生而账本无法落库时，不能把不确定状态
+        # 伪装成成功交回 Workflow。记录保持 IN_PROGRESS，恢复侧按
+        # UNKNOWN 语义裁决（claim 拒绝重执行，等待显式协议）。
+        if (
+            isinstance(result, ToolMessage)
+            and isinstance(result.content, str)
+            and getattr(result, "status", "success") != "error"
+        ):
+            await ledger.mark(
+                draft.idempotency_key,
+                LedgerStatus.SUCCEEDED,
+                result_summary=result.content[:4000] or None,
+            )
+        else:
+            reason = (
+                "tool_returned_error_status"
+                if isinstance(result, ToolMessage)
+                and getattr(result, "status", "success") == "error"
+                else "result_not_replayable_by_current_ledger_schema"
+            )
+            await ledger.mark(
+                draft.idempotency_key,
+                LedgerStatus.UNKNOWN,
+                error=reason,
+            )
         return result
 
 

@@ -156,3 +156,66 @@ async def test_takeover_fences_ledger_and_heartbeat(real_db):
     # 两个幂等键并存（node 维度），call_1 原文完好
     count = await db.tool_invocations.count_documents({"execution_id": exe.id})
     assert count == 2
+
+
+async def test_takeover_rejects_late_mark_on_in_progress_invocation(real_db):
+    """P2：IN_PROGRESS（非终态）invocation 的迟到 mark 被 fencing 拒绝。
+
+    此前用例先置 SUCCEEDED 再迟到 mark——终态 CAS 本身就不匹配，无法证明
+    fencing。本用例保持 IN_PROGRESS：takeover 后旧 token mark 必须 LeaseLost
+    且记录完全不变（无部分写入）。
+    """
+    from agent_flow_harness.execution_context import (
+        ExecutionIdentity,
+        execution_identity_scope,
+    )
+    from agent_flow_harness.ledger import (
+        LedgerStatus,
+        ToolInvocationDraft,
+        digest_args,
+        set_ledger,
+    )
+    from app.engine.execution.lease import LeaseManager
+    from app.engine.execution.repository import ExecutionRepository, LeaseLostError
+    from app.engine.execution.tool_ledger import MongoToolLedger
+
+    db = real_db
+    await db.executions.delete_many({})
+    await db.tool_invocations.delete_many({})
+    exe = await _seed(db)
+
+    repo = ExecutionRepository()
+    lm = LeaseManager(repo)
+    set_ledger(MongoToolLedger())
+    identity = ExecutionIdentity(execution_id=exe.id, step_id="node_b", fencing_token=1)
+
+    # A：prepare + claim（保持 IN_PROGRESS——模拟副作用执行中被接管）
+    args = {"cmd": "deploy"}
+    draft = ToolInvocationDraft(
+        tool_call_id="call_ip", tool_name="run_deploy", args=args,
+        idempotency_key=identity.tool_idempotency_key("call_ip"),
+        request_digest=digest_args(args),
+    )
+    ledger = MongoToolLedger()
+    with execution_identity_scope(identity):
+        await ledger.prepare(draft)
+        assert await ledger.claim(draft.idempotency_key, draft.request_digest)
+
+    # B takeover
+    from app.models.base import utc_now
+
+    await db.executions.update_one(
+        {"_id": exe.id},
+        {"$set": {"lease.expires_at": utc_now() - timedelta(seconds=1)}},
+    )
+    lease_b = await lm.takeover(exe.id, "supervisor")
+    assert lease_b is not None
+
+    # A 迟到 mark（IN_PROGRESS → SUCCEEDED）：fencing 拒绝，记录零变化
+    before = await db.tool_invocations.find_one({"idempotency_key": draft.idempotency_key})
+    with execution_identity_scope(identity), pytest.raises(LeaseLostError):
+        await ledger.mark(
+            draft.idempotency_key, LedgerStatus.SUCCEEDED, result_summary="late"
+        )
+    after = await db.tool_invocations.find_one({"idempotency_key": draft.idempotency_key})
+    assert after == before  # 完全不变：状态仍 in_progress、无 result_ref/completed_at

@@ -55,24 +55,58 @@ async def run_workflow_execution(doc: dict[str, Any], lease: Any) -> None:
     lm = LeaseManager()
     repo = ExecutionRepository()
 
+    # 先决检查（E6 follow-up P1-4）：Task 已终态/等待 → 直接收敛 Execution，
+    # **不再进 engine**。场景：上一次运行已把 Task 写成 completed 但 Worker
+    # 在 _finish 前崩溃 → takeover 重入本 runner——若照常 run_and_persist，
+    # completed Task 无 checkpoint 时会从头重放已提交的节点副作用。
+    from app.services.task_service import TaskService
+
+    pre_task = await TaskService.get_task(task_id)
+    pre_status = (pre_task or {}).get("status", "")
+    if pre_status in _TASK_TO_EXECUTION or pre_status == "waiting_human":
+        logger.info(
+            "workflow_runner_precheck_converge",
+            execution_id=execution_id, task_id=task_id, task_status=pre_status,
+        )
+        await _converge_from_task_status(
+            repo, execution_id, lease, task_status=pre_status, result_keys=[]
+        )
+        return
+
     async with lease_heartbeat(
         lm, execution_id, lease.owner, lease.fencing_token
     ):
         with execution_identity_scope(identity):
             result = await WorkflowEngine().run_and_persist(task_id)
 
-    # 终态映射（engine 内部消化业务失败，不 raise）
-    from app.services.task_service import TaskService
+    await _converge_from_task_status(
+        repo, execution_id, lease,
+        task_status=(await TaskService.get_task(task_id) or {}).get("status", ""),
+        result_keys=sorted(result or {}),
+    )
 
-    task = await TaskService.get_task(task_id)
-    task_status = (task or {}).get("status", "")
+
+async def _converge_from_task_status(
+    repo: ExecutionRepository,
+    execution_id: str,
+    lease: Any,
+    *,
+    task_status: str,
+    result_keys: list[str],
+) -> None:
+    """按 Task 状态收敛 Execution（先决检查与执行后共用）。"""
     execution_status = _TASK_TO_EXECUTION.get(task_status)
     if execution_status is None and task_status == "waiting_human":
+        # 暂停等待输入（E6 follow-up P1-3）：非终态——不写 completed_at、
+        # dispatch 置 pending（可被扫描重新派发）、释放 lease（无运行体）。
+        # 恢复闭环：输入提交方调 resume_waiting_execution（CAS → queued），
+        # 崩溃窗口由 RecoverySupervisor 扫描兜底（见 recovery.py）。
         await _finish(
             repo, execution_id, lease, status="waiting_input",
             event_type="execution.waiting_input",
-            payload={"task_status": task_status, "result_keys": sorted(result or {})},
-            release=True,  # 暂停无运行体：释放 lease，恢复走重新派发
+            payload={"task_status": task_status, "result_keys": result_keys},
+            release=True,
+            waiting=True,
         )
         return
     if execution_status is None:
@@ -80,7 +114,7 @@ async def run_workflow_execution(doc: dict[str, Any], lease: Any) -> None:
         # 由 supervisor 接管裁决（与 runner 异常语义一致）。
         logger.warning(
             "workflow_runner_unmapped_task_status",
-            execution_id=execution_id, task_id=task_id, task_status=task_status,
+            execution_id=execution_id, task_status=task_status,
         )
         return
     await _finish(
@@ -100,10 +134,13 @@ async def _finish(
     event_type: str,
     payload: dict[str, Any],
     release: bool,
+    waiting: bool = False,
 ) -> None:
-    """fenced 终态写入：状态 + 事件 (+ 释放 lease)。"""
-    from agent_flow_harness.ledger import LedgerStatus  # noqa: F401 - 语义引用
+    """fenced 终态/暂停写入：状态 + 事件 (+ 释放 lease)。
 
+    ``waiting=True``（P1-3）：暂停等待输入——**不写 completed_at**、
+    ``dispatch`` 置 pending（可重新派发），而非 done。
+    """
     from app.engine.execution.models import ExecutionEvent
     from app.models.base import utc_now
 
@@ -117,15 +154,26 @@ async def _finish(
                 payload=payload,
             )
         )
-        await txn.update_execution(
-            {
-                "$set": {
-                    "status": status,
-                    "completed_at": utc_now(),
-                    "dispatch.state": "done",
+        if waiting:
+            await txn.update_execution(
+                {
+                    "$set": {
+                        "status": status,
+                        "dispatch.state": "pending",
+                        "dispatch.next_dispatch_at": None,
+                    }
                 }
-            }
-        )
+            )
+        else:
+            await txn.update_execution(
+                {
+                    "$set": {
+                        "status": status,
+                        "completed_at": utc_now(),
+                        "dispatch.state": "done",
+                    }
+                }
+            )
     if release:
         try:
             from app.engine.execution.lease import LeaseManager
@@ -135,6 +183,30 @@ async def _finish(
             logger.info(
                 "workflow_runner_release_lost execution={}", execution_id
             )
+
+
+async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str) -> bool:
+    """输入提交后的恢复入口（P1-3）：CAS waiting_input → queued + pending。
+
+    幂等：仅 waiting_input 状态匹配（重复提交天然去重）；成功后由
+    RecoverySupervisor 扫描类 1 派发。输入持久化与重派之间的崩溃窗口
+    由 ``_scan_waiting_inputs`` 兜底闭合。
+    """
+    from app.models.base import utc_now
+
+    result = await repo._executions().update_one(  # noqa: SLF001 - 同包协作层
+        {"_id": execution_id, "status": "waiting_input"},
+        {
+            "$set": {
+                "status": "queued",
+                "dispatch.state": "pending",
+                "dispatch.attempts": 0,
+                "dispatch.next_dispatch_at": None,
+                "updated_at": utc_now(),
+            }
+        },
+    )
+    return result.matched_count == 1
 
 
 def register_workflow_runner() -> None:

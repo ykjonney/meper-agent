@@ -1555,6 +1555,35 @@ class ToolNodeExecutor(BaseNodeExecutor):
             if ws_token is not None:
                 reset_workspace_context(ws_token)
 
+    async def _ledger_invoked(
+        self, tool: Any, params: dict[str, Any], tool_id: str
+    ) -> Any:
+        """账本包裹的工具调用（无执行身份时原样直调）。
+
+        幂等键 {execution}:{node}:{tool_id}（不含 attempt）——超时/中断
+        记 UNKNOWN 后，同键重试会被 claim 拒绝（LedgerClaimError 向上，
+        归入节点失败），不再盲目重执行副作用。
+        """
+        from agent_flow_harness.execution_context import get_execution_identity
+        from agent_flow_harness.ledger import (
+            ToolInvocationDraft,
+            digest_args,
+            ledger_protected_call,
+        )
+
+        identity = get_execution_identity()
+        if identity is None:
+            return await tool.ainvoke(params)
+
+        draft = ToolInvocationDraft(
+            tool_call_id=f"tool:{tool_id}",
+            tool_name=str(getattr(tool, "name", "") or tool_id),
+            args=params,
+            idempotency_key=identity.tool_idempotency_key(f"tool:{tool_id}"),
+            request_digest=digest_args(params),
+        )
+        return await ledger_protected_call(draft, lambda: tool.ainvoke(params))
+
     async def _invoke_with_retry(
         self,
         tool: Any,
@@ -1583,7 +1612,15 @@ class ToolNodeExecutor(BaseNodeExecutor):
         last_error: str | None = None
         for attempt in range(1 + max_retries):
             try:
-                result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
+                # E6 follow-up P1-2：独立工具节点（MCP/OpenAPI/Code）的外部
+                # 副作用统一经 SideEffectLedger——幂等键按节点执行体稳定
+                # （不含 attempt：首次超时/中断记 UNKNOWN 后，claim 拒绝
+                # 后续重试，符合"无幂等保证不得凭 timeout 盲目重试"）。
+                # 无执行身份（legacy 路径）时账本旁路，行为不变。
+                result = await asyncio.wait_for(
+                    self._ledger_invoked(tool, params, tool_id),
+                    timeout=timeout_s,
+                )
                 if (
                     fail_on_error_result
                     and isinstance(result, str)
