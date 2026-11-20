@@ -22,10 +22,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from pymongo.errors import DuplicateKeyError
-
 from loguru import logger
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from app.engine.execution.collections import EXECUTIONS
 from app.engine.execution.models import (
@@ -148,7 +147,7 @@ class CheckpointCoordinator:
             existing = await db[EXECUTIONS].find_one(
                 {**active_filter, "$or": [
                     {"shadow_active": True},
-                    {"shadow_active": {"$exists": False}},
+                    {"shadow_active": None},
                 ]},
                 sort=[("created_at", -1)],
             )
@@ -157,7 +156,7 @@ class CheckpointCoordinator:
                 if existing.get("shadow_active") is not True:
                     try:
                         claimed = await db[EXECUTIONS].find_one_and_update(
-                            {"_id": existing["_id"], "shadow_active": {"$exists": False}},
+                            {"_id": existing["_id"], "shadow_active": None},
                             {"$set": {"shadow_active": True}},
                             return_document=ReturnDocument.AFTER,
                         )
