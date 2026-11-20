@@ -205,6 +205,33 @@ async def test_scan_skips_active_lease(env):
 # ── worker 入口：重复投递互斥 ──────────────────────────────────────────
 
 
+async def test_runner_exception_records_interruption_and_keeps_lease(fake_db):
+    """普通 Runner 异常要留痕，但不能假定外部副作用未发生。"""
+    from app.workers.tasks import execution_run as run_mod
+    from app.engine.execution.models import Execution, ExecutionStatus
+
+    db = fake_db
+    exe = Execution(trigger="test_runner_error", status=ExecutionStatus.QUEUED)
+    db.collections.setdefault("executions", {})[exe.id] = exe.model_dump(by_alias=True)
+
+    async def broken_runner(_doc, _lease):
+        raise TimeoutError("remote response timed out")
+
+    run_mod.register_runner("test_runner_error", broken_runner)
+    with pytest.raises(TimeoutError, match="remote response timed out"):
+        await run_mod._run_async(exe.id)
+
+    doc = db.collections["executions"][exe.id]
+    assert doc["status"] == "running"
+    assert doc["lease"] is not None  # 留给 lease expiry + supervisor takeover
+    events = [
+        event for event in db.collections.get("execution_events", {}).values()
+        if event["execution_id"] == exe.id
+    ]
+    error_event = next(event for event in events if event["type"] == "execution.worker_error")
+    assert error_event["payload"]["recovery"] == "await_lease_expiry_and_supervisor_takeover"
+
+
 async def test_run_execution_lease_mutex(fake_db):
     """同一 execution 投递两次：第二个认领者安静退出（CAS 互斥）。"""
     from app.workers.tasks import execution_run as run_mod
