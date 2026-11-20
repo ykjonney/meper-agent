@@ -134,12 +134,11 @@ class CheckpointCoordinator:
 
         The partial unique index on (task_id, trigger) where shadow_active=True
         is the concurrency authority. A duplicate-key loser rereads the winner.
-        Legacy rows without shadow_active remain discoverable and are claimed
-        with a conditional update before being used.
+        Legacy rows are recognized only by their explicit workflow-shadow lease owner,
+        avoiding accidental reuse of ordinary workflow Executions.
         """
         from app.db.mongodb import get_database
 
-        db = get_database()
         active_filter = {
             "task_id": task_id,
             "trigger": "workflow",
@@ -157,6 +156,7 @@ class CheckpointCoordinator:
             ],
         }
         try:
+            db = get_database()
             existing = await db[EXECUTIONS].find_one(
                 shadow_filter,
                 sort=[("created_at", -1)],
