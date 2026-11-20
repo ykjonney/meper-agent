@@ -36,12 +36,12 @@ class ExecutionIdentity:
         return f"{self.idempotency_prefix}:{tool_call_id}"
 
 
-def set_execution_identity(identity: ExecutionIdentity | None) -> Token:
+def set_execution_identity(identity: ExecutionIdentity | None) -> "Token[ExecutionIdentity | None]":
     """绑定当前任务的执行身份；调用方必须在 finally 中 reset 返回的 token。"""
     return _current.set(identity)
 
 
-def reset_execution_identity(token: Token) -> None:
+def reset_execution_identity(token: "Token[ExecutionIdentity | None]") -> None:
     """恢复进入当前执行边界前的 ContextVar 值，避免任务上下文泄漏。"""
     _current.reset(token)
 
