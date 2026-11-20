@@ -36,23 +36,28 @@ class MemoryLedger:
         if self.broken:
             raise RuntimeError("ledger down")
         self.order.append("prepared")
-        self.records[draft.idempotency_key] = {
+        self.records.setdefault(draft.idempotency_key, {
             "draft": draft, "status": LedgerStatus.PREPARED, "summary": None,
-        }
+        })
 
-    async def mark_in_progress(self, key: str) -> None:
+    async def claim(self, key: str) -> bool:
         if self.broken:
             raise RuntimeError("ledger down")
+        rec = self.records.get(key)
+        if rec is None or rec["status"] != LedgerStatus.PREPARED:
+            return False
         self.order.append("in_progress")
-        self.records[key]["status"] = LedgerStatus.IN_PROGRESS
+        rec["status"] = LedgerStatus.IN_PROGRESS
+        return True
 
     async def mark(self, key, status, *, result_summary=None, error=None):
         if self.broken:
             raise RuntimeError("ledger down")
+        rec = self.records.get(key)
+        if rec is None or rec["status"] != LedgerStatus.IN_PROGRESS:
+            return
         self.order.append(status.value)
-        self.records[key].update(
-            status=status, summary=result_summary, error=error
-        )
+        rec.update(status=status, summary=result_summary, error=error)
 
     async def lookup(self, key):
         rec = self.records.get(key)
@@ -210,10 +215,12 @@ async def test_wrapper_digest_mismatch_executes():
     awrap = make_tool_wrapper(MiddlewareChain([]))
     result = await awrap(req, execute)
 
-    assert tracked == ["executed"]
-    assert result.content == "sent ok"
+    assert tracked == []
+    assert isinstance(result, ToolMessage)
+    assert result.status == "error"
+    assert "identity conflict" in str(result.content).lower()
     assert ledger.records[key]["status"] == LedgerStatus.SUCCEEDED
-    assert ledger.records[key]["summary"] == "sent ok"
+    assert ledger.records[key]["summary"] == "old"
 
 
 async def test_wrapper_without_identity_bypasses_ledger():
