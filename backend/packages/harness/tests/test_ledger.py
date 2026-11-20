@@ -195,7 +195,7 @@ async def test_wrapper_replays_succeeded_invocation():
     assert result.content == "replayed result"
 
 
-async def test_wrapper_digest_mismatch_executes():
+async def test_wrapper_digest_mismatch_blocks_execution():
     """digest 不匹配（参数已变）→ 视为新调用，正常执行。"""
     from agent_flow_harness.graph.nodes.tool_wrapper import make_tool_wrapper
     from agent_flow_harness.middleware.chain import MiddlewareChain
