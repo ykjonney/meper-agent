@@ -1,16 +1,15 @@
 """LocalSandbox — 默认 sandbox 实现（subprocess + 本地文件系统）。
 
-cwd 限制为 work_dir；文件操作按 workspace 布局做白名单校验（防路径越权）：
-work_dir 为 {root}/tmp 结构时（workspace 模式）可访问 tmp/input/output 整个
-工作区，否则仅 work_dir。execute_command 超时强制 kill 进程。
+cwd 限制为 work_dir；文件路径策略委托注入的 WorkspaceLayout
+（cloud.py 的 CloudLayout，或本地接入的 LocalLayout），本类不再自带
+路径映射逻辑。execute_command 超时强制 kill 进程。
 
 生产环境多租户隔离应使用 DockerSandbox/E2BSandbox；LocalSandbox 适合
-开发环境和单租户场景。
+开发环境和单租户场景（也作为 DockerSandbox 的降级执行通道）。
 """
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import time
 from pathlib import Path
@@ -19,15 +18,12 @@ from collections.abc import Sequence
 from agent_flow_harness.sandbox.base import GrepMatch, Sandbox, SandboxResult
 from agent_flow_harness.sandbox.edit_ops import apply_edits
 from agent_flow_harness.sandbox.file_lock import file_mutation_lock
-
-
-def _is_within(path: Path, base: Path) -> bool:
-    """path 是否位于 base 目录树内。"""
-    try:
-        path.relative_to(base)
-    except ValueError:
-        return False
-    return True
+from agent_flow_harness.sandbox.freshness import FileFreshnessTracker
+from agent_flow_harness.sandbox.read_ops import format_read, sniff_binary_kind
+from agent_flow_harness.sandbox.shell_state import extract_cwd, wrap_cwd_command
+from agent_flow_harness.workspace.cloud import CloudLayout
+from agent_flow_harness.workspace.layout import WorkspaceLayout
+from agent_flow_harness.workspace.scan import glob_workspace_files, grep_workspace
 
 
 class LocalSandbox(Sandbox):
@@ -40,6 +36,7 @@ class LocalSandbox(Sandbox):
         timeout: int = 120,
         max_output_chars: int = 50_000,
         output_dir: Path | None = None,
+        layout: WorkspaceLayout | None = None,
     ) -> None:
         self._id = sandbox_id
         self._work_dir = Path(work_dir).resolve()
@@ -50,13 +47,24 @@ class LocalSandbox(Sandbox):
         # 如果未提供，默认使用 work_dir 的父目录下的 output/
         self._output_dir = Path(output_dir).resolve() if output_dir else self._work_dir.parent / "output"
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        # workspace 模式：work_dir 为 {root}/tmp 结构（app 场景恒成立）时，
-        # 文件工具可访问整个工作区——tmp 工作区 / input 只读输入 / output 产物，
-        # 各目录职能不同但 read/edit/glob/grep 均可操作；否则维持单 work_dir
-        # 行为（独立使用 LocalSandbox 的场景）。
-        self._input_dir = (self._work_dir.parent / "input").resolve()
-        self._workspace_mode = self._work_dir.name == "tmp"
-        self._root = self._work_dir.parent if self._workspace_mode else self._work_dir
+        # 路径策略委托 layout（默认按旧参数构造 CloudLayout，向后兼容）。
+        # 本地接入场景传入 LocalLayout(root)，work_dir 即 root。
+        self._layout = layout or CloudLayout(
+            self._work_dir, self._output_dir,
+            container_workspace_dir="/workspace",
+        )
+        # cloud 布局才需要产物目录；local 布局（用户自有目录树）禁止在
+        # root 外创建 output/——污染用户文件系统
+        if self._layout.mode == "cloud":
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+        # read→edit 新鲜度基线（per-run 生命周期）：edit 前必须 read/write 过
+        self._freshness = FileFreshnessTracker()
+        # bash cwd 跨调用状态（shell_state 追踪-重放，per-run 生命周期）
+        self._cwd: str | None = None
+
+    @property
+    def layout(self) -> WorkspaceLayout:
+        return self._layout
 
     @property
     def id(self) -> str:
@@ -71,20 +79,30 @@ class LocalSandbox(Sandbox):
         timeout: int | None = None,
         env: dict[str, str] | None = None,
     ) -> SandboxResult:
-        """执行 shell 命令，超时强制 kill。env 合并注入子进程，不污染宿主。"""
+        """执行 shell 命令，超时强制 kill。env 合并注入子进程，不污染宿主。
+
+        cwd 跨调用持久（Claude Code 同款追踪-重放）：注入 cd 到上次目录、
+        尾部捕获 $PWD 存回实例状态（shell_state.py）；env 不持久。
+        """
         effective_timeout = timeout if timeout is not None else self._timeout
+        base_cwd = self._cwd or self._layout.bash_cwd()
+        wrapped, parse_re = wrap_cwd_command(command, base_cwd)
         start = time.monotonic()
         try:
             proc = subprocess.run(
-                ["bash", "-c", command],
+                ["bash", "-c", wrapped],
                 cwd=str(self._work_dir),
                 capture_output=True,
                 timeout=effective_timeout,
                 env={**os.environ, **(env or {})},
             )
             duration = time.monotonic() - start
+            stdout_raw = proc.stdout.decode("utf-8", "replace")
+            stdout, new_cwd = extract_cwd(stdout_raw, parse_re)
+            if new_cwd:
+                self._cwd = new_cwd
             return SandboxResult(
-                stdout=self._truncate(proc.stdout.decode("utf-8", "replace")),
+                stdout=self._truncate(stdout),
                 stderr=self._truncate(proc.stderr.decode("utf-8", "replace")),
                 exit_code=proc.returncode,
                 duration=duration,
@@ -102,21 +120,58 @@ class LocalSandbox(Sandbox):
 
     # ── 文件操作 ──────────────────────────────────────────────────────
 
-    def read_file(self, path: str) -> str:
-        resolved = self._with_output_fallback(
-            self._safe_resolve(path, for_write=False), path
-        )
+    def read_file(
+        self,
+        path: str,
+        *,
+        offset: int = 1,
+        limit: int = 2000,
+    ) -> str:
+        """读文件内容：cat -n 风格行号 + offset/limit 行级分页（read_ops）。
+
+        读取即记录新鲜度基线——edit 前必须 read 过，read 后被 bash 等
+        外部改动的文件会被 edit 拒绝（freshness 校验）。
+        """
+        resolved = self._layout.resolve_read(path).host
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path}")
-        content = resolved.read_text(encoding="utf-8", errors="replace")
-        return self._truncate(content)
+        data = resolved.read_bytes()
+        kind = sniff_binary_kind(data)
+        if kind == "image":
+            self._freshness.record(resolved)
+            return (
+                f"This is a binary image file ('{path}') and cannot be read as text. "
+                "Use the view_image tool to view it."
+            )
+        if kind == "document":
+            self._freshness.record(resolved)
+            return (
+                f"This is a binary file ('{path}') and cannot be read as text. "
+                "If it is a document (PDF/Office), use the parse_file tool to "
+                "extract its content; otherwise inspect it with bash tools."
+            )
+        content = data.decode("utf-8", errors="replace")
+        self._freshness.record(resolved)
+        return self._truncate(
+            format_read(
+                content, path=path, offset=offset, limit=limit,
+                max_chars=self._max_output,
+            )
+        )
 
     def write_file(self, path: str, content: str) -> None:
-        """写文件到 output 目录（用户可见/可下载）。同文件并发经互斥锁串行。"""
-        resolved = self._safe_resolve_output(path)
+        """写文件（路径策略由 layout 决定：cloud=产物 output/，local=root 内）。
+
+        同文件并发经互斥锁串行；覆写已存在文件须本 run 内 read/write 过
+        （freshness 校验——write 是全量替换，凭记忆覆写会静默丢内容）；
+        写入即记录新鲜度基线：本 run 内 write 过的文件可直接 edit。
+        """
+        resolved = self._layout.resolve_write(path).host
         with file_mutation_lock(resolved):
+            self._freshness.check_overwrite(resolved, path)
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_text(content, encoding="utf-8")
+            self._freshness.record(resolved)
 
     def edit_file_many(
         self,
@@ -125,19 +180,21 @@ class LocalSandbox(Sandbox):
         *,
         replace_all: bool = False,
     ) -> str:
-        """就地编辑工作区内文件：互斥锁内 读全文（不截断）→ 快照匹配 → 替换写回。
+        """就地编辑文件：互斥锁内 读全文（不截断）→ 快照匹配 → 替换写回。
 
         ToolNode 对同一消息的多个 tool_call 并发执行，锁保证同文件的
         读→改→写 临界区串行（否则丢更新/匹配错乱/尾部交错损坏）。
         匹配语义（BOM/行尾归一化、重叠校验）统一在 edit_ops.apply_edits。
+
+        新鲜度校验（freshness，锁内进行）：文件须本 run 内 read/write 过，
+        read 后被外部改动则抛 ValueError 拒绝编辑；成功写回后刷新基线，
+        同文件连续编辑无需重读。
         """
-        resolved = self._with_output_fallback(
-            self._safe_resolve(path, for_write=False), path
-        )
-        self._reject_input_write(resolved, path)
+        resolved = self._layout.resolve_edit(path).host
         with file_mutation_lock(resolved):
             if not resolved.exists():
                 raise FileNotFoundError(f"File not found: {path}")
+            self._freshness.check(resolved, path)
             # newline=""：关闭 universal newlines 翻译，保留原始 \r\n（否则
             # 读入已被翻成 \n，行尾归一化检测失效、写回会把整个文件转成 LF）
             with resolved.open("r", encoding="utf-8", errors="replace", newline="") as f:
@@ -147,122 +204,33 @@ class LocalSandbox(Sandbox):
             )
             with resolved.open("w", encoding="utf-8", newline="") as f:
                 f.write(new_content)
+            self._freshness.record(resolved)
         return message
 
     def glob(self, path: str, pattern: str) -> list[str]:
-        base = self._safe_resolve(path, for_write=False)
+        base = self._layout.resolve_read(path).host
         if not base.exists():
             return []
-        return sorted(str(p) for p in base.glob(pattern))
+        return [str(p) for p in glob_workspace_files(base, pattern)]
 
-    def grep(self, path: str, pattern: str) -> list[GrepMatch]:
-        base = self._safe_resolve(path, for_write=False)
+    def grep(
+        self,
+        path: str,
+        pattern: str,
+        *,
+        context: int = 0,
+        ignore_case: bool = False,
+        glob_filter: str | None = None,
+    ) -> list[GrepMatch]:
+        base = self._layout.resolve_read(path).host
         if not base.exists():
             return []
-        regex = re.compile(pattern)
-        matches: list[GrepMatch] = []
-        files = [base] if base.is_file() else list(base.rglob("*"))
-        for f in files:
-            if not f.is_file():
-                continue
-            try:
-                lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
-                continue
-            for i, line in enumerate(lines, 1):
-                if regex.search(line):
-                    matches.append(GrepMatch(path=str(f), line_number=i, line=line))
-        return matches
+        return grep_workspace(
+            base, pattern,
+            context=context, ignore_case=ignore_case, glob_filter=glob_filter,
+        )
 
     # ── 内部 helpers ──────────────────────────────────────────────────
-
-    def _safe_resolve(self, user_path: str, *, for_write: bool) -> Path:
-        """解析路径并校验在允许目录内（防路径越权）。
-
-        workspace 模式（work_dir 为 {root}/tmp）：绝对路径剥容器风格前缀
-        （workspace/）后按 tmp/ output/ input/ 前缀映射到对应目录，裸相对
-        路径默认 work_dir；白名单为工作区各目录（root/output/input）树内。
-        非 workspace 模式保持旧行为：绝对路径剥前缀映射进 work_dir，
-        白名单 work_dir 树内。
-        """
-        allowed: tuple[Path, ...]
-        if self._workspace_mode:
-            rel = user_path.lstrip("/") if os.path.isabs(user_path) else user_path
-            if rel.startswith("workspace/"):
-                rel = rel[len("workspace/"):]
-            resolved = self._map_workspace_rel(rel).resolve()
-            allowed = (self._root, self._output_dir, self._input_dir)
-        else:
-            if os.path.isabs(user_path):
-                # Map absolute paths into work_dir (strip leading /tmp/ or /)
-                rel = user_path.lstrip('/')
-                for prefix in ('tmp/', 'workspace/tmp/', 'workspace/'):
-                    if rel.startswith(prefix):
-                        rel = rel[len(prefix):]
-                        break
-                resolved = (self._work_dir / rel).resolve()
-            else:
-                resolved = (self._work_dir / user_path).resolve()
-            allowed = (self._work_dir,)
-        # 白名单校验：resolved 必须在允许目录树内
-        if not any(_is_within(resolved, base) for base in allowed):
-            msg = f"Access denied — path '{user_path}' outside sandbox work_dir"
-            raise PermissionError(msg)
-        return resolved
-
-    def _map_workspace_rel(self, rel: str) -> Path:
-        """工作区相对路径 → 实际目录；无目录前缀默认 work_dir（tmp）。"""
-        if rel.startswith('tmp/'):
-            return self._work_dir / rel[len('tmp/'):]
-        if rel.startswith('output/'):
-            return self._output_dir / rel[len('output/'):]
-        if rel.startswith('input/'):
-            return self._input_dir / rel[len('input/'):]
-        return self._work_dir / rel
-
-    def _with_output_fallback(self, resolved: Path, user_path: str) -> Path:
-        """裸相对路径在 tmp 下不存在时回退查 output/（write 产物在 output）。"""
-        if (
-            resolved.exists()
-            or not user_path
-            or os.path.isabs(user_path)
-            or not self._workspace_mode
-            or user_path.startswith(('tmp/', 'output/', 'input/'))
-        ):
-            return resolved
-        alt = (self._output_dir / user_path).resolve()
-        return alt if alt.exists() else resolved
-
-    def _reject_input_write(self, resolved: Path, user_path: str) -> None:
-        """input 为只读输入目录，禁止写入/编辑。"""
-        if self._workspace_mode and _is_within(resolved, self._input_dir):
-            msg = (
-                f"Access denied — path '{user_path}' is read-only input; "
-                "copy it into the workspace to modify"
-            )
-            raise PermissionError(msg)
-
-    def _safe_resolve_output(self, user_path: str) -> Path:
-        """解析路径并校验是否在 output_dir 内（防路径越权）。
-
-        当模型传入绝对路径时,提取相对部分映射到 output_dir 内。
-        """
-        if os.path.isabs(user_path):
-            rel = user_path.lstrip('/')
-            for prefix in ('output/', 'workspace/output/', 'workspace/'):
-                if rel.startswith(prefix):
-                    rel = rel[len(prefix):]
-                    break
-            resolved = (self._output_dir / rel).resolve()
-        else:
-            resolved = (self._output_dir / user_path).resolve()
-        # 白名单校验：resolved 必须在 output_dir 树内
-        try:
-            resolved.relative_to(self._output_dir)
-        except ValueError as exc:
-            msg = f"Access denied — path '{user_path}' outside sandbox output_dir"
-            raise PermissionError(msg) from exc
-        return resolved
 
     def _truncate(self, text: str) -> str:
         if len(text) <= self._max_output:

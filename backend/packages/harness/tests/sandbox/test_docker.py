@@ -517,11 +517,40 @@ def test_ws_write_output_edit_bare_name(tmp_path):
     assert (tmp_path / "ws" / "output" / "report.md").read_text(encoding="utf-8") == "# v2\n"
 
 
+def test_file_ops_freshness_and_paging(tmp_path):
+    """与 LocalSandbox 同构：read 行号分页 + edit 新鲜度校验（宿主机路径实现）。"""
+    import os as _os
+
+    p = tmp_path / "app.py"
+    p.write_text("a = 1\nb = 2\n", encoding="utf-8")
+    sb = _make_sandbox(tmp_path)
+    # 行号格式
+    assert sb.read_file("app.py") == "     1\ta = 1\n     2\tb = 2"
+    # 分页 + 续读提示
+    p.write_text("".join(f"row-{i}\n" for i in range(30)), encoding="utf-8")
+    out = sb.read_file("app.py", offset=25, limit=3)
+    assert "[Showing lines 25-27 of 30 total lines" in out
+    # 未读拒绝 / 外部改动拒绝
+    p2 = tmp_path / "other.py"
+    p2.write_text("v = 1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="has not been read yet"):
+        sb.edit_file("other.py", "v = 1", "v = 2")
+    sb.read_file("other.py")
+    p2.write_text("v = 999\n", encoding="utf-8")
+    _os.utime(p2, ns=(p2.stat().st_atime_ns, p2.stat().st_mtime_ns + 10**9))
+    with pytest.raises(ValueError, match="modified since it was read"):
+        sb.edit_file("other.py", "v = 999", "v = 1000")
+    # 重读后放行
+    sb.read_file("other.py")
+    sb.edit_file("other.py", "v = 999", "v = 1000")
+    assert p2.read_text(encoding="utf-8") == "v = 1000\n"
+
+
 def test_ws_edit_input_rejected(tmp_path):
     """与 LocalSandbox 同构：input 只读，edit 被拒、read 可用。"""
     sb = _make_workspace_sandbox(tmp_path)
     (tmp_path / "ws" / "input" / "spec.md").write_text("spec\n", encoding="utf-8")
-    assert sb.read_file("/workspace/input/spec.md") == "spec\n"
+    assert sb.read_file("/workspace/input/spec.md") == "     1\tspec"
     with pytest.raises(PermissionError, match="read-only input"):
         sb.edit_file("input/spec.md", "spec", "modified")
 

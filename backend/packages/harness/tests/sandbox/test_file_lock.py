@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import threading
 import time
 
@@ -90,3 +91,61 @@ def test_different_paths_not_serialized(tmp_path):
     t2.join(timeout=2)
     assert not t2.is_alive()  # 未被 a 的锁阻塞
     t1.join()
+
+
+# ── A3: 跨进程互斥（fcntl.flock）────────────────────────────────────
+
+
+def _cross_process_child(target: str, start_flag: str, done_flag: str) -> None:
+    """子进程体（模块级——macOS spawn 启动方式不能 pickle 闭包）。"""
+    target_path = Path(target)
+    with file_mutation_lock(target_path):
+        Path(start_flag).write_text("1", encoding="utf-8")
+        time.sleep(0.4)
+        target_path.write_text("child-done", encoding="utf-8")
+    Path(done_flag).write_text("1", encoding="utf-8")
+
+
+def test_cross_process_serialized(tmp_path):
+    """A3: 另一进程持锁期间，本进程临界区被 flock 阻塞直至其释放。
+
+    模拟 API 进程 vs celery worker 并发写同一 workspace 文件。
+    """
+    import multiprocessing
+
+    target = tmp_path / "shared.txt"
+    target.write_text("", encoding="utf-8")
+    start_flag = tmp_path / ".child-in"
+    done_flag = tmp_path / ".child-out"
+
+    proc = multiprocessing.Process(
+        target=_cross_process_child,
+        args=(str(target), str(start_flag), str(done_flag)),
+    )
+    proc.start()
+
+    # 等子进程确认已进入临界区（拿到 flock）
+    deadline = time.monotonic() + 5
+    while not start_flag.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert start_flag.exists(), "child never entered critical section"
+
+    # 本进程此刻尝试拿锁：必须等到子进程释放（期间文件内容已是 child 写的）
+    entered_at = time.monotonic()
+    with file_mutation_lock(target):
+        held = time.monotonic() - entered_at
+        content = target.read_text(encoding="utf-8")
+
+    assert content == "child-done"  # 拿到锁时子进程已写完
+    assert held >= 0.05  # 确实等过子进程的临界区（flock 生效，非并行进入）
+    proc.join(timeout=5)
+    assert done_flag.exists()
+    assert not proc.is_alive()
+
+
+def test_missing_file_degrades_to_process_lock(tmp_path):
+    """目标文件不存在：退化为仅进程内锁（不抛错，新文件首写场景）。"""
+    ghost = tmp_path / "not-yet.txt"
+    with file_mutation_lock(ghost):
+        ghost.write_text("created inside lock", encoding="utf-8")
+    assert ghost.read_text(encoding="utf-8") == "created inside lock"

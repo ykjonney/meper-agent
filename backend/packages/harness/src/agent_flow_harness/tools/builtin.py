@@ -40,9 +40,17 @@ def _load_builtin_tools() -> dict[str, "BaseTool"]:
     tools: dict[str, BaseTool] = {}
 
     # 第二层：文件/shell 工具（委托 Sandbox）
-    from agent_flow_harness.sandbox.tools import bash, edit, glob, grep, read, write
+    from agent_flow_harness.sandbox.tools import (
+        bash,
+        bash_output,
+        edit,
+        glob,
+        grep,
+        read,
+        write,
+    )
 
-    for t in (bash, read, write, edit, glob, grep):
+    for t in (bash, bash_output, read, write, edit, glob, grep):
         tools[t.name] = t
 
     # 第一层：能力型工具

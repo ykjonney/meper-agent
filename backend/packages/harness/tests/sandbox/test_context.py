@@ -17,10 +17,10 @@ class _StubSandbox(Sandbox):
     def id(self):
         return "stub"
 
-    def execute_command(self, command, *, timeout=120):
+    def execute_command(self, command, *, timeout=None):
         return SandboxResult(stdout="", stderr="", exit_code=0)
 
-    def read_file(self, path):
+    def read_file(self, path, *, offset=1, limit=2000):
         return ""
 
     def write_file(self, path, content):

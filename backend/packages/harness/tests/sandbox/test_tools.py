@@ -42,13 +42,25 @@ def _set_ctx(sb):
 
 @pytest.mark.asyncio
 async def test_bash_delegates_to_sandbox():
-    """AC7: bash 委托 sandbox.execute_command。"""
+    """AC7: bash 委托 sandbox.execute_command（timeout=None → 沿用沙箱默认超时）。"""
     sb = _mock_sandbox(SandboxResult(stdout="hello", stderr="", exit_code=0))
     token = _set_ctx(sb)
     try:
         result = await bash.ainvoke({"command": "echo hello"})
         assert "hello" in result
-        sb.execute_command.assert_called_once_with("echo hello")
+        sb.execute_command.assert_called_once_with("echo hello", timeout=None)
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_bash_timeout_passthrough():
+    """timeout 参数透传 sandbox.execute_command。"""
+    sb = _mock_sandbox(SandboxResult(stdout="ok", stderr="", exit_code=0))
+    token = _set_ctx(sb)
+    try:
+        await bash.ainvoke({"command": "make build", "timeout": 300})
+        sb.execute_command.assert_called_once_with("make build", timeout=300)
     finally:
         reset_sandbox_context(token)
 
@@ -85,7 +97,19 @@ async def test_read_delegates():
     try:
         result = await read.ainvoke({"path": "app.py"})
         assert result == "file content"
-        sb.read_file.assert_called_once_with("app.py")
+        sb.read_file.assert_called_once_with("app.py", offset=1, limit=2000)
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_read_pagination_passthrough():
+    """offset/limit 分页参数透传 sandbox.read_file。"""
+    sb = _mock_sandbox()
+    token = _set_ctx(sb)
+    try:
+        await read.ainvoke({"path": "app.py", "offset": 10, "limit": 5})
+        sb.read_file.assert_called_once_with("app.py", offset=10, limit=5)
     finally:
         reset_sandbox_context(token)
 
@@ -234,7 +258,37 @@ async def test_grep_delegates():
     try:
         result = await grep.ainvoke({"path": ".", "pattern": "match"})
         assert "match" in result
-        sb.grep.assert_called_once_with(".", "match")
+        sb.grep.assert_called_once_with(
+            ".", "match", context=0, ignore_case=False, glob_filter=None
+        )
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_grep_head_limit_truncates():
+    """超过 head_limit 的匹配截断并附提示（默认 100 同理，防上下文溢出）。"""
+    sb = _mock_sandbox()
+    sb.grep.return_value = [
+        GrepMatch(path="x.py", line_number=i, line=f"match-{i}") for i in range(1, 6)
+    ]
+    token = _set_ctx(sb)
+    try:
+        result = await grep.ainvoke({"path": ".", "pattern": "match", "head_limit": 2})
+        assert "match-1" in result and "match-2" in result
+        assert "match-3" not in result
+        assert "[showing 2 of 5 matches" in result
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_grep_under_limit_no_note():
+    sb = _mock_sandbox()
+    token = _set_ctx(sb)
+    try:
+        result = await grep.ainvoke({"path": ".", "pattern": "match"})
+        assert "showing first" not in result
     finally:
         reset_sandbox_context(token)
 
@@ -255,7 +309,7 @@ async def test_bash_does_not_block_event_loop():
 
     sb = _mock_sandbox()
 
-    def _slow_exec(_command: str) -> SandboxResult:
+    def _slow_exec(_command: str, timeout: int | None = None) -> SandboxResult:
         time.sleep(0.3)
         return SandboxResult(stdout="slow-done", stderr="", exit_code=0)
 
@@ -278,6 +332,52 @@ async def test_bash_does_not_block_event_loop():
         # probe 只能排在 bash 完成之后。
         assert order.index("probe") < order.index("bash"), (
             f"事件循环在 bash 执行期间被阻塞: order={order}"
+        )
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_grep_output_modes_and_offset():
+    """files_with_matches/count 输出模式 + offset 翻页。"""
+    sb = _mock_sandbox()
+    sb.grep.return_value = [
+        GrepMatch(path="a.py", line_number=i, line=f"m{i}") for i in range(1, 4)
+    ] + [GrepMatch(path="b.py", line_number=9, line="m9")]
+    token = _set_ctx(sb)
+    try:
+        files = await grep.ainvoke(
+            {"path": ".", "pattern": "m", "output_mode": "files_with_matches"}
+        )
+        assert "a.py" in files and "b.py" in files
+        assert "m1" not in files
+
+        count = await grep.ainvoke(
+            {"path": ".", "pattern": "m", "output_mode": "count"}
+        )
+        assert "a.py: 3" in count and "b.py: 1" in count
+
+        paged = await grep.ainvoke(
+            {"path": ".", "pattern": "m", "offset": 3, "head_limit": 10}
+        )
+        assert "m9" in paged and "m1" not in paged  # offset=3 跳过 a.py 的 3 条
+        assert "[showing 1 of 4 matches (offset 3)" in paged
+    finally:
+        reset_sandbox_context(token)
+
+
+@pytest.mark.asyncio
+async def test_grep_context_passthrough():
+    """context/ignore_case/glob_filter 透传 sandbox.grep。"""
+    sb = _mock_sandbox()
+    token = _set_ctx(sb)
+    try:
+        await grep.ainvoke({
+            "path": ".", "pattern": "x", "context": 2,
+            "ignore_case": True, "glob_filter": "*.py",
+        })
+        sb.grep.assert_called_once_with(
+            ".", "x", context=2, ignore_case=True, glob_filter="*.py"
         )
     finally:
         reset_sandbox_context(token)
