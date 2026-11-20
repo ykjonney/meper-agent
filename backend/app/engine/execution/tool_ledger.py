@@ -43,7 +43,7 @@ class MongoToolLedger(SideEffectLedger):
         doc = {
             "_id": generate_id("tinv"),
             "execution_id": execution_id,
-            "step_id": None,
+            "step_id": draft.step_id,
             "tool_call_id": draft.tool_call_id,
             "tool_name": draft.tool_name,
             "tool_version": draft.tool_version,
@@ -60,15 +60,20 @@ class MongoToolLedger(SideEffectLedger):
             upsert=True,
         )
 
-    async def mark_in_progress(self, idempotency_key: str) -> None:
+    async def claim(self, idempotency_key: str) -> bool:
+        """CAS claim: only PREPARED can transition to IN_PROGRESS.
+
+        UNKNOWN, IN_PROGRESS and terminal records are never re-executed by
+        ordinary recovery. A separate reconciliation decision is required.
+        """
         execution_id, key = _idempotency_scope(idempotency_key)
-        await get_database()[TOOL_INVOCATIONS].update_one(
+        result = await get_database()[TOOL_INVOCATIONS].update_one(
             {"execution_id": execution_id, "idempotency_key": key,
-             "status": {"$in": [LedgerStatus.PREPARED.value,
-                                LedgerStatus.UNKNOWN.value]}},
+             "status": LedgerStatus.PREPARED.value},
             {"$set": {"status": LedgerStatus.IN_PROGRESS.value,
                       "started_at": utc_now()}},
         )
+        return result.matched_count == 1
 
     async def mark(
         self,
@@ -79,8 +84,11 @@ class MongoToolLedger(SideEffectLedger):
         error: str | None = None,
     ) -> None:
         execution_id, key = _idempotency_scope(idempotency_key)
+        # State changes are fenced by the current state. An old worker cannot
+        # overwrite a terminal result after a newer recovery decision.
         await get_database()[TOOL_INVOCATIONS].update_one(
-            {"execution_id": execution_id, "idempotency_key": key},
+            {"execution_id": execution_id, "idempotency_key": key,
+             "status": LedgerStatus.IN_PROGRESS.value},
             {
                 "$set": {
                     "status": status.value,
