@@ -23,6 +23,13 @@ RESOURCE_BINDINGS = "resource_bindings"
 async def ensure_execution_indexes(db: AsyncIOMotorDatabase) -> None:
     """创建执行域全部索引（幂等；bootstrap ensure_all_indexes 调用）。"""
     await db[EXECUTIONS].create_index([("task_id", 1), ("created_at", -1)])
+    # At most one active workflow shadow per Task. Terminal transition clears
+    # shadow_active in the same fenced transaction, allowing a later run.
+    await db[EXECUTIONS].create_index(
+        [("task_id", 1), ("trigger", 1)],
+        unique=True,
+        partialFilterExpression={"shadow_active": True},
+    )
     await db[EXECUTIONS].create_index([("session_id", 1), ("created_at", -1)])
     await db[EXECUTIONS].create_index([("parent_execution_id", 1), ("created_at", -1)])
     # 扫描 1：queued + 待派发/重试（RecoverySupervisor）
