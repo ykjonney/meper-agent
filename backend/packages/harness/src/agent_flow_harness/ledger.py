@@ -68,7 +68,7 @@ class SideEffectLedger(Protocol):
 
     async def prepare(self, draft: ToolInvocationDraft) -> None: ...
 
-    async def mark_in_progress(self, idempotency_key: str) -> None: ...
+    async def claim(self, idempotency_key: str) -> bool: ...
 
     async def mark(
         self,
@@ -88,8 +88,8 @@ class NoLedger:
     async def prepare(self, draft: ToolInvocationDraft) -> None:  # noqa: ARG002
         return None
 
-    async def mark_in_progress(self, idempotency_key: str) -> None:  # noqa: ARG002
-        return None
+    async def claim(self, idempotency_key: str) -> bool:  # noqa: ARG002
+        return True
 
     async def mark(
         self,
@@ -127,11 +127,13 @@ def digest_args(args: dict[str, Any]) -> str:
     return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
 
 
+class LedgerClaimError(RuntimeError):
+    """调用未获得唯一执行权；调用方不得执行外部副作用。"""
+
+
 async def ledger_protected_call(
     draft: ToolInvocationDraft,
     execute: "Callable[[], Awaitable[Any]]",
-    *,
-    replay_from: LedgerRecord | None = None,  # noqa: ARG003 - 预留显式回放源
 ) -> Any:
     """账本包裹的工具执行（make_tool_wrapper 的 awrap 内部使用）。
 
@@ -146,11 +148,13 @@ async def ledger_protected_call(
     from langchain_core.tools import ToolException
 
     ledger = get_ledger()
-    try:
-        await ledger.prepare(draft)
-        await ledger.mark_in_progress(draft.idempotency_key)
-    except Exception:  # noqa: BLE001 - 账本故障不阻断执行
-        logger.warning("ledger_prepare_failed", tool=draft.tool_name)
+    # A durable side-effect ledger is a safety boundary, not best-effort
+    # telemetry. If persistence/claim fails, fail closed before the tool runs.
+    await ledger.prepare(draft)
+    if not await ledger.claim(draft.idempotency_key):
+        raise LedgerClaimError(
+            f"tool invocation is not claimable: {draft.idempotency_key}"
+        )
 
     try:
         result = await execute()
@@ -186,6 +190,7 @@ async def ledger_protected_call(
 
 
 __all__ = [
+    "LedgerClaimError",
     "LedgerRecord",
     "LedgerStatus",
     "NoLedger",
