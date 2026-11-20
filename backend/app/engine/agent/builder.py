@@ -316,6 +316,7 @@ async def build_system_prompt(
     *,
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
+    environment: str | None = None,
 ) -> str:
     """Build the fully assembled system prompt for an Agent.
 
@@ -332,6 +333,7 @@ async def build_system_prompt(
         exclude_skill_names=exclude_skill_names,
         execution_context=execution_context,
         subagents=subagents,
+        environment=environment,
     )
 
 

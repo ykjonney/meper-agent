@@ -34,6 +34,10 @@ class Session(BaseModel):
     # 非空 = 任务自动创建的会话：会话列表隐藏（list_sessions 过滤），
     # 任务详情「查看执行过程」经 session_id 直达。
     task_id: str = Field(default="", max_length=100)
+    # 非空 = 本地接入会话（workspace 重设计）：绑定 LOCAL_WORKSPACE_ROOT
+    # 白名单内的相对目录，agent 直接操作该同机目录树（创建需
+    # local_workspace:write 权限；uploads 禁用——local 模式无 input/ 附件语义）。
+    local_dir: str = Field(default="", max_length=500)
     created_at: str = Field(default_factory=lambda: utc_now().isoformat())
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 

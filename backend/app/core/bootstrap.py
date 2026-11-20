@@ -42,6 +42,14 @@ async def init_critical_path() -> None:
 
     configure_mongo_checkpointer(log_on_error=False)
 
+    # 后台任务软超时：backend settings → harness 工具层（bash_output 的
+    # 软超时与清扫豁免共用该值；docs/background-tasks.md §5）。
+    from agent_flow_harness.sandbox import bg_tasks as _bg_tasks
+
+    from app.core.config import settings as _settings
+
+    _bg_tasks.BG_TASK_MAX_LIFETIME = max(60, int(_settings.BG_TASK_MAX_LIFETIME))
+
     # Notification service — bridges EventBus → WebSocket + MongoDB.
     # Must register before any task events arrive.
     from app.services.notification_service import NotificationService

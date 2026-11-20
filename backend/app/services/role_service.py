@@ -32,6 +32,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "model:read", "model:write",
         "trigger:read", "trigger:write", "trigger:manage",
         "channel:read", "channel:write",
+        "local_workspace:write",
     ],
     "developer": [
         "agent:read", "agent:write", "agent:invoke",
@@ -46,6 +47,7 @@ DEFAULT_SYSTEM_ROLE_PERMISSIONS: dict[str, list[str]] = {
         "model:read",
         "trigger:read", "trigger:write",
         "channel:read", "channel:write",
+        "local_workspace:write",
     ],
     "operator": [
         "agent:read", "agent:invoke",
@@ -97,6 +99,7 @@ ALL_PERMISSION_KEYS: list[str] = [
     "model:read", "model:write",
     "trigger:read", "trigger:write", "trigger:manage",
     "channel:read", "channel:write",
+    "local_workspace:write",
 ]
 
 # ---------------------------------------------------------------------------
@@ -156,6 +159,15 @@ _BACKFILL_V5_MARKER = "backfill_channel_perms_v5"
 _BACKFILL_V5_TARGETS: dict[str, list[str]] = {
     "admin": ["channel:read", "channel:write"],
     "developer": ["channel:read", "channel:write"],
+}
+
+# v6: 本地接入（workspace 重设计）：local_workspace:write 首次进入权限键——
+# admin/developer 可绑定本地目录会话（需配合 LOCAL_WORKSPACE_ROOT 启用）；
+# operator/viewer 默认不开放（触及宿主文件系统，能力敏感），可经自定义角色授予
+_BACKFILL_V6_MARKER = "backfill_local_workspace_perm_v6"
+_BACKFILL_V6_TARGETS: dict[str, list[str]] = {
+    "admin": ["local_workspace:write"],
+    "developer": ["local_workspace:write"],
 }
 
 
@@ -281,6 +293,7 @@ class RoleService:
         await RoleService._backfill_permissions(_BACKFILL_V3_MARKER, _BACKFILL_V3_TARGETS)
         await RoleService._backfill_permissions(_BACKFILL_V4_MARKER, _BACKFILL_V4_TARGETS)
         await RoleService._backfill_permissions(_BACKFILL_V5_MARKER, _BACKFILL_V5_TARGETS)
+        await RoleService._backfill_permissions(_BACKFILL_V6_MARKER, _BACKFILL_V6_TARGETS)
 
     @staticmethod
     async def _backfill_permissions(

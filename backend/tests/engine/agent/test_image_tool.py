@@ -103,3 +103,46 @@ async def test_view_image_non_image_rejected(workspace, monkeypatch) -> None:
     result = await view_image.ainvoke({"file_id": "file_01TEST"})
     assert isinstance(result, str)
     assert "不是图片" in result
+
+
+# ── workspace 路径模式（查看 agent 自产图片）────────────────────────
+
+
+async def test_view_image_workspace_path_success(workspace) -> None:
+    """path 模式：查看 output/ 下自产图片，返回多模态块。"""
+    target = workspace.output_dir / "chart.png"
+    target.write_bytes(_png_bytes())
+
+    result = await view_image.ainvoke({"path": "output/chart.png"})
+    assert isinstance(result, list)
+    assert result[0]["type"] == "text"
+    assert "chart.png" in result[0]["text"]
+    assert result[1]["type"] == "image_url"
+    assert result[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+async def test_view_image_workspace_path_rejects_escape(workspace) -> None:
+    """path 模式越权（root 树外）→ 友好错误。"""
+    result = await view_image.ainvoke({"path": "../../../etc/passwd"})
+    assert isinstance(result, str)
+    assert "[view_image]" in result
+
+
+async def test_view_image_workspace_path_missing(workspace) -> None:
+    result = await view_image.ainvoke({"path": "output/ghost.png"})
+    assert isinstance(result, str)
+    assert "不存在" in result
+
+
+async def test_view_image_workspace_path_not_image(workspace) -> None:
+    (workspace.output_dir / "data.txt").write_text("hello", encoding="utf-8")
+    result = await view_image.ainvoke({"path": "output/data.txt"})
+    assert isinstance(result, str)
+    assert "不是图片" in result
+
+
+async def test_view_image_requires_exactly_one_param(workspace) -> None:
+    assert isinstance(await view_image.ainvoke({}), str)
+    both = await view_image.ainvoke({"file_id": "file_x", "path": "output/a.png"})
+    assert isinstance(both, str)
+    assert "file_id 或 path 之一" in both

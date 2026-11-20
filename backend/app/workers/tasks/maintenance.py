@@ -154,6 +154,38 @@ def _sweep_oneshot(containers: list) -> dict:
     return {"removed": removed, "scanned": len(containers)}
 
 
+def _container_has_active_bg_task(container, max_lifetime: int) -> bool:
+    """容器内是否有活跃后台任务（docs/background-tasks.md §5 清扫豁免）。
+
+    exec 扫描容器内 ``/workspace/tmp/.af_bg/``：无 ``.exit`` 且启动时间
+    未超 ``max_lifetime``（软超时）的任务 = 活跃。纯容器侧时钟，与
+    last-used 同一探测通道（同容器时钟，无宿主偏差）。
+
+    探测异常（exec 失败）→ 保守视为活跃（跳过清扫）——误豁免的代价由
+    SANDBOX_CONTAINER_MAX_LIFETIME 寿命兜底封顶。
+    """
+    script = (
+        "now=$(date +%s); active=0; "
+        "for s in /workspace/tmp/.af_bg/*.start; do "
+        '[ -f "$s" ] || continue; '
+        'id="${s%.start}"; '
+        '[ -f "$id.exit" ] && continue; '
+        'st=$(cat "$s" 2>/dev/null || echo 0); '
+        f"[ $((now - st)) -lt {int(max_lifetime)} ] && active=1 && break; "
+        "done; echo $active"
+    )
+    try:
+        code, out = container.exec_run(["bash", "-c", script], user="sandbox")
+        if code != 0:
+            return True  # exec 失败：保守豁免（寿命兜底封顶）
+        raw = out[0] if isinstance(out, tuple) else out
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        return raw.strip() == "1"
+    except Exception:
+        return True  # 保守豁免
+
+
 def _sweep_reusable(client, containers: list) -> dict:
     """长驻容器清扫（复用开）：闲置回收 + 寿命兜底。
 
@@ -167,7 +199,13 @@ def _sweep_reusable(client, containers: list) -> dict:
 
     now = time.time()
     removed = 0
+    exempted = 0
     for container in containers:
+        # 后台任务豁免（docs/background-tasks.md §5）：活跃任务容器跳过
+        # 闲置回收；寿命兜底（MAX_LIFETIME）不豁免——软超时会先杀超龄任务。
+        bg_active = _container_has_active_bg_task(
+            container, settings.BG_TASK_MAX_LIFETIME
+        )
         age = _container_age_seconds(container, now)
         if age is not None and age > settings.SANDBOX_CONTAINER_MAX_LIFETIME:
             with contextlib.suppress(Exception):
@@ -177,6 +215,7 @@ def _sweep_reusable(client, containers: list) -> dict:
                     "sandbox_container_expired",
                     container_id=(getattr(container, "id", "") or "")[:12],
                     age_seconds=round(age),
+                    bg_active=bg_active,
                 )
             continue
 
@@ -192,7 +231,8 @@ def _sweep_reusable(client, containers: list) -> dict:
 
         if last_used is None:
             # last-used 不可读：可能是刚创建还没跑过命令（保守跳过），
-            # 也可能是异常遗留——超过孤儿阈值才删
+            # 也可能是异常遗留——超过孤儿阈值才删（孤儿语义优先于
+            # 后台任务豁免：异常遗留容器即便有任务也按孤儿处理）
             if age is not None and age > settings.SANDBOX_ORPHAN_MAX_AGE:
                 with contextlib.suppress(Exception):
                     container.remove(force=True)
@@ -206,6 +246,18 @@ def _sweep_reusable(client, containers: list) -> dict:
 
         idle = now - last_used
         if idle > settings.SANDBOX_CONTAINER_IDLE_TIMEOUT:
+            if bg_active:
+                # 后台任务豁免：任务活跃 → 容器不回收（last-used 因无新
+                # 命令而变陈旧是后台运行的正常表现）。硬超时语义：任务
+                # 超龄时 bg_active 自动转 False，容器失去豁免、走正常
+                # 闲置回收（无需显式 kill）
+                exempted += 1
+                logger.info(
+                    "sandbox_container_bg_task_exempt",
+                    container_id=(getattr(container, "id", "") or "")[:12],
+                    idle_seconds=round(idle),
+                )
+                continue
             with contextlib.suppress(Exception):
                 container.remove(force=True)
                 removed += 1
@@ -214,6 +266,11 @@ def _sweep_reusable(client, containers: list) -> dict:
                     container_id=(getattr(container, "id", "") or "")[:12],
                     idle_seconds=round(idle),
                 )
-    if removed:
-        logger.info("sandbox_reusable_sweep_done", removed=removed, scanned=len(containers))
+    if removed or exempted:
+        logger.info(
+            "sandbox_reusable_sweep_done",
+            removed=removed,
+            exempted=exempted,
+            scanned=len(containers),
+        )
     return {"removed": removed, "scanned": len(containers)}

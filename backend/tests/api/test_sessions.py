@@ -107,6 +107,7 @@ class TestUploadChatFile:
         ):
             # Setup workspace mock with tmp_path
             mock_workspace = MagicMock()
+            mock_workspace.is_local = False
             mock_workspace.input_dir = tmp_path / "input"
             mock_workspace.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = mock_workspace
@@ -161,6 +162,7 @@ class TestUploadChatFile:
             ) as mock_ws,
         ):
             mock_workspace = MagicMock()
+            mock_workspace.is_local = False
             mock_workspace.input_dir = tmp_path / "input"
             mock_workspace.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = mock_workspace
@@ -229,6 +231,7 @@ class TestUploadChatFile:
             ) as mock_ws,
         ):
             mock_workspace = MagicMock()
+            mock_workspace.is_local = False
             mock_workspace.input_dir = tmp_path / "input"
             mock_workspace.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = mock_workspace
@@ -394,6 +397,7 @@ class TestUploadSecurity:
             patch("app.engine.tool.workspace.WorkspaceManager.get_workspace") as mock_ws,
         ):
             ws = MagicMock()
+            ws.is_local = False
             ws.input_dir = input_dir
             ws.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = ws
@@ -414,6 +418,7 @@ class TestUploadSecurity:
             patch("app.engine.tool.workspace.WorkspaceManager.get_workspace") as mock_ws,
         ):
             ws = MagicMock()
+            ws.is_local = False
             ws.input_dir = input_dir
             ws.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = ws
@@ -438,6 +443,7 @@ class TestUploadSecurity:
             patch("app.engine.tool.workspace.WorkspaceManager.get_workspace") as mock_ws,
         ):
             ws = MagicMock()
+            ws.is_local = False
             ws.input_dir = input_dir
             ws.input_dir.mkdir(parents=True, exist_ok=True)
             mock_ws.return_value = ws
@@ -450,3 +456,81 @@ class TestUploadSecurity:
         # 物理文件确实落在 input_dir 内（而非越界到 /etc）
         written = list(input_dir.glob("evil*.txt"))
         assert written, "文件应写入 input_dir"
+
+
+# ---------------------------------------------------------------------------
+# GET /sessions/local-workspace/enabled + GET /sessions/{id}/bg-tasks
+# ---------------------------------------------------------------------------
+
+
+class TestLocalWorkspaceEnabled:
+    def test_disabled_by_default(self, client, auth_admin, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "LOCAL_WORKSPACE_ROOT", "")
+        resp = client.get("/api/v1/sessions/local-workspace/enabled")
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": False}
+
+    def test_enabled_when_root_configured(self, client, auth_admin, monkeypatch, tmp_path):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "LOCAL_WORKSPACE_ROOT", str(tmp_path / "repos"))
+        resp = client.get("/api/v1/sessions/local-workspace/enabled")
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": True}
+
+
+class TestSessionBgTasks:
+    def test_lists_tasks(self, client, auth_admin, monkeypatch, tmp_path):
+        session_doc = {
+            "_id": "session_BGTASK",
+            "user_id": "user_01HTEST",
+            "agent_id": "agent_TEST",
+            "title": "",
+            "status": "active",
+            "message_count": 0,
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+        }
+        bg = tmp_path / "ws" / "tmp" / ".af_bg"
+        bg.mkdir(parents=True)
+        (bg / "bg-aabbcc.pid").write_text("123")
+        (bg / "bg-aabbcc.start").write_text("0")
+        (bg / "bg-aabbcc.cmd").write_text("npm run build\n", encoding="utf-8")
+        (bg / "bg-aabbcc.exit").write_text("1")
+        (bg / "bg-aabbcc.log").write_text("boom", encoding="utf-8")
+
+        with (
+            patch(
+                "app.api.v1.sessions.SessionService.get_session",
+                new_callable=AsyncMock,
+                return_value=session_doc,
+            ),
+            patch(
+                "app.engine.tool.workspace.WorkspaceManager.get_workspace"
+            ) as mock_ws,
+        ):
+            ws = MagicMock()
+            ws.is_local = False
+            ws.tmp_dir = tmp_path / "ws" / "tmp"
+            mock_ws.return_value = ws
+            resp = client.get("/api/v1/sessions/session_BGTASK/bg-tasks")
+
+        assert resp.status_code == 200, resp.text
+        items = resp.json()["items"]
+        assert len(items) == 1
+        assert items[0]["id"] == "bg-aabbcc"
+        assert items[0]["running"] is False
+        assert items[0]["exit_code"] == "1"
+        assert items[0]["unread"] is True
+        assert "npm run build" in items[0]["cmd"]
+
+    def test_ownership_enforced(self, client, auth_admin):
+        with patch(
+            "app.api.v1.sessions.SessionService.get_session",
+            new_callable=AsyncMock,
+            return_value={"_id": "s", "user_id": "someone-else", "local_dir": ""},
+        ):
+            resp = client.get("/api/v1/sessions/session_X/bg-tasks")
+        assert resp.status_code == 404

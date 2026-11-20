@@ -28,9 +28,9 @@ def get_checkpointer() -> Any:
 # 端点 `/api/v1/tools/builtin` 与 `resolve_harness_context` 共同引用此名单,
 # 保证「端点展示的 = 运行时注入的」。
 _INJECTED_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
-    "bash", "read", "write", "edit", "glob", "grep", "ask_clarification",
-    "run_code", "parse_file", "view_image", "recall_tool_result",
-    "request_app_authorization", "todo_write",
+    "bash", "bash_output", "read", "write", "edit", "glob", "grep",
+    "ask_clarification", "run_code", "parse_file", "view_image",
+    "recall_tool_result", "request_app_authorization", "todo_write",
 )
 
 # 可配子集 —— 用户可在 Agent 配置页勾选的内建工具(其余始终开启、不可关闭)。
@@ -178,7 +178,8 @@ def _resolve_builtin_tools(agent: dict, execution_context: str = "chat") -> list
     if not settings.RUN_CODE_ENABLED:
         builtin_config.discard("run_code")
     if "bash" in builtin_config:
-        builtin_config |= {"read", "write", "edit"}
+        # bash_output 只读（查后台任务），随 bash 连带；不进 _CONFIGURABLE
+        builtin_config |= {"read", "write", "edit", "bash_output"}
 
     for name in _INJECTED_BUILTIN_TOOL_NAMES:
         # parse_file / view_image / recall_tool_result / todo_write 是 app 层
@@ -618,10 +619,52 @@ async def load_subagent_bundles(
     return bundles, decls
 
 
+def _resolve_environment_section(
+    state: dict, workspace: Any | None = None, local_dir: str = "",
+) -> str | None:
+    """环境段文本（## Environment 主体，WorkspaceLayout.describe() 生成）。
+
+    workspace 语义统一住 prompt（工具描述只讲语法——docs/workspace.md）。
+    优先级：显式 workspace（workflow task）> local_dir（本地接入）> 云端
+    session 三目录。失败返回 None（prompt 无环境卡降级，不阻断执行）。
+    """
+    try:
+        from app.engine.tool.workspace import (
+            WorkspaceManager,
+            collect_background_task_notices,
+            layout_for_workspace,
+        )
+
+        if workspace is not None:
+            env_text = layout_for_workspace(workspace).describe()
+            notices = collect_background_task_notices(workspace)
+            return f"{env_text}\n\n{notices}" if notices else env_text
+        session_id = str(state.get("session_id") or "")
+        user_id = str(state.get("user_id") or "")
+        if not session_id or not user_id:
+            return None
+        ws = (
+            WorkspaceManager.get_local_workspace(local_dir)
+            if local_dir
+            else WorkspaceManager.get_workspace(user_id, session_id)
+        )
+        env_text = layout_for_workspace(ws).describe()
+        notices = collect_background_task_notices(ws)
+        return f"{env_text}\n\n{notices}" if notices else env_text
+    except Exception:
+        logger.warning(
+            "environment_section_build_failed",
+            session_id=state.get("session_id", ""),
+            local_dir=local_dir,
+        )
+        return None
+
+
 async def _build_subagent_environment(
     subagent_bundles: list[dict],
     state: dict,
     execution_context: str,
+    environment: str | None = None,
 ) -> tuple[Any, list[dict], list[dict]]:
     """按节点声明的子 agent bundle 装配 SubAgentContext（M1 委派接线）。
 
@@ -629,8 +672,9 @@ async def _build_subagent_environment(
     published 过滤由调用方（AgentNodeExecutor 拉取时）保证。
 
     装配语义：
-    - spec.system_prompt 用子 agent 自身 slot 渲染（execution_context 同父，
-      自包含模板，不注入变量池——子 agent 不依赖父节点变量）
+    - spec.system_prompt 用子 agent 自身系统提示词渲染（execution_context 同父，
+      自包含模板，不注入变量池——子 agent 不依赖父节点变量）；environment
+      段透传（子 agent 与父 run 共享同一 workspace/sandbox，环境地图一致）
     - 工具集按子 agent 配置完整解析（MCP/KB/skill/自定义），经
       tools_provider 预解析注入——harness 静态 tool_registry 取不到动态工具
     - LLM 按子 agent default_model 预构建（每 agent 可独立配模型）
@@ -665,6 +709,7 @@ async def _build_subagent_environment(
         try:
             system_prompt = await render_system_prompt_full(
                 doc, execution_context=execution_context,
+                environment=environment,
             )
             sub_tools, tool_errors = await resolve_all_tools(
                 doc,
@@ -730,6 +775,7 @@ async def resolve_harness_context(
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
     thinking_level: str = "",
+    local_dir: str = "",
 ) -> dict:
     """装配 harness 执行所需的全部注入物,返回 dict 供 graph + config 使用。
 
@@ -748,6 +794,9 @@ async def resolve_harness_context(
             server;为 None 时(兼容模式/平台用户)用 MCP connection 静态凭证。
         execution_context: "chat"(默认,聊天/preview)或 "workflow"(工作流
             agent 节点,无人值守语义,影响工具集与 prompt 声明)。
+        local_dir: 本地接入会话（workspace 重设计）绑定的白名单内相对目录——
+            非空时文件工具操作该同机目录树（LocalSandbox+LocalLayout，不建
+            容器/托管目录）。与 workspace 参数互斥（workflow 恒为云端三目录）。
 
     Returns:
         dict 含 keys: agent_doc, llm, tools, sb_token, ws_token,
@@ -872,13 +921,35 @@ async def resolve_harness_context(
             }
             sandbox_id = f"{session_id}"
 
-    sandbox = DockerSandbox(
-        sandbox_id=sandbox_id,
-        work_dir=work_dir,
-        mounts=sandbox_mounts,
-        config=sandbox_config,
-        timeout=settings.SANDBOX_TIMEOUT,
-    )
+    from agent_flow_harness.sandbox.base import Sandbox as _SandboxBase
+
+    # 本地接入分支：workspace 缺省且调用方携带 local_dir 时，绕过 Docker
+    # 容器——LocalSandbox 直接操作用户同机目录树（LocalLayout 限 root 树内）。
+    # 重复校验白名单：local_dir 经 API 入库，此处纵深防御（目录可能已被删）。
+    sandbox: _SandboxBase
+    if workspace is None and local_dir:
+        from agent_flow_harness.sandbox.local import LocalSandbox
+        from agent_flow_harness.workspace import LocalLayout
+
+        from app.engine.tool.workspace import WorkspaceManager
+
+        ws = WorkspaceManager.get_local_workspace(local_dir)
+        ws_token = set_workspace_context(ws)
+        work_dir = ws.local_root
+        sandbox = LocalSandbox(
+            sandbox_id=sandbox_id,
+            work_dir=work_dir,
+            timeout=settings.SANDBOX_TIMEOUT,
+            layout=LocalLayout(work_dir),
+        )
+    else:
+        sandbox = DockerSandbox(
+            sandbox_id=sandbox_id,
+            work_dir=work_dir,
+            mounts=sandbox_mounts,
+            config=sandbox_config,
+            timeout=settings.SANDBOX_TIMEOUT,
+        )
 
     # 8. 注入 sandbox context
     sb_token = set_sandbox_context(SandboxContext(sandbox=sandbox))
@@ -967,6 +1038,7 @@ async def resolve_harness_context(
     if subagents:
         subagent_ctx_obj, subagent_decls, sub_errors = await _build_subagent_environment(
             subagents, state, execution_context,
+            environment=_resolve_environment_section(state, workspace, local_dir),
         )
         load_errors.extend(sub_errors)
         if subagent_ctx_obj is not None:

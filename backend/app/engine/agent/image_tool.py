@@ -22,26 +22,36 @@ def _err(msg: str) -> str:
 
 
 @tool
-async def view_image(file_id: str) -> list[dict] | str:
-    """Load an image from the chat history into context for visual inspection.
+async def view_image(file_id: str | None = None, path: str | None = None) -> list[dict] | str:
+    """Load an image for visual inspection — by chat-attachment id OR by workspace path.
 
-    Use when you need to look at an image again — stale images are degraded
-    out of context with a placeholder like "[图片 xx 已移出上下文,可用
-    view_image(file_id=...) 查看]"; this tool re-fetches the actual pixels.
-    Get ``file_id`` from the <file> tag's id attribute or the [IMAGE ...]
-    marker. Only images previously attached in the current chat session can
-    be viewed.
+    Two modes (provide exactly one):
+    - ``file_id``: re-view an image previously attached to this chat —
+      stale images are degraded out of context with a placeholder like
+      "[图片 xx 已移出上下文,可用 view_image(file_id=...) 查看]". Get the
+      id from the <file> tag or the [IMAGE ...] marker.
+    - ``path``: view an image file in the workspace (e.g. a chart you just
+      generated — "output/chart.png"). Use this to visually verify images
+      you created.
 
     Args:
         file_id: File id from the <attachments> block / [IMAGE] marker
             (starts with "file_").
+        path: Workspace-relative path of an image file (tmp/ or output/).
     """
-    from app.core.config import settings
+    if bool(file_id) == bool(path):
+        return _err("请提供 file_id 或 path 之一（不要同时提供或都不提供）")
+
     from app.engine.agent.builtin_tools import _get_workspace
 
     workspace = _get_workspace()
     if workspace is None:
         return _err("当前无工作区上下文，无法查看图片")
+
+    if path is not None:
+        return await _view_workspace_image(workspace, path)
+
+    # ── file_id 模式：会话附件回看（所有权 + session 归属校验）────────
     session_id = workspace.session_id
     if not session_id:
         return _err("当前非对话会话上下文，无法回看历史图片")
@@ -57,30 +67,53 @@ async def view_image(file_id: str) -> list[dict] | str:
         return _err(f"文件 {file_id} 不属于当前用户，无权访问")
     if fref.origin_id != session_id:
         return _err(f"文件 {file_id} 不是当前会话的附件，无权访问")
+    return _render_image_bytes(file_id or "", fref.name, data, fref.mime_type or "")
 
+
+async def _view_workspace_image(workspace, path: str) -> list[dict] | str:
+    """workspace 路径模式：查看 agent 自产图片（layout 白名单校验）。"""
+    try:
+        from app.engine.tool.workspace import layout_for_workspace
+
+        resolved = layout_for_workspace(workspace).resolve_read(path).host
+    except PermissionError as exc:
+        return _err(str(exc))
+    if not resolved.is_file():
+        return _err(f"图片不存在：{path}")
+    try:
+        data = resolved.read_bytes()
+    except OSError as exc:
+        return _err(f"读取失败：{path}（{exc}）")
+    return _render_image_bytes("", path, data, "")
+
+
+def _render_image_bytes(file_id: str, name: str, data: bytes, declared_mime: str) -> list[dict] | str:
+    """嗅探/降采样/编码为多模态 content blocks（两条模式共用尾部）。"""
     from app.services.file_rendering import (
         downscale_image_bytes,
         rasterize_svg,
         sniff_image_mime,
     )
 
-    mime = sniff_image_mime(data, fref.mime_type or "")
+    mime = sniff_image_mime(data, declared_mime)
     if not mime:
-        return _err(f"文件 {fref.name} 不是图片（{fref.mime_type or '未知类型'}）")
+        return _err(f"文件 {name} 不是图片（{declared_mime or '未知类型'}）")
     if mime == "image/svg+xml":
         png = rasterize_svg(data)
         if png is None:
-            return _err(f"SVG 渲染失败：{fref.name}（其源码已在附件清单中）")
+            return _err(f"SVG 渲染失败：{name}（其源码已在附件清单中）")
         data = png
         mime = "image/png"
     else:
+        from app.core.config import settings
+
         res = downscale_image_bytes(
             data,
             max_edge=settings.IMAGE_MAX_EDGE,
             max_size=settings.IMAGE_MAX_SIZE_BYTES,
         )
         if res is None:
-            return _err(f"图片处理失败或超出大小限制：{fref.name}")
+            return _err(f"图片处理失败或超出大小限制：{name}")
         data, mime = res
 
     import base64
@@ -91,9 +124,10 @@ async def view_image(file_id: str) -> list[dict] | str:
     # 纯文本主模型收不到图块(兼容网关静默丢弃)——图片语义转化由模型按需
     # 调用专门的多模态工具完成(平台不做自动转化,因为无法预知模型能力)。
     return [
-        {"type": "text", "text": f'[IMAGE file_id="{file_id}" name="{fref.name}"]'},
+        {"type": "text", "text": f'[IMAGE file_id="{file_id}" name="{name}"]'},
         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
     ]
+
 
 
 # ---------------------------------------------------------------------------

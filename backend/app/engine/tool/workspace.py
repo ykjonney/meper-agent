@@ -24,8 +24,12 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from agent_flow_harness.workspace import WorkspaceLayout
 
 from app.core.config import settings
 
@@ -65,6 +69,10 @@ class Workspace:
     tied to chat session) from Task workspaces (lifecycle tied to Task).
     Defaults to ``"session"`` for backward compatibility — all existing
     callers and test fixtures continue to work.
+
+    mode（workspace 重设计）：``"cloud"``（默认）= 平台托管三目录布局；
+    ``"local"`` = 本地接入（同机目录树，local_dir 为用户指定目录，
+    无 input/output 职能，uploads 禁用）。
     """
 
     root: Path
@@ -72,6 +80,19 @@ class Workspace:
     output_dir: Path
     tmp_dir: Path
     scope: str = "session"  # "session" | "task"
+    mode: str = "cloud"  # "cloud" | "local"
+    local_dir: str | None = None  # local 模式：白名单根内的相对路径
+
+    @property
+    def is_local(self) -> bool:
+        return self.mode == "local"
+
+    @property
+    def local_root(self) -> Path:
+        """local 模式的实际根目录（必须先经 get_local_workspace 校验）。"""
+        if not self.is_local or not self.local_dir:
+            raise ValueError("local_root is only available for mode='local' workspaces")
+        return self.root
 
     @property
     def user_id(self) -> str:
@@ -427,9 +448,137 @@ class WorkspaceManager:
             "bytes_freed": bytes_freed,
         }
 
+    @staticmethod
+    def get_local_workspace(local_dir: str) -> Workspace:
+        """构造本地接入 workspace（同机目录接入）。
+
+        校验 LOCAL_WORKSPACE_ROOT 白名单：local_dir 必须是白名单根树内
+        的相对路径，且目标目录必须已存在（不代建用户目录）。返回 mode
+        为 ``"local"`` 的 Workspace——root/tmp/input/output 都指向用户
+        目录（local 模式下 input/output 无职能，仅占位保持字段可用）。
+
+        Raises:
+            ValueError: 本地模式未启用 / 路径越出白名单 / 目录不存在。
+        """
+        raw = (settings.LOCAL_WORKSPACE_ROOT or "").strip()
+        if not raw:
+            raise ValueError(
+                "LOCAL_WORKSPACE_ROOT is not configured — local workspace access is disabled"
+            )
+        allow_root = Path(raw).expanduser().resolve()
+        if os.path.isabs(local_dir.strip()) or local_dir.strip().startswith("~"):
+            raise ValueError(
+                f"local_dir must be relative to LOCAL_WORKSPACE_ROOT, got '{local_dir}'"
+            )
+        rel = local_dir.strip().strip("/")
+        if not rel or rel in (".", "..") or rel.startswith(".."):
+            raise ValueError(f"invalid local_dir: '{local_dir}'")
+        root = (allow_root / rel).resolve()
+        from agent_flow_harness.workspace import is_within
+
+        if not is_within(root, allow_root):
+            raise ValueError(f"local_dir '{local_dir}' escapes LOCAL_WORKSPACE_ROOT")
+        if not root.is_dir():
+            raise ValueError(f"local_dir '{local_dir}' does not exist on this host")
+        return Workspace(
+            root=root,
+            input_dir=root,
+            output_dir=root,
+            tmp_dir=root,
+            mode="local",
+            local_dir=rel,
+        )
+
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
 
+
+def layout_for_workspace(ws: Workspace) -> WorkspaceLayout:
+    """Workspace → harness WorkspaceLayout（环境段 describe() 与沙箱共用）。
+
+    cloud → CloudLayout（三目录角色）；local → LocalLayout（单 root）。
+    """
+    from agent_flow_harness.workspace import CloudLayout, LocalLayout
+
+    if ws.is_local:
+        return LocalLayout(ws.local_root)
+    return CloudLayout(ws.tmp_dir, ws.output_dir, ws.input_dir)
+
+
+def list_background_tasks(ws: Workspace) -> list[dict]:
+    """结构化扫描工作区后台任务（API 端点与通知文本共用）。
+
+    纯宿主 FS 读取（无需 exec）：``{id}.exit`` 存在 = 已结束；有
+    ``{id}.read`` = 已被 bash_output 读过；无 ``.exit`` = 进行中
+    （是否真在跑取决于容器是否存活）。按启动时间倒序。
+    """
+    bg_dir = ws.tmp_dir / ".af_bg"
+    if not bg_dir.is_dir():
+        return []
+    items: list[dict] = []
+    for pid_file in bg_dir.glob("*.pid"):
+        tid = pid_file.name[: -len(".pid")]
+        if not tid.startswith("bg-"):
+            continue
+        try:
+            started = float((bg_dir / f"{tid}.start").read_text().strip() or 0)
+        except (OSError, ValueError):
+            started = 0.0
+        exit_code: str | None = None
+        exit_file = bg_dir / f"{tid}.exit"
+        if exit_file.is_file():
+            try:
+                exit_code = exit_file.read_text().strip() or "0"
+            except OSError:
+                exit_code = "?"
+        try:
+            cmd_first_line = (bg_dir / f"{tid}.cmd").read_text(
+                encoding="utf-8", errors="replace"
+            ).strip().splitlines()[0][:80]
+        except (OSError, IndexError):
+            cmd_first_line = "(unknown command)"
+        items.append({
+            "id": tid,
+            "running": exit_code is None,
+            "exit_code": exit_code,
+            "unread": not (bg_dir / f"{tid}.read").is_file(),
+            "started_at": started,
+            "cmd": cmd_first_line,
+        })
+    items.sort(key=lambda item: item["started_at"], reverse=True)
+    return items
+
+
+def collect_background_task_notices(ws: Workspace, *, max_tasks: int = 5) -> str:
+    """扫描工作区后台任务 → turn 边界注入文本（docs/background-tasks.md §4）。
+
+    基于 :func:`list_background_tasks`（纯宿主 FS，无需 exec）。已结束且
+    已读的任务不再注入。返回 ``[后台任务]`` 段文本；无任务返回空串。
+    """
+    import time
+
+    items = [
+        item for item in list_background_tasks(ws)
+        if item["running"] or item["unread"]
+    ][:max_tasks]
+    if not items:
+        return ""
+    now = time.time()
+    lines = ["[后台任务]"]
+    for item in items:
+        minutes = max(0, int((now - item["started_at"]) / 60)) if item["started_at"] else "?"
+        if item["running"]:
+            lines.append(
+                f"- {item['id']}：进行中（约 {minutes} 分钟）——`{item['cmd']}`。"
+                f"进度用 bash_output(command_id='{item['id']}') 查看；"
+                f"等待完成用 bash_output(command_id='{item['id']}', block=true)"
+            )
+        else:
+            lines.append(
+                f"- {item['id']}：已结束（exit {item['exit_code']}，未读）——`{item['cmd']}`。"
+                f"用 bash_output(command_id='{item['id']}') 查看输出"
+            )
+    return "\n".join(lines)
 
 def _dir_size(path: Path) -> int:
     """Calculate total size of all files under *path*."""

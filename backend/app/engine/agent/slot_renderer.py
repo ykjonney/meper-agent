@@ -93,6 +93,7 @@ async def render_system_prompt_full(
     response_schema: dict | None = None,
     output_schema: list[dict] | None = None,
     subagents: list[dict] | None = None,
+    environment: str | None = None,
 ) -> str:
     """Render the full system prompt from the Agent's system_prompt field.
 
@@ -116,6 +117,9 @@ async def render_system_prompt_full(
         output_schema: **已废弃**（旧格式 list[字段]）。仅为兼容热重载
             进程中残留的旧调用方保留——收到时转译为 response_schema 并
             打 warning 日志；新代码请勿使用。
+        environment: 环境段文本（workspace 布局，WorkspaceLayout.describe()
+            生成，宿主传入）——workspace 语义统一住 prompt（工具描述只讲
+            语法）。置于 tool_declaration 之前：环境是"地图"，声明是"用法"。
 
     Returns:
         Fully assembled system prompt string.
@@ -167,6 +171,10 @@ async def render_system_prompt_full(
     for k, v in overrides.items():
         if v:
             parts.append(f"【{k}】\n{v}")
+
+    # ── Environment 段（workspace 布局地图，宿主经 describe() 提供）──
+    if environment:
+        parts.append(f"## Environment\n\n{environment.strip()}")
 
     # ── Always append tool_declaration at the end ──
     from app.engine.agent.builder import build_tool_declaration

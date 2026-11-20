@@ -21,7 +21,7 @@ class TestCreateAgent:
         doc = await AgentService.create_agent(
             name="Test Agent",
             description="A test agent",
-            prompt_slots={"role": "You are helpful."},
+            system_prompt="You are helpful.",
             skill_ids=["tool_001"],
             workflow_ids=["wf_001"],
         )
@@ -31,7 +31,7 @@ class TestCreateAgent:
         assert doc["description"] == "A test agent"
         assert doc["skill_ids"] == ["tool_001"]
         assert doc["workflow_ids"] == ["wf_001"]
-        assert doc["prompt_slots"] == {"role": "You are helpful."}
+        assert doc["system_prompt"] == "You are helpful."
 
     async def test_create_agent_defaults(
         self,
@@ -39,7 +39,7 @@ class TestCreateAgent:
     ) -> None:
         """AC1: Minimal Agent creation uses sensible defaults."""
         doc = await AgentService.create_agent(name="Minimal Agent")
-        assert doc["prompt_slots"] == {}
+        assert doc["system_prompt"] == ""
         assert doc["skill_ids"] == []
         assert doc["workflow_ids"] == []
         assert doc["knowledge_base_ids"] == []
@@ -177,14 +177,14 @@ class TestUpdateAgent:
             agent_id=created["_id"],
             name="Updated",
             description="New description",
-            prompt_slots={"role": "New prompt"},
+            system_prompt="New prompt",
             skill_ids=["tool_001"],
             workflow_ids=[],
         )
         assert updated is not None
         assert updated["name"] == "Updated"
         assert updated["description"] == "New description"
-        assert updated["prompt_slots"] == {"role": "New prompt"}
+        assert updated["system_prompt"] == "New prompt"
 
     async def test_update_agent_not_found(
         self,
@@ -220,7 +220,7 @@ class TestUpdateAgent:
         created = await AgentService.create_agent(
             name="Original",
             description="Desc",
-            prompt_slots={"role": "Prompt"},
+            system_prompt="Prompt",
             skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
@@ -229,7 +229,7 @@ class TestUpdateAgent:
             agent_id=created["_id"],
             name="Original",
             description="Desc",
-            prompt_slots={"role": "Prompt"},
+            system_prompt="Prompt",
             skill_ids=["t1"],
             workflow_ids=["w1"],
             knowledge_base_ids=["k1"],
@@ -253,7 +253,7 @@ class TestUpdateAgent:
             agent_id=created["_id"],
             name="Categorized Update",
             description="Updated",
-            prompt_slots={},
+            system_prompt="",
             skill_ids=["skill_002", "skill_003"],
             mcp_connection_ids=["mcp_002"],
             builtin_config=["read", "write"],

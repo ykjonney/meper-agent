@@ -142,6 +142,7 @@ async def stream(
     execution_context: str = "chat",
     subagents: list[dict] | None = None,
     thinking_level: str = "",
+    local_dir: str = "",
 ) -> dict:
     """流式执行 harness graph,通过 on_event 推送 AppEvent dict。
 
@@ -157,6 +158,9 @@ async def stream(
             注入 propose_plan)。workflow 上下文走 invoke。
         thinking_level: 用户思考档位 off/low/medium/high；空 = 按
             enable_thinking 布尔兼容(True→medium)。
+        local_dir: 本地接入会话绑定的目录（LOCAL_WORKSPACE_ROOT 白名单内
+            相对路径，workspace 重设计）——非空时文件工具操作该同机目录树
+            （LocalLayout），不建托管三目录/容器。空 = 云端托管三目录。
     """
     from agent_flow_harness import build_agent_graph, build_config
 
@@ -168,6 +172,7 @@ async def stream(
         agent, state, enable_thinking=enable_thinking, user_token=user_token,
         execution_context=execution_context,
         subagents=subagents, thinking_level=level,
+        local_dir=local_dir,
     )
     clock.attach(hctx)
     if recorder_sink is not None:
@@ -256,6 +261,7 @@ async def invoke(
     recorder_sink: dict | None = None,
     subagents: list[dict] | None = None,
     thinking_level: str = "",
+    local_dir: str = "",
 ) -> dict:
     """非流式执行 harness graph(供 invoke 端点 / workflow agent 节点使用)。
 
@@ -284,6 +290,7 @@ async def invoke(
         require_user_credentials=require_user_credentials,
         execution_context=execution_context,
         subagents=subagents, thinking_level=level,
+        local_dir=local_dir,
     )
     clock.attach(hctx)
     if recorder_sink is not None:

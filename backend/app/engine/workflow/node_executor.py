@@ -742,6 +742,28 @@ class AgentNodeExecutor(BaseNodeExecutor):
             # Clarification/Task 段，追加自主执行规则（禁反问 + abort_workflow）。
             # response_schema（opt-in）：追加 Output Contract 段，最终回复即
             # response 字段的值（见 _parse_structured_output）。
+            # 环境段（## Environment，workspace 布局地图）：task workspace 的
+            # 三目录语义住 prompt（工具描述只讲语法）；失败降级为无环境卡。
+            environment_text = None
+            try:
+                # prompt 阶段 task_workspace 尚未创建（create 在 invoke 前）——
+                # get_task_workspace 为纯路径计算（describe 无 I/O），等价
+                from app.engine.tool.workspace import (
+                    WorkspaceManager,
+                    layout_for_workspace,
+                )
+
+                ws = WorkspaceManager.get_task_workspace(user_id, task_id)
+                environment_text = layout_for_workspace(ws).describe()
+                from app.engine.tool.workspace import collect_background_task_notices
+
+                notices = collect_background_task_notices(ws)
+                if notices:
+                    environment_text = f"{environment_text}\n\n{notices}"
+            except Exception:
+                logger.warning(
+                    "node_environment_section_failed", node_id=self.node_id,
+                )
             system_text = await render_system_prompt_full(
                 agent_doc,
                 node_slot_overrides=context_overrides,
@@ -749,6 +771,7 @@ class AgentNodeExecutor(BaseNodeExecutor):
                 execution_context="workflow",
                 response_schema=response_schema,
                 subagents=subagent_decls or None,
+                environment=environment_text,
             )
         except Exception as exc:
             # 展开 ExceptionGroup 以显示真正原因

@@ -228,3 +228,121 @@ def test_age_label_preferred_over_attr():
     )
     age = _container_age_seconds(container, now)
     assert age is not None and 100 <= age < 105
+
+
+# ── 后台任务清扫豁免（docs/background-tasks.md §5）──────────────────
+
+
+def _enable_reuse(monkeypatch):
+    monkeypatch.setattr(settings, "SANDBOX_ENABLED", True)
+    monkeypatch.setattr(settings, "SANDBOX_REUSE_CONTAINER", True)
+    monkeypatch.setattr(settings, "SANDBOX_CONTAINER_IDLE_TIMEOUT", 300)
+    monkeypatch.setattr(settings, "SANDBOX_CONTAINER_MAX_LIFETIME", 86400)
+    monkeypatch.setattr(settings, "SANDBOX_ORPHAN_MAX_AGE", 600)
+    monkeypatch.setattr(settings, "BG_TASK_MAX_LIFETIME", 1800)
+
+
+class _BgAwareContainer(_FakeReusableContainer):
+    """可编排后台任务探针结果的复用容器。
+
+    bg_active=None → 探针抛异常（保守豁免路径）；bool → 探针返回该值。
+    last-used 单独编排（闲置判定用）。
+    """
+
+    def __init__(self, labels=None, created=None, *, last_used=None, exec_exc=None,
+                 bg_active=False):
+        super().__init__(labels=labels, created=created, last_used=last_used, exec_exc=exec_exc)
+        self._bg_active = bg_active
+
+    def exec_run(self, cmd, user=None):
+        cmd_text = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        if "af_bg" in cmd_text:
+            if self._bg_active is None:
+                raise RuntimeError("bg probe broken")
+            return 0, ("1" if self._bg_active else "0").encode()
+        return super().exec_run(cmd, user=user)
+
+
+def _enable_reuse_and_short_lifetime(monkeypatch, lifetime=1800):
+    _enable_reuse(monkeypatch)
+    monkeypatch.setattr(settings, "BG_TASK_MAX_LIFETIME", lifetime)
+
+
+def test_reuse_idle_with_active_bg_task_exempted(monkeypatch):
+    """闲置超时但后台任务活跃 → 容器豁免不回收（清扫豁免核心）。"""
+    _enable_reuse_and_short_lifetime(monkeypatch)
+    idle_running = _BgAwareContainer(
+        labels={"agent-flow.sandbox": "true", "agent-flow.created-at": str(int(time.time() - 7200))},
+        last_used=time.time() - 900,  # 闲置 900s > 300s
+        bg_active=True,
+    )
+    _install_fake_docker(monkeypatch, [idle_running])
+
+    result = cleanup_orphan_sandboxes()
+
+    assert result == {"removed": 0, "scanned": 1}
+    assert idle_running.removed is False
+
+
+def test_reuse_idle_with_finished_bg_task_removed(monkeypatch):
+    """硬超时语义：任务已结束（探针 0）→ 容器失去豁免，正常闲置回收。"""
+    _enable_reuse_and_short_lifetime(monkeypatch)
+    idle_finished = _BgAwareContainer(
+        labels={"agent-flow.sandbox": "true", "agent-flow.created-at": str(int(time.time() - 7200))},
+        last_used=time.time() - 900,
+        bg_active=False,
+    )
+    _install_fake_docker(monkeypatch, [idle_finished])
+
+    result = cleanup_orphan_sandboxes()
+
+    assert result == {"removed": 1, "scanned": 1}
+    assert idle_finished.removed is True
+
+
+def test_reuse_max_lifetime_not_exempted_by_bg_task(monkeypatch):
+    """寿命兜底不豁免：容器到寿即收（即使后台任务活跃）。"""
+    _enable_reuse_and_short_lifetime(monkeypatch)
+    expired = _BgAwareContainer(
+        labels={"agent-flow.sandbox": "true", "agent-flow.created-at": str(int(time.time() - 90000))},
+        last_used=time.time() - 10,  # 刚用过（不触发闲置分支）
+        bg_active=True,
+    )
+    _install_fake_docker(monkeypatch, [expired])
+
+    result = cleanup_orphan_sandboxes()
+
+    assert result == {"removed": 1, "scanned": 1}
+    assert expired.removed is True
+
+
+def test_reuse_bg_probe_broken_idle_exempted(monkeypatch):
+    """探针异常 → 保守豁免（误豁免代价由寿命兜底封顶）。"""
+    _enable_reuse_and_short_lifetime(monkeypatch)
+    idle_broken_probe = _BgAwareContainer(
+        labels={"agent-flow.sandbox": "true", "agent-flow.created-at": str(int(time.time() - 7200))},
+        last_used=time.time() - 900,
+        bg_active=None,
+    )
+    _install_fake_docker(monkeypatch, [idle_broken_probe])
+
+    result = cleanup_orphan_sandboxes()
+
+    assert result == {"removed": 0, "scanned": 1}
+    assert idle_broken_probe.removed is False
+
+
+def test_reuse_idle_no_bg_tasks_removed(monkeypatch):
+    """无后台任务（探针 0）→ 正常闲置回收（回归基线）。"""
+    _enable_reuse_and_short_lifetime(monkeypatch)
+    idle_plain = _BgAwareContainer(
+        labels={"agent-flow.sandbox": "true", "agent-flow.created-at": str(int(time.time() - 7200))},
+        last_used=time.time() - 900,
+        bg_active=False,
+    )
+    _install_fake_docker(monkeypatch, [idle_plain])
+
+    result = cleanup_orphan_sandboxes()
+
+    assert result == {"removed": 1, "scanned": 1}
+    assert idle_plain.removed is True

@@ -357,6 +357,11 @@ class Settings(BaseSettings):
     # 复用容器寿命兜底（秒）：created-at 超过此值无条件删除。
     SANDBOX_CONTAINER_MAX_LIFETIME: int = 86400
 
+    # 后台任务软超时（docs/background-tasks.md §5）：超过该秒数的运行中
+    # 后台任务在 bash_output 调用时被 kill；清扫侧据此豁免/回收容器
+    # （超龄任务使容器失去清扫豁免）。
+    BG_TASK_MAX_LIFETIME: int = 1800
+
     # When True, bash runs inside Docker container.
     # When False (default), bash degrades to host subprocess execution
     # (see SANDBOX_FALLBACK).
