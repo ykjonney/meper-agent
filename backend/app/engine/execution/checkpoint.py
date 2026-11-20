@@ -147,12 +147,18 @@ class CheckpointCoordinator:
                 "succeeded", "failed", "cancelled", "timed_out", "expired",
             ]},
         }
+        shadow_filter = {
+            **active_filter,
+            "$or": [
+                {"shadow_active": True},
+                # Legacy shadow rows were explicitly owned by this provider.
+                # Do not mistake an ordinary workflow Execution for a shadow.
+                {"lease.owner": _SHADOW_LEASE_OWNER},
+            ],
+        }
         try:
             existing = await db[EXECUTIONS].find_one(
-                {**active_filter, "$or": [
-                    {"shadow_active": True},
-                    {"shadow_active": None},
-                ]},
+                shadow_filter,
                 sort=[("created_at", -1)],
             )
             if existing is not None:
@@ -160,7 +166,10 @@ class CheckpointCoordinator:
                 if existing.get("shadow_active") is not True:
                     try:
                         claimed = await db[EXECUTIONS].find_one_and_update(
-                            {"_id": existing["_id"], "shadow_active": None},
+                            {
+                                "_id": existing["_id"],
+                                "lease.owner": _SHADOW_LEASE_OWNER,
+                            },
                             {"$set": {"shadow_active": True}},
                             return_document=ReturnDocument.AFTER,
                         )
@@ -171,7 +180,7 @@ class CheckpointCoordinator:
                         else:
                             existing = claimed
                     except DuplicateKeyError:
-                        existing = await db[EXECUTIONS].find_one(active_filter)
+                        existing = await db[EXECUTIONS].find_one(shadow_filter)
                 if existing is None:
                     return None
                 lease = existing.get("lease")
@@ -199,7 +208,7 @@ class CheckpointCoordinator:
                 return exe.id, 1
             except DuplicateKeyError:
                 # Another writer won the unique active-shadow slot.
-                winner = await db[EXECUTIONS].find_one(active_filter)
+                winner = await db[EXECUTIONS].find_one(shadow_filter)
                 if winner is None:
                     raise
                 lease = winner.get("lease")
