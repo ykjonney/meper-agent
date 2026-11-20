@@ -66,6 +66,10 @@ class CheckpointCoordinator:
         Raises:
             LeaseLostError / KeyError：fencing 拒绝（调用方停止推进）。
         """
+        if bool(graph_thread_id) != bool(graph_checkpoint_id):
+            raise ValueError(
+                "graph checkpoint reference requires both thread_id and checkpoint_id"
+            )
         async with self._repo.transaction(execution_id, expected_token=token) as txn:
             # 序号原子分配（与事件 seq 同模式：主记录计数器 + AFTER）
             doc = await self._repo._executions().find_one_and_update(  # noqa: SLF001
