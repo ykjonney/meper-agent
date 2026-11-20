@@ -66,4 +66,30 @@ __all__ = [
     "get_execution_identity",
     "reset_execution_identity",
     "set_execution_identity",
+    "step_scope",
 ]
+
+
+@contextmanager
+def step_scope(step_id: str | None) -> Iterator[None]:
+    """在当前执行身份内细化 step（E6 Adapter/节点执行用）。
+
+    保留当前 identity 的 execution/token，仅覆盖 step_id——节点执行体
+    包裹后，账本幂等键从 {execution}:root:{call} 细化为
+    {execution}:{node}:{call}。无当前身份时为 no-op（legacy 路径）。
+    """
+    current = get_execution_identity()
+    if current is None:
+        yield
+        return
+    token = set_execution_identity(
+        ExecutionIdentity(
+            execution_id=current.execution_id,
+            step_id=step_id,
+            fencing_token=current.fencing_token,
+        )
+    )
+    try:
+        yield
+    finally:
+        reset_execution_identity(token)

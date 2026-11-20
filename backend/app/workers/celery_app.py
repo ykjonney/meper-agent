@@ -186,6 +186,10 @@ async def _bootstrap_worker_execution() -> None:
     configure_mongo_checkpointer(log_on_error=True)
     await check_execution_runtime()
     await configure_tool_ledger()
+    # E6：workflow Durable Runner 注册（execution 域派发的执行入口）
+    from app.engine.execution.workflow_adapter import register_workflow_runner
+
+    register_workflow_runner()
 
 
 @worker_process_init.connect

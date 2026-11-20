@@ -35,8 +35,23 @@ def _idempotency_scope(idempotency_key: str) -> tuple[str, str]:
     return execution_id, idempotency_key
 
 
+def _fencing_token() -> int | None:
+    """当前 identity 携带的 lease token（E6 起 Adapter 绑定；无则影子期）。"""
+    from agent_flow_harness.execution_context import get_execution_identity
+
+    identity = get_execution_identity()
+    return identity.fencing_token if identity else None
+
+
 class MongoToolLedger(SideEffectLedger):
-    """生产实现。准备/认领失败必须向上抛出，避免无账本保护地执行副作用。"""
+    """生产实现。准备/认领失败必须向上抛出，避免无账本保护地执行副作用。
+
+    E6 起：identity 携带 fencing_token 时，prepare/claim/mark 走
+    ``ExecutionRepository.transaction``（fenced：touch 主记录 + 账本写同
+    事务）——被接管的旧 Worker 的账本写入被拒绝（LeaseLostError 上抛，
+    由 ledger_protected_call 归入 UNKNOWN 路径后向调用方传播）。无 token
+    （legacy/影子）保持直接写，边界与 E5 声明一致。
+    """
 
     async def prepare(self, draft: ToolInvocationDraft) -> None:
         execution_id, key = _idempotency_scope(draft.idempotency_key)
@@ -54,7 +69,22 @@ class MongoToolLedger(SideEffectLedger):
             "retry_count": 0,
             "started_at": utc_now(),
         }
-        await get_database()[TOOL_INVOCATIONS].update_one(
+        coll = get_database()[TOOL_INVOCATIONS]
+        token = _fencing_token()
+        if token is not None:
+            from app.engine.execution.repository import ExecutionRepository
+
+            async with ExecutionRepository().transaction(
+                execution_id, expected_token=token
+            ) as txn:
+                await coll.update_one(
+                    {"execution_id": execution_id, "idempotency_key": key},
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                    session=txn.session,
+                )
+            return
+        await coll.update_one(
             {"execution_id": execution_id, "idempotency_key": key},
             {"$setOnInsert": doc},
             upsert=True,
@@ -68,13 +98,25 @@ class MongoToolLedger(SideEffectLedger):
         UNKNOWN/IN_PROGRESS/终态记录不被普通恢复路径重执行（需专门裁决）。
         """
         execution_id, key = _idempotency_scope(idempotency_key)
-        result = await get_database()[TOOL_INVOCATIONS].update_one(
-            {"execution_id": execution_id, "idempotency_key": key,
-             "status": LedgerStatus.PREPARED.value,
-             "request_digest": expected_digest},
-            {"$set": {"status": LedgerStatus.IN_PROGRESS.value,
-                      "started_at": utc_now()}},
-        )
+        flt = {
+            "execution_id": execution_id,
+            "idempotency_key": key,
+            "status": LedgerStatus.PREPARED.value,
+            "request_digest": expected_digest,
+        }
+        update = {"$set": {"status": LedgerStatus.IN_PROGRESS.value,
+                           "started_at": utc_now()}}
+        coll = get_database()[TOOL_INVOCATIONS]
+        token = _fencing_token()
+        if token is not None:
+            from app.engine.execution.repository import ExecutionRepository
+
+            async with ExecutionRepository().transaction(
+                execution_id, expected_token=token
+            ) as txn:
+                result = await coll.update_one(flt, update, session=txn.session)
+            return result.matched_count == 1
+        result = await coll.update_one(flt, update)
         return result.matched_count == 1
 
     async def mark(
@@ -88,18 +130,25 @@ class MongoToolLedger(SideEffectLedger):
         execution_id, key = _idempotency_scope(idempotency_key)
         # State changes are fenced by the current state. An old worker cannot
         # overwrite a terminal result after a newer recovery decision.
-        await get_database()[TOOL_INVOCATIONS].update_one(
-            {"execution_id": execution_id, "idempotency_key": key,
-             "status": LedgerStatus.IN_PROGRESS.value},
-            {
-                "$set": {
-                    "status": status.value,
-                    "result_ref": result_summary,
-                    "error": error,
-                    "completed_at": utc_now(),
-                }
-            },
-        )
+        flt = {"execution_id": execution_id, "idempotency_key": key,
+               "status": LedgerStatus.IN_PROGRESS.value}
+        update = {"$set": {
+            "status": status.value,
+            "result_ref": result_summary,
+            "error": error,
+            "completed_at": utc_now(),
+        }}
+        coll = get_database()[TOOL_INVOCATIONS]
+        token = _fencing_token()
+        if token is not None:
+            from app.engine.execution.repository import ExecutionRepository
+
+            async with ExecutionRepository().transaction(
+                execution_id, expected_token=token
+            ) as txn:
+                await coll.update_one(flt, update, session=txn.session)
+            return
+        await coll.update_one(flt, update)
 
     async def lookup(self, idempotency_key: str) -> LedgerRecord | None:
         execution_id, key = _idempotency_scope(idempotency_key)

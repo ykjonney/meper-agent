@@ -889,30 +889,34 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         )
                         return bool(doc and doc.get("status") == "cancelled")
 
+                    # E6：节点级 step 身份——账本幂等键细化到 {execution}:{node}:{call}
+                    from agent_flow_harness.execution_context import step_scope
+
                     if resume_thread_id:
                         # 恢复被取消的 agent：用 Command(resume) 续接 REACT 循环
                         from app.engine.harness_integration import resume_agent
 
-                        result = await asyncio.wait_for(
-                            resume_agent(
-                                agent_doc,
-                                {
-                                    "messages": initial_messages,
-                                    "session_id": resume_thread_id,
-                                    "user_id": user_id,
-                                    "agent_id": agent_id,
-                                },
-                                thread_id=resume_thread_id,
-                                resume_value="continue",
-                                workspace=task_workspace,
-                                cancel_checker=_cancel_checker,
-                                user_token=user_token,
-                                require_user_credentials=require_user_credentials,
-                                execution_context="workflow",
-                                subagents=subagent_bundles or None,
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
+                        with step_scope(self.node_id):
+                            result = await asyncio.wait_for(
+                                resume_agent(
+                                    agent_doc,
+                                    {
+                                        "messages": initial_messages,
+                                        "session_id": resume_thread_id,
+                                        "user_id": user_id,
+                                        "agent_id": agent_id,
+                                    },
+                                    thread_id=resume_thread_id,
+                                    resume_value="continue",
+                                    workspace=task_workspace,
+                                    cancel_checker=_cancel_checker,
+                                    user_token=user_token,
+                                    require_user_credentials=require_user_credentials,
+                                    execution_context="workflow",
+                                    subagents=subagent_bundles or None,
+                                ),
+                                timeout=timeout_ms / 1000,
+                            )
                         # 恢复成功后清除标志，后续重试走正常 invoke
                         resume_thread_id = ""
                     else:
@@ -921,26 +925,27 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         # pending_messages 非空 = schema 反馈轮：只带反馈消息，
                         # 历史（system prompt/工具调用/违规输出）由 checkpointer
                         # 按 thread_id 追加恢复，不重复注入 SystemMessage。
-                        result = await asyncio.wait_for(
-                            invoke(
-                                agent_doc,
-                                {
-                                    "messages": pending_messages
-                                    if pending_messages is not None
-                                    else initial_messages,
-                                    "session_id": _thread_id,
-                                    "user_id": user_id,
-                                    "agent_id": agent_id,
-                                },
-                                workspace=task_workspace,
-                                cancel_checker=_cancel_checker,
-                                user_token=user_token,
-                                require_user_credentials=require_user_credentials,
-                                execution_context="workflow",
-                                subagents=subagent_bundles or None,
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
+                        with step_scope(self.node_id):
+                            result = await asyncio.wait_for(
+                                invoke(
+                                    agent_doc,
+                                    {
+                                        "messages": pending_messages
+                                        if pending_messages is not None
+                                        else initial_messages,
+                                        "session_id": _thread_id,
+                                        "user_id": user_id,
+                                        "agent_id": agent_id,
+                                    },
+                                    workspace=task_workspace,
+                                    cancel_checker=_cancel_checker,
+                                    user_token=user_token,
+                                    require_user_credentials=require_user_credentials,
+                                    execution_context="workflow",
+                                    subagents=subagent_bundles or None,
+                                ),
+                                timeout=timeout_ms / 1000,
+                            )
                         pending_messages = None  # 反馈轮只生效一次
 
                     # ── 委派 trace 落 Task timeline（M2.1 委派可观测）──
