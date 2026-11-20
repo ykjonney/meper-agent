@@ -92,6 +92,13 @@ async def test_shadow_commit_creates_execution_and_boundary(fake_db):
     assert shadows[0]["lease"] is None
     assert shadows[0]["dispatch"]["state"] == "done"
     assert shadows[0]["shadow_active"] is False
+    shadow_events = [
+        event for event in fake_db.collections["execution_events"].values()
+        if event["execution_id"] == shadow["_id"]
+    ]
+    assert {event["type"] for event in shadow_events} == {
+        "checkpoint.committed", "execution.succeeded"
+    }
 
     # A later workflow run for the same Task gets a new Execution identity.
     seq3 = await coord.shadow_commit_workflow_boundary(
@@ -184,3 +191,30 @@ async def test_commit_boundary_rejects_incomplete_graph_identity(fake_db):
             graph_thread_id="thread-1",
             graph_checkpoint_id=None,
         )
+
+
+async def test_shadow_lookup_does_not_reuse_regular_workflow_execution(fake_db):
+    from app.engine.execution.models import Execution, ExecutionStatus, LeaseInfo
+
+    regular = Execution(
+        task_id="task_regular",
+        trigger="workflow",
+        status=ExecutionStatus.RUNNING,
+    )
+    regular.lease = LeaseInfo(
+        owner="worker-ordinary",
+        fencing_token=4,
+        expires_at=utc_now() + timedelta(days=1),
+    )
+    fake_db.collections.setdefault("executions", {})[regular.id] = (
+        regular.model_dump(by_alias=True)
+    )
+
+    coord = CheckpointCoordinator(repo_mod.ExecutionRepository())
+    ensured = await coord.ensure_workflow_execution("task_regular")
+
+    assert ensured is not None
+    assert ensured[0] != regular.id
+    created = fake_db.collections["executions"][ensured[0]]
+    assert created["shadow_active"] is True
+    assert created["lease"]["owner"] == "workflow-shadow"
