@@ -106,7 +106,21 @@ async def _run_async(execution_id: str) -> dict[str, Any]:
             await lm.release(execution_id, lease.fencing_token)
             return {"outcome": "no_runner", "trigger": trigger}
 
-        await runner(doc, lease)
+        # E5: bind the durable execution identity at the actual worker boundary.
+        # ContextVar token reset is guaranteed even when the runner raises/cancels.
+        from agent_flow_harness.execution_context import (
+            ExecutionIdentity,
+            execution_identity_scope,
+        )
+
+        with execution_identity_scope(
+            ExecutionIdentity(
+                execution_id=execution_id,
+                step_id=None,
+                fencing_token=lease.fencing_token,
+            )
+        ):
+            await runner(doc, lease)
         return {"outcome": "ran"}
 
     except LeaseLostError:
