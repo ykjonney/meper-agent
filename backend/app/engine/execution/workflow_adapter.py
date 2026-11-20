@@ -202,6 +202,12 @@ async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str)
                 "dispatch.state": "pending",
                 "dispatch.attempts": 0,
                 "dispatch.next_dispatch_at": None,
+                # input-committed marker（E6 复审 P1-3）：与状态迁移同 CAS
+                # 落库，语义="人工输入已持久化"。调用方必须在
+                # update_variables 之后调用；supervisor 兜底扫描以它为
+                # 前置条件——Task 离开 waiting_human 但无 marker = 审批
+                # 变量尚未写完，不得提前恢复。
+                "input_committed_at": utc_now(),
                 "updated_at": utc_now(),
             }
         },

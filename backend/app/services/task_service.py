@@ -285,14 +285,34 @@ class TaskService:
         TaskService._store_celery_task_id(task_id, result.id)
 
     @staticmethod
-    def resume_task_execution(task_id: str) -> None:
+    async def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
-        Symmetric with ``_start_workflow_execution`` — used after Human node
-        intervention (approve/skip) or after cancelling + resuming to continue
-        workflow execution. Dispatched to a Celery worker; the engine detects
-        the saved checkpoint and resumes from there.
+        E6 复审 P1-3：恢复统一优先走 Execution Dispatcher——该 Task 存在
+        waiting_input 执行时，先 ``resume_waiting_execution``（CAS + 落
+        input_committed_at，调用方须在 **update_variables 之后** 调用本方法
+        ——marker 语义即"输入已持久化"），再经 Dispatcher 派发原 Execution
+        （lease 认领边界唯一，杜绝与 legacy 路径双跑）。无执行（legacy
+        任务）时回退原 Celery 直投。
         """
+        from app.db.mongodb import get_database
+        from app.engine.execution.collections import EXECUTIONS
+        from app.engine.execution.dispatcher import get_dispatcher
+        from app.engine.execution.repository import ExecutionRepository
+        from app.engine.execution.workflow_adapter import resume_waiting_execution
+
+        execution = await get_database()[EXECUTIONS].find_one(
+            {"task_id": task_id, "status": "waiting_input"}, {"_id": 1}
+        )
+        if execution is not None:
+            repo = ExecutionRepository()
+            if await resume_waiting_execution(repo, execution["_id"]):
+                await get_dispatcher().dispatch(execution["_id"])
+                return
+            # CAS 失败=已恢复/并发提交：派发兜底（lease 互斥，输家安静退出）
+            await get_dispatcher().dispatch(execution["_id"])
+            return
+
         from app.workers.tasks.workflow_execution import run_workflow_task
 
         result = run_workflow_task.delay(task_id)
@@ -1430,7 +1450,7 @@ class TaskService:
         await TaskService._clear_checkpointer_threads(task_id, trim_set)
 
         # ── 11. Resume (fire-and-forget) ──
-        TaskService.resume_task_execution(task_id)
+        await TaskService.resume_task_execution(task_id)
 
         return updated
 
@@ -1547,7 +1567,7 @@ class TaskService:
                     triggered_by=triggered_by,
                 )
             # Resume workflow execution
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "skip":
             # Transition waiting_human → running
@@ -1560,7 +1580,7 @@ class TaskService:
                 timeline_data={"comment": _comment_to_text(comment), "action": "skip", **decision_node_data},
             )
             # Resume workflow execution (no decision written)
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "reject":
             # Transition waiting_human → failed (no resume)
@@ -1638,7 +1658,7 @@ class TaskService:
             )
             # Resume workflow execution (from checkpoint — works for both
             # waiting_human and cancelled states).
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "retry":
             # Transition failed → running（直接重新执行，不经过 pending，
@@ -1673,7 +1693,7 @@ class TaskService:
             # 清理附属数据：FileRef/FileUsage + workspace 文件 + checkpointer
             await TaskService._cleanup_task_artifacts(task_id, delete_workspace=True)
             # Start workflow execution from scratch
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "rewind":
             # Rewind: trim target_node_id + downstream from checkpoint,

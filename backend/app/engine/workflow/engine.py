@@ -22,6 +22,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.engine.execution.repository import LeaseLostError
 from app.engine.workflow.expression import ExpressionEngine
 from app.engine.workflow.node_executor import NodeResult, get_node_executor
 from app.engine.workflow.variable_pool import VariablePool
@@ -482,12 +483,18 @@ class WorkflowEngine:
             # 1. Agent node interrupted → checkpoint already saved by the
             #    AGENT_INTERRUPTED handler (with agent_thread_id).
             # 2. Node-boundary cancel → save checkpoint NOW so resume doesn't
-            #    restart from scratch. paused_at_node = the node that was about
-            #    to execute (NOT in completed_nodes), so resume re-executes it.
+            #    restart from scratch. paused_at_node = the node that was about to
+            #    execute (NOT in completed_nodes), so resume re-executes it.
             if self._pending_node_id and not getattr(self, "_cancel_checkpoint_saved", False):
                 await self._save_cancel_checkpoint(self._pending_node_id)
             logger.info("workflow_cancelled", task_id=self._task_id)
             return self._pool.get_all() if self._pool else {}
+
+        except LeaseLostError:
+            # E6 复审 P1-1：执行权被接管——不标 Task FAILED（接管者会续跑），
+            # 原样上抛让 Runner 按 zombie 协议退出。
+            logger.warning("workflow_fenced_midway", task_id=self._task_id)
+            raise
 
         except Exception as exc:
             logger.error("workflow_execution_failed", task_id=self._task_id, error=str(exc))

@@ -105,6 +105,11 @@ class RecoverySupervisor:
             task_status = (task or {}).get("status")
             if task_status in (None, "waiting_human"):
                 continue  # 输入未提交，继续等
+            if doc.get("input_committed_at") is None:
+                # E6 复审 P1-3：Task 已离开 waiting_human 但 marker 未落 =
+                # 审批变量尚未持久化（旧路径先转状态后写变量的窗口），
+                # 不得提前恢复——等 resume_task_execution 的显式调用。
+                continue
             from app.engine.execution.workflow_adapter import resume_waiting_execution
 
             if await resume_waiting_execution(self._repo, doc["_id"]):
