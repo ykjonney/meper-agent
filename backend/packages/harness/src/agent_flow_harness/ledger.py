@@ -46,6 +46,7 @@ class ToolInvocationDraft:
     idempotency_key: str  # 恢复期稳定：{execution}:{step}:{tool_call_id}
     request_digest: str  # sha256:… —— 回放三匹配校验之一
     tool_version: str | None = None
+    step_id: str | None = None
 
 
 @dataclass
@@ -145,6 +146,7 @@ async def ledger_protected_call(
 
     账本操作全部 best-effort：异常只告警，绝不阻断工具执行本身。
     """
+    from langchain_core.messages import ToolMessage
     from langchain_core.tools import ToolException
 
     ledger = get_ledger()
@@ -177,13 +179,21 @@ async def ledger_protected_call(
         raise
     else:
         try:
-            content = getattr(result, "content", result)
-            summary = str(content)[:4000] if content is not None else ""
-            await ledger.mark(
-                draft.idempotency_key,
-                LedgerStatus.SUCCEEDED,
-                result_summary=summary or None,
-            )
+            # Only plain-text ToolMessage results are safely replayable by the
+            # current schema. Command/state updates and structured/multimodal
+            # payloads must not be flattened into str() and replayed as text.
+            if isinstance(result, ToolMessage) and isinstance(result.content, str):
+                await ledger.mark(
+                    draft.idempotency_key,
+                    LedgerStatus.SUCCEEDED,
+                    result_summary=result.content[:4000] or None,
+                )
+            else:
+                await ledger.mark(
+                    draft.idempotency_key,
+                    LedgerStatus.UNKNOWN,
+                    error="result_not_replayable_by_current_ledger_schema",
+                )
         except Exception:  # noqa: BLE001
             logger.warning("ledger_mark_succeeded_failed", tool=draft.tool_name)
         return result
