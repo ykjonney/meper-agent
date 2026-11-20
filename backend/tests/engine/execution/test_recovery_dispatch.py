@@ -207,19 +207,24 @@ async def test_scan_skips_active_lease(env):
 
 async def test_runner_exception_records_interruption_and_keeps_lease(fake_db):
     """普通 Runner 异常要留痕，但不能假定外部副作用未发生。"""
-    from app.workers.tasks import execution_run as run_mod
     from app.engine.execution.models import Execution, ExecutionStatus
+    from app.workers.tasks import execution_run as run_mod
 
     db = fake_db
-    exe = Execution(trigger="test_runner_error", status=ExecutionStatus.QUEUED)
+    exe = Execution(trigger="workflow", status=ExecutionStatus.QUEUED)  # 合法枚举值；runner 注册键独立于 trigger 域
     db.collections.setdefault("executions", {})[exe.id] = exe.model_dump(by_alias=True)
 
     async def broken_runner(_doc, _lease):
         raise TimeoutError("remote response timed out")
 
-    run_mod.register_runner("test_runner_error", broken_runner)
-    with pytest.raises(TimeoutError, match="remote response timed out"):
-        await run_mod._run_async(exe.id)
+    saved = dict(run_mod._RUNNERS)  # 先存快照（在注册前），finally 恢复
+    run_mod.register_runner("workflow", broken_runner)
+    try:
+        with pytest.raises(TimeoutError, match="remote response timed out"):
+            await run_mod._run_async(exe.id)
+    finally:
+        run_mod._RUNNERS.clear()
+        run_mod._RUNNERS.update(saved)
 
     doc = db.collections["executions"][exe.id]
     assert doc["status"] == "running"
