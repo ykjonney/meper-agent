@@ -83,6 +83,33 @@ class FakeCollection:
                 return doc
         return None
 
+    def find(self, flt, *, session=None, **_):  # noqa: ARG002
+        """链式游标 fake：sort/limit + async 迭代（read_events 用）。"""
+        matched = [d for d in self.docs.values() if self._match(d, flt)]
+
+        class _Cursor:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def sort(self, key, direction=1):
+                rev = direction == -1
+                return _Cursor(sorted(self.rows, key=lambda d: d[key], reverse=rev))
+
+            def limit(self, n):
+                return _Cursor(self.rows[:n])
+
+            def __aiter__(self):
+                self._iter = iter(self.rows)
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(self._iter)
+                except StopIteration:
+                    raise StopAsyncIteration from None
+
+        return _Cursor(matched)
+
     async def update_one(self, flt, update, *, session=None, **_):
         matched = 0
         for doc in self.docs.values():

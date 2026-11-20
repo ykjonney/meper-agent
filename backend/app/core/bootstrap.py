@@ -48,6 +48,12 @@ async def init_critical_path() -> None:
 
     await check_execution_runtime()
 
+    # 执行事件通知（E2）：Redis 只做实时提示，事实源是 execution_events
+    # 游标（丢失无损）。装配失败不影响启动（NoopNotifier 兜底）。
+    from app.engine.execution.events import RedisNotifier, set_notifier
+
+    set_notifier(RedisNotifier())
+
     # 后台任务软超时：backend settings → harness 工具层（bash_output 的
     # 软超时与清扫豁免共用该值；docs/background-tasks.md §5）。
     from agent_flow_harness.sandbox import bg_tasks as _bg_tasks

@@ -29,6 +29,7 @@ from pymongo.errors import PyMongoError
 
 from app.db.mongodb import get_database
 from app.engine.execution import collections as cols
+from app.engine.execution.events import notify_committed
 from app.engine.execution.models import (  # noqa: F401 - 类型仅供注解
     CheckpointManifest,
     ExecutionEvent,
@@ -60,6 +61,9 @@ class ExecutionTxn:
 
     进入时已完成 fencing 触碰（主记录条件 ``$inc write_version``）；
     退出无异常 → 提交，有异常 → 回滚。Session 供各写方法复用。
+
+    提交成功后经 Notifier 发实时通知（E2）：通知只携带最新 seq、
+    在事实已落库之后发出——丢失/乱序无损（消费端游标补齐）。
     """
 
     def __init__(
@@ -74,6 +78,7 @@ class ExecutionTxn:
         self.token = token
         self.session = session
         self._committed = False
+        self._notified_seq = 0  # 本事务内追加的最大事件 seq（通知用）
 
     async def __aenter__(self) -> ExecutionTxn:
         return self
@@ -87,6 +92,9 @@ class ExecutionTxn:
         if exc_type is None:
             await self.session.commit_transaction()
             self._committed = True
+            if self._notified_seq:
+                # 事实已提交——通知失败不影响结果（RedisNotifier 自吞异常）。
+                await notify_committed(self.execution_id, self._notified_seq)
         else:
             await self.session.abort_transaction()
 
@@ -152,6 +160,7 @@ class ExecutionTxn:
         await self._repo._events().insert_one(
             event.model_dump(by_alias=True), session=self.session
         )
+        self._notified_seq = max(self._notified_seq, event.seq)
         return event.seq
 
 

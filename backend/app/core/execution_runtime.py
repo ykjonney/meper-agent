@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from loguru import logger
+from pymongo.errors import PyMongoError
 
 from app.core.config import settings
 from app.models.base import utc_now
@@ -71,6 +72,21 @@ def as_health_dict() -> dict[str, object]:
     }
 
 
+# 并发探测的事务重试上限：两个探测事务同时首建 probe 集合会撞
+# WriteConflict（TransientTransactionError）——Mongo 事务语义即"可重试"。
+_PROBE_MAX_ATTEMPTS = 3
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """是否为可重试的瞬态事务错误（非"不支持事务"的结论性错误）。"""
+    from pymongo.errors import PyMongoError
+
+    return isinstance(exc, PyMongoError) and (
+        exc.has_error_label("TransientTransactionError")
+        or exc.has_error_label("UnknownTransactionCommitResult")
+    )
+
+
 async def probe_transaction_capability() -> tuple[bool, str | None]:
     """探测 MongoDB 多文档事务能力（#75 修正：提交 + 唯一 ID 精确清理）。
 
@@ -81,35 +97,53 @@ async def probe_transaction_capability() -> tuple[bool, str | None]:
     2. CM 退出（提交成功）→ 具备事务能力；
     3. 清理只 ``delete_many({"probe_id": 本次})``——绝不 drop 共享集合，
        也不影响其他进程的并发探测；
-    4. 清理失败单独记录日志，**不覆盖**事务能力的真实结论。
-
-    Returns:
-        (True, None) 具备能力；(False, 归因信息) 不具备。
+    4. 清理失败单独记录日志，**不覆盖**事务能力的真实结论；
+    5. 并发探测首建集合的 WriteConflict（TransientTransactionError）
+       按事务语义有限重试，不误判为"不支持事务"。
     """
     from uuid import uuid4
 
     from app.db.mongodb import get_database
 
-    probe_id = f"probe-{uuid4().hex}"
     db = get_database()
     error: str | None = None
-    try:
-        # CM 正常退出 = commit；standalone 会在首个写操作抛
-        # "Transaction numbers are only allowed on a replica set member…
-        async with (
-            await db.client.start_session() as session,
-            session.start_transaction(),
-        ):
-            for name in _PROBE_COLLECTIONS:
-                await db.get_collection(name).insert_one(
-                    {"probe_id": probe_id, "ts": utc_now()}, session=session
-                )
-    except Exception as exc:  # noqa: BLE001 - 归因信息本身就是要返回的内容
-        error = f"{type(exc).__name__}: {exc}"
 
-    # 精确清理：只删本次 probe_id 的文档（并发探测互不影响）。
-    # 清理失败不改变事务能力结论（#75：二者必须区分）；残留由
-    # _sweep_stale_probes 在后续启动时兜底回收（PR #73 审查 §3）。
+    for _attempt in range(_PROBE_MAX_ATTEMPTS):
+        probe_id = f"probe-{uuid4().hex}"
+        try:
+            # CM 正常退出 = commit；standalone 会在首个写操作抛
+            # "Transaction numbers are only allowed on a replica set member…
+            async with (
+                await db.client.start_session() as session,
+                session.start_transaction(),
+            ):
+                for name in _PROBE_COLLECTIONS:
+                    await db.get_collection(name).insert_one(
+                        {"probe_id": probe_id, "ts": utc_now()}, session=session
+                    )
+        except PyMongoError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if _is_transient(exc):
+                # 瞬态冲突（如并发探测首建集合）：清理后换新 probe_id 重试。
+                await _cleanup_probe(db, probe_id)
+                continue
+            break  # 结论性错误（standalone 等）：不再重试
+        except Exception as exc:  # noqa: BLE001 - 归因信息本身就是要返回的内容
+            error = f"{type(exc).__name__}: {exc}"
+            break
+
+        await _cleanup_probe(db, probe_id)
+        return True, None
+
+    return False, error
+
+
+async def _cleanup_probe(db, probe_id: str) -> None:
+    """精确清理：只删本次 probe_id 的文档（并发探测互不影响）。
+
+    清理失败不改变事务能力结论（#75：二者必须区分）；残留由
+    _sweep_stale_probes 在后续启动时兜底回收（PR #73 审查 §3）。
+    """
     for name in _PROBE_COLLECTIONS:
         try:
             await db.get_collection(name).delete_many({"probe_id": probe_id})
@@ -120,7 +154,6 @@ async def probe_transaction_capability() -> tuple[bool, str | None]:
                 name,
                 exc,
             )
-    return error is None, error
 
 
 async def _detect_backend_type() -> str | None:
