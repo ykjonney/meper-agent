@@ -35,7 +35,7 @@ from app.engine.execution.models import (
     LeaseInfo,
 )
 from app.engine.execution.repository import ExecutionRepository, LeaseLostError
-from app.models.base import utc_now
+from app.models.base import generate_id, utc_now
 
 # 影子 lease：远期过期（1 年）——影子执行不参与 supervisor 接管扫描的
 # 正常节奏；E6 切换时由 Adapter 接管真实生命周期。
@@ -249,7 +249,7 @@ class CheckpointCoordinator:
                     "$set": {
                         "lease": {
                             "owner": _SHADOW_LEASE_OWNER,
-                            "lease_id": f"shadow-{execution_id}",
+                            "lease_id": generate_id("lease"),
                             "fencing_token": "$fencing_token_counter",
                             "heartbeat_at": now,
                             "expires_at": now + timedelta(days=_SHADOW_LEASE_DAYS),
