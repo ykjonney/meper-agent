@@ -2,10 +2,10 @@
 
 覆盖（提案 §3.8 / PR #73）：
 - 状态迁移：prepared → in_progress → succeeded/failed/unknown；
-- 异常分类：ToolException→failed，连接错误→unknown，成功→succeeded；
+- 异常分类：ambiguous tool errors→unknown，连接错误→unknown，成功→succeeded；
 - 回放三匹配：幂等键 + digest + 已持久化摘要 → 不重执行；
 - 无执行身份 → 账本旁路；
-- 账本自身故障不阻断工具执行。
+- 账本持久化/认领故障时 fail closed。
 """
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ async def test_tool_exception_marks_unknown_without_proof_of_no_side_effect():
     async def boom():
         raise RuntimeError("tool adapter failed after request dispatch")
 
-    with pytest.raises(ToolException):
+    with pytest.raises(RuntimeError, match="after request dispatch"):
         await ledger_protected_call(_draft(), boom)
     assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.UNKNOWN
 
@@ -237,6 +237,26 @@ async def test_wrapper_without_identity_bypasses_ledger():
 
     assert tracked == ["executed"]
     assert ledger.records == {}  # 无身份 → 账本旁路
+
+
+async def test_wrapper_blocks_unknown_retry():
+    from agent_flow_harness.graph.nodes.tool_wrapper import make_tool_wrapper
+    from agent_flow_harness.middleware.chain import MiddlewareChain
+
+    ledger = MemoryLedger()
+    set_ledger(ledger)
+    set_execution_identity(ExecutionIdentity(execution_id="exec_1", step_id="step_1"))
+    tracked: list[str] = []
+    req, execute = _make_request_and_execute(tracked, exc=TimeoutError("remote timeout"))
+    awrap = make_tool_wrapper(MiddlewareChain([]))
+
+    first = await awrap(req, execute)
+    second = await awrap(req, execute)
+
+    assert isinstance(first, ToolMessage) and first.status == "error"
+    assert isinstance(second, ToolMessage) and second.status == "error"
+    assert tracked == ["executed"]
+    assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.UNKNOWN
 
 
 async def test_wrapper_connection_error_marks_unknown():
