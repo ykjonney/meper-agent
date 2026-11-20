@@ -156,7 +156,7 @@ async def execute_timeout_action(
 
     # For auto_approve / auto_skip, also resume execution
     if target_status == TaskStatus.RUNNING:
-        TaskService.resume_task_execution(task_id)
+        await TaskService.resume_task_execution(task_id)
 
 
 async def recover_orphan_running_tasks(

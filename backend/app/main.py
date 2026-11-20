@@ -209,6 +209,12 @@ async def root() -> dict[str, str]:
 
 
 @app.get("/health", tags=["health"])
-async def health_check() -> dict[str, str]:
-    """Liveness probe (also exposed at /api/v1/health for consistency)."""
-    return {"status": "ok"}
+async def health_check() -> dict[str, object]:
+    """Liveness probe (also exposed at /api/v1/health for consistency).
+
+    执行域字段（#64/PR #73 E0）：durable 开关、事务能力探测结果、Mongo
+    部署形态与初始化错误——降级运行（non-durable）必须在这里可见。
+    """
+    from app.core.execution_runtime import as_health_dict
+
+    return {"status": "ok", **as_health_dict()}

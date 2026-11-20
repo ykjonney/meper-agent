@@ -367,6 +367,20 @@ class Settings(BaseSettings):
     # (see SANDBOX_FALLBACK).
     SANDBOX_ENABLED: bool = False
 
+    # 执行域（Execution Domain, #64/PR #73 E0）是否以 durable 模式运行。
+    # true（默认）：启动时探测 MongoDB 多文档事务能力，失败即拒绝启动
+    #   （fail-closed——执行事实写入依赖跨集合事务，standalone Mongo 不支持）。
+    # false：显式关闭 durable 能力——仅开发环境使用；执行域以无恢复保证
+    #   模式运行，/health 明示 non-durable，生产环境启用会打 error 级日志。
+    EXECUTION_DURABLE: bool = True
+
+    # Lease 参数起点（架构 v2 §3.2，压测后调整）：与 Celery 解耦——
+    # 发现与接管由 RecoverySupervisor 扫描承担（E3），不依赖 visibility_timeout。
+    # 心跳 10–15s / TTL 45–60s；接管延迟 ≈ TTL + 扫描间隔。
+    EXECUTION_LEASE_TTL_SECONDS: int = 60
+    EXECUTION_LEASE_HEARTBEAT_SECONDS: int = 15
+    EXECUTION_SCAN_INTERVAL_SECONDS: int = 10
+
     # Fallback gate when the sandbox is disabled or Docker is unavailable.
     # "local" (default, backward-compatible) degrades to host subprocess
     # execution — every fallback is logged as ERROR because the isolation

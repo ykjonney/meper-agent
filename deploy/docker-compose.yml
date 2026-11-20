@@ -62,7 +62,7 @@ services:
       - ${AVATARS_HOST_DIR:-${HOME}/.agent-flow/avatars}:${AVATARS_CONTAINER_DIR:-/data/avatars}
     depends_on:
       mongodb:
-        condition: service_started
+        condition: service_healthy   # 等 RS 就绪：backend 启动即探测事务能力（fail-closed）
       redis:
         condition: service_started
       qdrant:
@@ -109,7 +109,7 @@ services:
       redis:
         condition: service_started
       mongodb:
-        condition: service_started
+        condition: service_healthy   # 同 backend：worker 启动也做事务能力探测
       qdrant:
         condition: service_started
     restart: unless-stopped
@@ -135,7 +135,14 @@ services:
   mongodb:
     # Pin to 7.0 — existing data volumes were created with FCV 7.0 and
     # MongoDB 8.x refuses to start without an explicit upgrade procedure.
+    #
+    # 单节点副本集（#64 E0）：执行域多文档事务要求 Replica Set 形态。
+    # - keyFile 是 auth + replSet 的强制组合（副本集内部鉴权）；首次部署
+    #   先跑 deploy/scripts/gen-mongo-keyfile.sh 生成 ./mongo/keyfile。
+    # - rs.initiate 由下方 mongo-rs-init 一次性服务完成（幂等）。
+    # - MONGODB_URI 需带 &replicaSet=rs0（deploy/.env.example 已更新）。
     image: mongo:7.0
+    command: ["mongod", "--replSet", "rs0", "--keyFile", "/etc/mongo/keyfile", "--bind_ip_all"]
     ports:
       - "127.0.0.1:27017:27017"   # 仅本机（mongosh 运维）；勿暴露公网
     environment:
@@ -145,7 +152,41 @@ services:
     volumes:
       - ${MONGODB_DATA_DIR:-${HOME}/.agent-flow/mongodb}:/data/db
       - ./mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro
+      - ./mongo/keyfile:/etc/mongo/keyfile:ro
+    healthcheck:
+      # 副本集就绪探针：rs.status() 通过才 healthy（backend/worker 等
+      # service_healthy，确保启动时事务探测不会因 RS 未初始化而误杀）。
+      test: ["CMD-SHELL", "mongosh --quiet -u $${MONGO_INITDB_ROOT_USERNAME} -p $${MONGO_INITDB_ROOT_PASSWORD} --authenticationDatabase admin --eval 'try { rs.status().ok } catch (e) { quit(1) }'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
+
+  # 一次性：rs.initiate（已初始化则跳过）。root 角色含 clusterAdmin，
+  # 认证后即可发起；host 用服务名 mongodb:27017 与客户端连接串一致。
+  mongo-rs-init:
+    image: mongo:7.0
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_started
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?请在 deploy/.env 设置 MONGO_ROOT_PASSWORD}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        for i in $$(seq 1 60); do
+          if mongosh "mongodb://$${MONGO_INITDB_ROOT_USERNAME}:$${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/admin" --quiet --eval \
+            'try { rs.status().ok } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] }).ok }' \
+            | grep -q '^1'; then
+            echo "[mongo-rs-init] replica set ready"; exit 0
+          fi
+          echo "[mongo-rs-init] waiting for mongod ($$i/60)"; sleep 2
+        done
+        echo "[mongo-rs-init] FAILED to initiate replica set"; exit 1
 
   redis:
     image: redis:7-alpine

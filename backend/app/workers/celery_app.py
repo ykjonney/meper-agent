@@ -32,6 +32,8 @@ celery_app = Celery(
         "app.workers.tasks.wiki_build",
         "app.workers.tasks.checkpoint_prune",
         "app.workers.tasks.running_task_scan",
+        "app.workers.tasks.execution_run",
+        "app.workers.tasks.execution_recovery",
     ],
 )
 
@@ -94,6 +96,12 @@ celery_app.conf.update(
         "sweep-orphan-sandboxes": {
             "task": "app.workers.tasks.maintenance.cleanup_orphan_sandboxes",
             "schedule": 60.0,  # 1 分钟
+        },
+        # 执行域三类扫描（#64 E3）：待派发重试 / 过期 lease 接管 / 活跃防重。
+        # 频率即接管延迟下限（≈ TTL + 本间隔；默认 60s+10s）。
+        "execution-recovery-scan": {
+            "task": "app.workers.tasks.execution_recovery.scan",
+            "schedule": float(settings.EXECUTION_SCAN_INTERVAL_SECONDS),
         },
     },
 )
@@ -167,6 +175,23 @@ def _license_contract_ok() -> bool:
     return lic.evaluate_license().enforced
 
 
+async def _bootstrap_worker_execution() -> None:
+    """Initialize Mongo-backed worker dependencies on the worker's shared loop."""
+    from app.core.checkpointer import configure_mongo_checkpointer
+    from app.core.execution_runtime import check_execution_runtime
+    from app.engine.execution.tool_ledger import configure_tool_ledger
+
+    # Construct the process-wide Motor client while the persistent worker loop
+    # is running, then use it for every async bootstrap operation and task.
+    configure_mongo_checkpointer(log_on_error=True)
+    await check_execution_runtime()
+    await configure_tool_ledger()
+    # E6：workflow Durable Runner 注册（execution 域派发的执行入口）
+    from app.engine.execution.workflow_adapter import register_workflow_runner
+
+    register_workflow_runner()
+
+
 @worker_process_init.connect
 def _init_worker(**_kwargs: object) -> None:
     """每个 Celery worker 子进程启动时的初始化。
@@ -213,10 +238,13 @@ def _init_worker(**_kwargs: object) -> None:
         logger.critical("license_integrity_worker_exit")
         raise SystemExit(78)
 
-    # 2. Checkpointer 配置 — shared with FastAPI lifespan via app.core.checkpointer
-    from app.core.checkpointer import configure_mongo_checkpointer
+    # 2. Mongo-backed execution dependencies share one persistent worker loop.
+    #     Mongo AsyncIOMotorClient 是进程级单例，不能先后交给两个
+    #     asyncio.run() 创建并关闭的不同 loop；否则后续 Celery task 会在
+    #     已关闭/不匹配的 loop 上使用 Motor client。
+    from app.workers.loop import run_async
 
-    configure_mongo_checkpointer(log_on_error=True)
+    run_async(_bootstrap_worker_execution())
 
     # 3. MCP 用户凭证兑换器 — 与 FastAPI lifespan（app/main.py）对齐
     try:

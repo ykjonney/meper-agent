@@ -36,7 +36,7 @@ x-data-env: &data-env
 # 连接串 docker 默认值：手动 compose（未带任何 env）也能连上内置库；
 # env 文件/启动器导出的值优先生效（自定义外部库不受影响）
 x-conn-env: &conn-env
-  MONGODB_URI: ${MONGODB_URI:-mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin}
+  MONGODB_URI: ${MONGODB_URI:-mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin&replicaSet=rs0}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
   CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
@@ -86,8 +86,10 @@ services:
       # 宿主网卡信息只读挂入（license 绑机指纹，见文件头 x-sys-net 说明）
       - *sys-net-vol
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy   # 等 RS 就绪（启动事务探测 fail-closed）
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   worker:
@@ -105,9 +107,12 @@ services:
       # 宿主网卡信息只读挂入（license 绑机指纹，见文件头 x-sys-net 说明）
       - *sys-net-vol
     depends_on:
-      - app
-      - mongodb
-      - redis
+      app:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   beat:
@@ -130,16 +135,54 @@ services:
     restart: unless-stopped
 
   mongodb:
+    # 单节点副本集（#64 E0）：执行域多文档事务要求 RS 形态。
+    # - keyFile 为 auth + replSet 强制组合；首次部署生成：
+    #     mkdir -p etc && openssl rand -base64 756 | tr -d '\n' > etc/mongo-keyfile
+    #     chmod 400 etc/mongo-keyfile
+    # - rs.initiate 由 mongo-rs-init 一次性服务完成（幂等）。
+    # - MONGODB_URI 需带 &replicaSet=rs0（etc/agent-flow.env 模板已更新）。
     image: ${MONGO_IMAGE:-mongo:7.0}
     container_name: agent-flow-mongodb
+    command: ["mongod", "--replSet", "rs0", "--keyFile", "/etc/mongo-keyfile", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
     volumes:
       - ${AF_DATA_DIR:-./data}/mongodb:/data/db
+      - ${AF_ETC_DIR:-./etc}/mongo-keyfile:/etc/mongo-keyfile:ro
+    healthcheck:
+      # 副本集就绪探针：app/worker 的启动事务探测依赖 RS 已初始化。
+      test: ["CMD-SHELL", "mongosh --quiet -u $${MONGO_INITDB_ROOT_USERNAME} -p $${MONGO_INITDB_ROOT_PASSWORD} --authenticationDatabase admin --eval 'try { rs.status().ok } catch (e) { quit(1) }'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
     ports:
       - "127.0.0.1:27017:27017"  # 本机工具用（mongosh 等）
+
+  # 一次性：rs.initiate（已初始化则跳过）。
+  mongo-rs-init:
+    image: ${MONGO_IMAGE:-mongo:7.0}
+    restart: "no"
+    depends_on:
+      - mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-agentflow}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        for i in $$(seq 1 60); do
+          if mongosh "mongodb://$${MONGO_INITDB_ROOT_USERNAME}:$${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/admin" --quiet --eval \
+            'try { rs.status().ok } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] }).ok }' \
+            | grep -q '^1'; then
+            echo "[mongo-rs-init] replica set ready"; exit 0
+          fi
+          echo "[mongo-rs-init] waiting for mongod ($$i/60)"; sleep 2
+        done
+        echo "[mongo-rs-init] FAILED to initiate replica set"; exit 1
 
   redis:
     image: redis:7-alpine

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
 
+    from agent_flow_harness.ledger import ToolInvocationDraft
     from agent_flow_harness.middleware.chain import MiddlewareChain
 
 logger = structlog.get_logger(__name__)
@@ -116,6 +117,25 @@ def _split_multimodal_result(result: ToolMessage) -> "Command[Any] | None":
     return Command(update={"messages": [normalized, follow_up]})
 
 
+def _ledger_wrapped(
+    execute: "Callable[[ToolCallRequest], Awaitable['ToolMessage | Command[Any]']]",  # noqa: UP006
+    draft: "ToolInvocationDraft",
+) -> "Callable[[ToolCallRequest], Awaitable['ToolMessage | Command[Any]']]":  # noqa: UP006
+    """把账本状态迁移包在原生 execute 外（identity 已确认存在时）。"""
+
+    async def wrapped(
+        request: "ToolCallRequest",
+    ) -> "ToolMessage | Command[Any]":
+        from agent_flow_harness.ledger import ledger_protected_call
+
+        result: ToolMessage | Command[Any] = await ledger_protected_call(
+            draft, lambda: execute(request)
+        )
+        return result
+
+    return wrapped
+
+
 def make_tool_wrapper(
     chain: MiddlewareChain,
 ) -> Callable[
@@ -161,6 +181,77 @@ def make_tool_wrapper(
 
         # Re-inject any middleware modifications into the request.
         modified = request.override(tool_call=tc)  # type: ignore[arg-type]
+
+        # ── 副作用账本（E5，#71）────────────────────────────────────
+        # 有执行身份时：命中 succeeded 的历史调用直接回放（不重执行）；
+        # 未命中则 prepare（持久化原始意图）→ 包裹执行（in_progress →
+        # succeeded/failed/unknown）。无身份（legacy 路径）整体旁路。
+        from agent_flow_harness.execution_context import get_execution_identity
+        from agent_flow_harness.ledger import (
+            LedgerStatus,
+            ToolInvocationDraft,
+            digest_args,
+            get_ledger,
+        )
+
+        identity = get_execution_identity()
+        if identity is not None:
+            draft = ToolInvocationDraft(
+                tool_call_id=str(tc.get("id", "")),
+                tool_name=str(tc.get("name", "")),
+                args=dict(tc.get("args") or {}),
+                idempotency_key=identity.tool_idempotency_key(str(tc.get("id", ""))),
+                request_digest=digest_args(dict(tc.get("args") or {})),
+                step_id=identity.step_id,
+            )
+            try:
+                record = await get_ledger().lookup(draft.idempotency_key)
+            except Exception:  # noqa: BLE001 - 账本故障不阻断执行
+                logger.warning("ledger_lookup_failed", tool=draft.tool_name)
+                record = None
+            if record is not None and record.request_digest != draft.request_digest:
+                # Reusing one invocation identity for different arguments is a
+                # protocol conflict, never permission to execute a second side effect.
+                return ToolMessage(
+                    content="Tool invocation identity conflict: request digest changed; "
+                    "the original invocation requires reconciliation.",
+                    name=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                    status="error",
+                )
+            if record is not None and record.status in (
+                LedgerStatus.UNKNOWN,
+                LedgerStatus.IN_PROGRESS,
+                LedgerStatus.FAILED,
+            ):
+                # IN_PROGRESS may represent a worker that died after the remote
+                # side effect. UNKNOWN is explicitly non-retryable without adjudication.
+                return ToolMessage(
+                    content=f"Tool invocation is {record.status.value}; automatic "
+                    "re-execution is blocked pending reconciliation.",
+                    name=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                    status="error",
+                )
+            if (
+                record is not None
+                and record.status == LedgerStatus.SUCCEEDED
+                and record.request_digest == draft.request_digest
+                and record.result_summary is not None
+            ):
+                # 回放三匹配：幂等键 + digest + 已持久化结果摘要。
+                logger.info(
+                    "tool_result_replayed_from_ledger",
+                    tool=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                )
+                return ToolMessage(
+                    content=record.result_summary,
+                    name=draft.tool_name,
+                    tool_call_id=draft.tool_call_id,
+                    status="success",
+                )
+            execute = _ledger_wrapped(execute, draft)
 
         # Execute via the native ToolNode (handles errors, concurrency).
         #

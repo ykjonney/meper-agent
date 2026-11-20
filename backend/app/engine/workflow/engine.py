@@ -22,6 +22,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.engine.execution.repository import LeaseLostError
 from app.engine.workflow.expression import ExpressionEngine
 from app.engine.workflow.node_executor import NodeResult, get_node_executor
 from app.engine.workflow.variable_pool import VariablePool
@@ -420,6 +421,15 @@ class WorkflowEngine:
                 {"$set": {"checkpoint": None, "updated_at": utc_now()}},
             )
 
+            # E4 双写：完成边界的终态 Manifest + 影子执行闭环（尽力而为）
+            from app.engine.execution.checkpoint import CheckpointCoordinator
+
+            await CheckpointCoordinator().shadow_commit_workflow_boundary(
+                self._task_id,
+                kind="complete",
+                committed_step_ids=list(self._completed_nodes),
+            )
+
             return final_output
 
         except WorkflowPausedError:
@@ -473,12 +483,18 @@ class WorkflowEngine:
             # 1. Agent node interrupted → checkpoint already saved by the
             #    AGENT_INTERRUPTED handler (with agent_thread_id).
             # 2. Node-boundary cancel → save checkpoint NOW so resume doesn't
-            #    restart from scratch. paused_at_node = the node that was about
-            #    to execute (NOT in completed_nodes), so resume re-executes it.
+            #    restart from scratch. paused_at_node = the node that was about to
+            #    execute (NOT in completed_nodes), so resume re-executes it.
             if self._pending_node_id and not getattr(self, "_cancel_checkpoint_saved", False):
                 await self._save_cancel_checkpoint(self._pending_node_id)
             logger.info("workflow_cancelled", task_id=self._task_id)
             return self._pool.get_all() if self._pool else {}
+
+        except LeaseLostError:
+            # E6 复审 P1-1：执行权被接管——不标 Task FAILED（接管者会续跑），
+            # 原样上抛让 Runner 按 zombie 协议退出。
+            logger.warning("workflow_fenced_midway", task_id=self._task_id)
+            raise
 
         except Exception as exc:
             logger.error("workflow_execution_failed", task_id=self._task_id, error=str(exc))
@@ -908,6 +924,16 @@ class WorkflowEngine:
                 }
             },
         )
+        # E4 双写：旧路径（上方）权威；Manifest 影子尽力而为（#64/PR #73）
+        from app.engine.execution.checkpoint import CheckpointCoordinator
+
+        await CheckpointCoordinator().shadow_commit_workflow_boundary(
+            self._task_id,
+            kind="cancel",
+            step_id=node_id,
+            committed_step_ids=list(self._completed_nodes),
+            agent_thread_id=agent_thread_id or None,
+        )
         logger.info(
             "cancel_checkpoint_saved",
             task_id=self._task_id,
@@ -989,6 +1015,15 @@ class WorkflowEngine:
                     "updated_at": utc_now(),
                 }
             },
+        )
+        # E4 双写：loop 轮间 progress 边界的影子 Manifest（同上，尽力而为）
+        from app.engine.execution.checkpoint import CheckpointCoordinator
+
+        await CheckpointCoordinator().shadow_commit_workflow_boundary(
+            self._task_id,
+            kind="progress",
+            step_id=loop_node_id,
+            committed_step_ids=list(self._completed_nodes),
         )
         logger.debug(
             "loop_progress_checkpoint_saved",
@@ -1196,6 +1231,16 @@ class WorkflowEngine:
                     task_id=self._task_id,
                     node_id=node_id,
                     timeout_deadline=str(timeout_deadline),
+                )
+
+                # E4 双写：human 暂停边界的影子 Manifest（尽力而为）
+                from app.engine.execution.checkpoint import CheckpointCoordinator
+
+                await CheckpointCoordinator().shadow_commit_workflow_boundary(
+                    self._task_id,
+                    kind="pause",
+                    step_id=node_id,
+                    committed_step_ids=list(self._completed_nodes),
                 )
 
                 # 超时由 Celery beat 周期任务 sweep_timed_out_human_tasks 扫描
