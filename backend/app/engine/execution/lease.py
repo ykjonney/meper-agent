@@ -58,7 +58,13 @@ class LeaseManager:
     async def heartbeat(
         self, execution_id: str, owner: str, token: int
     ) -> LeaseInfo:
-        """续约；token 不匹配（被接管）→ LeaseLostError。"""
+        """续约。以下任一情况 → LeaseLostError（PR #73 审查 §4）：
+
+        - token 不匹配（被接管）；
+        - **Lease 已过期**——到期即失去所有权（fail-safe 方向）：即使
+          RecoverySupervisor 尚未 takeover，过期 Worker 也不能续约"复活"
+          自己的所有权，必须等待重新派发/接管。
+        """
         now = utc_now()
         ttl = timedelta(seconds=settings.EXECUTION_LEASE_TTL_SECONDS)
         doc = await self._collection().find_one_and_update(
@@ -66,6 +72,7 @@ class LeaseManager:
                 "_id": execution_id,
                 "lease.owner": owner,
                 "lease.fencing_token": token,
+                "lease.expires_at": {"$gt": now},
             },
             {
                 "$set": {

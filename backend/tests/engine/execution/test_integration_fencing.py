@@ -1,28 +1,31 @@
-"""真实 MongoDB Replica Set 集成测试（#74/#75 验收）。
+"""真实 MongoDB Replica Set 集成测试（#74/#75 + PR #73 Conversation 审查）。
 
 **默认跳过**——需要真实副本集，设置环境变量启用：
 
-    EXEC_TEST_MONGODB_URI=mongodb://localhost:27017/?replicaSet=rs0 \
+    EXEC_TEST_MONGODB_URI=mongodb://localhost:27018/?replicaSet=rs0 \
         uv run pytest tests/engine/execution/test_integration_fencing.py
 
-（docker compose -f deploy/docker-compose.yml 起 mongodb 服务即可，
-或本地 mongod --replSet rs0。）
+（本地临时实例：`mongod --dbpath <tmp> --port 27018 --replSet rs0` 后
+`mongosh --port 27018 --eval 'rs.initiate(...)'`。）
 
-Fake 单测不能作为事务隔离/并发冲突正确性的证据（#74 验收原话），
-以下用真实事务语义覆盖：
+Fake 单测不能作为事务隔离/并发冲突正确性的证据（#74 验收原话）。
+本文件用**真实 Repository/LeaseManager 入口** + 真实事务语义覆盖：
 
-- #74：A 持旧 token 开事务（touch 在事务内、未提交）→ B takeover
-  （autocommit CAS 主记录）→ A 提交必须失败，事实不留存；
-  接管后旧 token 的新事务被 LeaseLostError 拒绝。
-- #75：探测成功后不遗留 probe 文档；并发探测互不清理。
+- #74/审查§1：两种**合法串行结果**（真交叠的并发时序本身不确定，
+  MongoDB 事务对此的裁决就是"二者只活一个"——分别验证两个方向）：
+  1. A 先提交：事实落库成功，此后 B 才能 takeover；接管后旧 token
+     的续约与写入均被拒。
+  2. B 先接管：旧 token 立即失去写入资格，事实零落库。
+- #75/审查§2：``asyncio.gather`` 两个探测真交叠，各自只清理自己的
+  probe_id，均正确报告能力，最终零遗留。
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import timedelta
 
 import pytest
-from pymongo.errors import PyMongoError
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("EXEC_TEST_MONGODB_URI"),
@@ -33,22 +36,30 @@ _mongo_uri = os.environ["EXEC_TEST_MONGODB_URI"] if os.environ.get("EXEC_TEST_MO
 
 
 @pytest.fixture
-def real_db(monkeypatch):
-    """真连 RS；隔离命名空间避免碰开发数据。"""
+async def real_db(monkeypatch):
+    """真连 RS；隔离命名空间（独立 db）避免碰开发数据。
+
+    async fixture：client 在测试自己的 event loop 内创建/关闭——
+    sync fixture 建 client 会绑到 loop 外的默认 loop，跨用例污染
+    （"Event loop is closed"）。
+    """
+    import app.db.mongodb as mongodb_mod
     from app.core.config import settings
+    from app.engine.execution import repository as repo_mod
     from motor.motor_asyncio import AsyncIOMotorClient
 
     client = AsyncIOMotorClient(_mongo_uri, tz_aware=True)
     db = client[f"{settings.MONGODB_DB_NAME}_exec_it"]
 
-    import app.db.mongodb as mongodb_mod
-
+    # repository.py 顶层 from-import 已绑定原函数——两处都要 patch，
+    # 否则执行域写入会漏到 app 单例 client（连到开发库）。
     monkeypatch.setattr(mongodb_mod, "get_database", lambda: db)
+    monkeypatch.setattr(repo_mod, "get_database", lambda: db)
     yield db
     client.close()
 
 
-async def _seed(db, *, token=11):
+async def _seed(db, *, token=11, expired=False):
     from app.engine.execution.models import Execution, ExecutionStatus, LeaseInfo
     from app.models.base import utc_now
 
@@ -56,17 +67,27 @@ async def _seed(db, *, token=11):
     lease = LeaseInfo(
         owner="worker-a",
         fencing_token=token,
-        expires_at=utc_now() + timedelta(seconds=60),
+        expires_at=utc_now()
+        + (-timedelta(seconds=1) if expired else timedelta(seconds=120)),
     )
     exe.lease = lease
     await db.executions.insert_one(exe.model_dump(by_alias=True))
     return exe
 
 
-async def test_takeover_beats_inflight_stale_txn(real_db):
-    """#74 核心时序：touch 在事务内 → takeover 与旧事务写冲突。"""
+async def _events_of(db, execution_id: str) -> int:
+    return await db.execution_events.count_documents({"execution_id": execution_id})
+
+
+async def test_serialized_outcome_a_commits_first(real_db):
+    """合法结果一：A 的事务先提交——事实落库，之后 B 才能接管。
+
+    A 的事实写入走**真实** ``ExecutionRepository.transaction()`` 入口
+    （审查 §1：不得绕过实现手工模拟 touch）。
+    """
     import app.engine.execution.lease as lease_mod
     import app.engine.execution.repository as repo_mod
+    from app.engine.execution.models import ExecutionEvent
     from app.models.base import utc_now
 
     await real_db.executions.delete_many({})
@@ -74,63 +95,102 @@ async def test_takeover_beats_inflight_stale_txn(real_db):
     exe = await _seed(real_db, token=11)
     repo = repo_mod.ExecutionRepository()
 
-    # A（token=11）：开启事务，touch + 写入事件，持住不提交。
-    session = await real_db.client.start_session()
-    session.start_transaction()
-    touched = await real_db.executions.find_one_and_update(
-        {"_id": exe.id, "lease.fencing_token": 11},
-        {"$inc": {"write_version": 1}},
-        session=session,
-    )
-    assert touched is not None, "token=11 此刻仍有效"
-    await real_db.execution_events.insert_one(
-        {"_id": "evt_inflight", "execution_id": exe.id, "seq": 1, "type": "t"},
-        session=session,
-    )
+    # A（token=11，lease 有效）：完整走真实入口提交一条事实。
+    async with repo.transaction(exe.id, expected_token=11) as txn:
+        await txn.append_event(
+            ExecutionEvent(
+                execution_id=exe.id, seq=0, type="step.started", producer="it-test"
+            )
+        )
+    assert await _events_of(real_db, exe.id) == 1
 
-    # B：lease 标记过期后 takeover（autocommit，改同一主记录）。
+    # lease 过期后 B takeover 成功（token 11 → 12）。
     await real_db.executions.update_one(
-        {"_id": exe.id}, {"$set": {"lease.expires_at": utc_now() - timedelta(seconds=1)}}
+        {"_id": exe.id},
+        {"$set": {"lease.expires_at": utc_now() - timedelta(seconds=1)}},
     )
     lm = lease_mod.LeaseManager(repo)
     lease = await lm.takeover(exe.id, "worker-b")
     assert lease is not None and lease.fencing_token == 12
 
-    # A 迟到提交：必须失败（写冲突/token 已变）——不允许旧事实落库。
-    committed = False
-    try:
-        await session.commit_transaction()
-        committed = True
-    except PyMongoError:
-        pass
-    finally:
-        await session.end_session()
-
-    if committed:
-        # 极端调度下 commit 已过：事务内写入仍须被主记录写冲突挡下或
-        # 事实缺失——否则 fencing 失效（测试失败即暴露）。
-        evt = await real_db.execution_events.find_one({"_id": "evt_inflight"})
-        assert evt is None, "旧 token 事务的事实写入在 takeover 后存活 = fencing 失效"
-
-    # 旧 token 的新事务：直接被 LeaseLostError 拒绝。
+    # 接管后：旧 token 的续约与事实写入均被拒（含过期语义）。
+    with pytest.raises(repo_mod.LeaseLostError):
+        await lm.heartbeat(exe.id, "worker-a", 11)
     with pytest.raises(repo_mod.LeaseLostError):
         async with repo.transaction(exe.id, expected_token=11):
             pass
-    # 新 token 可写。
+    assert await _events_of(real_db, exe.id) == 1  # 旧 token 零新增事实
+
+    # 新 token 可写，主记录 token/事实一致。
     async with repo.transaction(exe.id, expected_token=12) as txn:
-        await txn.update_execution({"$set": {"status": "waiting_input"}})
+        await txn.append_event(
+            ExecutionEvent(
+                execution_id=exe.id, seq=0, type="step.completed", producer="it-test"
+            )
+        )
     doc = await real_db.executions.find_one({"_id": exe.id})
-    assert doc["status"] == "waiting_input"
+    assert doc["lease"]["fencing_token"] == 12
+    assert await _events_of(real_db, exe.id) == 2
+
+
+async def test_serialized_outcome_b_takes_over_first(real_db):
+    """合法结果二：B 先接管——旧 token 立即失去资格，事实零落库。"""
+    import app.engine.execution.lease as lease_mod
+    import app.engine.execution.repository as repo_mod
+    from app.engine.execution.models import ExecutionEvent
+
+    await real_db.executions.delete_many({})
+    await real_db.execution_events.delete_many({})
+    exe = await _seed(real_db, token=11, expired=True)
+    repo = repo_mod.ExecutionRepository()
+    lm = lease_mod.LeaseManager(repo)
+
+    lease = await lm.takeover(exe.id, "worker-b")
+    assert lease is not None and lease.fencing_token == 12
+
+    # A（旧 token）：事务被 LeaseLostError 拒绝（token 已被接管 + lease 也已过期）。
+    with pytest.raises(repo_mod.LeaseLostError):
+        async with repo.transaction(exe.id, expected_token=11) as txn:
+            await txn.append_event(
+                ExecutionEvent(
+                    execution_id=exe.id, seq=0, type="step.started", producer="it-test"
+                )
+            )
+    assert await _events_of(real_db, exe.id) == 0  # 零事实落库
+    doc = await real_db.executions.find_one({"_id": exe.id})
     assert doc["lease"]["fencing_token"] == 12
 
 
-async def test_probe_leaves_no_leftover_and_concurrent_safe(real_db, monkeypatch):
-    """#75：探测成功无遗留；并发探测互不清理。"""
+async def test_expired_lease_rejects_heartbeat_and_write_before_takeover(real_db):
+    """审查§4：到期即失去所有权——未接管窗口内，过期 Worker 也不能续约/写入。"""
+    import app.engine.execution.lease as lease_mod
+    import app.engine.execution.repository as repo_mod
+
+    await real_db.executions.delete_many({})
+    await real_db.execution_events.delete_many({})
+    exe = await _seed(real_db, token=11, expired=True)  # 过期但尚未 takeover
+    repo = repo_mod.ExecutionRepository()
+    lm = lease_mod.LeaseManager(repo)
+
+    with pytest.raises(repo_mod.LeaseLostError):
+        await lm.heartbeat(exe.id, "worker-a", 11)  # 不能"复活"自己的所有权
+    with pytest.raises(repo_mod.LeaseLostError):
+        async with repo.transaction(exe.id, expected_token=11):
+            pass
+    # takeover 仍可进行（接管者视角不受影响）。
+    lease = await lm.takeover(exe.id, "worker-b")
+    assert lease is not None and lease.fencing_token == 12
+
+
+async def test_probe_truly_concurrent(real_db, monkeypatch):
+    """#75/审查§2：gather 真交叠的两个探测——互不清理、能力结论各自正确、零遗留。"""
     import app.core.execution_runtime as rt
 
     monkeypatch.delenv("EXECUTION_DURABLE", raising=False)
-    ok1, err1 = await rt.probe_transaction_capability()
-    ok2, err2 = await rt.probe_transaction_capability()
+    (ok1, err1), (ok2, err2) = await asyncio.gather(
+        rt.probe_transaction_capability(),
+        rt.probe_transaction_capability(),
+    )
     assert ok1 and ok2, f"probe failed on real RS: {err1} / {err2}"
 
     for name in rt._PROBE_COLLECTIONS:

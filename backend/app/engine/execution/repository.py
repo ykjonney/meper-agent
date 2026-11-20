@@ -29,12 +29,13 @@ from pymongo.errors import PyMongoError
 
 from app.db.mongodb import get_database
 from app.engine.execution import collections as cols
-from app.engine.execution.models import (
+from app.engine.execution.models import (  # noqa: F401 - 类型仅供注解
     CheckpointManifest,
     ExecutionEvent,
     Step,
     ToolInvocation,
 )
+from app.models.base import utc_now
 
 T = TypeVar("T")
 
@@ -219,8 +220,10 @@ class ExecutionRepository:
 
         - takeover（autocommit CAS）同样写主记录 → 旧 Worker 的事务与
           takeover 在同一文档上形成写冲突，只有一个能提交；
-        - touch 未匹配（token 过期/被接管/不存在）→ 异常使事务 CM 走
-          abort 分支，随后抛 LeaseLostError/KeyError，不留下部分事实。
+        - touch 未匹配（token 过期/被接管/**Lease 已过期**/不存在）→
+          异常使事务 CM 走 abort 分支，随后抛 LeaseLostError/KeyError，
+          不留下部分事实。token 匹配不自动等同 Lease 有效——到期即失去
+          所有权（PR #73 审查 §4，与 heartbeat 的过期语义一致）。
 
         若 touch 在事务外执行（autocommit），"touch 成功 → takeover →
         再开事务写事实"的窗口会让旧 Worker 的写入在接管后提交——正是
@@ -232,7 +235,11 @@ class ExecutionRepository:
             session.start_transaction(),
         ):
             touched = await self._executions().find_one_and_update(
-                {"_id": execution_id, "lease.fencing_token": expected_token},
+                {
+                    "_id": execution_id,
+                    "lease.fencing_token": expected_token,
+                    "lease.expires_at": {"$gt": utc_now()},
+                },
                 {"$inc": {"write_version": 1}},
                 return_document=ReturnDocument.AFTER,
                 session=session,

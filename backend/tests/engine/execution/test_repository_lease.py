@@ -294,6 +294,19 @@ async def test_lease_heartbeat_wrong_token_lost(fake_db):
         await lm.heartbeat(exe.id, "worker-a", 11)
 
 
+async def test_expired_lease_rejects_heartbeat_and_write(fake_db):
+    """PR #73 审查§4：到期即失去所有权——token 匹配不自动等同 Lease 有效。"""
+    exe = _seed_execution(fake_db, token=11, expired=True, owner="worker-a")
+    lm = lease_mod.LeaseManager()
+    # 过期但尚未接管：也不能续约"复活"自己
+    with pytest.raises(repo_mod.LeaseLostError):
+        await lm.heartbeat(exe.id, "worker-a", 11)
+    # 过期但 token 正确：事实写入同样被拒
+    with pytest.raises(repo_mod.LeaseLostError):
+        async with repo_mod.ExecutionRepository().transaction(exe.id, expected_token=11):
+            pass
+
+
 async def test_lease_takeover_requires_expiry(fake_db):
     """未过期 → 接管失败（None）；过期 → token+1。"""
     exe = _seed_execution(fake_db, token=11, expired=False, owner="worker-a")

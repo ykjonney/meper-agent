@@ -108,13 +108,15 @@ async def probe_transaction_capability() -> tuple[bool, str | None]:
         error = f"{type(exc).__name__}: {exc}"
 
     # 精确清理：只删本次 probe_id 的文档（并发探测互不影响）。
-    # 清理失败不改变事务能力结论（#75：二者必须区分）。
+    # 清理失败不改变事务能力结论（#75：二者必须区分）；残留由
+    # _sweep_stale_probes 在后续启动时兜底回收（PR #73 审查 §3）。
     for name in _PROBE_COLLECTIONS:
         try:
             await db.get_collection(name).delete_many({"probe_id": probe_id})
         except Exception as exc:  # noqa: BLE001 - 清理是尽力而为
             logger.warning(
-                "execution_probe_cleanup_failed collection={} error={}",
+                "execution_probe_cleanup_failed probe_id={} collection={} error={}",
+                probe_id,
                 name,
                 exc,
             )
@@ -130,6 +132,41 @@ async def _detect_backend_type() -> str | None:
         return "replica_set" if hello.get("setName") else "standalone"
     except Exception:  # noqa: BLE001 - 连不上时让事务探测给最终结论
         return None
+
+
+# 过期 probe 文档的兜底回收窗口：清理失败残留超过该时长即视为孤儿，
+# 下次启动时由 _sweep_stale_probes 安全删除。
+_STALE_PROBE_MAX_AGE_SECONDS = 24 * 3600
+
+
+async def _sweep_stale_probes() -> int:
+    """回收历史残留的过期 probe 文档（PR #73 审查 §3 的运维出口）。
+
+    只删「明确属于探测」的记录：``probe_id`` 前缀 ``probe-`` 且 ``ts``
+    早于窗口——不 drop 集合、不碰其他数据。任何失败只告警，不影响启动。
+    Returns:
+        清理的文档总数（best-effort，供日志）。
+    """
+    from datetime import timedelta
+
+    from app.db.mongodb import get_database
+
+    cutoff = utc_now() - timedelta(seconds=_STALE_PROBE_MAX_AGE_SECONDS)
+    db = get_database()
+    removed = 0
+    for name in _PROBE_COLLECTIONS:
+        try:
+            result = await db.get_collection(name).delete_many(
+                {"probe_id": {"$regex": "^probe-"}, "ts": {"$lt": cutoff}}
+            )
+            removed += result.deleted_count or 0
+        except Exception as exc:  # noqa: BLE001 - 兜底清扫不许影响启动
+            logger.warning(
+                "execution_probe_sweep_failed collection={} error={}", name, exc
+            )
+    if removed:
+        logger.info("execution_probe_sweep_removed count={}", removed)
+    return removed
 
 
 async def check_execution_runtime() -> ExecutionRuntimeStatus:
@@ -177,5 +214,7 @@ async def check_execution_runtime() -> ExecutionRuntimeStatus:
         "execution_runtime_ready durable=True backend={} transactions=True",
         backend_type,
     )
+    # 兜底清扫：此前清理失败的过期 probe 文档（不影响启动结论）。
+    await _sweep_stale_probes()
     _status = status
     return status
