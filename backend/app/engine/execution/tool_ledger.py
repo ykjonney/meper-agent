@@ -135,9 +135,13 @@ class CollectingLedger(SideEffectLedger):
             request_digest=draft.request_digest,
         )
 
-    async def mark_in_progress(self, idempotency_key: str) -> None:
+    async def claim(self, idempotency_key: str) -> bool:
+        rec = self.records.get(idempotency_key)
+        if rec is None or rec.status != LedgerStatus.PREPARED:
+            return False
         self.calls.append((idempotency_key, "in_progress"))
-        self.records[idempotency_key].status = LedgerStatus.IN_PROGRESS
+        rec.status = LedgerStatus.IN_PROGRESS
+        return True
 
     async def mark(
         self,
@@ -147,8 +151,10 @@ class CollectingLedger(SideEffectLedger):
         result_summary: str | None = None,
         error: str | None = None,
     ) -> None:
+        rec = self.records.get(idempotency_key)
+        if rec is None or rec.status != LedgerStatus.IN_PROGRESS:
+            return
         self.calls.append((idempotency_key, status.value))
-        rec = self.records[idempotency_key]
         rec.status = status
         rec.result_summary = result_summary
         rec.error = error
