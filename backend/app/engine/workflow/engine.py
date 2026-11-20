@@ -420,6 +420,15 @@ class WorkflowEngine:
                 {"$set": {"checkpoint": None, "updated_at": utc_now()}},
             )
 
+            # E4 双写：完成边界的终态 Manifest + 影子执行闭环（尽力而为）
+            from app.engine.execution.checkpoint import CheckpointCoordinator
+
+            await CheckpointCoordinator().shadow_commit_workflow_boundary(
+                self._task_id,
+                kind="complete",
+                committed_step_ids=list(self._completed_nodes),
+            )
+
             return final_output
 
         except WorkflowPausedError:
@@ -908,6 +917,16 @@ class WorkflowEngine:
                 }
             },
         )
+        # E4 双写：旧路径（上方）权威；Manifest 影子尽力而为（#64/PR #73）
+        from app.engine.execution.checkpoint import CheckpointCoordinator
+
+        await CheckpointCoordinator().shadow_commit_workflow_boundary(
+            self._task_id,
+            kind="cancel",
+            step_id=node_id,
+            committed_step_ids=list(self._completed_nodes),
+            agent_thread_id=agent_thread_id or None,
+        )
         logger.info(
             "cancel_checkpoint_saved",
             task_id=self._task_id,
@@ -989,6 +1008,15 @@ class WorkflowEngine:
                     "updated_at": utc_now(),
                 }
             },
+        )
+        # E4 双写：loop 轮间 progress 边界的影子 Manifest（同上，尽力而为）
+        from app.engine.execution.checkpoint import CheckpointCoordinator
+
+        await CheckpointCoordinator().shadow_commit_workflow_boundary(
+            self._task_id,
+            kind="progress",
+            step_id=loop_node_id,
+            committed_step_ids=list(self._completed_nodes),
         )
         logger.debug(
             "loop_progress_checkpoint_saved",
@@ -1196,6 +1224,16 @@ class WorkflowEngine:
                     task_id=self._task_id,
                     node_id=node_id,
                     timeout_deadline=str(timeout_deadline),
+                )
+
+                # E4 双写：human 暂停边界的影子 Manifest（尽力而为）
+                from app.engine.execution.checkpoint import CheckpointCoordinator
+
+                await CheckpointCoordinator().shadow_commit_workflow_boundary(
+                    self._task_id,
+                    kind="pause",
+                    step_id=node_id,
+                    committed_step_ids=list(self._completed_nodes),
                 )
 
                 # 超时由 Celery beat 周期任务 sweep_timed_out_human_tasks 扫描

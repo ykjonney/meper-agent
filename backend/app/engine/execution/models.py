@@ -154,6 +154,7 @@ class Execution(BaseModel):
     lease: LeaseInfo | None = None
     write_version: int = 0
     event_seq_counter: int = 0
+    checkpoint_seq_counter: int = 0  # Manifest 序号的原子分配器（同事务 $inc）
 
     graph_threads: list[GraphThread] = Field(default_factory=list)
     dispatch: DispatchInfo = Field(default_factory=DispatchInfo)
@@ -204,9 +205,13 @@ class CheckpointManifest(BaseModel):
     checkpoint_seq: int
     step_id: str | None = None
     committed_step_ids: list[str] = Field(default_factory=list)
-    graph_thread_id: str
+    # 对齐旧 Checkpoint.kind 域 + 终态：pause|progress|cancel|complete
+    kind: str = "pause"
+    # Graph Checkpoint 精确引用：agent 中断边界必填；纯 workflow 边界
+    # （loop 轮间/节点取消）无 LangGraph 状态 → None，恢复定位靠 step 快照。
+    graph_thread_id: str | None = None
     graph_checkpoint_ns: str = ""
-    graph_checkpoint_id: str
+    graph_checkpoint_id: str | None = None
     fencing_token: int
     config_snapshot_ref: str | None = None
     created_at: datetime = Field(default_factory=utc_now)

@@ -39,7 +39,8 @@ class FakeCollection:
                     return False
                 cur = cur[part]
             if isinstance(v, dict) and any(
-                op in v for op in ("$lte", "$gte", "$in", "$nin", "$gt", "$lt")
+                op in v
+                for op in ("$lte", "$gte", "$in", "$nin", "$ne", "$gt", "$lt")
             ):
                 if "$lte" in v and not (cur is not None and cur <= v["$lte"]):
                     return False
@@ -52,6 +53,8 @@ class FakeCollection:
                 if "$in" in v and cur not in v["$in"]:
                     return False
                 if "$nin" in v and cur in v["$nin"]:
+                    return False
+                if "$ne" in v and cur == v["$ne"]:
                     return False
             elif cur != v:
                 return False
@@ -81,11 +84,14 @@ class FakeCollection:
         self.docs[doc["_id"]] = doc
         return type("I", (), {"inserted_id": doc["_id"]})()
 
-    async def find_one(self, flt, projection=None, *, session=None, **_):  # noqa: ARG002
-        for doc in self.docs.values():
-            if self._match(doc, flt):
-                return doc
-        return None
+    async def find_one(self, flt, projection=None, *, session=None, sort=None, **_):  # noqa: ARG002
+        matched = [d for d in self.docs.values() if self._match(d, flt)]
+        if not matched:
+            return None
+        if sort:
+            for key, direction in reversed(sort):
+                matched.sort(key=lambda d: d.get(key), reverse=(direction == -1))
+        return matched[0]
 
     def find(self, flt, *, session=None, **_):  # noqa: ARG002
         """链式游标 fake：sort/limit + async 迭代（read_events 用）。"""
