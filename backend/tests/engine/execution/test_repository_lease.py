@@ -508,3 +508,24 @@ async def test_lookup_invocation_scoped_by_execution(fake_db):
     hit = await repo.lookup_invocation(exe2.id, key)
     assert hit is not None and hit["execution_id"] == exe2.id
     assert await repo.lookup_invocation(exe1.id, key) is None
+
+
+async def test_heartbeat_failure_cancels_runner_body(fake_db, monkeypatch):
+    """A lost heartbeat interrupts a long-running Runner, not just context exit."""
+    import asyncio
+
+    from app.core.config import settings
+
+    class _LostManager:
+        async def heartbeat(self, execution_id, owner, token):
+            raise repo_mod.LeaseLostError(execution_id, token)
+
+    monkeypatch.setattr(settings, "EXECUTION_LEASE_HEARTBEAT_SECONDS", 0.001)
+    entered = asyncio.Event()
+
+    with pytest.raises(repo_mod.LeaseLostError):
+        async with lease_mod.lease_heartbeat(_LostManager(), "exec-x", "worker-x", 9):
+            entered.set()
+            await asyncio.sleep(30)
+
+    assert entered.is_set()
