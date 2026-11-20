@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Agent Flow · 系统运行时架构",
+    "locale": "zh-CN",
+    "output": "system-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/ykjonney/meper-agent",
+      "revision": "7fc91266e1ca436abfcb7cf206d931e172606388"
+    },
+    "viewBox": [1380, 620],
+    "views": [
+      { "id": "chat-main-path", "label": "对话 SSE 主链路", "focus": ["client", "caddy", "fastapi", "harness", "llm"], "note": "终端用户对话请求经 Caddy 与 FastAPI 进入 Harness REACT 循环，SSE 流式回推。" },
+      { "id": "workflow-branch", "label": "工作流异步分支", "focus": ["fastapi", "redis", "celery", "wfengine", "harness"], "note": "任务经 Redis broker 交给 Celery，自研 DAG 引擎驱动 Agent 节点复用 Harness。" },
+      { "id": "trust-boundary", "label": "信任边界", "focus": ["studio", "client", "caddy", "fastapi"], "note": "双人群在边缘网关分流：JWT 管理域与 API-Key 外部域。" },
+      { "id": "external-deps", "label": "外部依赖", "focus": ["llm", "mcp", "im", "embedding"], "note": "平台出站调用的第三方端点，全部位于平台边界之外。" }
+    ]
+  },
+  "components": [
+    { "id": "studio", "type": "frontend", "label": "Studio 管理端", "sublabel": "frontend-studio", "tag": "JWT · 25 权限键", "pos": [40, 86], "size": [160, 64], "sources": [{ "path": "frontend-studio/src/lib/api-client.ts", "label": "JWT 客户端" }, { "path": "frontend-studio/src/features/workflow-editor/WorkflowCanvas.tsx", "label": "工作流编辑器" }] },
+    { "id": "im", "type": "external", "label": "IM 渠道", "sublabel": "飞书 · 钉钉 · 企微", "tag": "长连接", "pos": [420, 80], "size": [170, 60], "sources": [{ "path": "backend/app/channels/providers/__init__.py", "label": "渠道 Provider" }, { "path": "docs/channel-long-connection-guide.md", "label": "长连接指南" }] },
+    { "id": "client", "type": "frontend", "label": "终端用户客户端", "sublabel": "frontend-client · 嵌入", "tag": "API-Key · X-User-Token", "pos": [40, 220], "size": [160, 64], "sources": [{ "path": "frontend-client/src/api/client.ts", "label": "双模式鉴权" }] },
+    { "id": "caddy", "type": "security", "label": "Caddy 边缘网关", "sublabel": ":80 / :443", "tag": "/ · /client · /api · /ws", "pos": [240, 220], "size": [150, 64], "sources": [{ "path": "deploy/Caddyfile", "label": "路由规则" }] },
+    { "id": "fastapi", "type": "backend", "label": "FastAPI 应用", "sublabel": "api/v1 → services", "tag": "SSE · WebSocket", "pos": [460, 210], "size": [180, 76], "sources": [{ "path": "backend/app/main.py", "label": "应用入口" }, { "path": "backend/app/api/v1/ext/__init__.py", "label": "ext 路由" }] },
+    { "id": "celery", "type": "backend", "label": "Celery Worker + Beat", "sublabel": "工作流 · 定时 · 巡检", "pos": [610, 350], "size": [170, 64], "sources": [{ "path": "backend/app/workers/celery_app.py", "label": "celery_app" }, { "path": "backend/app/workers/tasks/human_timeout.py", "label": "超时巡检" }] },
+    { "id": "wfengine", "type": "backend", "label": "Workflow Engine", "sublabel": "自研 DAG · checkpoint", "tag": "human 暂停/恢复", "pos": [810, 350], "size": [160, 64], "sources": [{ "path": "backend/app/engine/workflow/engine.py", "label": "DAG 引擎" }, { "path": "backend/app/engine/workflow/node_executor.py", "label": "节点执行器" }] },
+    { "id": "harness", "type": "backend", "label": "Harness", "sublabel": "LangGraph REACT", "tag": "工具装配 · 守卫", "pos": [860, 210], "size": [210, 76], "sources": [{ "path": "backend/packages/harness/src/agent_flow_harness/graph/builder.py", "label": "图构建" }, { "path": "backend/app/engine/harness_integration/context.py", "label": "上下文装配" }] },
+    { "id": "llm", "type": "external", "label": "LLM 提供商", "sublabel": "OpenAI / Anthropic 兼容", "pos": [1150, 170], "size": [170, 64], "sources": [{ "path": "backend/app/services/model_service.py", "label": "模型配置" }, { "path": "backend/packages/harness/src/agent_flow_harness/llm/factory.py", "label": "LLM 工厂" }] },
+    { "id": "mcp", "type": "external", "label": "MCP 服务器", "sublabel": "streamable-http / SSE", "pos": [1130, 350], "size": [170, 60], "sources": [{ "path": "backend/app/engine/tool/mcp_client.py", "label": "MCP 客户端" }] },
+    { "id": "mongo", "type": "database", "label": "MongoDB", "sublabel": "30+ 集合 · checkpoint", "pos": [270, 480], "size": [160, 60], "sources": [{ "path": "backend/app/db/mongodb.py", "label": "motor 连接" }, { "path": "backend/app/core/checkpointer.py", "label": "MongoSaver" }] },
+    { "id": "redis", "type": "messagebus", "label": "Redis", "sublabel": "broker · pub/sub · 限流", "pos": [470, 480], "size": [160, 60], "sources": [{ "path": "backend/app/services/event_bridge.py", "label": "事件桥" }] },
+    { "id": "qdrant", "type": "database", "label": "Qdrant", "sublabel": "kb_chunks 混合检索", "pos": [830, 480], "size": [150, 60], "sources": [{ "path": "backend/app/engine/kb/vector/retriever.py", "label": "混合召回" }] },
+    { "id": "embedding", "type": "external", "label": "Embedding / Rerank", "sublabel": "KB 索引 · 重排", "pos": [1020, 480], "size": [130, 60], "sources": [{ "path": "backend/app/engine/kb/vector/factory.py", "label": "端点工厂" }] },
+    { "id": "sandbox", "type": "security", "label": "agent-sandbox", "sublabel": "bash · 代码执行", "tag": "network=none", "pos": [1180, 480], "size": [130, 64], "sources": [{ "path": "deploy/Dockerfile.sandbox", "label": "沙盒镜像" }, { "path": "backend/packages/harness/src/agent_flow_harness/sandbox/docker.py", "label": "Docker 沙盒" }] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "公网用户区 · 双人群", "wraps": ["studio", "client"] },
+    { "kind": "security-group", "label": "平台信任边界 · 路径分流", "wraps": ["caddy"] },
+    { "kind": "region", "label": "应用区 · backend 容器", "wraps": ["fastapi", "celery", "wfengine", "harness"] },
+    { "kind": "region", "label": "数据区 · 单机 Docker 网络", "wraps": ["mongo", "redis", "qdrant"] },
+    { "kind": "security-group", "label": "沙盒隔离域", "wraps": ["sandbox"] }
+  ],
+  "connections": [
+    { "id": "e-client-caddy", "from": "client", "to": "caddy", "label": "HTTPS", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "e-studio-caddy", "from": "studio", "to": "caddy", "label": "管理端 JWT", "fromSide": "right", "toSide": "top", "labelAt": [220, 175] },
+    { "id": "e-caddy-fastapi", "from": "caddy", "to": "fastapi", "label": "/api /ws", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "e-fastapi-harness", "from": "fastapi", "to": "harness", "label": "invoke/stream · SSE", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelDy": -33 },
+    { "id": "e-harness-llm", "from": "harness", "to": "llm", "label": "REACT 推理", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "e-fastapi-im", "from": "fastapi", "to": "im", "label": "长连接收发", "fromSide": "top", "toSide": "bottom" },
+    { "id": "e-fastapi-redis", "from": "fastapi", "to": "redis", "label": "任务入队", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [505, 455] },
+    { "id": "e-redis-celery", "from": "redis", "to": "celery", "label": "消费任务", "fromSide": "top", "toSide": "bottom" },
+    { "id": "e-celery-wfengine", "from": "celery", "to": "wfengine", "label": "run_and_persist", "fromSide": "right", "toSide": "left", "labelAt": [770, 327] },
+    { "id": "e-wfengine-harness", "from": "wfengine", "to": "harness", "label": "Agent 节点", "fromSide": "top", "toSide": "bottom", "labelAt": [900, 318] },
+    { "id": "e-fastapi-mongo", "from": "fastapi", "to": "mongo", "label": "业务读写", "fromSide": "bottom", "toSide": "top", "via": [[550, 310], [350, 310], [350, 480]] },
+    { "id": "e-harness-qdrant", "from": "harness", "to": "qdrant", "label": "kb_search", "fromSide": "bottom", "toSide": "top", "via": [[965, 320], [1040, 320], [1040, 439], [905, 439]], "labelAt": [990, 439] },
+    { "id": "e-harness-mcp", "from": "harness", "to": "mcp", "label": "工具调用", "fromSide": "right", "toSide": "top", "labelAt": [1215, 311] },
+    { "id": "e-harness-sandbox", "from": "harness", "to": "sandbox", "label": "沙盒执行", "fromSide": "right", "toSide": "right", "via": [[1350, 248], [1350, 512]], "labelAt": [1350, 438] },
+    { "id": "e-celery-embedding", "from": "celery", "to": "embedding", "label": "KB 索引", "fromSide": "bottom", "toSide": "bottom", "via": [[695, 586], [1085, 586]], "labelAt": [920, 586] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "双引擎与事件回推", "items": ["自研 DAG：节点执行器 / 变量池 / checkpoint，human 节点是唯一合法暂停点", "Harness：LangGraph REACT（guard → compress → llm → tools），独立包 agent-flow-harness", "事件回推：Celery → Redis Pub/Sub(task_events) → EventBridge → /ws WebSocket；Beat 30s 巡检超时"] },
+    { "dot": "rose", "title": "信任边界", "items": ["管理域 /api/v1/*：JWT + 25 个权限键（判 permission 不判 role）", "外部域 /api/v1/ext/*：af_live_ API-Key + scopes + X-User-Token introspection", "沙盒加固：read-only rootfs · network=none · 非 root · 生产 fail-closed"] },
+    { "dot": "slate", "title": "外部依赖与存储", "items": ["出站端点：LLM / Embedding / Rerank（OpenAI 兼容）、MCP、语音 ASR/TTS、LangSmith（可选）", "IM 长连接：飞书 · 钉钉 · 企微；宿主 docker.sock 派生沙盒", "Mongo 30+ 集合兼 LangGraph checkpointer；Redis db0/1/2 = 缓存/broker/backend；Qdrant dense+BM25 RRF"] }
+  ]
+}

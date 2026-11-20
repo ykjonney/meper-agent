@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>执行过程 v10 · 收起/展开两态完整方案</title>
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --serif: Georgia, "Songti SC", serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 32px 36px 50px; }
+
+  .spec-bar { max-width: 1440px; margin: 0 auto 22px; display: flex; align-items: baseline; gap: 16px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 22px; font-style: italic; }
+  .spec-bar .note { font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+  .col-tag b { color: var(--indigo); }
+
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-height: 620px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 8px 13px; font-size: 12.5px; }
+  .write { font-size: 13px; line-height: 1.75; color: var(--ink); }
+  .write b { color: var(--indigo-deep); }
+
+  .state-label { font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--ink-faint); margin: 2px 0 0 33px; }
+
+  /* ════════ 方案一：脚注化外壳 + 类型聚合展开 ════════ */
+  /* 收起态：脚注级一行——无图标无粗体，淡灰小字，与正文形成明确的主次 */
+  .f1-shell { margin-left: 33px; display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-faint); cursor: pointer; padding: 2px 0; }
+  .f1-shell:hover { color: var(--ink-soft); }
+  .f1-shell .dur { font-family: var(--mono); font-size: 10px; }
+  .f1-shell .sep { color: var(--line-strong); }
+  /* 展开态：类型聚合统计行 */
+  .f1-body { margin: 4px 0 0 33px; background: #EFEDE6; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
+  .f1-line { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-soft); padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .f1-line:hover { background: rgba(255,255,255,.75); }
+  .f1-line .lbl { flex: 1; }
+  .f1-line .cnt { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  .f1-detail { margin: 2px 0 3px 10px; padding: 4px 8px; border-left: 2px solid var(--line-strong); display: flex; flex-direction: column; gap: 3px; }
+  .f1-sub { font-size: 11px; color: var(--ink-faint); }
+  .f1-sub .cmd { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
+
+  /* ════════ 方案二：胶囊外壳 + 叙述流展开 ════════ */
+  /* 收起态：淡底小胶囊——存在感像一个系统标签 */
+  .f2-shell { margin-left: 33px; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); background: var(--paper-deep); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .f2-shell:hover { background: var(--line); }
+  .f2-shell .tick { color: #1f9d55; font-size: 10px; }
+  .f2-shell .dur { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+  /* 展开态：叙述流 */
+  .f2-body { margin: 4px 0 0 33px; background: #EFEDE6; border-radius: 10px; padding: 10px 13px; }
+  .f2-flow { font-size: 12px; line-height: 2; color: var(--ink-soft); }
+  .f2-flow .step { cursor: pointer; border-bottom: 1px dashed var(--line-strong); padding-bottom: 1px; }
+  .f2-flow .step:hover { color: var(--indigo-deep); border-bottom-color: var(--indigo); }
+  .f2-flow .think { font-style: italic; color: var(--ink-faint); }
+  .f2-flow .cmd { font-family: var(--mono); font-size: 11px; }
+  .f2-flow .arrow { color: var(--ink-faint); margin: 0 4px; }
+
+  /* ════════ 方案三：状态行外壳 + 分段文字展开 ════════ */
+  /* 收起态：保留勾点的状态行（最小改动派） */
+  .f3-shell { margin-left: 33px; display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink); cursor: pointer; padding: 3px 0; }
+  .f3-shell .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--paper-deep); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; font-size: 8.5px; }
+  .f3-shell b { font-weight: 600; }
+  .f3-shell .dur { margin-left: 2px; color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+  /* 展开态：分段文字块 */
+  .f3-body { margin: 4px 0 0 33px; background: #EFEDE6; border-radius: 10px; padding: 3px 13px; }
+  .f3-step { padding: 7px 0; font-size: 11.5px; line-height: 1.7; color: var(--ink-soft); border-bottom: 1px dashed var(--line); }
+  .f3-step:last-child { border-bottom: none; }
+  .f3-step .head { color: var(--ink); }
+  .f3-step .head.think { font-style: italic; color: var(--ink-faint); }
+  .f3-step .cmd { font-family: var(--mono); font-size: 11px; }
+  .f3-step .more { color: var(--ink-faint); cursor: pointer; font-size: 10.5px; }
+  .f3-step .more:hover { color: var(--indigo-deep); }
+
+  .annot { margin-top: 10px; font-size: 11px; line-height: 1.85; color: var(--ink-soft); }
+  .annot b { color: var(--indigo-deep); }
+
+  .rules { max-width: 1440px; margin: 24px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 24px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .rules b { color: var(--ink); }
+  .rules .indigo { color: var(--indigo); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>执行过程 v10 · 收起 / 展开两态</h1>
+  <span class="note">三个完整方案——每栏上为收起态、下为展开态（点外壳行切换）</span>
+</div>
+
+<div class="scene">
+
+  <!-- ══ 方案一：脚注外壳 + 类型聚合 ══ -->
+  <div>
+    <div class="col-tag"><b>方案一</b> · 脚注化收起 + 类型聚合展开——过程退到脚注，点开是统计</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
+          <div class="state-label">收起态</div>
+          <div class="f1-shell" onclick="toggle(this, 'f1-body-1')">已完成<span class="sep">·</span>6 个动作<span class="sep">·</span><span class="dur">110.6s</span><span class="sep">·</span>展开 ↓</div>
+          <div class="f1-body" id="f1-body-1" hidden>
+            <div class="f1-line" onclick="event.stopPropagation(); this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              💭 思考<span class="lbl"></span><span class="cnt">4 段 · 1045 字</span>
+            </div>
+            <div class="f1-detail" hidden>
+              <div class="f1-sub">分析新闻源可用性，确定抓取策略</div>
+              <div class="f1-sub">比较各源文件大小，筛选正文完整的源</div>
+              <div class="f1-sub">规划日报结构与归档路径</div>
+            </div>
+            <div class="f1-line" onclick="event.stopPropagation(); this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              ▸ 命令<span class="lbl"></span><span class="cnt">4 条</span>
+            </div>
+            <div class="f1-detail" hidden>
+              <div class="f1-sub"><span class="cmd">rm -f hn.json jiqizhixin.xml …</span> 清理缓存</div>
+              <div class="f1-sub"><span class="cmd">tar -czf session-archive.tgz …</span> 归档打包</div>
+            </div>
+            <div class="f1-line" onclick="event.stopPropagation(); this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              📄 文件<span class="lbl"></span><span class="cnt">2 个</span>
+            </div>
+            <div class="f1-detail" hidden>
+              <div class="f1-sub">写入 output/ai-news-digest-2026-11-16.md</div>
+              <div class="f1-sub">写入 output/report.md</div>
+            </div>
+          </div>
+          <div class="state-label">正文（注意力所在）</div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下：<b>英伟达「换帅风波」</b>持续发酵，黄仁勋卸职……</div>
+        </div>
+      </div>
+      <div class="annot">
+        收起态<b>脚注化</b>：无图标无粗体，11px 淡灰——比正文低两级；<br>
+        展开态<b>按类型统计</b>：💭思考 / ▸命令 / 📄文件 各一行，点开看明细。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 方案二：胶囊外壳 + 叙述流 ══ -->
+  <div>
+    <div class="col-tag"><b>方案二</b> · 胶囊收起 + 叙述流展开——系统标签感，过程是一句话</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
+          <div class="state-label">收起态</div>
+          <div class="f2-shell" onclick="toggle(this, 'f2-body-1')"><span class="tick">✓</span>已完成<span class="dur">110.6s</span></div>
+          <div class="f2-body" id="f2-body-1" hidden>
+            <div class="f2-flow">
+              <span class="step think">思考了 4 段</span><span class="arrow">→</span>一次调用
+              <span class="step">生成图表「新闻源缓存文件大小对比」</span>、<span class="step">写入 report.md</span><span class="arrow">→</span>
+              <span class="step cmd">清理缓存 rm -f …</span><span class="arrow">→</span>
+              <span class="step">写入日报 ai-news-digest.md</span><span class="arrow">→</span>
+              <span class="step cmd">归档打包 tar -czf …</span>
+            </div>
+          </div>
+          <div class="state-label">正文（注意力所在）</div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下：<b>英伟达「换帅风波」</b>持续发酵，黄仁勋卸职……</div>
+        </div>
+      </div>
+      <div class="annot">
+        收起态是一个<b>淡底小胶囊</b>（绿勾 + 完成态），存在感像系统标签；<br>
+        展开态整个过程是<b>一句连贯小字</b>，动作词虚线下划线可点击展开详情。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 方案三：状态行外壳 + 分段文字 ══ -->
+  <div>
+    <div class="col-tag"><b>方案三</b> · 状态行收起 + 分段文字展开——最小改动派，展开像笔记</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
+          <div class="state-label">收起态</div>
+          <div class="f3-shell" onclick="toggle(this, 'f3-body-1')"><span class="dot">✓</span><b>已完成</b><span class="dur">110.6s</span></div>
+          <div class="f3-body" id="f3-body-1" hidden>
+            <div class="f3-step"><span class="head think">思考了 4 段（1045 字）</span>——分析新闻源、规划日报结构、检查产物</div>
+            <div class="f3-step">一次调用 2 个工具：<span class="head">生成图表</span>「新闻源缓存文件大小对比」、<span class="head">写入 output/report.md</span></div>
+            <div class="f3-step">清理缓存：<span class="cmd">rm -f hn.json jiqizhixin.xml …</span> <span class="more">详情</span></div>
+            <div class="f3-step">写入日报 <span class="head">output/ai-news-digest-2026-11-16.md</span></div>
+            <div class="f3-step">归档打包：<span class="cmd">tar -czf session-archive.tgz</span> <span class="more">详情</span></div>
+          </div>
+          <div class="state-label">正文（注意力所在）</div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下：<b>英伟达「换帅风波」</b>持续发酵，黄仁勋卸职……</div>
+        </div>
+      </div>
+      <div class="annot">
+        收起态保留<b>勾点状态行</b>（主人最早认可的语言）；<br>
+        展开态是<b>分段自然文字</b>——无图标列无等高行，虚线分隔像笔记。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <b>两态关系</b>：收起态承担「不抢正文」（方案一脚注最轻 &lt; 方案二胶囊 &lt; 方案三状态行）；展开态承担「快速理解过程」（方案一统计型 / 方案二一句话 / 方案三笔记型）。<span class="indigo">三案可交叉组合</span>——比如「方案一脚注收起 + 方案三分段展开」。主人点栏内外壳行感受收起↔展开切换，选一个组合喵。
+</div>
+
+<script>
+function toggle(shell, id) {
+  const body = document.getElementById(id);
+  if (!body) return;
+  body.hidden = !body.hidden;
+  const label = shell.textContent.includes('展开') ? shell.textContent.replace('展开 ↓', '收起 ↑') : shell.textContent.replace('收起 ↑', '展开 ↓');
+  if (shell.classList.contains('f1-shell')) shell.innerHTML = label;
+}
+</script>
+
+</body>
+</html>

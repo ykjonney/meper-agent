@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Flow · Code Atlas</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #030711; --panel: #0a1120; --panel-2: #0d1526; --line: #16213a;
+    --ink: #e2e8f0; --muted: #64748b; --faint: #334155; --brand: #38bdf8;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK SC', 'PingFang SC', monospace;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── 顶栏 ── */
+  header { display: flex; align-items: center; gap: 14px; padding: 0 20px; height: 52px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #0a1322, #060d1a); flex-shrink: 0; }
+  .brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+  .brand .mark { width: 22px; height: 22px; border-radius: 6px; background: conic-gradient(from 210deg, #38bdf8, #818cf8, #34d399, #38bdf8); box-shadow: 0 0 12px rgba(56, 189, 248, .35); }
+  .brand h1 { font-size: 14px; font-weight: 650; letter-spacing: -0.02em; color: #f1f5f9; }
+  .brand .sub { font-size: 11px; color: var(--muted); margin-left: 2px; letter-spacing: -0.01em; }
+  #crumbs { display: flex; align-items: center; gap: 6px; font-size: 12px; overflow-x: auto; white-space: nowrap; flex: 1; min-width: 0; scrollbar-width: none; }
+  #crumbs::-webkit-scrollbar { display: none; }
+  .crumb { color: var(--muted); cursor: pointer; padding: 4px 10px; border-radius: 7px; border: 1px solid transparent; transition: all .15s; }
+  .crumb:hover { color: var(--ink); border-color: var(--line); background: var(--panel-2); }
+  .crumb.cur { color: #f1f5f9; font-weight: 600; cursor: default; background: color-mix(in srgb, var(--brand) 10%, transparent); border-color: color-mix(in srgb, var(--brand) 25%, transparent); }
+  .csep { color: var(--faint); font-size: 11px; }
+  #back { font-size: 12px; padding: 5px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: #cbd5e1; cursor: pointer; transition: all .15s; flex-shrink: 0; }
+  #back:hover:not(:disabled) { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); color: #f1f5f9; box-shadow: 0 0 10px rgba(56, 189, 248, .15); }
+  #back:disabled { opacity: .3; cursor: default; }
+
+  /* ── 主区 ── */
+  #main { flex: 1; display: flex; min-height: 0; }
+  #stageWrap { flex: 1; overflow: auto; position: relative; background: var(--bg); }
+  #stage { display: block; }
+  /* 入场动画放在 HTML 容器上——SVG g 上的 CSS transform 会干扰
+     foreignObject 的 CDP 命中检测（可点击性判定挂起） */
+  .anim { animation: enter .24s cubic-bezier(.2,.7,.3,1); }
+  @keyframes enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+  /* ── 节点卡 ── */
+  .node { position: relative; width: 202px; height: 78px; border-radius: 12px;
+    background: linear-gradient(180deg, rgba(148,163,184,.06), rgba(148,163,184,0) 60%), var(--panel-2);
+    border: 1px solid color-mix(in srgb, var(--kc) 24%, var(--line));
+    padding: 11px 12px; display: flex; flex-direction: column; gap: 5px; overflow: hidden;
+    transition: border-color .15s, box-shadow .15s; }
+  .node .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .node .chip { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--kc); background: color-mix(in srgb, var(--kc) 12%, transparent); border: 1px solid color-mix(in srgb, var(--kc) 26%, transparent); }
+  .node .chip svg { width: 12px; height: 12px; }
+  .node .nm { font-size: 13px; font-weight: 640; letter-spacing: -0.015em; color: #f1f5f9; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node .kd { margin-left: auto; flex-shrink: 0; font-family: var(--mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--kc) 75%, #94a3b8); }
+  .node .sm { font-size: 10.5px; line-height: 1.45; color: #7d8aa0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .node .dz { position: absolute; right: 9px; bottom: 8px; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 6px;
+    color: var(--kc); background: color-mix(in srgb, var(--kc) 14%, transparent); opacity: .85; }
+  .node .dz svg { width: 10px; height: 10px; }
+  .node.drill { cursor: pointer; }
+  .node.drill:hover { border-color: color-mix(in srgb, var(--kc) 62%, var(--line));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--kc) 30%, transparent), 0 0 20px color-mix(in srgb, var(--kc) 22%, transparent); }
+  .node.drill:hover .nm { color: #fff; }
+
+  /* ── 细节面板 ── */
+  #side { width: 348px; border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 18px; flex-shrink: 0; }
+  #side::-webkit-scrollbar { width: 8px; } #side::-webkit-scrollbar-thumb { background: #1c2942; border-radius: 4px; }
+  #side h3 { font-size: 13px; font-weight: 650; letter-spacing: -0.015em; color: #f1f5f9; }
+  #side .lsub { font-size: 10px; color: var(--muted); margin: 2px 0 14px; font-family: var(--mono); }
+  #side .sect { font-size: 9px; color: var(--muted); font-weight: 700; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .14em; display: flex; align-items: center; gap: 6px; }
+  #side .sect::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  #side .dsum { font-size: 11.5px; color: #a8b6c8; line-height: 1.65; }
+  #side .file { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10px; color: #7dd3fc; padding: 5px 9px; margin: 3px 0; border-radius: 7px; background: rgba(56,189,248,.06); border: 1px solid rgba(56,189,248,.14); word-break: break-all; }
+  #side .fn { padding: 8px 10px; margin: 4px 0; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); transition: border-color .15s; }
+  #side .fn:hover { border-color: #26375a; }
+  #side .fn .hd { display: flex; align-items: baseline; gap: 8px; }
+  #side .fn .nm { font-family: var(--mono); font-size: 11px; font-weight: 600; color: #e2e8f0; letter-spacing: -0.01em; word-break: break-all; }
+  #side .fn .fl { font-family: var(--mono); font-size: 9.5px; color: #7dd3fc; opacity: .85; margin-top: 3px; word-break: break-all; }
+  #side .fn .ds { font-size: 10.5px; color: #8b99ad; line-height: 1.5; margin-top: 4px; }
+  #side .empty { font-size: 11px; color: var(--faint); font-style: italic; padding: 8px 0; }
+  #side .hint { margin-top: 16px; font-size: 9.5px; color: var(--faint); line-height: 1.6; font-family: var(--mono); }
+  @media (max-width: 960px) { #side { display: none; } }
+
+  /* ── 图例 ── */
+  .legend { display: flex; gap: 14px; padding: 8px 20px; border-top: 1px solid var(--line); background: #060d1a; font-size: 10px; color: var(--muted); flex-shrink: 0; align-items: center; }
+  .legend .it { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); }
+  .legend .dot { width: 8px; height: 8px; border-radius: 3px; box-shadow: 0 0 6px color-mix(in srgb, currentColor 60%, transparent); }
+  .legend .tip { margin-left: auto; color: var(--faint); }
+  .legend .tip b { color: #7d8aa0; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span><h1>Agent Flow</h1><span class="sub">AI Agent 编排与自动化平台 · 三层可下钻架构图集</span></div>
+  <div id="crumbs"></div>
+  <button id="back" title="返回上一层 (Esc)">← 返回</button>
+</header>
+<div id="main">
+  <div id="stageWrap"><div id="stageBox" class="anim"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+  <aside id="side"></aside>
+</div>
+<div class="legend" id="legend"></div>
+<script>
+const ATLAS = {"title":"Agent Flow","subtitle":"AI Agent 编排与自动化平台 · 三层可下钻架构图集","rootId":"root","layers":{"root":{"id":"root","title":"整体架构","nodes":[{"id":"studio","label":"Studio 前端","kind":"frontend","summary":"工作流编辑器（React Flow）+ 管理端"},{"id":"client","label":"Client 前端","kind":"frontend","summary":"终端用户对话客户端（antd + @ant-design/x）"},{"id":"backend","label":"Backend","kind":"backend","summary":"FastAPI + 双引擎（自研 DAG + agent 编排）","child":"backend-layer"},{"id":"harness","label":"Harness 引擎库","kind":"lib","summary":"agent-flow-harness：可独立发布的 LangGraph REACT 库","child":"harness-layer"},{"id":"mongo","label":"MongoDB","kind":"database","summary":"sessions/messages/tasks/checkpoints"},{"id":"sandbox","label":"Sandbox","kind":"external","summary":"bash 工具沙盒镜像（未构建则回退 subprocess）"}],"edges":[{"from":"studio","to":"backend","label":"REST/SSE"},{"from":"client","to":"backend","label":"REST/SSE（含 ext API）"},{"from":"backend","to":"harness","label":"进程内适配调用"},{"from":"backend","to":"mongo","label":"Motor 读写"},{"from":"harness","to":"mongo","label":"checkpointer"},{"from":"backend","to":"sandbox","label":"bash 隔离执行"}],"details":{"summary":"双前端共用一个 FastAPI 后端；工作流是自研 DAG，每个 agent 节点内部跑 harness 的 LangGraph REACT 循环。分层铁律：api → services → engine/db。","files":["AGENTS.md","docs/PERMISSIONS.md","Makefile"]},"w":660,"h":674,"pos":{"studio":{"x":64,"y":64},"client":{"x":388,"y":64},"backend":{"x":226,"y":218},"harness":{"x":64,"y":372},"sandbox":{"x":388,"y":372},"mongo":{"x":226,"y":526}}},"backend-layer":{"id":"backend-layer","title":"Backend 内部","nodes":[{"id":"api","label":"API 层","kind":"service","summary":"app/api/v1/（ext/ 为外部终端用户 API），不直接操作 db"},{"id":"services","label":"Services","kind":"service","summary":"业务逻辑层（会话/执行编排/文件/任务）"},{"id":"agent-stack","label":"Agent 编排栈","kind":"backend","summary":"prompt 装配 + 工具解析 + 执行适配","child":"agent-layer"},{"id":"wf-engine","label":"工作流引擎","kind":"backend","summary":"自研 DAG：节点执行/校验/变量池","child":"wf-layer"},{"id":"integration","label":"Harness 适配层","kind":"service","summary":"app ↔ harness：上下文装配/事件流适配"},{"id":"workers","label":"Celery Workers","kind":"queue","summary":"工作流执行 + human 节点超时扫描"}],"edges":[{"from":"api","to":"services","label":"分层调用"},{"from":"services","to":"agent-stack","label":"chat 执行"},{"from":"services","to":"wf-engine","label":"任务编排"},{"from":"workers","to":"wf-engine","label":"run_and_persist"},{"from":"wf-engine","to":"integration","label":"agent 节点内跑 REACT"},{"from":"agent-stack","to":"integration","label":"上下文/执行适配"}],"details":{"summary":"chat 与 workflow 共享 agent 编排栈；执行上下文 execution_context=chat|workflow 决定工具集（workflow 剥离 ask_clarification、注入 abort_workflow）。","files":["backend/app/api/v1/agents.py","backend/app/services/agent_execution_service.py"],"functions":[{"name":"resume_agent（API）","file":"backend/app/api/v1/agents.py:440","desc":"恢复 interrupt 挂起的 agent（SSE）"},{"name":"dismiss_interrupt（API）","file":"backend/app/api/v1/agents.py:476","desc":"忽略待答澄清卡片（不恢复执行）"},{"name":"AgentExecutionService.resume","file":"backend/app/services/agent_execution_service.py:311","desc":"resume 编排：Command(resume=answer) 续接 graph"}]},"w":660,"h":674,"pos":{"api":{"x":64,"y":64},"workers":{"x":388,"y":64},"services":{"x":226,"y":218},"agent-stack":{"x":64,"y":372},"wf-engine":{"x":388,"y":372},"integration":{"x":226,"y":526}}},"harness-layer":{"id":"harness-layer","title":"Harness 库内部","nodes":[{"id":"graph","label":"Graph 构建/运行","kind":"lib","summary":"compress → llm → tools 循环图 + 运行配置"},{"id":"llm","label":"LLM 适配","kind":"lib","summary":"openai/anthropic 兼容构造 + thinking 开关"},{"id":"tools","label":"内置工具注册表","kind":"lib","summary":"builtin tools（含按上下文剥离/注入）"},{"id":"interaction","label":"HITL 交互","kind":"lib","summary":"ask_clarification：interrupt 挂起等答案"},{"id":"ctx-eng","label":"上下文工程","kind":"lib","summary":"压缩/孤儿工具调用配对/工具输出引用"}],"edges":[{"from":"graph","to":"llm","label":"模型调用"},{"from":"graph","to":"tools","label":"工具执行"},{"from":"graph","to":"ctx-eng","label":"压缩/配对"},{"from":"tools","to":"interaction","label":"注册 HITL 工具"}],"details":{"summary":"可独立发布的库（editable 安装，backend 改它即时生效）；禁止在 harness 里 import app.*。改动需跑 packages/harness/tests/。","files":["backend/packages/harness/README.md"],"functions":[{"name":"build_agent_graph","file":"backend/packages/harness/src/agent_flow_harness/graph/builder.py:53","desc":"组装 REACT 循环图（native ToolNode）"},{"name":"build_config","file":"backend/packages/harness/src/agent_flow_harness/graph/runner.py:62","desc":"thread_id/checkpointer/压缩阈值等运行配置"},{"name":"build_thinking_kwargs","file":"backend/packages/harness/src/agent_flow_harness/llm/thinking.py:93","desc":"按厂商构造 thinking 开关参数"},{"name":"_ask_clarification","file":"backend/packages/harness/src/agent_flow_harness/interaction/clarification.py:120","desc":"直调 interrupt() 挂起 graph，resume 值即答案"}]},"w":984,"h":520,"pos":{"graph":{"x":388,"y":64},"llm":{"x":64,"y":218},"tools":{"x":388,"y":218},"ctx-eng":{"x":712,"y":218},"interaction":{"x":388,"y":372}}},"agent-layer":{"id":"agent-layer","title":"Agent 编排内部","nodes":[{"id":"aess","label":"执行服务","kind":"service","summary":"agent_execution_service：会话/SSE/持久化"},{"id":"execution","label":"执行适配","kind":"service","summary":"harness_integration/execution：invoke/stream/resume"},{"id":"ctx","label":"上下文装配","kind":"service","summary":"context.py：工具解析单一事实源"},{"id":"builder","label":"Prompt 装配","kind":"lib","summary":"builder.py：5 卡槽 + Output Contract + 自主执行段"},{"id":"wftools","label":"任务工具","kind":"lib","summary":"confirm/dispatch/abort_workflow（chat 上下文）"}],"edges":[{"from":"aess","to":"execution","label":"invoke/resume"},{"from":"execution","to":"ctx","label":"上下文装配"},{"from":"ctx","to":"builder","label":"prompt 装配"},{"from":"ctx","to":"wftools","label":"按上下文注入/剥离"}],"details":{"summary":"context.py 的 _INJECTED_BUILTIN_TOOL_NAMES 与 /api/v1/tools/builtin 共用，防双路径漂移；工具声明必须与运行时工具集一致。","files":["backend/app/engine/harness_integration/context.py","backend/app/engine/harness_integration/execution.py","backend/app/engine/agent/builder.py"],"functions":[{"name":"resolve_harness_context","file":"backend/app/engine/harness_integration/context.py:431","desc":"解析 agent 文档 → 工具/LLM/中间件集合"},{"name":"stream / resume（适配）","file":"backend/app/engine/harness_integration/execution.py:98","desc":"astream_events → SSE 事件流；resume 同文件 :314"},{"name":"_build_autonomous_execution_section","file":"backend/app/engine/agent/builder.py:554","desc":"workflow 无人值守规则（禁反问/abort 诚实终止）"},{"name":"_build_output_contract_section","file":"backend/app/engine/agent/builder.py:594","desc":"response 结构契约段（违规反馈重试）"},{"name":"dispatch_workflow / abort_workflow","file":"backend/app/engine/agent/workflow_executor.py:329","desc":"建任务派发 / 诚实终止（同文件 :427）"}]},"w":660,"h":674,"pos":{"aess":{"x":226,"y":64},"execution":{"x":226,"y":218},"ctx":{"x":226,"y":372},"builder":{"x":64,"y":526},"wftools":{"x":388,"y":526}}},"wf-layer":{"id":"wf-layer","title":"工作流引擎内部","nodes":[{"id":"engine","label":"DAG 执行循环","kind":"backend","summary":"engine.py：start 唯一/递归执行/暂停恢复"},{"id":"node-exec","label":"节点执行器","kind":"backend","summary":"node_executor.py：agent/tool/gateway/parallel…"},{"id":"validator","label":"静态校验","kind":"lib","summary":"环/悬空 target/唯一 start/schema 契约"},{"id":"varpool","label":"变量池 + 表达式","kind":"lib","summary":"{{node.field}} 解析与写入"},{"id":"human","label":"人工审批节点","kind":"service","summary":"唯一合法暂停点 → WAITING_HUMAN"}],"edges":[{"from":"engine","to":"validator","label":"执行前校验"},{"from":"engine","to":"node-exec","label":"逐节点执行"},{"from":"node-exec","to":"varpool","label":"解析/写入"},{"from":"node-exec","to":"human","label":"暂停等审批"}],"details":{"summary":"agent 节点输出契约 v3：固定字段 {response, agent_id, files, usage}；abort 两出口（失败 / insufficient_branch 路由）。校验码见 docs/workflow-validator.md。","files":["backend/app/engine/workflow/engine.py","backend/app/engine/workflow/node_executor.py","docs/workflow-validator.md"],"functions":[{"name":"execute_task","file":"backend/app/engine/workflow/engine.py:203","desc":"DAG 执行主入口（只执行第一个 start）"},{"name":"_execute_node","file":"backend/app/engine/workflow/engine.py:734","desc":"单节点执行 + 递归下游（幂等去重）"},{"name":"AgentNodeExecutor.execute","file":"backend/app/engine/workflow/node_executor.py:404","desc":"agent 节点：契约注入/abort 检测/输出装配"},{"name":"_find_abort_request","file":"backend/app/engine/workflow/node_executor.py:921","desc":"扫描已执行的 abort_workflow tool_call（确定性信号）"},{"name":"_parse_structured_output","file":"backend/app/engine/workflow/node_executor.py:964","desc":"response 契约校验（违规反馈重试一轮）"},{"name":"_check_dag_structure","file":"backend/app/engine/workflow/validator.py:273","desc":"start 唯一/环/悬空 target 检查"},{"name":"HumanNodeExecutor","file":"backend/app/engine/workflow/nodes/human.py:20","desc":"解析标题/内容变量 → checkpoint.human_context"}]},"w":660,"h":520,"pos":{"engine":{"x":226,"y":64},"node-exec":{"x":64,"y":218},"validator":{"x":388,"y":218},"varpool":{"x":64,"y":372},"human":{"x":388,"y":372}}}},"kindColor":{"frontend":"#60a5fa","backend":"#5eead4","service":"#67e8f9","database":"#fbbf24","storage":"#4ade80","queue":"#f87171","external":"#94a3b8","lib":"#c4b5fd"},"kindLabel":{"frontend":"前端","backend":"后端","service":"服务","database":"数据库","storage":"存储","queue":"异步","external":"外部","lib":"库"},"kindIcon":{"frontend":"<rect x=\"3\" y=\"4\" width=\"18\" height=\"12\" rx=\"2\"/><path d=\"M9 20h6M12 16v4\"/>","backend":"<rect x=\"3\" y=\"4\" width=\"18\" height=\"7\" rx=\"2\"/><rect x=\"3\" y=\"13\" width=\"18\" height=\"7\" rx=\"2\"/><path d=\"M7 7.5h.01M7 16.5h.01\"/>","service":"<path d=\"M21 8v8l-9 5-9-5V8l9-5 9 5z\"/><path d=\"M3 8l9 5 9-5M12 13v8\"/>","database":"<ellipse cx=\"12\" cy=\"5\" rx=\"8\" ry=\"3\"/><path d=\"M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5\"/>","storage":"<path d=\"M22 12H2\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M6 16h.01M10 16h.01\"/>","queue":"<polygon points=\"13 2 3 14 12 14 11 22 21 10 12 10 13 2\"/>","external":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18\"/>","lib":"<path d=\"M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z\"/><path d=\"M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5\"/>"}};
+const SVGNS = 'http://www.w3.org/2000/svg';
+const BOX_W = 208, BOX_H = 84;
+let stack = [ATLAS.rootId];
+
+const stage = document.getElementById('stage');
+const wrap = document.getElementById('stageWrap');
+const crumbs = document.getElementById('crumbs');
+const side = document.getElementById('side');
+const backBtn = document.getElementById('back');
+
+const cur = () => ATLAS.layers[stack[stack.length - 1]];
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function hexA(hex, a) {
+  const h = hex.replace('#','');
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+
+/* 正交圆角连线：右出左入，mid 垂直段，圆角 r */
+function orthPath(x1, y1, x2, y2, r = 10) {
+  if (Math.abs(y1 - y2) < 1) return 'M' + x1 + ',' + y1 + ' L' + (x2 - 6) + ',' + y2;
+  const mx = (x1 + x2) / 2, sy = y2 > y1 ? 1 : -1;
+  return 'M' + x1 + ',' + y1 +
+    ' L' + (mx - r) + ',' + y1 +
+    ' Q' + mx + ',' + y1 + ' ' + mx + ',' + (y1 + sy * r) +
+    ' L' + mx + ',' + (y2 - sy * r) +
+    ' Q' + mx + ',' + y2 + ' ' + (mx + r) + ',' + y2 +
+    ' L' + (x2 - 6) + ',' + y2;
+}
+
+function renderCrumbs() {
+  crumbs.innerHTML = '';
+  stack.forEach((lid, i) => {
+    const l = ATLAS.layers[lid];
+    const s = document.createElement('span');
+    s.className = 'crumb' + (i === stack.length - 1 ? ' cur' : '');
+    s.textContent = l.title || lid;
+    if (i < stack.length - 1) s.onclick = () => { stack = stack.slice(0, i + 1); render(); };
+    crumbs.appendChild(s);
+    if (i < stack.length - 1) {
+      const sep = document.createElement('span'); sep.className = 'csep'; sep.textContent = '›';
+      crumbs.appendChild(sep);
+    }
+  });
+  backBtn.disabled = stack.length === 1;
+}
+
+function renderSide() {
+  const d = cur().details;
+  if (!d) {
+    side.innerHTML = '<h3>' + esc(cur().title) + '</h3><div class="lsub">DETAILS</div>' +
+      '<div class="empty">本层无细节面板</div>' +
+      '<div class="hint">点击带 ⤷ 角标的模块进入其内部世界\nEsc / 面包屑可返回外层</div>';
+    return;
+  }
+  let h = '<h3>' + esc(cur().title) + '</h3><div class="lsub">DETAILS</div>';
+  if (d.summary) h += '<div class="sect">说明</div><div class="dsum">' + esc(d.summary) + '</div>';
+  if (d.files?.length) {
+    h += '<div class="sect">关键文件</div>';
+    for (const f of d.files) h += '<div class="file">' + esc(f) + '</div>';
+  }
+  if (d.functions?.length) {
+    h += '<div class="sect">关键函数</div>';
+    for (const fn of d.functions) {
+      h += '<div class="fn"><div class="hd"><span class="nm">' + esc(fn.name) + '</span></div>' +
+           (fn.file ? '<div class="fl">' + esc(fn.file) + '</div>' : '') +
+           (fn.desc ? '<div class="ds">' + esc(fn.desc) + '</div>' : '') + '</div>';
+    }
+  }
+  h += '<div class="hint">file:line 来自代码库实读</div>';
+  side.innerHTML = h;
+}
+
+function render() {
+  const layer = cur();
+  stage.innerHTML = '';
+  stage.setAttribute('width', layer.w);
+  stage.setAttribute('height', layer.h);
+  stage.setAttribute('viewBox', '0 0 ' + layer.w + ' ' + layer.h);
+
+  const defs = el('defs', {}, stage);
+  /* 点阵网格底 */
+  const pat = el('pattern', { id: 'dots', width: 26, height: 26, patternUnits: 'userSpaceOnUse' }, defs);
+  el('circle', { cx: 1.2, cy: 1.2, r: 1, fill: '#13203a' }, pat);
+  const mk = el('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 8.5, refY: 5, markerWidth: 7.5, markerHeight: 7.5, orient: 'auto-start-reverse' }, defs);
+  el('path', { d: 'M0,1.5 L9,5 L0,8.5 z', fill: 'context-stroke' }, mk);
+
+  el('rect', { width: layer.w, height: layer.h, fill: 'url(#dots)' }, stage);
+  const g = el('g', {}, stage);
+  /* 重启容器入场动画（层切换时） */
+  const box = document.getElementById('stageBox');
+  box.classList.remove('anim'); void box.offsetWidth; box.classList.add('anim');
+
+  /* 连线（先线后框） */
+  for (const e of layer.edges ?? []) {
+    const a = layer.pos[e.from], b = layer.pos[e.to];
+    if (!a || !b) continue;
+    const kc = ATLAS.kindColor[(layer.nodes.find(n => n.id === e.from) || {}).kind] || '#94a3b8';
+    const x1 = a.x + BOX_W, y1 = a.y + BOX_H / 2, x2 = b.x, y2 = b.y + BOX_H / 2;
+    const grp = el('g', {}, g);
+    el('path', { d: orthPath(x1, y1, x2, y2), fill: 'none', stroke: hexA(kc, .42), 'stroke-width': 1.5, 'marker-end': 'url(#arr)' }, grp);
+    if (e.label) {
+      const t = el('text', { 'font-family': 'JetBrains Mono, ui-monospace, Menlo, monospace', 'font-size': 9.5, fill: '#7d8aa0', 'text-anchor': 'middle' }, grp);
+      t.textContent = e.label;
+      const mx = (x1 + x2) / 2, my = (Math.abs(y1 - y2) < 1 ? y1 : (y1 + y2) / 2) - 14;
+      t.setAttribute('x', mx); t.setAttribute('y', my + 3);
+      t.setAttribute('paint-order', 'stroke'); t.setAttribute('stroke', '#070d1a'); t.setAttribute('stroke-width', 4);
+      const wpx = t.getComputedTextLength() + 14;
+      el('rect', { x: mx - wpx / 2, y: my - 7.5, width: wpx, height: 15, rx: 7.5, fill: '#0a1322', stroke: hexA(kc, .25), 'stroke-width': 1 }, grp);
+      grp.appendChild(t);
+    }
+  }
+
+  /* 节点框 */
+  for (const n of layer.nodes ?? []) {
+    const p = layer.pos[n.id];
+    const kc = ATLAS.kindColor[n.kind] || '#94a3b8';
+    const fo = el('foreignObject', { x: p.x + 3, y: p.y + 3, width: BOX_W - 6, height: BOX_H - 6 }, g);
+    const div = document.createElement('div');
+    div.className = 'node' + (n.child ? ' drill' : '');
+    div.style.setProperty('--kc', kc);
+    div.innerHTML =
+      '<div class="top"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ATLAS.kindIcon[n.kind] || '') + '</svg></span>' +
+      '<span class="nm">' + esc(n.label) + '</span>' +
+      '<span class="kd">' + esc(ATLAS.kindLabel[n.kind] || n.kind || '') + '</span></div>' +
+      (n.summary ? '<div class="sm">' + esc(n.summary) + '</div>' : '<div class="sm" style="opacity:.35">—</div>') +
+      (n.child ? '<span class="dz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></span>' : '');
+    fo.appendChild(div);
+    /* SVG 原生点击热区：foreignObject 内部对 CDP 命中检测/可访问性树不可达，
+       热区 rect 让节点可被自动化点击、键盘聚焦（Enter 下钻）。 */
+    if (n.child) {
+      const drill = () => { stack.push(n.child); render(); wrap.scrollTo(0, 0); };
+      const hit = el('rect', {
+        class: 'node-hit', 'data-drill': n.child, 'aria-label': n.label,
+        x: p.x + 3, y: p.y + 3, width: BOX_W - 6, height: BOX_H - 6, rx: 12,
+        fill: 'transparent', tabindex: 0, role: 'button',
+      }, g);
+      hit.addEventListener('click', drill);
+      hit.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); drill(); } });
+    }
+  }
+
+  renderCrumbs();
+  renderSide();
+}
+
+function up() { if (stack.length > 1) { stack.pop(); render(); } }
+backBtn.onclick = up;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') up(); });
+
+/* 图例（按图内实际出现的 kind） */
+const used = new Set();
+for (const l of Object.values(ATLAS.layers)) for (const n of l.nodes ?? []) used.add(n.kind);
+const legend = document.getElementById('legend');
+for (const k of used) {
+  const it = document.createElement('span');
+  it.className = 'it';
+  const c = ATLAS.kindColor[k] || '#94a3b8';
+  it.innerHTML = '<span class="dot" style="color:' + c + '; background:' + c + '"></span>' + esc(ATLAS.kindLabel[k] || k);
+  legend.appendChild(it);
+}
+const tip = document.createElement('span');
+tip.className = 'tip';
+tip.innerHTML = '<b>⤷</b> 可下钻 · <b>Esc</b> 返回';
+legend.appendChild(tip);
+
+render();
+</script>
+</body>
+</html>

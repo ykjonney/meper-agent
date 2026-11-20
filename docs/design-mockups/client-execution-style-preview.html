@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>执行过程 · 两种样式预览（可点击）</title>
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 32px 36px 50px; }
+
+  .spec-bar { max-width: 1440px; margin: 0 auto 22px; display: flex; align-items: baseline; gap: 16px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 22px; font-style: italic; }
+  .spec-bar .note { font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+  .col-tag b { color: var(--indigo); }
+
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 8px 13px; font-size: 12.5px; }
+  .write { font-size: 13px; line-height: 1.7; color: var(--ink); }
+  .write b { color: var(--indigo-deep); }
+
+  /* ═══ 共用行语义 ══ */
+  .shell-row, .pg-row, .tool-row, .think-row { display: flex; align-items: center; gap: 8px; font-size: 12px; border-radius: 8px; }
+  .dot { width: 15px; height: 15px; border-radius: 50%; background: var(--paper-deep); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
+  .dot .spin { width: 9px; height: 9px; border: 1.5px solid var(--indigo); border-top-color: transparent; border-radius: 50%; animation: rot .9s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .t { color: var(--ink); font-weight: 600; }
+  .seg { color: var(--ink-soft); }
+  .mono-dur { margin-left: auto; color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+  .cur { color: var(--indigo-deep); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .cur .arg { color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; }
+  .cmd { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .cmd .vv { color: var(--ink); }
+
+  /* ═══ 方案 A：引导线式（无框 · 左竖线缩进）═══ */
+  .a-shell { padding: 7px 10px; cursor: pointer; }
+  .a-shell:hover { background: var(--paper-deep); }
+  .a-body { margin: 2px 0 4px 11px; padding-left: 14px; border-left: 2px solid var(--line-strong); display: flex; flex-direction: column; gap: 2px; }
+  .a-pg { padding: 6px 10px; cursor: pointer; }
+  .a-pg:hover { background: var(--paper-deep); }
+  .a-pg .t { font-weight: 600; }
+  .a-detail { margin: 2px 0 4px 11px; padding-left: 14px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+  .a-row { padding: 4px 8px; font-size: 11.5px; color: var(--ink-soft); }
+  .a-row .think-cnt { color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+  .a-text { padding: 2px 0 4px 24px; font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
+
+  /* ═══ 方案 B：淡底色块式（无框 · 区域底色）═══ */
+  .b-shell { padding: 7px 10px; cursor: pointer; }
+  .b-shell:hover { background: var(--paper-deep); }
+  .b-body { margin-top: 2px; background: color-mix(in srgb, var(--paper-deep) 55%, transparent); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .b-pg { padding: 6px 8px; cursor: pointer; border-radius: 8px; }
+  .b-pg:hover { background: var(--panel); }
+  .b-pg .t { font-weight: 600; }
+  .b-detail { margin: 2px 0 4px 6px; padding: 4px 8px; border-left: 2px solid var(--line-strong); display: flex; flex-direction: column; gap: 2px; }
+  .b-row { padding: 4px 8px; font-size: 11.5px; color: var(--ink-soft); }
+  .b-row .think-cnt { color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+  .b-text { padding: 4px 8px; font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
+
+  .annot { margin-top: 10px; font-size: 11px; line-height: 1.85; color: var(--ink-soft); }
+  .annot b { color: var(--indigo-deep); }
+
+  .rules { max-width: 1440px; margin: 24px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 24px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .rules b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>执行过程 · 两种无框样式预览</h1>
+  <span class="note">点击行可展开/收起（活样式）· 内容相同，只有皮肤不同</span>
+</div>
+
+<div class="scene">
+
+  <!-- ══ 方案 A：引导线式 ══ -->
+  <div>
+    <div class="col-tag"><b>样式 A</b> · 引导线式——无框，左竖线表达层级（Manus/Claude 同族）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+          <!-- 外壳行（收起态示意） -->
+          <div class="shell-row a-shell">
+            <span class="dot">✓</span>
+            <span class="t">已完成</span>
+            <span class="seg">· 执行了 3 个工具</span>
+            <span class="mono-dur">16.4s</span>
+          </div>
+          <!-- 展开态 -->
+          <div class="shell-row a-shell">
+            <span class="dot">✓</span>
+            <span class="t">已完成</span>
+            <span class="seg">· 执行了 3 个工具</span>
+            <span class="mono-dur">16.4s</span>
+          </div>
+          <div class="a-body">
+            <div class="a-pg shell-row" onclick="this.nextElementSibling.hidden = !this.nextElementSibling.hidden">
+              <span class="dot">✓</span>
+              <span class="t">执行了 2 个工具</span>
+              <span class="mono-dur">0.6s</span>
+            </div>
+            <div class="a-detail">
+              <div class="a-row think-row">▸ 思考过程 <span class="think-cnt">195 字 · 2.1s</span></div>
+              <div class="a-row tool-row"><span class="cmd"><span class="vv">执行命令</span> git status --short</span><span class="mono-dur">0.4s</span></div>
+              <div class="a-row tool-row"><span class="cmd"><span class="vv">加载技能</span> 设备告警处理</span><span class="mono-dur">0.2s</span></div>
+            </div>
+            <div class="a-text">查到 2 条严重告警，我先处理 ALM-20251（3 号产线温度超限）。</div>
+            <div class="a-pg shell-row">
+              <span class="dot">✓</span>
+              <span class="t">执行了 1 个工具</span>
+              <span class="mono-dur">1.1s</span>
+            </div>
+            <div class="a-text">处理完毕，验证通过并关单。</div>
+          </div>
+          <div class="write">已处理完毕：ALM-20251 复位成功，验证通过并关单。<br>剩余 1 条告警需要人工确认。</div>
+        </div>
+      </div>
+      <!-- 执行中态示意 -->
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="shell-row a-shell" style="flex: 1;">
+          <span class="dot run"><span class="spin"></span></span>
+          <span class="t" style="color: var(--indigo);">思考中</span>
+          <span class="cur">128 字…</span>
+        </div>
+      </div>
+      <div class="annot">
+        无任何框与底色块——层级靠<b>左竖引导线 + 缩进</b>；<br>
+        hover 时行才有淡底反馈。最轻，纸感最纯粹。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 方案 B：淡底色块式 ══ -->
+  <div>
+    <div class="col-tag"><b>样式 B</b> · 淡底色块式——无框，展开区一块极淡底（ChatGPT thinking 同族）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+          <div class="shell-row b-shell">
+            <span class="dot">✓</span>
+            <span class="t">已完成</span>
+            <span class="seg">· 执行了 3 个工具</span>
+            <span class="mono-dur">16.4s</span>
+          </div>
+          <div class="shell-row b-shell">
+            <span class="dot">✓</span>
+            <span class="t">已完成</span>
+            <span class="seg">· 执行了 3 个工具</span>
+            <span class="mono-dur">16.4s</span>
+          </div>
+          <div class="b-body">
+            <div class="b-pg shell-row" onclick="this.nextElementSibling.hidden = !this.nextElementSibling.hidden">
+              <span class="dot">✓</span>
+              <span class="t">执行了 2 个工具</span>
+              <span class="mono-dur">0.6s</span>
+            </div>
+            <div class="b-detail">
+              <div class="b-row think-row">▸ 思考过程 <span class="think-cnt">195 字 · 2.1s</span></div>
+              <div class="b-row tool-row"><span class="cmd"><span class="vv">执行命令</span> git status --short</span><span class="mono-dur">0.4s</span></div>
+              <div class="b-row tool-row"><span class="cmd"><span class="vv">加载技能</span> 设备告警处理</span><span class="mono-dur">0.2s</span></div>
+            </div>
+            <div class="b-text">查到 2 条严重告警，我先处理 ALM-20251（3 号产线温度超限）。</div>
+            <div class="b-pg shell-row">
+              <span class="dot">✓</span>
+              <span class="t">执行了 1 个工具</span>
+              <span class="mono-dur">1.1s</span>
+            </div>
+            <div class="b-text">处理完毕，验证通过并关单。</div>
+          </div>
+          <div class="write">已处理完毕：ALM-20251 复位成功，验证通过并关单。<br>剩余 1 条告警需要人工确认。</div>
+        </div>
+      </div>
+      <!-- 执行中态示意 -->
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="shell-row b-shell" style="flex: 1;">
+          <span class="dot run"><span class="spin"></span></span>
+          <span class="t" style="color: var(--indigo);">执行中</span>
+          <span class="cur">加载技能 <span class="arg">设备告警处理</span></span>
+        </div>
+      </div>
+      <div class="annot">
+        展开区是一块<b>极淡底色圆角区</b>（区域感强，一眼看出范围）；<br>
+        内部层级靠缩进与细分隔线；hover 行白底反馈。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <b>共同点</b>：外壳行「✓ 已完成 · 执行了 x 个工具 · 用时」与执行中「思考中/执行中 + 当前功能」形态两案一致；全部<b>去掉卡片边框</b>——执行块不再是「框套框」。<br>
+  <b>差异</b>：A 靠左竖引导线（更轻、纸感纯粹，深层级时引导线嵌套自然）；B 靠淡底色块（区域边界更明确，但多一层底色）。<b>点击行可展开/收起</b>感受交互。
+</div>
+
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>执行过程 v8 · 极简footnote——过程退后，正文为主</title>
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --line: #E5E3DD;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 32px 36px 50px; }
+
+  .spec-bar { max-width: 1360px; margin: 0 auto 22px; display: flex; align-items: baseline; gap: 16px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 22px; font-style: italic; }
+  .spec-bar .note { font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1360px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 480px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 8px 13px; font-size: 12.5px; }
+  .write { font-size: 13px; line-height: 1.75; color: var(--ink); }
+  .write b { color: var(--indigo-deep); }
+
+  /* ═══ v8 极简footnote：过程 = 一行淡灰小字（无框无底无图标堆砌）═══ */
+  /* 执行中：一行动态小字，文字随阶段切换 */
+  .running-line {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--ink-faint);
+    padding: 2px 0;
+  }
+  .running-line .spin {
+    width: 10px; height: 10px; flex-shrink: 0;
+    border: 1.5px solid var(--ink-faint); border-top-color: transparent;
+    border-radius: 50%; animation: rot .9s linear infinite;
+  }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .running-line .phase { color: var(--ink-soft); }
+
+  /* 完成后：footnote 级淡字，点击展开 */
+  .done-line {
+    font-size: 11.5px; color: var(--ink-faint);
+    padding: 2px 0;
+    cursor: pointer;
+  }
+  .done-line:hover { color: var(--ink-soft); }
+
+  /* 展开后的细节：无框，缩进小字列表（同样轻） */
+  .detail-lines { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 4px 2px; }
+  .d-line { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--ink-soft); padding: 2px 0 2px 14px; border-left: 1px solid var(--line); }
+  .d-line .cmd { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .d-line .d { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); flex-shrink: 0; }
+  .d-text { padding: 3px 0 3px 14px; border-left: 1px solid var(--line); font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
+
+  .annot { margin-top: 10px; font-size: 11px; line-height: 1.85; color: var(--ink-soft); }
+  .annot b { color: var(--indigo-deep); }
+
+  .rules { max-width: 1360px; margin: 24px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 24px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .rules b { color: var(--ink); }
+  .rules .indigo { color: var(--indigo); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>执行过程 v8 · 极简 footnote</h1>
+  <span class="note">过程退后，正文为主——过程只是一行淡灰小字</span>
+</div>
+
+<div class="scene">
+
+  <!-- ① 执行中 -->
+  <div>
+    <div class="col-tag">① 执行中 · 一行动态小字（随阶段切换）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="running-line">
+          <span class="spin"></span>
+          <span class="phase">正在查询未关闭告警…</span>
+        </div>
+      </div>
+      <!-- 时间轴：同一行内容切换 -->
+      <div class="running-line" style="opacity:.45; margin-left:33px;">
+        <span class="spin"></span>
+        <span class="phase">思考中 128 字…</span>
+      </div>
+      <div class="running-line" style="opacity:.3; margin-left:33px;">
+        <span class="spin"></span>
+        <span class="phase">正在执行命令 alarm close…</span>
+      </div>
+      <div class="annot">
+        一行淡灰小字（12px faint 色），文字随阶段实时切换：<br>
+        <b>思考中 N 字… → 正在查询告警… → 正在执行命令…</b><br>
+        无框、无底、无图标堆砌——存在但不抢眼。
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 完成后（收起） -->
+  <div>
+    <div class="col-tag">② 完成后 · footnote 级一行（点击展开）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="done-line">已完成 · 16.4s</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="write">已处理完毕：<b>ALM-20251</b> 复位成功，验证通过并关单。剩余 1 条告警需要人工确认。</div>
+      </div>
+      <div class="annot">
+        完成后收缩为 <b>footnote 级一行淡字</b>（11.5px faint）：<br>
+        「已完成 · 16.4s」——视觉重量接近脚注，<b>正文才是主角</b>；<br>
+        想看过程的人点击这行字展开细节。
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 展开细节 -->
+  <div>
+    <div class="col-tag">③ 点击展开 · 无框缩进列表（同样轻）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+          <div class="done-line" style="color: var(--ink-soft);">收起 · 16.4s</div>
+          <div class="detail-lines">
+            <div class="d-line"><span>▸ 思考过程 195 字</span><span class="d">2.1s</span></div>
+            <div class="d-line"><span class="cmd"><b style="color:var(--ink)">执行命令</b> git status --short</span><span class="d">0.4s</span></div>
+            <div class="d-line"><span class="cmd"><b style="color:var(--ink)">加载技能</b> 设备告警处理</span><span class="d">0.2s</span></div>
+            <div class="d-text">查到 2 条严重告警，我先处理 ALM-20251。</div>
+            <div class="d-line"><span class="cmd"><b style="color:var(--ink)">执行命令</b> alarm close --id ALM-20251</span><span class="d">1.1s</span></div>
+          </div>
+          <div class="write">已处理完毕：<b>ALM-20251</b> 复位成功，验证通过并关单。剩余 1 条告警需要人工确认。</div>
+        </div>
+      </div>
+      <div class="annot">
+        展开的细节也<b>保持轻</b>：无边框无底色，<br>
+        只是缩进小字列表 + 左侧细线引导；<br>
+        命令超长省略号截断，每步右侧 mono 耗时。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <b>设计哲学（主人定调）</b>：执行过程<span class="indigo">不是想让用户关注的</span>——用户关注的是正文回复。过程从「结构化卡片」降级为「<b>一行淡灰小字</b>」：执行中一行动态文字、完成后一行 footnote、点击才展开轻量明细。全流程无框、无底、无图标堆砌——视觉重量 90% 留给正文。
+</div>
+
+</body>
+</html>

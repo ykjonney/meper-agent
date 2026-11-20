@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEPER Agent Client · 执行过程 v6（助手产品的过程叙事）</title>
+<style>
+  /* ════════ v6：执行过程专项
+     问题：running 态琥珀大底块 + 双动词冗余 + 命令全文直出 + 无步骤耗时。
+     对照 ChatGPT（极简 chip）/ Claude（Thought for 12s）/ Manus（步骤
+     timeline + 每步耗时）三种主流模式，定出助手产品执行过程的五原则。 ════════ */
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --amber: #B45309;
+    --amber-wash: #FBF3E4;
+    --danger: #D93A3F;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --serif: Georgia, "Songti SC", "STSong", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 36px 40px 60px; }
+
+  .spec-bar { max-width: 1400px; margin: 0 auto 26px; display: flex; align-items: baseline; gap: 18px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 26px; font-style: italic; }
+  .spec-bar .ver { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: .1em; }
+  .spec-bar .note { font-size: 12.5px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1400px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+
+  /* 消息流底（暖纸白）+ avatar 列，还原 client 真实语境 */
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 18px 16px; display: flex; flex-direction: column; gap: 14px; min-height: 560px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; margin-top: 2px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 9px 13px; font-size: 12.5px; line-height: 1.7; }
+  .write { font-size: 13px; line-height: 1.75; color: var(--ink); }
+
+  /* ── 过程卡：三态 ── */
+  .act { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; flex: 1; }
+  .act-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; }
+  .act-head .dot { width: 15px; height: 15px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
+  .act-head .dot.done { background: var(--paper-deep); color: var(--ink-faint); }
+  .act-head .dot.run { background: var(--indigo-wash); color: var(--indigo); }
+  .act-head .dot.run .spin { width: 9px; height: 9px; border: 1.5px solid var(--indigo); border-top-color: transparent; border-radius: 50%; animation: rot 0.9s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .act-head .t { font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+  .act-head .t .dim { color: var(--ink-faint); font-weight: 400; }
+  .act-head .meta { margin-left: auto; color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; white-space: nowrap; }
+  .act-head .cmd { color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; text-align: right; padding-left: 12px; }
+
+  /* 步骤行（展开态）：hairline 分隔 + mono 耗时右对齐 */
+  .steps { border-top: 1px solid var(--line); }
+  .step { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--ink-soft); }
+  .step:last-child { border-bottom: none; }
+  .step .ok { color: var(--ink-faint); font-size: 10px; flex-shrink: 0; }
+  .step .ok.run { color: var(--indigo); }
+  .step .s-verb { color: var(--ink); flex-shrink: 0; }
+  .step .s-detail { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .step .s-dur { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); flex-shrink: 0; }
+
+  /* 结果限高卡（命令输出示意） */
+  .step-out { margin: 0 12px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); padding: 8px 10px; max-height: 120px; overflow-y: auto; font-family: var(--mono); font-size: 10px; line-height: 1.7; color: var(--ink-soft); }
+
+  /* 思考行 */
+  .think { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
+  .think .cnt { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+
+  /* ── 反态（当前实现的问题） ── */
+  .bad .act-head { background: var(--amber-wash); }
+  .bad .act-head .t { color: var(--amber); }
+  .bad-annot { margin-top: 8px; font-size: 11px; line-height: 1.8; color: var(--danger); }
+  .bad-annot b { font-weight: 700; }
+  .good-annot { margin-top: 8px; font-size: 11px; line-height: 1.8; color: var(--ink-soft); }
+  .good-annot b { color: var(--indigo-deep); }
+
+  /* 原则区 */
+  .principles { max-width: 1400px; margin: 28px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 26px; }
+  .principles h3 { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: var(--ink-faint); margin-bottom: 14px; }
+  .p-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; font-size: 12px; line-height: 1.85; color: var(--ink-soft); }
+  .p-grid b { display: block; color: var(--ink); margin-bottom: 4px; }
+  .p-grid .indigo { color: var(--indigo); font-weight: 700; }
+  .principles .foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: .06em; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>MEPER Agent · Client 执行过程 v6（助手产品的过程叙事）</h1>
+  <span class="ver">DESIGN MOCKUP · 2026-11-16</span>
+  <span class="note">对照 ChatGPT / Claude / Manus 三种主流模式 · 五原则 · 三态定稿</span>
+</div>
+
+<div class="scene">
+
+  <!-- ① running 态 -->
+  <div>
+    <div class="col-tag">① 执行中 · 轻提示（无大色块 · 单行截断）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下现在的 git 状态然后帮我提交</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="act">
+          <div class="act-head">
+            <span class="dot run"><span class="spin"></span></span>
+            <span class="t">执行中 <span class="dim">· 0/1 完成</span></span>
+            <span class="cmd">cd "$HOME/.agent-flow/workspaces/user_01M2…"　</span>
+          </div>
+        </div>
+      </div>
+      <div class="good-annot">
+        <b>原则 ②③</b>：running 是「进行中的轻提示」——spinner + 当前动词，<br>
+        命令/路径只在行尾以 mono 截断示意（CSS ellipsis），<br>
+        <b>不做琥珀大底块</b>；「正在执行 执行命令」双动词冗余，只保留动词本身。
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 收起态 -->
+  <div>
+    <div class="col-tag">② 已完成 · 一行摘要（步数 + 总用时）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下现在的 git 状态然后帮我提交</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="act">
+          <div class="act-head">
+            <span class="dot done">✓</span>
+            <span class="t">已完成</span>
+            <span class="meta">2 步 · 8.4s</span>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="write">已提交，commit <b>a3f92c1</b>。工作区现在是干净的。</div>
+      </div>
+      <div class="good-annot">
+        <b>原则 ①④</b>：收起态一行说清「干了什么、几步、多久」——<br>
+        用户不展开也能感知成本；完成后<b>自动收起</b>，<br>
+        点击头部仍可随时回看细节。
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 展开态 -->
+  <div>
+    <div class="col-tag">③ 展开态 · 步骤 timeline（每步自身耗时）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下现在的 git 状态然后帮我提交</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="act">
+          <div class="act-head">
+            <span class="dot done">✓</span>
+            <span class="t">已完成</span>
+            <span class="meta">2 步 · 8.4s</span>
+          </div>
+          <div class="steps">
+            <div class="think">
+              <span class="ok">✓</span>
+              <span class="s-verb">思考</span>
+              <span class="cnt">42 字</span>
+              <span class="s-dur">2.1s</span>
+            </div>
+            <div class="step">
+              <span class="ok">✓</span>
+              <span class="s-verb">执行命令</span>
+              <span class="s-detail">git status --short</span>
+              <span class="s-dur">0.4s</span>
+            </div>
+            <div class="step">
+              <span class="ok">✓</span>
+              <span class="s-verb">加载技能</span>
+              <span class="s-detail">设备告警处理</span>
+              <span class="s-dur">0.2s</span>
+            </div>
+            <div class="step">
+              <span class="ok run">●</span>
+              <span class="s-verb">执行命令</span>
+              <span class="s-detail">git commit -m "clean workspace"</span>
+              <span class="s-dur">运行中</span>
+            </div>
+            <div class="step-out">
+              [main a3f92c1] clean workspace<br>
+              2 files changed, 14 insertions(+)<br>
+              …（输出限高 120px 内部滚动）
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="good-annot">
+        <b>原则 ⑤</b>：展开即步骤 timeline——每步「动词 + 参数摘要 + 自身耗时」，<br>
+        慢在哪一步一目了然（Manus 模式）；<br>
+        步骤输出限高内部滚动，长结果不再撑开页面。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="principles">
+  <h3>FIVE PRINCIPLES · 助手产品执行过程的五原则（对照 ChatGPT / Claude / Manus）</h3>
+  <div class="p-grid">
+    <div><b>① 一行摘要</b>收起态说清「状态 + 步数 + <span class="indigo">总用时</span>」——用户不展开也能感知成本（Claude「Thought for 12s」同构）。</div>
+    <div><b>② 轻提示</b>running = spinner + 当前动词，<b>无大色块</b>；琥珀只留给步骤行的运行中标记，不铺满卡片。</div>
+    <div><b>③ 技术细节退后</b>命令/路径/全文只在行尾 mono 截断示意或展开层限高滚动——终端用户读的是「在做什么」。</div>
+    <div><b>④ 完成即收起</b>过程卡完成后自动折叠为一行，点击头部随时回看——过程是叙事的脚注，不是主角。</div>
+    <div><b>⑤ 步骤级耗时</b>展开态每步右侧 mono 自身耗时（Manus 模式）——「慢在哪一步」一目了然；数据源为 per-tool 计时。</div>
+  </div>
+  <div class="foot">
+    DATA DEPS · 步骤级耗时需要 per-tool duration（ToolRun 计时，当前仅有轮级 llm/tool 拆分——设计先行，数据后补）·
+    总用时 = done usage llm+tool 毫秒拆分（本轮已修通 ext 历史链路）·
+    步数 = 工具调用数
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEPER Agent Client · 内嵌对话窗口重设计稿（v4 纸墨×靛蓝）</title>
+<style>
+  /* ════════ 设计 token（v4 纸墨×靛蓝，与 studio .theme-indigo 同源） ════════ */
+  :root {
+    --page: #F7F8FA;
+    --panel: #ffffff;
+    --line: #E2E6EE;
+    --line-strong: #C9D0DD;
+    --ink: #1F2933;
+    --ink-dim: #687481;
+    --ink-faint: #98A2B0;
+    --brand: #2B4A9E;
+    --brand-hover: #23408A;
+    --brand-soft: #E9EDF7;
+    --sig-ok: #1F9D55;
+    --sig-ok-soft: rgba(31, 157, 85, .1);
+    --sig-wait: #B07D1A;
+    --sig-wait-soft: rgba(176, 125, 26, .12);
+    --sig-fail: #D93A3F;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --shadow-card: 0 1px 2px rgba(20, 20, 25, .04), 0 1px 3px rgba(40, 50, 80, .06);
+    --shadow-pop: 0 8px 28px rgba(20, 20, 25, .14);
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --serif: Georgia, "Songti SC", "STSong", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: #E8EAEE;
+    color: var(--ink);
+    padding: 36px 40px 60px;
+  }
+
+  /* ════════ 稿面说明条 ════════ */
+  .spec-bar {
+    max-width: 1480px; margin: 0 auto 28px;
+    display: flex; align-items: baseline; gap: 18px;
+  }
+  .spec-bar h1 { font-family: var(--serif); font-size: 26px; font-style: italic; color: var(--ink); }
+  .spec-bar .ver { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: .1em; }
+  .spec-bar .note { font-size: 12.5px; color: var(--ink-dim); margin-left: auto; }
+
+  /* ════════ 场景画布：宿主页 + 浮窗 ════════ */
+  .scene {
+    max-width: 1560px; margin: 0 auto;
+    display: grid; grid-template-columns: 1fr 300px 400px; gap: 24px;
+    align-items: stretch;
+  }
+  .col-tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    color: var(--ink-faint); margin-bottom: 10px;
+  }
+
+  /* 宿主页示意（淡化，突出浮窗主体） */
+  .host {
+    background: var(--page);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    position: relative;
+    overflow: hidden;
+    opacity: .92;
+  }
+  .host-bar {
+    height: 46px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; padding: 0 22px; gap: 14px;
+  }
+  .host-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+  .host-bar .url {
+    flex: 1; max-width: 420px; height: 26px; background: var(--page);
+    border: 1px solid var(--line); border-radius: 13px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+    display: flex; align-items: center; padding: 0 12px;
+  }
+  .host-body { padding: 26px; }
+  .host-block { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); height: 84px; margin-bottom: 14px; }
+  .host-block.short { width: 62%; }
+  .host-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .host-cell { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); height: 110px; }
+  .host-label { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: .12em; margin-bottom: 10px; }
+
+  /* ════════ 浮窗按钮（收起态） ════════ */
+  .fab {
+    position: absolute; right: 26px; bottom: 26px;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 18px rgba(43, 74, 158, .35);
+    font-size: 22px;
+  }
+  .fab-badge {
+    position: absolute; top: -3px; right: -3px;
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--sig-fail); color: #fff;
+    font-size: 10px; font-weight: 700; font-family: var(--mono);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .fab-tag {
+    position: absolute; right: 88px; bottom: 38px;
+    background: var(--ink); color: #fff; font-size: 11px;
+    padding: 5px 10px; border-radius: 8px; white-space: nowrap;
+  }
+  .fab-tag::after {
+    content: ''; position: absolute; right: -4px; top: 50%;
+    width: 8px; height: 8px; background: var(--ink); transform: translateY(-50%) rotate(45deg);
+  }
+
+  /* ════════ 对话面板（展开态） ════════ */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    height: 760px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-pop);
+  }
+  .panel-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-head img { width: 26px; height: 26px; border-radius: 7px; object-fit: contain; }
+  .panel-head .wordmark {
+    font-family: var(--serif); font-style: italic; font-weight: 700;
+    font-size: 14px; color: var(--ink);
+  }
+  .panel-head .agent-name {
+    margin-left: auto; font-size: 11px; color: var(--ink-dim);
+    background: var(--brand-soft); color: var(--brand);
+    padding: 3px 9px; border-radius: 999px; font-weight: 600;
+  }
+  .panel-head .icon-btn {
+    width: 24px; height: 24px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-faint); font-size: 13px;
+  }
+
+  /* 消息流 */
+  .msgs { flex: 1; overflow: hidden; padding: 16px 14px; display: flex; flex-direction: column; gap: 12px; background: var(--page); }
+  .row { display: flex; gap: 8px; }
+  .row.user { justify-content: flex-end; }
+  .avatar {
+    width: 24px; height: 24px; border-radius: 50%; shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; margin-top: 2px;
+  }
+  .avatar.agent { background: var(--brand-soft); color: var(--brand); }
+  .avatar.user { background: var(--ink); color: #fff; }
+  .bubble-user {
+    max-width: 78%; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 9px 12px;
+    font-size: 13px; line-height: 1.7; color: var(--ink);
+    box-shadow: var(--shadow-card);
+  }
+  .bubble-agent { max-width: 86%; font-size: 13px; line-height: 1.75; color: var(--ink); }
+  .meta { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); margin-top: 4px; }
+
+  /* thinking 折叠卡（已完成摘要行） */
+  .act-group {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .act-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer;
+  }
+  .act-head .chk {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--sig-ok-soft); color: var(--sig-ok);
+    display: flex; align-items: center; justify-content: center; font-size: 9px;
+  }
+  .act-head .t { font-size: 11.5px; font-weight: 700; color: var(--ink); }
+  .act-head .d { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); margin-left: auto; }
+  .act-head .chev { color: var(--ink-faint); font-size: 10px; }
+
+  /* 澄清卡（amber 信号） */
+  .clarify {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--sig-wait);
+    border-radius: var(--radius); padding: 12px 14px;
+  }
+  .clarify .q { font-size: 12.5px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+  .clarify .ctx { font-size: 11.5px; color: var(--ink-dim); line-height: 1.6; margin-bottom: 10px; }
+  .clarify .opts { display: flex; flex-direction: column; gap: 7px; }
+  .clarify .opt {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 11px; font-size: 12px; color: var(--ink);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .clarify .opt.primary { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  .clarify .opt .go { font-size: 10px; opacity: .6; }
+  .clarify .free {
+    margin-top: 8px; border: 1px dashed var(--line-strong); border-radius: 8px;
+    padding: 7px 11px; font-size: 11.5px; color: var(--ink-faint);
+  }
+
+  /* 输入区 */
+  .composer {
+    border-top: 1px solid var(--line); padding: 10px 12px 12px;
+    background: var(--panel);
+  }
+  .composer .attachments { display: flex; gap: 6px; margin-bottom: 8px; }
+  .composer .att {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--sig-ok-soft); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 8px; font-size: 10.5px; color: var(--sig-ok);
+  }
+  .composer .input-row { display: flex; align-items: flex-end; gap: 8px; }
+  .composer .box {
+    flex: 1; border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 11px; font-size: 12.5px; color: var(--ink-faint);
+    min-height: 40px; background: var(--page);
+  }
+  .composer .send {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(43, 74, 158, .3);
+  }
+  .composer .hint {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
+    margin-top: 6px; text-align: right;
+  }
+
+  /* ════════ 会话列表态（第二个面板） ════════ */
+  .sessions { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .sess {
+    padding: 10px 12px; border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .sess .t { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+  .sess .m { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  .sess.active { background: var(--brand-soft); border-left: 2px solid var(--brand); }
+  .sess.active .t { color: var(--brand); }
+  .sess:hover:not(.active) { background: var(--page); }
+
+  /* 新会话 CTA */
+  .new-chat {
+    margin: 10px 10px 0; padding: 10px 12px;
+    border: 1px dashed var(--line-strong); border-radius: var(--radius);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--brand); font-weight: 600;
+  }
+  .new-chat .plus {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 11px;
+  }
+
+  /* ════════ token 色卡 ════════ */
+  .tokens {
+    max-width: 1480px; margin: 30px auto 0;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius-lg); padding: 20px 24px;
+  }
+  .tokens h3 { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: var(--ink-faint); margin-bottom: 14px; }
+  .token-row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .token {
+    display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px;
+  }
+  .token .sw { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); }
+  .token .nm { font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+  .token .nm b { display: block; color: var(--ink); font-size: 11px; }
+  .dark-note { display: flex; gap: 14px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>MEPER Agent · Client 内嵌对话窗口</h1>
+  <span class="ver">v4 纸墨×靛蓝 · DESIGN MOCKUP · 2026-11-13</span>
+  <span class="note">嵌入宿主页的终端用户对话面板 —— 左：宿主页 + 收起态浮窗；右：展开态面板（两种子形态）</span>
+</div>
+
+<div class="scene">
+
+  <!-- ══ 列 1：宿主页 + 收起态浮窗 ══ -->
+  <div>
+    <div class="col-tag">① 宿主页 · 嵌入位与收起态浮窗</div>
+    <div class="host" style="height: 730px;">
+      <div class="host-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">https://mes.example.com/workbench/orders</span>
+      </div>
+      <div class="host-body">
+        <div class="host-label">HOST PAGE · 宿主业务页（示意）</div>
+        <div class="host-block short"></div>
+        <div class="host-block"></div>
+        <div class="host-grid">
+          <div class="host-cell"></div><div class="host-cell"></div><div class="host-cell"></div>
+        </div>
+      </div>
+      <!-- 收起态：右下角浮窗按钮 -->
+      <div class="fab-tag">有问题随时问我 ♡</div>
+      <div class="fab">
+        ✦
+        <span class="fab-badge">2</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 列 2：会话列表态 ══ -->
+  <div>
+    <div class="col-tag">② 会话历史态 · 面板内切换</div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="wordmark">MEPER Agent</span>
+        <span class="icon-btn" style="margin-left:auto">🕘</span>
+        <span class="icon-btn">✕</span>
+      </div>
+      <div class="sessions">
+        <div class="new-chat"><span class="plus">＋</span> 开启新对话</div>
+        <div class="sess active">
+          <div class="t">今天的告警处理进展</div>
+          <div class="m">今天 · 4 条消息</div>
+        </div>
+        <div class="sess">
+          <div class="t">ALM-1050 告警闭环诊断</div>
+          <div class="m">昨天 · 12 条消息</div>
+        </div>
+        <div class="sess">
+          <div class="t">上周告警统计汇总</div>
+          <div class="m">3 天前 · 6 条消息</div>
+        </div>
+        <div class="sess">
+          <div class="t">设备接入咨询</div>
+          <div class="m">上周 · 3 条消息</div>
+        </div>
+      </div>
+      <div style="margin-top:auto; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--ink-faint); display: flex; justify-content: space-between;">
+        <span>当前对话对象：<b style="color:var(--brand)">设备告警专员</b></span>
+        <span style="font-family:var(--mono)">退出 ⏻</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 列 3：对话态 ══ -->
+  <div>
+    <div class="col-tag">③ 对话态 · 消息流 + 澄清卡 + 输入区</div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="wordmark">MEPER Agent</span>
+        <span class="agent-name">设备告警专员</span>
+        <span class="icon-btn">🕘</span>
+        <span class="icon-btn">✕</span>
+      </div>
+
+      <div class="msgs">
+        <!-- 用户消息 -->
+        <div class="row user">
+          <div class="bubble-user">帮我看一下今天有没有未关闭的严重告警</div>
+          <div class="avatar user">周</div>
+        </div>
+
+        <!-- agent 过程折叠卡（已完成摘要行） -->
+        <div class="row">
+          <div class="avatar agent">✦</div>
+          <div class="act-group" style="flex: 1;">
+            <div class="act-head">
+              <span class="chk">✓</span>
+              <span class="t">已完成</span>
+              <span class="d">查询告警 · 1 次工具调用 · 3.2s</span>
+              <span class="chev">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- agent 最终回答 -->
+        <div class="row">
+          <div class="avatar agent">✦</div>
+          <div class="bubble-agent">
+            主人，当前有 <b>2 条未关闭的严重告警</b>喵：<br>
+            ① <b>ALM-20251</b> · 3 号产线温度传感器超限（今天 09:41 触发）<br>
+            ② <b>ALM-20247</b> · 仓库 B 区网络中断（今天 08:15 触发）<br><br>
+            需要我优先处理哪一条呢？
+            <div class="meta">2,431 tokens · 2 轮 · 6.8s</div>
+          </div>
+        </div>
+
+        <!-- 用户追问 -->
+        <div class="row user">
+          <div class="bubble-user">先处理第一条，帮我诊断一下</div>
+          <div class="avatar user">周</div>
+        </div>
+
+        <!-- 澄清卡（ask_clarification，琥珀信号） -->
+        <div class="row">
+          <div class="avatar agent">✦</div>
+          <div class="clarify" style="flex: 1;">
+            <div class="q">确认处理方式喵？</div>
+            <div class="ctx">ALM-20251 为温度超限告警，可以选择自动诊断或直接派人工工单。</div>
+            <div class="opts">
+              <div class="opt primary"><span>✓ 自动诊断并尝试修复</span><span class="go">→</span></div>
+              <div class="opt"><span>直接派人工维修工单</span></div>
+            </div>
+            <div class="free">或者输入其他要求…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输入区 -->
+      <div class="composer">
+        <div class="attachments">
+          <span class="att">📎 alarm-screenshot.png ✕</span>
+        </div>
+        <div class="input-row">
+          <div class="box">输入消息，Enter 发送…</div>
+          <div class="send">➤</div>
+        </div>
+        <div class="hint">由 MEPER Agent 提供支持 · 内容由 AI 生成</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ 设计 token ════════ -->
+<div class="tokens">
+  <h3>DESIGN TOKENS · 与 studio v4 同源（纸墨×靛蓝）</h3>
+  <div class="token-row">
+    <div class="token"><span class="sw" style="background:#2B4A9E"></span><span class="nm"><b>brand 主色</b>#2B4A9E</span></div>
+    <div class="token"><span class="sw" style="background:#E9EDF7"></span><span class="nm"><b>brand-soft</b>#E9EDF7</span></div>
+    <div class="token"><span class="sw" style="background:#F7F8FA"></span><span class="nm"><b>page 底</b>#F7F8FA</span></div>
+    <div class="token"><span class="sw" style="background:#fff"></span><span class="nm"><b>panel 面</b>#FFFFFF</span></div>
+    <div class="token"><span class="sw" style="background:#D93A3F"></span><span class="nm"><b>danger</b>#D93A3F</span></div>
+    <div class="token"><span class="sw" style="background:#1F9D55"></span><span class="nm"><b>sig-ok</b>#1F9D55</span></div>
+    <div class="token"><span class="sw" style="background:#B07D1A"></span><span class="nm"><b>sig-wait 澄清</b>#B07D1A</span></div>
+    <div class="token"><span class="sw" style="background:linear-gradient(135deg,#13151c,#1a1d26)"></span><span class="nm"><b>暗色</b>#13151C / #1A1D26</span></div>
+  </div>
+  <div class="dark-note">
+    <span style="font-size:11.5px;color:var(--ink-dim)">字标：<b style="font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ink)">MEPER Agent</b>（衬线斜体，同 studio）</span>
+    <span style="font-size:11.5px;color:var(--ink-dim)">暗色主题同构换值：bg #13151C / panel #1A1D26 / brand #6A97FF</span>
+  </div>
+</div>
+
+</body>
+</html>

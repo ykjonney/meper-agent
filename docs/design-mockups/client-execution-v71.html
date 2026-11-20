@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEPER Agent Client · 执行过程 v7.1（外壳唯一 + 内部合并）</title>
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --serif: Georgia, "Songti SC", "STSong", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 36px 40px 60px; }
+
+  .spec-bar { max-width: 1400px; margin: 0 auto 26px; display: flex; align-items: baseline; gap: 18px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 26px; font-style: italic; }
+  .spec-bar .ver { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: .1em; }
+  .spec-bar .note { font-size: 12.5px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1400px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+  .col-tag b { color: var(--indigo); }
+
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 18px 16px; display: flex; flex-direction: column; gap: 12px; min-height: 540px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; margin-top: 2px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 9px 13px; font-size: 12.5px; line-height: 1.7; }
+  .write { font-size: 13px; line-height: 1.75; color: var(--ink); }
+  .write b { color: var(--indigo-deep); }
+
+  /* ── 外壳：最外部唯一一行（v7.1 主人定稿）── */
+  .shell { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; }
+  .shell .chk { width: 15px; height: 15px; border-radius: 50%; background: var(--paper-deep); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
+  .shell .chk.run { background: var(--indigo-wash); color: var(--indigo); }
+  .shell .chk.run .spin { width: 9px; height: 9px; border: 1.5px solid var(--indigo); border-top-color: transparent; border-radius: 50%; animation: rot 0.9s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .shell .st { color: var(--ink); font-weight: 600; flex-shrink: 0; }
+  .shell .st.run { color: var(--indigo); }
+  /* 执行中：当前功能名实时切换（跟随 running 工具变化）——动词实色、参数弱化 */
+  .shell .cur { color: var(--indigo-deep); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .shell .cur .arg { color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; }
+  .shell .meta { margin-left: auto; color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; flex-shrink: 0; }
+  .shell .meta .seg { color: var(--ink-soft); font-family: var(--sans); font-size: 11px; }
+  .shell .chev { color: var(--ink-faint); font-size: 10px; flex-shrink: 0; }
+
+  /* 内部（外壳展开后） */
+  .inner { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+  .i-think { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--ink-soft); cursor: pointer; }
+  .i-think .cnt { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  /* 内部：文本之间的工具组合并行（主人定稿核心） */
+  .i-group { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--ink); cursor: pointer; }
+  .i-group .ok { color: var(--ink-faint); font-size: 10px; }
+  .i-group .v { font-weight: 600; }
+  .i-group .dur { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  .i-group .chev { color: var(--ink-faint); font-size: 10px; }
+  /* 工具组再展开：每步明细 */
+  .i-steps { background: var(--paper); }
+  .i-step { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 22px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--ink-soft); }
+  .i-step:last-child { border-bottom: none; }
+  .i-step .ok { color: var(--ink-faint); font-size: 10px; }
+  .i-step .p { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .i-step .dur { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  /* 内部中间文本平铺 */
+  .i-text { padding: 8px 12px; font-size: 12px; line-height: 1.7; color: var(--ink-soft); border-bottom: 1px solid var(--line); }
+  .i-text:last-child { border-bottom: none; }
+
+  .annot { margin-top: 10px; font-size: 11px; line-height: 1.9; color: var(--ink-soft); }
+  .annot b { color: var(--indigo-deep); }
+
+  .rules { max-width: 1400px; margin: 28px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 26px; }
+  .rules h3 { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: var(--ink-faint); margin-bottom: 14px; }
+  .r-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .r-grid b { display: block; color: var(--ink); margin-bottom: 4px; }
+  .r-grid .indigo { color: var(--indigo); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>MEPER Agent · Client 执行过程 v7.1（外壳唯一 + 内部合并）</h1>
+  <span class="ver">DESIGN MOCKUP · 2026-11-16</span>
+  <span class="note">主人定稿结构：已完成最外部唯一一行 · 「执行了 x 工具」是内部文本之间的合并</span>
+</div>
+
+<div class="scene">
+
+  <!-- ① 收起态 -->
+  <div>
+    <div class="col-tag"><b>①</b> 收起态 · 最外部唯一一行</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="shell" style="flex: 1;">
+          <span class="chk">✓</span>
+          <span class="st">已完成</span>
+          <span class="meta"><span class="seg">执行了 3 个工具 · </span>16.4s</span>
+          <span class="chev">▸</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="write">已处理完毕：ALM-20251 复位成功，验证通过并关单。<br>剩余 1 条告警需要人工确认。</div>
+      </div>
+      <div class="annot">
+        消息流里<b>只有一行</b>：「✓ 已完成 · 执行了 3 个工具 · 16.4s」——<br>
+        状态 + 工具数 + 用时合一；点击展开看全过程。
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 展开态 -->
+  <div>
+    <div class="col-tag"><b>②</b> 展开态 · 内部 = 文本之间的工具合并 + 中间文本平铺</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+          <div class="shell">
+            <span class="chk">✓</span>
+            <span class="st">已完成</span>
+            <span class="meta"><span class="seg">执行了 3 个工具 · </span>16.4s</span>
+            <span class="chev">▾</span>
+          </div>
+          <!-- 内部（外壳展开区） -->
+          <div class="inner">
+            <div class="i-think"><span>▸ 思考过程</span><span class="cnt">195 字 · 2.1s</span></div>
+            <!-- 内部：文本之间的工具组合并行（点击再展开每步明细） -->
+            <div class="i-group">
+              <span class="ok">✓</span>
+              <span class="v">执行了 2 个工具</span>
+              <span class="dur">0.6s</span>
+              <span class="chev">▸</span>
+            </div>
+            <div class="i-text">查到 2 条严重告警，我先处理 ALM-20251（3 号产线温度超限）。</div>
+            <div class="i-group">
+              <span class="ok">✓</span>
+              <span class="v">执行了 1 个工具</span>
+              <span class="dur">1.1s</span>
+              <span class="chev">▾</span>
+            </div>
+            <div class="i-steps">
+              <div class="i-step"><span class="ok">✓</span><span>执行命令</span><span class="p">alarm close --id ALM-20251</span><span class="dur">1.1s</span></div>
+            </div>
+            <div class="i-text">处理完毕，验证通过并关单。</div>
+          </div>
+
+          <div class="write">已处理完毕：ALM-20251 复位成功，验证通过并关单。<br>剩余 1 条告警需要人工确认。</div>
+        </div>
+      </div>
+      <div class="annot">
+        外壳展开后，内部按时间顺序：<b>思考折叠行 → 「执行了 x 工具」合并行 → 中间文本平铺</b> →<br>
+        第二段「执行了 x 工具」→ 中间文本……<br>
+        合并行<b>再点击</b>展开每步明细（命令/参数/每步耗时）。
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 执行中 -->
+  <div>
+    <div class="col-tag"><b>③</b> 执行中 · 当前功能实时切换（无伪进度——未结束不知道总量）</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">查一下未关闭的告警，严重的先处理</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div class="shell run" style="flex: 1;">
+          <span class="chk run"><span class="spin"></span></span>
+          <span class="st run">执行中</span>
+          <span class="cur">加载技能 <span class="arg">设备告警处理</span></span>
+          <span class="chev">▸</span>
+        </div>
+      </div>
+      <!-- 时间轴示意：外壳行内容随执行切换 -->
+      <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+        <!-- 思考阶段：LLM 推理中（无工具 running）——外壳行显示思考实时字数 -->
+        <div class="shell" style="opacity: .45; cursor: default;">
+          <span class="chk run" style="opacity: .5;"><span class="spin"></span></span>
+          <span class="st run">思考中</span>
+          <span class="cur" style="color: var(--ink-soft);">128 字…</span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="shell" style="opacity: .45; cursor: default;">
+          <span class="chk run" style="opacity: .5;"><span class="spin"></span></span>
+          <span class="st run">执行中</span>
+          <span class="cur">查询告警 <span class="arg">devicealarm_demo_list_open</span></span>
+          <span class="chev">▸</span>
+        </div>
+        <div class="shell" style="opacity: .3; cursor: default;">
+          <span class="chk run" style="opacity: .4;"><span class="spin"></span></span>
+          <span class="st run">执行中</span>
+          <span class="cur">诊断 <span class="arg">ALM-20251 · 温度超限</span></span>
+          <span class="chev">▸</span>
+        </div>
+        <div style="font-size: 10.5px; color: var(--ink-faint); font-family: var(--mono); letter-spacing: .06em;">↑ 同一行 · 内容随执行阶段实时切换（时间轴示意）</div>
+      </div>
+      <div class="annot">
+        <b>无 N/M 伪进度</b>——未结束时不知道总量，任何进度数字都是编的；<br>
+        执行感来自<b>当前阶段实时切换</b>：<b>思考中（字数实时增长）</b> → 查询告警 → 诊断 → 加载技能 → 关单…<br>
+        思考与工具共用同一外壳行，阶段切换时行内文字跟着变；<br>
+        点击外壳可展开已完成步骤明细。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <h3>STRUCTURE RULES · v7.1 结构规则（主人定稿）</h3>
+  <div class="r-grid">
+    <div><b>① 外壳唯一</b>「✓ 已完成 · 执行了 x 个工具 · 用时」<span class="indigo">全消息最外部唯一一行</span>——工具数与用时只在结束后出现。</div>
+    <div><b>② 内部合并</b>外壳展开后，「<span class="indigo">执行了 x 个工具</span>」是内部<b>文本与文本之间</b>的工具组聚合行——一轮的多个工具不逐个铺开。</div>
+    <div><b>③ 两级明细</b>内部合并行再点击 → 每步明细（动词 + 参数 + 每步耗时）；思考保持独立折叠行。</div>
+    <div><b>④ 中间文本平铺</b>外壳展开区内的中间叙述文本平铺可见——工作叙事保留，只折叠细节。</div>
+    <div><b>⑤ 执行中无进度</b>未结束无总量 → <span class="indigo">不做 N/M</span>；执行感 = 当前阶段实时切换（思考中字数增长 / 动词 + 参数跟随 running 工具变化）。</div>
+    <div><b>⑥ 思考的三个时点</b>执行中：外壳行「思考中 · N 字…」实时增长（LLM 推理阶段）；展开后：内部第一行「▸ 思考过程 195 字 · 2.1s」折叠，点击看全文；最终回答不受影响。</div>
+  </div>
+</div>
+
+</body>
+</html>

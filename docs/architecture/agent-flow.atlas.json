@@ -1,0 +1,161 @@
+{
+  "title": "Agent Flow",
+  "subtitle": "AI Agent 编排与自动化平台 · 三层可下钻架构图集",
+  "layers": [
+    {
+      "id": "root",
+      "title": "整体架构",
+      "nodes": [
+        { "id": "studio", "label": "Studio 前端", "kind": "frontend", "summary": "工作流编辑器（React Flow）+ 管理端" },
+        { "id": "client", "label": "Client 前端", "kind": "frontend", "summary": "终端用户对话客户端（antd + @ant-design/x）" },
+        { "id": "backend", "label": "Backend", "kind": "backend", "summary": "FastAPI + 双引擎（自研 DAG + agent 编排）", "child": "backend-layer" },
+        { "id": "harness", "label": "Harness 引擎库", "kind": "lib", "summary": "agent-flow-harness：可独立发布的 LangGraph REACT 库", "child": "harness-layer" },
+        { "id": "mongo", "label": "MongoDB", "kind": "database", "summary": "sessions/messages/tasks/checkpoints" },
+        { "id": "sandbox", "label": "Sandbox", "kind": "external", "summary": "bash 工具沙盒镜像（未构建则回退 subprocess）" }
+      ],
+      "edges": [
+        { "from": "studio", "to": "backend", "label": "REST/SSE" },
+        { "from": "client", "to": "backend", "label": "REST/SSE（含 ext API）" },
+        { "from": "backend", "to": "harness", "label": "进程内适配调用" },
+        { "from": "backend", "to": "mongo", "label": "Motor 读写" },
+        { "from": "harness", "to": "mongo", "label": "checkpointer" },
+        { "from": "backend", "to": "sandbox", "label": "bash 隔离执行" }
+      ],
+      "details": {
+        "summary": "双前端共用一个 FastAPI 后端；工作流是自研 DAG，每个 agent 节点内部跑 harness 的 LangGraph REACT 循环。分层铁律：api → services → engine/db。",
+        "files": [
+          "AGENTS.md",
+          "docs/PERMISSIONS.md",
+          "Makefile"
+        ]
+      }
+    },
+    {
+      "id": "backend-layer",
+      "title": "Backend 内部",
+      "nodes": [
+        { "id": "api", "label": "API 层", "kind": "service", "summary": "app/api/v1/（ext/ 为外部终端用户 API），不直接操作 db" },
+        { "id": "services", "label": "Services", "kind": "service", "summary": "业务逻辑层（会话/执行编排/文件/任务）" },
+        { "id": "agent-stack", "label": "Agent 编排栈", "kind": "backend", "summary": "prompt 装配 + 工具解析 + 执行适配", "child": "agent-layer" },
+        { "id": "wf-engine", "label": "工作流引擎", "kind": "backend", "summary": "自研 DAG：节点执行/校验/变量池", "child": "wf-layer" },
+        { "id": "integration", "label": "Harness 适配层", "kind": "service", "summary": "app ↔ harness：上下文装配/事件流适配" },
+        { "id": "workers", "label": "Celery Workers", "kind": "queue", "summary": "工作流执行 + human 节点超时扫描" }
+      ],
+      "edges": [
+        { "from": "api", "to": "services", "label": "分层调用" },
+        { "from": "services", "to": "agent-stack", "label": "chat 执行" },
+        { "from": "services", "to": "wf-engine", "label": "任务编排" },
+        { "from": "workers", "to": "wf-engine", "label": "run_and_persist" },
+        { "from": "wf-engine", "to": "integration", "label": "agent 节点内跑 REACT" },
+        { "from": "agent-stack", "to": "integration", "label": "上下文/执行适配" }
+      ],
+      "details": {
+        "summary": "chat 与 workflow 共享 agent 编排栈；执行上下文 execution_context=chat|workflow 决定工具集（workflow 剥离 ask_clarification、注入 abort_workflow）。",
+        "files": [
+          "backend/app/api/v1/agents.py",
+          "backend/app/services/agent_execution_service.py"
+        ],
+        "functions": [
+          { "name": "resume_agent（API）", "file": "backend/app/api/v1/agents.py:440", "desc": "恢复 interrupt 挂起的 agent（SSE）" },
+          { "name": "dismiss_interrupt（API）", "file": "backend/app/api/v1/agents.py:476", "desc": "忽略待答澄清卡片（不恢复执行）" },
+          { "name": "AgentExecutionService.resume", "file": "backend/app/services/agent_execution_service.py:311", "desc": "resume 编排：Command(resume=answer) 续接 graph" }
+        ]
+      }
+    },
+    {
+      "id": "harness-layer",
+      "title": "Harness 库内部",
+      "nodes": [
+        { "id": "graph", "label": "Graph 构建/运行", "kind": "lib", "summary": "compress → llm → tools 循环图 + 运行配置" },
+        { "id": "llm", "label": "LLM 适配", "kind": "lib", "summary": "openai/anthropic 兼容构造 + thinking 开关" },
+        { "id": "tools", "label": "内置工具注册表", "kind": "lib", "summary": "builtin tools（含按上下文剥离/注入）" },
+        { "id": "interaction", "label": "HITL 交互", "kind": "lib", "summary": "ask_clarification：interrupt 挂起等答案" },
+        { "id": "ctx-eng", "label": "上下文工程", "kind": "lib", "summary": "压缩/孤儿工具调用配对/工具输出引用" }
+      ],
+      "edges": [
+        { "from": "graph", "to": "llm", "label": "模型调用" },
+        { "from": "graph", "to": "tools", "label": "工具执行" },
+        { "from": "graph", "to": "ctx-eng", "label": "压缩/配对" },
+        { "from": "tools", "to": "interaction", "label": "注册 HITL 工具" }
+      ],
+      "details": {
+        "summary": "可独立发布的库（editable 安装，backend 改它即时生效）；禁止在 harness 里 import app.*。改动需跑 packages/harness/tests/。",
+        "files": [
+          "backend/packages/harness/README.md"
+        ],
+        "functions": [
+          { "name": "build_agent_graph", "file": "backend/packages/harness/src/agent_flow_harness/graph/builder.py:53", "desc": "组装 REACT 循环图（native ToolNode）" },
+          { "name": "build_config", "file": "backend/packages/harness/src/agent_flow_harness/graph/runner.py:62", "desc": "thread_id/checkpointer/压缩阈值等运行配置" },
+          { "name": "build_thinking_kwargs", "file": "backend/packages/harness/src/agent_flow_harness/llm/thinking.py:93", "desc": "按厂商构造 thinking 开关参数" },
+          { "name": "_ask_clarification", "file": "backend/packages/harness/src/agent_flow_harness/interaction/clarification.py:120", "desc": "直调 interrupt() 挂起 graph，resume 值即答案" }
+        ]
+      }
+    },
+    {
+      "id": "agent-layer",
+      "title": "Agent 编排内部",
+      "nodes": [
+        { "id": "aess", "label": "执行服务", "kind": "service", "summary": "agent_execution_service：会话/SSE/持久化" },
+        { "id": "execution", "label": "执行适配", "kind": "service", "summary": "harness_integration/execution：invoke/stream/resume" },
+        { "id": "ctx", "label": "上下文装配", "kind": "service", "summary": "context.py：工具解析单一事实源" },
+        { "id": "builder", "label": "Prompt 装配", "kind": "lib", "summary": "builder.py：5 卡槽 + Output Contract + 自主执行段" },
+        { "id": "wftools", "label": "任务工具", "kind": "lib", "summary": "confirm/dispatch/abort_workflow（chat 上下文）" }
+      ],
+      "edges": [
+        { "from": "aess", "to": "execution", "label": "invoke/resume" },
+        { "from": "execution", "to": "ctx", "label": "上下文装配" },
+        { "from": "ctx", "to": "builder", "label": "prompt 装配" },
+        { "from": "ctx", "to": "wftools", "label": "按上下文注入/剥离" }
+      ],
+      "details": {
+        "summary": "context.py 的 _INJECTED_BUILTIN_TOOL_NAMES 与 /api/v1/tools/builtin 共用，防双路径漂移；工具声明必须与运行时工具集一致。",
+        "files": [
+          "backend/app/engine/harness_integration/context.py",
+          "backend/app/engine/harness_integration/execution.py",
+          "backend/app/engine/agent/builder.py"
+        ],
+        "functions": [
+          { "name": "resolve_harness_context", "file": "backend/app/engine/harness_integration/context.py:431", "desc": "解析 agent 文档 → 工具/LLM/中间件集合" },
+          { "name": "stream / resume（适配）", "file": "backend/app/engine/harness_integration/execution.py:98", "desc": "astream_events → SSE 事件流；resume 同文件 :314" },
+          { "name": "_build_autonomous_execution_section", "file": "backend/app/engine/agent/builder.py:554", "desc": "workflow 无人值守规则（禁反问/abort 诚实终止）" },
+          { "name": "_build_output_contract_section", "file": "backend/app/engine/agent/builder.py:594", "desc": "response 结构契约段（违规反馈重试）" },
+          { "name": "dispatch_workflow / abort_workflow", "file": "backend/app/engine/agent/workflow_executor.py:329", "desc": "建任务派发 / 诚实终止（同文件 :427）" }
+        ]
+      }
+    },
+    {
+      "id": "wf-layer",
+      "title": "工作流引擎内部",
+      "nodes": [
+        { "id": "engine", "label": "DAG 执行循环", "kind": "backend", "summary": "engine.py：start 唯一/递归执行/暂停恢复" },
+        { "id": "node-exec", "label": "节点执行器", "kind": "backend", "summary": "node_executor.py：agent/tool/gateway/parallel…" },
+        { "id": "validator", "label": "静态校验", "kind": "lib", "summary": "环/悬空 target/唯一 start/schema 契约" },
+        { "id": "varpool", "label": "变量池 + 表达式", "kind": "lib", "summary": "{{node.field}} 解析与写入" },
+        { "id": "human", "label": "人工审批节点", "kind": "service", "summary": "唯一合法暂停点 → WAITING_HUMAN" }
+      ],
+      "edges": [
+        { "from": "engine", "to": "validator", "label": "执行前校验" },
+        { "from": "engine", "to": "node-exec", "label": "逐节点执行" },
+        { "from": "node-exec", "to": "varpool", "label": "解析/写入" },
+        { "from": "node-exec", "to": "human", "label": "暂停等审批" }
+      ],
+      "details": {
+        "summary": "agent 节点输出契约 v3：固定字段 {response, agent_id, files, usage}；abort 两出口（失败 / insufficient_branch 路由）。校验码见 docs/workflow-validator.md。",
+        "files": [
+          "backend/app/engine/workflow/engine.py",
+          "backend/app/engine/workflow/node_executor.py",
+          "docs/workflow-validator.md"
+        ],
+        "functions": [
+          { "name": "execute_task", "file": "backend/app/engine/workflow/engine.py:203", "desc": "DAG 执行主入口（只执行第一个 start）" },
+          { "name": "_execute_node", "file": "backend/app/engine/workflow/engine.py:734", "desc": "单节点执行 + 递归下游（幂等去重）" },
+          { "name": "AgentNodeExecutor.execute", "file": "backend/app/engine/workflow/node_executor.py:404", "desc": "agent 节点：契约注入/abort 检测/输出装配" },
+          { "name": "_find_abort_request", "file": "backend/app/engine/workflow/node_executor.py:921", "desc": "扫描已执行的 abort_workflow tool_call（确定性信号）" },
+          { "name": "_parse_structured_output", "file": "backend/app/engine/workflow/node_executor.py:964", "desc": "response 契约校验（违规反馈重试一轮）" },
+          { "name": "_check_dag_structure", "file": "backend/app/engine/workflow/validator.py:273", "desc": "start 唯一/环/悬空 target 检查" },
+          { "name": "HumanNodeExecutor", "file": "backend/app/engine/workflow/nodes/human.py:20", "desc": "解析标题/内容变量 → checkpoint.human_context" }
+        ]
+      }
+    }
+  ]
+}

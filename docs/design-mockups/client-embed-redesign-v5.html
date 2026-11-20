@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEPER Agent Client · 内嵌对话面板 v5（实施定稿）</title>
+<style>
+  /* ════════ v5：纸页轻笔 · 实施定稿
+     以 v4.5 语言为基础，吸收 2026-11-16 评审结论：
+     ① 品牌地基补完（暖纸白/衬线字标/单色 logo——v4.5 有稿没落地的部分）
+     ② 形制换制：书写流 + 批注贴（替代 ant-bubble 气泡范式）
+     ③ 交互抽屉化：汉堡 ☰ → 抽屉（替代面板内切换，已实施的行为在此定稿视觉）
+     ④ 表格纸化 + 裁剪清单（终端用户面前不出现配置态控件）
+     本稿 = P0/P1 实施的唯一视觉依据。 ════════ */
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --amber: #B45309;
+    --amber-wash: #FBF3E4;
+    --danger: #D93A3F;
+    --radius: 12px;
+    --radius-lg: 16px;
+    --shadow: 0 1px 3px rgba(28, 28, 26, .07);
+    --shadow-pop: 0 10px 32px rgba(28, 28, 26, .16);
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --serif: Georgia, "Songti SC", "STSong", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 36px 40px 60px; }
+
+  .spec-bar { max-width: 1560px; margin: 0 auto 26px; display: flex; align-items: baseline; gap: 18px; }
+  .spec-bar h1 { font-family: var(--serif); font-size: 26px; font-style: italic; }
+  .spec-bar .ver { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: .1em; }
+  .spec-bar .note { font-size: 12.5px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1560px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 460px; gap: 24px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+
+  /* ── 宿主页 ── */
+  .host { background: #FBFBF9; border: 1px solid var(--line); border-radius: var(--radius-lg); position: relative; overflow: hidden; }
+  .host-bar { height: 46px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 22px; gap: 14px; }
+  .host-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .host-bar .url { flex: 1; max-width: 420px; height: 26px; background: var(--paper); border: 1px solid var(--line); border-radius: 13px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); display: flex; align-items: center; padding: 0 12px; }
+  .host-body { padding: 26px; }
+  .host-label { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: .12em; margin-bottom: 10px; }
+  .host-block { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); height: 84px; margin-bottom: 14px; }
+  .host-block.short { width: 62%; }
+  .host-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .host-cell { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); height: 110px; }
+  .host.dimmed .host-body > *:not(.host-label) { opacity: .45; }
+
+  /* ── 收起态浮窗：暖纸圆钮 + 衬线 M 字标（品牌一眼可辨，无渐变） ── */
+  .fab {
+    position: absolute; right: 26px; bottom: 26px;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--line-strong);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow);
+  }
+  .fab .mark { font-family: var(--serif); font-style: italic; font-weight: 700; font-size: 18px; color: var(--indigo); }
+  .fab-badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--indigo); color: #fff; font-size: 10px; font-weight: 700; font-family: var(--mono); display: flex; align-items: center; justify-content: center; }
+  .fab-tag { position: absolute; right: 90px; bottom: 38px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); font-size: 11px; padding: 5px 10px; border-radius: 8px; white-space: nowrap; box-shadow: var(--shadow); }
+
+  /* ── 面板：一张对话纸 ── */
+  .panel {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: var(--radius-lg); height: 730px;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: var(--shadow-pop); position: relative;
+  }
+  /* header：☰ + 衬线字标 + agent 胶囊 + 关闭 —— 品牌露出是功能 */
+  .panel-head {
+    padding: 12px 14px; min-height: 54px;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .wordmark { font-family: var(--serif); font-style: italic; font-weight: 700; font-size: 15px; color: var(--ink); }
+  .wordmark .m { color: var(--indigo); }
+  .agent-pill { margin-left: auto; font-size: 11px; color: var(--indigo-deep); background: var(--indigo-wash); padding: 4px 11px; border-radius: 999px; white-space: nowrap; }
+  .icon-btn { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--ink-faint); cursor: pointer; flex-shrink: 0; }
+  .icon-btn:hover { background: var(--paper-deep); color: var(--ink-soft); }
+  .icon-btn svg { display: block; }
+
+  /* ── 消息流 = 纸面书写区（暖纸白落地） ── */
+  .msgs { flex: 1; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 14px; background: var(--paper); overflow: hidden; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; margin-top: 2px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+
+  /* 用户消息 = 靛蓝批注贴（右贴边 · 面板唯一大色块） */
+  .note-user {
+    max-width: 76%;
+    background: var(--indigo); color: #fff;
+    border-radius: 14px 14px 4px 14px;
+    padding: 10px 14px;
+    font-size: 13px; line-height: 1.7;
+    box-shadow: var(--shadow);
+  }
+
+  /* agent 回复 = 纸上墨字（无气泡 · 通栏书写流） */
+  .write-agent { max-width: 92%; font-size: 13px; line-height: 1.78; color: var(--ink); }
+  .write-agent b { color: var(--indigo-deep); }
+  .meta { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); margin-top: 5px; }
+
+  /* 过程卡：纸线框 + 靛蓝墨点；收起一行摘要，展开步骤列表 */
+  .act-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .act-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; }
+  .act-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--indigo); flex-shrink: 0; }
+  .act-head .dot.done { background: var(--ink-faint); }
+  .act-head .t { font-size: 11.5px; color: var(--ink-soft); }
+  .act-head .d { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); margin-left: auto; white-space: nowrap; }
+  .act-steps { border-top: 1px solid var(--line); padding: 6px 12px 8px; display: flex; flex-direction: column; gap: 5px; }
+  .act-step { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-soft); }
+  .act-step .s { font-family: var(--mono); font-size: 9px; color: var(--ink-faint); width: 58px; flex-shrink: 0; }
+  .act-step .ok { color: var(--ink-faint); font-size: 9px; }
+  .act-step .ok.done { color: var(--indigo); }
+
+  /* 表格纸化：无竖线无外框，横 hairline + mono 表头（替代 antd 后台表格） */
+  .paper-table { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 8px; }
+  .paper-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .paper-table th {
+    text-align: left; padding: 8px 12px;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .1em;
+    color: var(--ink-faint); background: var(--paper);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .paper-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--ink); line-height: 1.5; }
+  .paper-table tr:last-child td { border-bottom: none; }
+  .paper-table td .lv { display: inline-flex; align-items: center; gap: 5px; }
+  .paper-table td .lv i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .paper-table td .lv.crit i { background: var(--danger); }
+  .paper-table td .lv.warn i { background: var(--amber); }
+  .paper-table td .num { font-family: var(--mono); font-size: 11px; color: var(--indigo-deep); }
+
+  /* 澄清卡：白卡 + 琥珀发丝线 + 印章式主选项（signature，v4.5 定稿不变） */
+  .clarify { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .clarify .amber-line { height: 3px; background: repeating-linear-gradient(90deg, var(--amber) 0 14px, transparent 14px 22px); opacity: .75; }
+  .clarify .body { padding: 12px 14px; }
+  .clarify .badge-row { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+  .clarify .badge { font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--amber); background: var(--amber-wash); padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+  .clarify .q { font-size: 12.5px; font-weight: 700; }
+  .clarify .ctx { font-size: 11.5px; color: var(--ink-soft); line-height: 1.6; margin: 4px 0 10px; }
+  .clarify .opts { display: flex; flex-direction: column; gap: 7px; }
+  .clarify .opt {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 12px; font-size: 12px; color: var(--ink);
+    display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+    background: var(--paper);
+  }
+  .clarify .opt.primary { border: 1.5px solid var(--indigo); background: var(--panel); color: var(--indigo); font-weight: 700; box-shadow: var(--shadow); }
+  .clarify .opt.primary .stamp { background: var(--indigo); color: #fff; border: none; }
+  .clarify .opt .go { font-size: 10px; opacity: .7; }
+  .clarify .opt .stamp { font-family: var(--serif); font-weight: 700; border: 1.5px solid rgba(255,255,255,.7); border-radius: 6px; padding: 1px 5px; margin-right: 8px; font-size: 11px; }
+  .clarify .free { margin-top: 8px; border: 1px dashed var(--line-strong); border-radius: 10px; padding: 8px 11px; font-size: 11.5px; color: var(--ink-faint); }
+
+  /* 输入区 = 落笔行；发送 = 靛蓝方章；图标一律线性 SVG（禁 emoji/unicode 字符图标） */
+  .composer { border-top: 1px solid var(--line); padding: 10px 12px 10px; background: var(--panel); flex-shrink: 0; }
+  .composer .input-row {
+    display: flex; align-items: flex-end; gap: 10px;
+    border: 1px solid var(--line-strong); border-radius: 12px;
+    padding: 7px 7px 7px 12px; background: var(--paper);
+  }
+  .composer .input-row.focused { border-color: var(--indigo); background: var(--panel); box-shadow: 0 0 0 3px rgba(43, 74, 158, .08); }
+  .composer .box { flex: 1; font-size: 12.5px; color: var(--ink-faint); min-height: 36px; display: flex; align-items: center; }
+  .composer .clip { color: var(--ink-faint); display: flex; align-items: center; cursor: pointer; }
+  .seal {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--indigo); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow); flex-shrink: 0; cursor: pointer;
+  }
+  .composer .hint { font-family: var(--mono); font-size: 9px; color: var(--ink-faint); margin-top: 7px; text-align: center; letter-spacing: .04em; }
+
+  /* ── 抽屉：汉堡唤出；与面板同圆角的浮层纸片（四周留缝 · 纸叠纸） ── */
+  .drawer-veil { position: absolute; inset: 0; background: rgba(28, 28, 26, .28); z-index: 2; }
+  .drawer {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 320px; z-index: 3;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: 10px 0 32px rgba(28, 28, 26, .18);
+    display: flex; flex-direction: column;
+  }
+  .drawer-head { padding: 13px 14px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--line); }
+  .drawer-head .mark-seal {
+    width: 26px; height: 26px; border-radius: 8px; background: var(--indigo); color: #fff;
+    font-family: var(--serif); font-style: italic; font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .drawer-label { font-family: var(--mono); font-size: 9px; letter-spacing: .16em; color: var(--ink-faint); padding: 6px 6px; }
+  .agent-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 11px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; font-size: 12.5px;
+  }
+  .agent-item .av {
+    width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
+    background: var(--indigo-wash); color: var(--indigo);
+    font-family: var(--serif); font-weight: 700; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .agent-item .sub { font-family: var(--mono); font-size: 9px; color: var(--ink-faint); margin-top: 2px; }
+  .agent-item.active { background: var(--indigo-wash); border-color: rgba(43, 74, 158, .25); }
+  .agent-item.active .t { color: var(--indigo-deep); font-weight: 600; }
+  .new-chat {
+    margin: 2px 0 6px; padding: 10px 12px;
+    border: 1px solid var(--line-strong); border-radius: 12px;
+    display: flex; align-items: center; gap: 9px;
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+    background: var(--panel);
+  }
+  .new-chat .plus {
+    width: 18px; height: 18px; border-radius: 6px;   /* 小方章形态 */
+    background: var(--indigo); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 11px;
+  }
+  .sess { padding: 10px 12px; border-radius: 12px; cursor: pointer; position: relative; }
+  .sess .t { font-size: 12.5px; font-weight: 600; margin-bottom: 3px; color: var(--ink); }
+  .sess .m { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  .sess.active { background: var(--indigo-wash); }
+  .sess.active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; background: var(--indigo); border-radius: 1px; }
+  .sess.active .t { color: var(--indigo-deep); }
+  .drawer-foot { border-top: 1px solid var(--line); padding: 11px 14px; display: flex; align-items: center; gap: 9px; }
+  .drawer-foot .u-av { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--panel); font-size: 11px; display: flex; align-items: center; justify-content: center; }
+  .drawer-foot .u-name { font-size: 12px; font-weight: 600; }
+  .drawer-foot .revoke {
+    margin-left: auto; display: flex; align-items: center; gap: 5px;
+    font-size: 10.5px; color: var(--ink-faint);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer;
+  }
+  .drawer-foot .revoke:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* 助手选择器 ≥5 位的收纳形态微示意（notes 内嵌） */
+  .mini-demo { margin-top: 12px; width: 246px; }
+  .mini-current {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 10px;
+    background: var(--panel); box-shadow: var(--shadow);
+    font-size: 11.5px; font-weight: 600; cursor: pointer;
+  }
+  .mini-current .mini-av { width: 18px; height: 18px; border-radius: 5px; background: var(--indigo-wash); color: var(--indigo); font-family: var(--serif); font-weight: 700; font-size: 9px; display: flex; align-items: center; justify-content: center; }
+  .mini-current .chev { margin-left: auto; color: var(--ink-faint); display: flex; }
+  .mini-pop { margin: 7px 0 0 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 4px; width: 216px; }
+  .mini-item { padding: 6px 10px; border-radius: 8px; font-size: 11px; color: var(--ink); display: flex; align-items: center; justify-content: space-between; }
+  .mini-item.active { background: var(--indigo-wash); color: var(--indigo-deep); font-weight: 600; }
+  .mini-more { padding: 6px 10px 5px; margin-top: 3px; font-size: 10px; color: var(--ink-faint); font-family: var(--mono); border-top: 1px solid var(--line); }
+
+  /* 设计说明 */
+  .principles { max-width: 1560px; margin: 28px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 22px 26px; }
+  .principles h3 { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: var(--ink-faint); margin-bottom: 14px; }
+  .p-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .p-grid b { display: block; color: var(--ink); margin-bottom: 4px; }
+  .p-grid .indigo { color: var(--indigo); font-weight: 700; }
+  .p-grid .del { color: var(--danger); }
+  .principles .foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: .06em; }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>MEPER Agent · Client v5 实施定稿（纸页轻笔 · 形制落地）</h1>
+  <span class="ver">DESIGN MOCKUP · 2026-11-16</span>
+  <span class="note">评审驱动：品牌地基补完 · 书写流+批注贴换制 · 抽屉化定稿 · 表格纸化 · 终端用户裁剪清单</span>
+</div>
+
+<div class="scene">
+
+  <!-- ① 宿主页 · 收起态 -->
+  <div>
+    <div class="col-tag">① 宿主页 · 收起态浮窗（品牌一眼可辨）</div>
+    <div class="host" style="height: 730px;">
+      <div class="host-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">https://mes.example.com/workbench/orders</span>
+      </div>
+      <div class="host-body">
+        <div class="host-label">HOST PAGE · 宿主业务页（示意）</div>
+        <div class="host-block short"></div>
+        <div class="host-block"></div>
+        <div class="host-grid">
+          <div class="host-cell"></div><div class="host-cell"></div><div class="host-cell"></div>
+        </div>
+      </div>
+      <div class="fab-tag">有问题随时问我</div>
+      <div class="fab"><span class="mark">M</span><span class="fab-badge">2</span></div>
+    </div>
+  </div>
+
+  <!-- ② 抽屉态 -->
+  <div>
+    <div class="col-tag">② 会话抽屉态（☰ 唤出 · 裁剪后内容）</div>
+    <div class="host dimmed" style="height: 730px;">
+      <div class="host-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="url">https://mes.example.com/workbench/orders</span>
+      </div>
+      <div class="host-body">
+        <div class="host-label">宿主页置灰 · 抽屉覆盖面板左缘</div>
+        <div class="host-block short"></div>
+        <div class="host-block"></div>
+        <div class="host-grid">
+          <div class="host-cell"></div><div class="host-cell"></div><div class="host-cell"></div>
+        </div>
+      </div>
+
+      <!-- 面板（右侧部分可见） -->
+      <div class="panel" style="position:absolute; right:-70px; top:24px; width: 560px; box-shadow: none;">
+        <div class="panel-head">
+          <span class="wordmark"><span class="m">M</span>EPER Agent</span>
+          <span class="agent-pill">设备告警专员</span>
+          <span class="icon-btn"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        </div>
+        <div class="msgs"></div>
+      </div>
+
+      <!-- 抽屉 -->
+      <div class="drawer-veil"></div>
+      <div class="drawer" style="position:absolute; left:14px; top:24px; bottom:24px; height:auto;">
+        <div class="drawer-head">
+          <span class="mark-seal">M</span>
+          <span class="wordmark" style="font-size:14px;"><span class="m">M</span>EPER Agent</span>
+          <span class="icon-btn" style="margin-left:auto"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        </div>
+        <div class="drawer-body">
+          <!-- Agent 选择：仅绑定 >1 个 agent 时渲染本节 -->
+          <div class="drawer-label">SELECT AGENT · 选择助手（2–4 位 · 纵向展开）</div>
+          <div class="agent-item active">
+            <span class="av">告</span>
+            <span><span class="t">设备告警专员</span><span class="sub" style="display:block;">告警接入 · 诊断 · 闭环</span></span>
+          </div>
+          <div class="agent-item">
+            <span class="av">台</span>
+            <span><span class="t">设备台账助手</span><span class="sub" style="display:block;">档案查询 · 备件核对</span></span>
+          </div>
+          <div class="drawer-label" style="margin-top:8px;">SESSIONS · 对话列表</div>
+          <div class="new-chat"><span class="plus">＋</span> 开启新对话</div>
+          <div class="sess active">
+            <div class="t">今天的告警处理进展</div>
+            <div class="m">今天 · 4 条消息</div>
+          </div>
+          <div class="sess">
+            <div class="t">ALM-1050 告警闭环诊断</div>
+            <div class="m">昨天 · 12 条消息</div>
+          </div>
+          <div class="sess">
+            <div class="t">上周告警统计汇总</div>
+            <div class="m">3 天前 · 6 条消息</div>
+          </div>
+          <div class="sess">
+            <div class="t">设备接入咨询</div>
+            <div class="m">上周 · 3 条消息</div>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <span class="u-av">张</span>
+          <span class="u-name">zhangsan</span>
+          <span class="revoke">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M8.5 3.5a2.5 2.5 0 10-3.9 2.06L2 8.2V10h1.8l2.64-2.6A2.5 2.5 0 008.5 3.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            撤销授权
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 对话态 -->
+  <div>
+    <div class="col-tag">③ 对话态 · 书写流 + 纸化表格 + 印章确认</div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="icon-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M2 7h10M2 10.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        <span class="wordmark"><span class="m">M</span>EPER Agent</span>
+        <span class="agent-pill">设备告警专员</span>
+        <span class="icon-btn"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+      </div>
+
+      <div class="msgs">
+        <!-- 用户批注贴 -->
+        <div class="row user">
+          <div class="note-user">帮我看一下今天有没有未关闭的严重告警</div>
+          <div class="avatar user">张</div>
+        </div>
+
+        <!-- 过程卡（展开态示意） -->
+        <div class="row">
+          <div class="avatar agent">M</div>
+          <div class="act-group" style="flex: 1;">
+            <div class="act-head">
+              <span class="dot done"></span>
+              <span class="t">已完成 · 用时 3.2s</span>
+              <span class="d">2 次工具调用</span>
+            </div>
+            <div class="act-steps">
+              <div class="act-step"><span class="s">query_alarms</span><span>查询未关闭告警</span><span class="ok done">●</span></div>
+              <div class="act-step"><span class="s">get_device</span><span>补全设备信息</span><span class="ok done">●</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- agent 书写 + 纸化表格 -->
+        <div class="row">
+          <div class="avatar agent">M</div>
+          <div style="max-width: 92%;">
+            <div class="write-agent">
+              当前有 <b>2 条未关闭的严重告警</b>，都还没派单：
+            </div>
+            <div class="paper-table">
+              <table>
+                <thead><tr><th>告警编号</th><th>位置</th><th>等级</th><th>触发时间</th></tr></thead>
+                <tbody>
+                  <tr><td class="num">ALM-20251</td><td>3 号产线 · 温度传感器</td><td><span class="lv crit"><i></i>严重</span></td><td>09:41</td></tr>
+                  <tr><td class="num">ALM-20247</td><td>仓库 B 区 · 网络中断</td><td><span class="lv crit"><i></i>严重</span></td><td>08:15</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="write-agent" style="margin-top:8px;">需要我优先处理哪一条呢？</div>
+          </div>
+        </div>
+
+        <div class="row user">
+          <div class="note-user">先处理第一条，帮我诊断一下</div>
+          <div class="avatar user">张</div>
+        </div>
+
+        <!-- 澄清卡（signature：印章归位确认卡，v4.5 定稿不变） -->
+        <div class="row">
+          <div class="avatar agent">M</div>
+          <div class="clarify" style="flex: 1;">
+            <div class="amber-line"></div>
+            <div class="body">
+              <div class="badge-row"><span class="badge">NEED CONFIRMATION</span></div>
+              <div class="q">确认处理方式？</div>
+              <div class="ctx">ALM-20251 为温度超限告警，可以选择自动诊断或直接派人工工单。</div>
+              <div class="opts">
+                <div class="opt primary"><span><b class="stamp">盖章</b>自动诊断并尝试修复</span><span class="go">→</span></div>
+                <div class="opt"><span>直接派人工维修工单</span></div>
+              </div>
+              <div class="free">或者输入其他要求…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 落笔行 + 方章（图标线性 SVG，禁 emoji） -->
+      <div class="composer">
+        <div class="input-row focused">
+          <span class="clip"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M11.5 7.5L8.2 10.8a2.6 2.6 0 01-3.7-3.7l4.6-4.6a1.8 1.8 0 012.5 2.5L7 9.6a.9.9 0 01-1.3-1.3l4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div class="box">输入消息，Enter 发送…</div>
+          <div class="seal"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 7h9M7.5 3l4 4-4 4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div class="hint">由 MEPER Agent 提供支持 · 内容由 AI 生成</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="principles">
+  <h3>IMPLEMENTATION NOTES · v5 相对 v4.5 的增量与裁剪清单</h3>
+  <div class="p-grid">
+    <div>
+      <b>① 品牌地基（v4.5 有稿未落地，本稿强制）</b><br>
+      暖纸白 <span class="indigo">#FAFAF7</span> 消息区落地（现值 #F7F8FA 冷灰，必须换）；衬线斜体字标 MEPER Agent 进 header 与抽屉头；logo 一律单色——浮窗衬线 M / 抽屉靛蓝方章，<span class="del">废弃蓝绿渐变 3D 图</span>；amber 琥珀只归确认卡。
+    </div>
+    <div>
+      <b>② 形制换制（脱离 ant-bubble 范式）</b><br>
+      agent 消息 = 通栏书写流墨字（无气泡容器）；用户消息 = 右贴边<span class="indigo">靛蓝批注贴</span>（面板唯一大色块）+ 姓氏圆点头像；过程卡收起一行「已完成 · 用时 X」，展开为 mono 步骤行。
+    </div>
+    <div>
+      <b>③ 交互定稿（抽屉化 + 裁剪清单）</b><br>
+      ☰ 汉堡为侧栏唯一入口（拖宽面板不再联动，已实施）；抽屉内 <span class="del">删除主题切换</span>、<span class="del">删除会话文件入口</span>（apikey 模式）；底部用户区 = 头像 + 名字 + 撤销授权描边胶囊。<br>
+      <b style="margin-top:12px;">助手选择器 · 按绑定数量分段（切换是低频操作，会话列表才是抽屉主角）</b><br>
+      1 个 → 整节不渲染；2–4 个 → 纵向展开（一眼全见，见场景②）；≥5 个 → 收纳为「当前助手」行，点击弹出<b>纸卡列表</b>（同纸语言自绘，<span class="del">不用 SaaS 下拉框</span>）。<br>
+      <div class="mini-demo">
+        <div class="mini-current">
+          <span class="mini-av">告</span> 设备告警专员
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </div>
+        <div class="mini-pop">
+          <div class="mini-item"><span>设备告警专员</span><span style="color:var(--indigo);">●</span></div>
+          <div class="mini-item">设备台账助手</div>
+          <div class="mini-item">工艺参数顾问</div>
+          <div class="mini-item">质量检测助手</div>
+          <div class="mini-more">查看全部 7 位助手</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <b>④ 组件纸化 + 输出纪律</b><br>
+      表格：无竖线无外框，横 hairline + mono 表头 + 等级色点（danger/amber 语义色唯一例外）；发送钮 = 靛蓝圆角方章；UI 图标一律线性 SVG，<span class="del">禁 emoji / unicode 字符图标</span>（含 agent 输出纪律写入 system prompt）；免责行 mono 居中。
+    </div>
+  </div>
+  <div class="foot">SOURCE OF TRUTH · 实施以本稿为准（v1-v4 归档）· tokens 同步 frontend-client/src/styles.css --client-*</div>
+</div>
+
+</body>
+</html>

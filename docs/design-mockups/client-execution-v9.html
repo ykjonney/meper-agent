@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>执行过程 v9 · 去表格化三方向</title>
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --paper-deep: #F3F2ED;
+    --panel: #FFFFFF;
+    --line: #E5E3DD;
+    --line-strong: #D6D3CB;
+    --ink: #1C1C1A;
+    --ink-soft: #55554F;
+    --ink-faint: #A0A09A;
+    --indigo: #2B4A9E;
+    --indigo-deep: #23408A;
+    --indigo-wash: #EDF0F8;
+    --sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: #ECEAE4; color: var(--ink); padding: 32px 36px 50px; }
+
+  .spec-bar { max-width: 1440px; margin: 0 auto 22px; display: flex; align-items: baseline; gap: 16px; }
+  .spec-bar h1 { font-family: Georgia, "Songti SC", serif; font-size: 22px; font-style: italic; }
+  .spec-bar .note { font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+
+  .scene { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px; align-items: start; }
+  .col-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 10px; }
+  .col-tag b { color: var(--indigo); }
+
+  .flow { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-height: 520px; }
+  .row { display: flex; gap: 9px; }
+  .row.user { justify-content: flex-end; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .avatar.agent { background: var(--indigo-wash); color: var(--indigo); font-family: Georgia, serif; font-weight: 700; }
+  .avatar.user { background: var(--indigo-deep); color: #fff; }
+  .note-user { max-width: 78%; background: var(--indigo); color: #fff; border-radius: 14px 14px 4px 14px; padding: 8px 13px; font-size: 12.5px; }
+  .write { font-size: 13px; line-height: 1.75; color: var(--ink); }
+  .write b { color: var(--indigo-deep); }
+
+  /* 外壳（三案共用） */
+  .shell { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+  .shell:hover { background: var(--paper-deep); }
+  .dot { width: 15px; height: 15px; border-radius: 50%; background: var(--paper-deep); color: var(--ink-faint); display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
+  .dur { margin-left: auto; color: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+
+  /* ══ 方案 A：类型聚合（💭思考 ▸命令 📄文件 各一行，点开看该类明细）══ */
+  .a-body { margin-top: 2px; background: #EFEDE6; border-radius: 10px; padding: 7px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .a-line { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-soft); padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .a-line:hover { background: rgba(255,255,255,.7); }
+  .a-line .cnt { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); }
+  .a-detail { margin: 2px 0 3px 10px; padding: 4px 8px; border-left: 2px solid var(--line-strong); display: flex; flex-direction: column; gap: 3px; }
+  .a-sub { font-size: 11px; color: var(--ink-faint); }
+  .a-sub .cmd { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
+
+  /* ══ 方案 B：过程叙述流（一段连贯小字，动作词可点开）══ */
+  .b-body { margin-top: 2px; background: #EFEDE6; border-radius: 10px; padding: 9px 12px; }
+  .b-flow { font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .b-flow .step { cursor: pointer; border-bottom: 1px dashed var(--line-strong); padding-bottom: 1px; }
+  .b-flow .step:hover { color: var(--indigo-deep); border-bottom-color: var(--indigo); }
+  .b-flow .think { font-style: italic; color: var(--ink-faint); }
+  .b-flow .cmd { font-family: var(--mono); font-size: 11px; }
+  .b-flow .arrow { color: var(--ink-faint); margin: 0 3px; }
+
+  /* ══ 方案 C：分段文字块（Claude.ai 式——每动作一小段，无图标列）══ */
+  .c-body { margin-top: 2px; background: #EFEDE6; border-radius: 10px; padding: 4px 12px; }
+  .c-step { padding: 7px 0; font-size: 11.5px; line-height: 1.7; color: var(--ink-soft); border-bottom: 1px dashed var(--line); }
+  .c-step:last-child { border-bottom: none; }
+  .c-step .head { color: var(--ink); }
+  .c-step .head.think { font-style: italic; color: var(--ink-faint); }
+  .c-step .cmd { font-family: var(--mono); font-size: 11px; }
+  .c-step .more { color: var(--ink-faint); cursor: pointer; }
+  .c-step .more:hover { color: var(--indigo-deep); }
+
+  .annot { margin-top: 10px; font-size: 11px; line-height: 1.85; color: var(--ink-soft); }
+  .annot b { color: var(--indigo-deep); }
+
+  .rules { max-width: 1440px; margin: 24px auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 24px; font-size: 12px; line-height: 1.9; color: var(--ink-soft); }
+  .rules b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="spec-bar">
+  <h1>执行过程 v9 · 去表格化</h1>
+  <span class="note">同一次真实执行，三种非行列表形态——可点击感受交互</span>
+</div>
+
+<div class="scene">
+
+  <!-- ══ 方案 A：类型聚合 ══ -->
+  <div>
+    <div class="col-tag"><b>方案 A</b> · 类型聚合——同类动作合并一行，段内最多三五行的「统计行」</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+          <div class="shell">
+            <span class="dot">✓</span><span style="font-weight:600">已完成</span><span class="dur">110.6s</span>
+          </div>
+          <div class="a-body">
+            <div class="a-line" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              💭 思考<span class="cnt">4 段 · 1045 字</span>
+            </div>
+            <div class="a-detail" hidden>
+              <div class="a-sub">分析新闻源可用性，确定抓取策略</div>
+              <div class="a-sub">比较各源文件大小，筛选正文完整的源</div>
+              <div class="a-sub">规划日报结构与归档路径</div>
+              <div class="a-sub">检查产物完整性</div>
+            </div>
+            <div class="a-line" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              ▸ 命令<span class="cnt">4 条</span>
+            </div>
+            <div class="a-detail" hidden>
+              <div class="a-sub"><span class="cmd">rm -f hn.json jiqizhixin.xml …</span>清理缓存</div>
+              <div class="a-sub"><span class="cmd">OUT=$HOME/… tar -czf archive.tgz …</span>归档打包</div>
+            </div>
+            <div class="a-line" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+              📄 文件<span class="cnt">2 个</span>
+            </div>
+            <div class="a-detail" hidden>
+              <div class="a-sub">写入 output/ai-news-digest-2026-11-16.md</div>
+              <div class="a-sub">写入 output/report.md</div>
+            </div>
+            <div class="a-line">
+              📊 图表<span class="cnt">1 张（已在下方展示）</span>
+            </div>
+          </div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下……</div>
+        </div>
+      </div>
+      <div class="annot">
+        段内不再按时序列长清单，而是<b>按类型聚合成 3-4 行统计行</b>；<br>
+        每行点开看该类明细。长度可控（类型数上限），信息密度高。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 方案 B：过程叙述流 ══ -->
+  <div>
+    <div class="col-tag"><b>方案 B</b> · 叙述流——整个过程写成一段连贯小字，动作词点击展开</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+          <div class="shell">
+            <span class="dot">✓</span><span style="font-weight:600">已完成</span><span class="dur">110.6s</span>
+          </div>
+          <div class="b-body">
+            <div class="b-flow">
+              <span class="step think">思考了 4 段</span><span class="arrow">→</span>一次调用
+              <span class="step">生成图表「新闻源缓存文件大小对比」</span>、
+              <span class="step">写入 <span style="font-style:normal">output/report.md</span></span><span class="arrow">→</span>
+              <span class="step cmd">清理缓存 rm -f …</span><span class="arrow">→</span>
+              <span class="step">写入日报</span><span class="arrow">→</span>
+              <span class="step cmd">归档打包 tar -czf …</span>
+            </div>
+          </div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下……</div>
+        </div>
+      </div>
+      <div class="annot">
+        整个过程压缩成<b>一句话的小字流</b>——最轻，几乎不占空间；<br>
+        虚线下划线的动作词可点击展开详情。极致「过程退后」。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 方案 C：分段文字块 ══ -->
+  <div>
+    <div class="col-tag"><b>方案 C</b> · 分段文字块——Claude.ai 式，每动作一小段，无图标列无对齐</div>
+    <div class="flow">
+      <div class="row user">
+        <div class="note-user">抓一下今天的 AI 新闻，整理成日报并归档</div>
+        <div class="avatar user">Z</div>
+      </div>
+      <div class="row">
+        <div class="avatar agent">设</div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+          <div class="shell">
+            <span class="dot">✓</span><span style="font-weight:600">已完成</span><span class="dur">110.6s</span>
+          </div>
+          <div class="c-body">
+            <div class="c-step">
+              <span class="head think">思考了 4 段（1045 字）</span>——分析新闻源、规划日报结构、检查产物
+            </div>
+            <div class="c-step">
+              一次调用 2 个工具：<span class="head">生成图表</span>「新闻源缓存文件大小对比」、<span class="head">写入 output/report.md</span>
+            </div>
+            <div class="c-step">
+              清理缓存：<span class="cmd">rm -f hn.json jiqizhixin.xml …</span> <span class="more">详情</span>
+            </div>
+            <div class="c-step">
+              写入日报 <span class="head">output/ai-news-digest-2026-11-16.md</span>
+            </div>
+            <div class="c-step">
+              归档打包：<span class="cmd">tar -czf session-archive.tgz</span> <span class="more">详情</span>
+            </div>
+          </div>
+          <div class="write">今天是从<b>量子位、OpenAI 官网、MIT TR、HN</b> 等源实时抓取，整理如下……</div>
+        </div>
+      </div>
+      <div class="annot">
+        保留时序但<b>每步是一小段自然文字</b>——无图标列、无等高行、虚线分隔；<br>
+        命令 mono、思考斜体。像阅读笔记不像表格。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <b>三案共同点</b>：外壳仍是唯一一行「✓ 已完成 · 用时」；展开区都不再有「图标列 + 等高行」的表格结构。<br>
+  <b>A 类型聚合</b>：信息密度最高、长度可控（按类型 3-4 行）；<b>B 叙述流</b>：最轻、几乎不占空间，但明细藏进点击；<b>C 分段文字</b>：保留时序与可读性，形态像笔记。主人选一个方向，浮浮酱按它重做展开区。
+</div>
+
+</body>
+</html>
