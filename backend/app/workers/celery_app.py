@@ -4,6 +4,7 @@ from app import _cycompat as _cycompat_module
 
 _cycompat_module.install()
 
+import asyncio
 import threading
 
 from celery import Celery  # type: ignore[import-untyped]
@@ -217,6 +218,13 @@ def _init_worker(**_kwargs: object) -> None:
     from app.core.checkpointer import configure_mongo_checkpointer
 
     configure_mongo_checkpointer(log_on_error=True)
+
+    # 2b. 执行域前提检查（#64/PR #73 E0）——worker 也将写执行事实，
+    #     与 FastAPI lifespan 同口径 fail-closed（durable 模式探测失败
+    #     即退出，不带病消费任务）。
+    from app.core.execution_runtime import check_execution_runtime
+
+    asyncio.run(check_execution_runtime())
 
     # 3. MCP 用户凭证兑换器 — 与 FastAPI lifespan（app/main.py）对齐
     try:

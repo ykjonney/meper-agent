@@ -42,6 +42,12 @@ async def init_critical_path() -> None:
 
     configure_mongo_checkpointer(log_on_error=False)
 
+    # 执行域前提检查（#64/PR #73 E0）：探测 Mongo 多文档事务能力，
+    # durable 模式下不可用即 fail-closed 拒绝启动（与 checkpointer 同口径）。
+    from app.core.execution_runtime import check_execution_runtime
+
+    await check_execution_runtime()
+
     # 后台任务软超时：backend settings → harness 工具层（bash_output 的
     # 软超时与清扫豁免共用该值；docs/background-tasks.md §5）。
     from agent_flow_harness.sandbox import bg_tasks as _bg_tasks

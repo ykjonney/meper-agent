@@ -145,6 +145,14 @@ ensure_env() {
   #   JWT/MODEL 密钥默认值已在 env.template 内置；
   #   MONGO_ROOT_PASSWORD 默认 changeme（compose 插值兜底），改密码需同步 MONGODB_URI。
   chmod 600 "$ENV_FILE"
+  # Mongo 副本集内部鉴权 keyfile（#64 E0）：auth + replSet 强制要求。
+  # compose 挂载 etc/mongo-keyfile——首次部署自动生成，已存在则跳过。
+  if [ ! -f "$BASE/etc/mongo-keyfile" ]; then
+    umask 077
+    openssl rand -base64 756 | tr -d '\n' > "$BASE/etc/mongo-keyfile" 2>/dev/null \
+      && chmod 400 "$BASE/etc/mongo-keyfile" \
+      && say "已生成 Mongo 副本集 keyfile（etc/mongo-keyfile）"
+  fi
 }
 
 # ── 进程管理（pid 文件，无 systemd 依赖）────────────────────────────

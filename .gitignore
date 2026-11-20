@@ -99,3 +99,6 @@ __MACOSX/
 .zcode/
 deploy/data/
 celerybeat-schedule.db
+# Mongo 副本集内部鉴权 keyfile（敏感凭证，#64 E0）
+deploy/mongo/keyfile
+release/mongo-keyfile

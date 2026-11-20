@@ -367,6 +367,13 @@ class Settings(BaseSettings):
     # (see SANDBOX_FALLBACK).
     SANDBOX_ENABLED: bool = False
 
+    # 执行域（Execution Domain, #64/PR #73 E0）是否以 durable 模式运行。
+    # true（默认）：启动时探测 MongoDB 多文档事务能力，失败即拒绝启动
+    #   （fail-closed——执行事实写入依赖跨集合事务，standalone Mongo 不支持）。
+    # false：显式关闭 durable 能力——仅开发环境使用；执行域以无恢复保证
+    #   模式运行，/health 明示 non-durable，生产环境启用会打 error 级日志。
+    EXECUTION_DURABLE: bool = True
+
     # Fallback gate when the sandbox is disabled or Docker is unavailable.
     # "local" (default, backward-compatible) degrades to host subprocess
     # execution — every fallback is logged as ERROR because the isolation
