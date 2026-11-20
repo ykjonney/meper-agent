@@ -69,7 +69,7 @@ async def test_mark_transitions(fake_db):
     fake_db.collections["tool_invocations"] = {
         "inv1": {"_id": "inv1", "execution_id": "exec_A",
                  "idempotency_key": "exec_A:s:call_1",
-                 "status": "in_progress", "request_digest": "d"},
+                 "status": "prepared", "request_digest": "d"},
     }
     assert await ledger.claim("exec_A:s:call_1") is True
     assert await ledger.claim("exec_A:s:call_1") is False
