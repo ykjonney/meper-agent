@@ -213,9 +213,16 @@ class ExecutionRepository:
         )
         return [doc async for doc in cursor]
 
-    async def lookup_invocation(self, idempotency_key: str) -> dict[str, Any] | None:
+    async def lookup_invocation(
+        self, execution_id: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        """账本查询——条件与唯一索引 (execution_id, idempotency_key) 一致。
+
+        不同 Execution 可合法复用相同幂等键，缺 execution_id 限定会
+        读到别人的账本记录（PR #73 第三轮审查 §6）。
+        """
         return await self._tool_invocations().find_one(
-            {"idempotency_key": idempotency_key}
+            {"execution_id": execution_id, "idempotency_key": idempotency_key}
         )
 
     # ── 事务级 fencing 写入 ──────────────────────────────────────────
@@ -274,31 +281,46 @@ class ExecutionRepository:
         由服务端（本方法）写、producer=system、不带 token——这是唯一
         绕过 fencing 的写入口，旧 Worker 不得用它追加普通执行事件
         （type 固定 ``execution.fenced``，事件域可识别）。
+
+        seq 分配与事件插入必须在**同一事务**（PR #73 第三轮审查 §2）：
+        两步分离会在中途退出时留下永久 seq 缺口——消费者推进游标后
+        永远看不到缺失序号之前的事件。瞬态冲突按事务语义有限重试。
         """
         from app.engine.execution.models import ExecutionEvent
 
-        # seq 分配不依赖被拒绝的 token：直接对主记录自增（无事务——
-        # 诊断通道允许尽力而为， uniqueness 由 (execution_id, seq) 兜底重试）。
-        for _ in range(3):
+        for _attempt in range(3):
             try:
-                doc = await self._executions().find_one_and_update(
-                    {"_id": execution_id},
-                    {"$inc": {"event_seq_counter": 1}},
-                    return_document=ReturnDocument.AFTER,
-                )
-                if doc is None:
-                    return
-                event = ExecutionEvent(
-                    execution_id=execution_id,
-                    seq=doc["event_seq_counter"],
-                    type="execution.fenced",
-                    producer="system",
-                    payload={
-                        "rejected_token": rejected_token,
-                        "context": context,
-                    },
-                )
-                await self._events().insert_one(event.model_dump(by_alias=True))
+                db = self._database()
+                async with (
+                    await db.client.start_session() as session,
+                    session.start_transaction(),
+                ):
+                    doc = await self._executions().find_one_and_update(
+                        {"_id": execution_id},
+                        {"$inc": {"event_seq_counter": 1}},
+                        return_document=ReturnDocument.AFTER,
+                        session=session,
+                    )
+                    if doc is None:
+                        return  # execution 不存在：无诊断对象
+                    event = ExecutionEvent(
+                        execution_id=execution_id,
+                        seq=doc["event_seq_counter"],
+                        type="execution.fenced",
+                        producer="system",
+                        payload={
+                            "rejected_token": rejected_token,
+                            "context": context,
+                        },
+                    )
+                    await self._events().insert_one(
+                        event.model_dump(by_alias=True), session=session
+                    )
                 return
-            except PyMongoError:
-                continue  # 序号冲突（并发 fenced 记录）→ 重试
+            except PyMongoError as exc:
+                if (
+                    exc.has_error_label("TransientTransactionError")
+                    or exc.has_error_label("UnknownTransactionCommitResult")
+                ):
+                    continue  # 瞬态冲突（并发 fenced 记录）→ 重试
+                raise

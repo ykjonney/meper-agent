@@ -4,7 +4,15 @@
 RecoverySupervisor 扫描承担（E3），不依赖 visibility_timeout。
 
 参数起点（压测后调整）：heartbeat 10–15s、TTL 45–60s（settings 可配）。
-所有接管必须提升 fencing_token；token 单调递增、不得回退或复用。
+
+token 单调性（PR #73 第三轮审查 §1 修正）：主记录持有**持久化的
+``fencing_token_counter``——首次 acquire、release 后 reacquire、takeover
+都在同一文档上原子递增它并把新值写入 Lease。release 只清空 lease，不
+清计数器，杜绝 "A(token=1) release → B acquire 也拿到 token=1 → A 的
+旧事务被误接受"。
+
+到期即失去所有权（第二轮审查 §4）：heartbeat 与 acquire/takeover 条件
+均校验有效期。
 """
 from __future__ import annotations
 
@@ -17,6 +25,27 @@ from app.engine.execution.models import LeaseInfo
 from app.engine.execution.repository import ExecutionRepository, LeaseLostError
 from app.models.base import generate_id, utc_now
 
+_TERMINAL = ["succeeded", "failed", "cancelled", "timed_out", "expired"]
+
+
+def _counter_expr() -> dict:
+    """聚合管道：counter = ifNull(counter, ifNull(lease.fencing_token, 0)) + 1。
+
+    旧数据没有 counter 字段（E1 遗留）——从当前 lease token 接续，保证
+    严格递增不回退（迁移即首次写入，无需后台任务）。
+    """
+    return {
+        "$add": [
+            {
+                "$ifNull": [
+                    "$fencing_token_counter",
+                    {"$ifNull": ["$lease.fencing_token", 0]},
+                ]
+            },
+            1,
+        ]
+    }
+
 
 class LeaseManager:
     """Lease 原语。CAS 全部落在 executions 主记录上——与 Repository 的
@@ -28,32 +57,37 @@ class LeaseManager:
     def _collection(self):
         return self._repo._executions()  # noqa: SLF001 - 同包协作层
 
-    async def acquire(
-        self, execution_id: str, owner: str, *, token: int = 1
-    ) -> LeaseInfo:
-        """worker 认领：无 lease 且非终态时获取（token 从 1 起）。
+    async def acquire(self, execution_id: str, owner: str) -> LeaseInfo:
+        """worker 认领：无 lease 且非终态时获取（token = counter+1）。
 
-        用于 dispatch → in_progress 的首次认领；重复认领由条件
-        ``lease: None`` 互斥（输家返回 None → 调用方退出）。
+        重复认领由条件 ``lease: None`` 互斥；token 从持久 counter 递增，
+        reacquire 不会复用历史值。
         """
         now = utc_now()
-        ttl = timedelta(seconds=settings.EXECUTION_LEASE_TTL_SECONDS)
-        lease = LeaseInfo(
-            owner=owner,
-            fencing_token=token,
-            heartbeat_at=now,
-            expires_at=now + ttl,
-        )
+        expires_at = now + timedelta(seconds=settings.EXECUTION_LEASE_TTL_SECONDS)
+        real_id = generate_id("lease")
         doc = await self._collection().find_one_and_update(
-            {"_id": execution_id, "lease": None, "status": {"$nin": [
-                "succeeded", "failed", "cancelled", "timed_out", "expired",
-            ]}},
-            {"$set": {"lease": lease.model_dump()}},
+            {"_id": execution_id, "lease": None, "status": {"$nin": _TERMINAL}},
+            [
+                # 两段管道：先递增 counter，后一段可见新 counter（引用无需重复计算）
+                {"$set": {"fencing_token_counter": _counter_expr()}},
+                {
+                    "$set": {
+                        "lease": {
+                            "owner": owner,
+                            "lease_id": real_id,
+                            "fencing_token": "$fencing_token_counter",
+                            "heartbeat_at": now,
+                            "expires_at": expires_at,
+                        }
+                    }
+                },
+            ],
             return_document=ReturnDocument.AFTER,
         )
         if doc is None:
-            raise LeaseLostError(execution_id, token)
-        return lease
+            raise LeaseLostError(execution_id, -1)
+        return LeaseInfo(**doc["lease"])
 
     async def heartbeat(
         self, execution_id: str, owner: str, token: int
@@ -87,7 +121,7 @@ class LeaseManager:
         return LeaseInfo(**doc["lease"])
 
     async def takeover(self, execution_id: str, owner: str) -> LeaseInfo | None:
-        """过期接管：CAS（expires_at <= now）→ token+1。
+        """过期接管：CAS（expires_at <= now）→ token = counter+1。
 
         - 成功：返回新 lease（新 lease_id、更高 token），旧持有者此后
           所有事实写入被 fencing 拒绝。
@@ -103,18 +137,18 @@ class LeaseManager:
                 "lease.expires_at": {"$lte": now},
             },
             [
+                {"$set": {"fencing_token_counter": _counter_expr()}},
                 {
                     "$set": {
                         "lease": {
                             "owner": owner,
                             "lease_id": real_id,
-                            # token 单调 +1：接管必须提升，不得回退或复用
-                            "fencing_token": {"$add": ["$lease.fencing_token", 1]},
+                            "fencing_token": "$fencing_token_counter",
                             "heartbeat_at": now,
                             "expires_at": expires_at,
                         }
                     }
-                }
+                },
             ],
             return_document=ReturnDocument.AFTER,
         )
@@ -123,10 +157,20 @@ class LeaseManager:
         return LeaseInfo(**doc["lease"])
 
     async def release(self, execution_id: str, token: int) -> None:
-        """正常完成释放（终态事务内调用；token 校验防误释放他人执行）。"""
-        result = await self._collection().update_one(
+        """正常完成释放（终态事务内调用；token 校验防误释放他人执行）。
+
+        清空 lease 的**同时物化 ``fencing_token_counter``**（pipeline：
+        先递增 counter 再清 lease）——若只清 lease，旧数据（E1 遗留、
+        无 counter 字段）的迁移语义 ifNull(counter, lease.token) 会双双
+        落空，reacquire 将退化回 token=1，破坏单调性。
+        """
+        doc = await self._collection().find_one_and_update(
             {"_id": execution_id, "lease.fencing_token": token},
-            {"$set": {"lease": None}},
+            [
+                {"$set": {"fencing_token_counter": _counter_expr()}},
+                {"$set": {"lease": None}},
+            ],
+            return_document=ReturnDocument.AFTER,
         )
-        if result.matched_count == 0:
+        if doc is None:
             raise LeaseLostError(execution_id, token)

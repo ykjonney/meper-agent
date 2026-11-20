@@ -196,3 +196,56 @@ async def test_probe_truly_concurrent(real_db, monkeypatch):
     for name in rt._PROBE_COLLECTIONS:
         left = await real_db[name].count_documents({})
         assert left == 0, f"{name} 遗留 {left} 条 probe 文档"
+
+
+async def test_release_reacquire_and_diagnostic_seq_atomicity(real_db):
+    """第三轮审查验收 1+2（真实 RS）：
+
+    - release → reacquire：token 从持久 counter 严格递增，旧 token 被拒；
+    - record_fenced_diagnostic：seq 分配与事件插入同事务——事件序号连续、
+      无永久缺口（游标消费不丢事件）。
+    """
+    import app.engine.execution.lease as lease_mod
+    import app.engine.execution.repository as repo_mod
+
+    await real_db.executions.delete_many({})
+    await real_db.execution_events.delete_many({})
+    exe = await _seed(real_db, token=11)
+    repo = repo_mod.ExecutionRepository()
+    lm = lease_mod.LeaseManager(repo)
+
+    # 先提交两条普通事件（token=11）
+    from app.engine.execution.models import ExecutionEvent
+
+    async with repo.transaction(exe.id, expected_token=11) as txn:
+        await txn.append_event(
+            ExecutionEvent(execution_id=exe.id, seq=0, type="step.started", producer="it")
+        )
+    await lm.release(exe.id, 11)
+
+    # reacquire：token 必须 > 11（持久 counter），旧 token=11 事务被拒
+    lease_b = await lm.acquire(exe.id, "worker-b")
+    assert lease_b.fencing_token > 11
+    with pytest.raises(repo_mod.LeaseLostError):
+        async with repo.transaction(exe.id, expected_token=11):
+            pass
+    async with repo.transaction(exe.id, expected_token=lease_b.fencing_token):
+        pass
+
+    # 诊断事件若干条 + 普通事件混合：最终事件 seq 集合必须无缺口
+    await repo.record_fenced_diagnostic(exe.id, rejected_token=11, context="it-test")
+    async with repo.transaction(exe.id, expected_token=lease_b.fencing_token) as txn:
+        await txn.append_event(
+            ExecutionEvent(execution_id=exe.id, seq=0, type="step.completed", producer="it")
+        )
+    await repo.record_fenced_diagnostic(exe.id, rejected_token=9, context="it-test-2")
+
+    cursor = repo_mod.ExecutionRepository()
+    seqs = [e["seq"] async for e in real_db.execution_events.find(
+        {"execution_id": exe.id}, {"seq": 1}
+    ).sort("seq", 1)]
+    assert seqs == list(range(1, len(seqs) + 1)), f"事件序号出现缺口: {seqs}"
+    # 主记录 counter 与最大事件序号一致
+    doc = await real_db.executions.find_one({"_id": exe.id})
+    assert doc["event_seq_counter"] == max(seqs)
+    del cursor

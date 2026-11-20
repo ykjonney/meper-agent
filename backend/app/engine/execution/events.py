@@ -82,5 +82,20 @@ def get_notifier() -> Notifier:
 
 
 async def notify_committed(execution_id: str, last_seq: int) -> None:
-    """事务提交成功后的通知入口（repository 调用）。"""
-    await _notifier.notify(execution_id, last_seq)
+    """事务提交成功后的通知入口（repository 调用）。
+
+    统一吞掉**一切**通知异常（PR #73 第三轮审查 §3）：通知是 best-effort，
+    不能改变已提交的执行结果——若异常外抛，调用方会误判事务失败并
+    重试，导致事实重复写入。吞异常的保证在协议入口，而非依赖各
+    Notifier 实现自觉。
+    """
+    try:
+        await _notifier.notify(execution_id, last_seq)
+    except Exception as exc:  # noqa: BLE001 - 通知绝不反噬已提交事务
+        logger.warning(
+            "execution_notify_failed implementation={} execution={} last_seq={} error={}",
+            type(_notifier).__name__,
+            execution_id,
+            last_seq,
+            exc,
+        )

@@ -155,6 +155,17 @@ ensure_env() {
   fi
 }
 
+# ── 默认连接串宿主适配（--with-infra 用；测试 release/tests/）──────────
+# 仅把默认串里的 Docker 服务名 host 换成宿主回环，保留 query 参数
+# （authSource / replicaSet 必须原样带过去——RS 形态是事务前提）。
+# 非 Docker 服务名 host（用户自定义）原样返回不动。
+_default_host_adapt() { # <uri> → stdout
+  printf '%s' "$1" | sed -E \
+    -e 's#^(mongodb://[^@]+)@mongodb:27017(/.*)?$#\1@127.0.0.1:27017\2#' \
+    -e 's#^(redis://)redis:6379(/[0-9]+)?$#\1127.0.0.1:6379\2#' \
+    -e 's#^(http://)qdrant:6333(/.*)?$#\1127.0.0.1:6333\2#'
+}
+
 # ── 进程管理（pid 文件，无 systemd 依赖）────────────────────────────
 start_proc() {
   local name="$1"; shift
@@ -313,8 +324,9 @@ dstart() {
     [ "$(_env_get "$1")" = "$2" ] || return 0
     export "$1=$3"
   }
-  _rw MONGODB_URI         "mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
-  _rw MONGODB_URI         "mongodb://127.0.0.1:27017/agent_flow"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin"
+  _rw MONGODB_URI         "mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin&replicaSet=rs0"
+  _rw MONGODB_URI         "mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin&replicaSet=rs0"          "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin&replicaSet=rs0"
+  _rw MONGODB_URI         "mongodb://127.0.0.1:27017/agent_flow"                           "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin&replicaSet=rs0"
   _rw REDIS_URL           "redis://127.0.0.1:6379/0" "redis://redis:6379/0"
   _rw CELERY_BROKER_URL   "redis://127.0.0.1:6379/1" "redis://redis:6379/1"
   _rw CELERY_RESULT_BACKEND "redis://127.0.0.1:6379/2" "redis://redis:6379/2"
@@ -420,13 +432,20 @@ cmd_start() {
     ensure_env
     load_env
     # B 模式 app 在宿主：默认串是 Docker 服务名（容器内才可解析）——内存适配
-    # 为 127.0.0.1（infra 容器映射在宿主回环）。仅精确匹配默认值，自定义不动。
-    [ "$(_env_get MONGODB_URI)" = "mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin" ] \
-      && export MONGODB_URI="mongodb://agentflow:changeme@127.0.0.1:27017/agent_flow?authSource=admin"
-    [ "$(_env_get REDIS_URL)" = "redis://redis:6379/0" ] && export REDIS_URL="redis://127.0.0.1:6379/0"
-    [ "$(_env_get CELERY_BROKER_URL)" = "redis://redis:6379/1" ] && export CELERY_BROKER_URL="redis://127.0.0.1:6379/1"
-    [ "$(_env_get CELERY_RESULT_BACKEND)" = "redis://redis:6379/2" ] && export CELERY_RESULT_BACKEND="redis://127.0.0.1:6379/2"
-    [ "$(_env_get QDRANT_URL)" = "http://qdrant:6333" ] && export QDRANT_URL="http://127.0.0.1:6333"
+    # 为 127.0.0.1（infra 容器映射在宿主回环）。_default_host_adapt 只改
+    # host、保留全部 query 参数（authSource / replicaSet）；自定义串不动。
+    _adapt_one() { # <var> —— 仅当值变化时导出
+      local _v _n
+      _v="$(_env_get "$1")"
+      _n="$(_default_host_adapt "$_v")"
+      [ "$_n" = "$_v" ] && return 0
+      export "$1=$_n"
+    }
+    _adapt_one MONGODB_URI
+    _adapt_one REDIS_URL
+    _adapt_one CELERY_BROKER_URL
+    _adapt_one CELERY_RESULT_BACKEND
+    _adapt_one QDRANT_URL
     # 数据根目录：env 内 AF_DATA_DIR 优先（load_env 已 set -a 导出 env 全量）；
     # 留空回退到 $BASE/data。AF_DATA_DIR 是 B/C 共用变量 → B↔C 切换零迁移。
     : "${AF_DATA_DIR:=$BASE/data}"
@@ -446,7 +465,7 @@ cmd_start() {
     # A 模式（手动+外接库）：默认串指向 Docker 服务名（宿主上解析不了）——
     # 明确提醒并拒启，而不是让 db_check 报一个难懂的连接失败
     local _dv
-    for _dv in "MONGODB_URI=mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin" \
+    for _dv in "MONGODB_URI=mongodb://agentflow:changeme@mongodb:27017/agent_flow?authSource=admin&replicaSet=rs0" \
                "REDIS_URL=redis://redis:6379/0" "CELERY_BROKER_URL=redis://redis:6379/1" \
                "CELERY_RESULT_BACKEND=redis://redis:6379/2" "QDRANT_URL=http://qdrant:6333"; do
       [ "$(_env_get "${_dv%%=*}")" = "${_dv#*=}" ] && die "连接串仍是 Docker 部署默认值（${_dv%%=*} 指向容器服务名）。
