@@ -51,8 +51,10 @@ services:
     image: caddy:2-alpine
     container_name: agent-flow-caddy
     ports:
-      - "80:80"    # 对外：caddy 收口（与源项目 deploy 一致；https 由 caddy 自动，
-      - "443:443"  #  有域名时 Caddyfile 站点地址改域名即可签证书）
+      # 宿主端口经 HTTP_PORT（etc/agent-flow.env）配置，改端口只改 env；
+      # 勿手改本文件——upgrade 会用新模板还原，手改的端口会丢
+      - "${HTTP_PORT:-80}:80"   # 对外：caddy 收口；https 由 caddy 自动，
+      - "443:443"               #  有域名时 Caddyfile 站点地址改域名即可签证书
     volumes:
       - ./web:/srv/web:ro
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

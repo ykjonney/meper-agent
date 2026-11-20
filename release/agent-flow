@@ -320,27 +320,25 @@ dstart() {
     dcompose pull app worker beat   # 私有镜像拉取（--quiet 无进度刷屏）
   fi
   dcompose up -d "${build_flag[@]}"
-  say "访问 http://<服务器IP>/（80 端口，caddy 收口）"
+  local hp="${HTTP_PORT:-80}"
+  say "访问 http://<服务器IP>$([ "$hp" = 80 ] || echo ":$hp")/（caddy 收口）"
 }
 
 dstop()   { stop_watcher; dcompose down; say "Docker 服务已停止（数据在 data/ 不受影响）"; }
 
 dstatus() {
-  dcompose ps
-  say "访问入口: http://<服务器IP>/（80 端口，caddy 收口；不是 8000）"
-  local lic
-  lic="$(curl -sf http://127.0.0.1:80/api/v1/system/license/status 2>/dev/null || true)"
-  if [ -n "$lic" ]; then
-    # 解析用容器内 python（Docker 模式不要求宿主装 Python）
-    echo "$lic" | dcompose exec -T app python -c 'import json,sys
-d = json.load(sys.stdin)
-if d["activated"]:
-    print("  license ● 已激活 授权方=%s 到期=%s" % (d.get("licensee"), d.get("expires_at") or "永久"))
-else:
-    print("  license ○ 未激活 code=%s" % d["code"])' || echo "  license ○ 解析失败"
-  else
-    echo "  caddy ○ 未响应（http://127.0.0.1:80）"
-  fi
+  load_env
+  dcompose ps || true  # set -e：ps 非零退出（compose 警告等）不应吞掉后面 license 段
+  local hp="${HTTP_PORT:-80}"
+  say "访问入口: http://<服务器IP>$([ "$hp" = 80 ] || echo ":$hp")/（caddy 收口；不是 8000）"
+  # license 直查容器内 localhost:8000，不经 caddy/宿主端口映射——宿主端口改过
+  # （HTTP_PORT）或宿主无 curl 时走宿主 80 必落空，曾误报"caddy 未响应"。
+  dcompose exec -T app python -c 'import json,urllib.request
+try:
+    d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/v1/system/license/status", timeout=5))
+    print("  license ● 已激活 授权方=%s 到期=%s" % (d.get("licensee"), d.get("expires_at") or "永久") if d["activated"] else "  license ○ 未激活 code=%s" % d["code"])
+except Exception as e:
+    print("  license ○ 查询失败: %s" % e)' || true
 }
 
 dlogs() {
@@ -357,13 +355,27 @@ dfingerprint() {
 }
 
 dlicense() {
+  # 同 dstatus：容器内直查 localhost:8000，不依赖宿主 curl/端口映射
   case "${1:-}" in
     install)
       local f="${2:?用法: license install <file> --docker}"
-      curl -sf -X POST --data-binary "@$f" -H "Content-Type: text/plain" \
-        http://127.0.0.1:80/api/v1/system/license/install && echo && say "激活成功" \
+      [ -f "$f" ] || die "license 文件不存在: $f"
+      dcompose exec -T app python -c 'import sys,urllib.request,urllib.error
+try:
+    r = urllib.request.urlopen(urllib.request.Request(
+        "http://127.0.0.1:8000/api/v1/system/license/install",
+        data=sys.stdin.buffer.read(), headers={"Content-Type": "text/plain"}, method="POST"), timeout=15)
+    print(r.read().decode())
+except urllib.error.HTTPError as e:
+    print(e.read().decode(errors="replace") or str(e), file=sys.stderr)
+    raise SystemExit(1)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    raise SystemExit(1)' < "$f" && say "激活成功" \
         || die "激活失败（错误码见上方响应）" ;;
-    status) curl -sf http://127.0.0.1:80/api/v1/system/license/status && echo ;;
+    status)
+      dcompose exec -T app python -c 'import urllib.request
+print(urllib.request.urlopen("http://127.0.0.1:8000/api/v1/system/license/status", timeout=5).read().decode())' ;;
   esac
 }
 
@@ -610,7 +622,7 @@ cmd_license() {
       ;;
     status)
       if [ "${2:-}" = "--docker" ]; then
-        curl -sf http://127.0.0.1:80/api/v1/system/license/status && echo
+        dlicense status
       else
         curl -sf "http://127.0.0.1:$PORT/api/v1/system/license/status" && echo
       fi ;;
