@@ -16,6 +16,8 @@ token 单调性（PR #73 第三轮审查 §1 修正）：主记录持有**持久
 """
 from __future__ import annotations
 
+import contextlib
+from contextlib import asynccontextmanager
 from datetime import timedelta
 
 from pymongo import ReturnDocument
@@ -174,3 +176,45 @@ class LeaseManager:
         )
         if doc is None:
             raise LeaseLostError(execution_id, token)
+
+
+# ── 心跳助手（E6/E7 Runner 契约）──────────────────────────────────────
+
+
+@asynccontextmanager
+async def lease_heartbeat(
+    manager: LeaseManager,
+    execution_id: str,
+    owner: str,
+    token: int,
+):
+    """Runner 执行期间的后台续约循环。
+
+    **Runner 契约（E6/E7 必须遵守）**：lease TTL 默认 60s，执行超过 TTL
+    又不续约 → RecoverySupervisor 会接管（fencing 挡旧写入是安全的，但
+    执行会分裂）。长任务用本助手包裹执行体：
+
+        async with lease_heartbeat(lm, exec_id, owner, token):
+            await run_graph(...)   # 期间每 EXECUTION_LEASE_HEARTBEAT_SECONDS 续约
+
+    LeaseLostError（被接管）从 ``__aexit__`` 传播——调用方按 zombie 协议
+    停止推进。心跳失败即终止执行（fail-safe：宁可被重派不可双跑）。
+    """
+    import asyncio
+
+    from app.core.config import settings
+
+    async def _loop() -> None:
+        interval = settings.EXECUTION_LEASE_HEARTBEAT_SECONDS
+        while True:
+            await asyncio.sleep(interval)
+            # 被接管/过期 → 抛 LeaseLostError 终止整个执行体
+            await manager.heartbeat(execution_id, owner, token)
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

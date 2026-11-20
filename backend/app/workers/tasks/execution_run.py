@@ -79,7 +79,8 @@ async def _run_async(execution_id: str) -> dict[str, Any]:
                 {
                     "$set": {
                         "status": "running",
-                        "started_at": doc.get("started_at"),
+                        # 首次认领落 started_at（接管续跑保留原值）
+                        "started_at": doc.get("started_at") or _now(),
                         "dispatch.state": "in_progress",
                     }
                 }
@@ -100,7 +101,7 @@ async def _run_async(execution_id: str) -> dict[str, Any]:
                     )
                 )
                 await txn.update_execution(
-                    {"$set": {"status": "failed", "completed_at": _now_iso()}}
+                    {"$set": {"status": "failed", "completed_at": _now()}}
                 )
             await lm.release(execution_id, lease.fencing_token)
             return {"outcome": "no_runner", "trigger": trigger}
@@ -145,7 +146,7 @@ async def _run_async(execution_id: str) -> dict[str, Any]:
         raise
 
 
-def _now_iso() -> str:
+def _now():
     from app.models.base import utc_now
 
-    return utc_now().isoformat()
+    return utc_now()
