@@ -29,6 +29,7 @@ async def test_prepare_persists_original_intent(fake_db):
         args={"to": "x@y.z", "body": "hi"},
         idempotency_key="exec_A:step_1:call_9",
         request_digest=digest_args({"to": "x@y.z", "body": "hi"}),
+        step_id="step_1",
     )
     await ledger.prepare(draft)
 
@@ -39,6 +40,7 @@ async def test_prepare_persists_original_intent(fake_db):
     assert inv["status"] == "prepared"
     assert inv["request_intent"] == {"args": {"to": "x@y.z", "body": "hi"}}  # 原始意图
     assert inv["request_digest"] == draft.request_digest
+    assert inv["step_id"] == "step_1"
 
 
 async def test_lookup_scoped_by_execution(fake_db):
@@ -69,8 +71,14 @@ async def test_mark_transitions(fake_db):
                  "idempotency_key": "exec_A:s:call_1",
                  "status": "in_progress", "request_digest": "d"},
     }
+    assert await ledger.claim("exec_A:s:call_1") is True
+    assert await ledger.claim("exec_A:s:call_1") is False
     await ledger.mark(
         "exec_A:s:call_1", LedgerStatus.UNKNOWN, error="smtp timeout"
+    )
+    # Terminal records cannot be overwritten by a stale worker.
+    await ledger.mark(
+        "exec_A:s:call_1", LedgerStatus.SUCCEEDED, result_summary="stale"
     )
     inv = fake_db.collections["tool_invocations"]["inv1"]
     assert inv["status"] == "unknown"
