@@ -8,7 +8,9 @@
 """
 from __future__ import annotations
 
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
+from contextlib import contextmanager
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 _current: ContextVar["ExecutionIdentity | None"] = ContextVar(
@@ -34,13 +36,34 @@ class ExecutionIdentity:
         return f"{self.idempotency_prefix}:{tool_call_id}"
 
 
-def set_execution_identity(identity: ExecutionIdentity | None) -> None:
-    """绑定/清除当前任务的执行身份（Adapter 执行入口调用）。"""
-    _current.set(identity)
+def set_execution_identity(identity: ExecutionIdentity | None) -> Token:
+    """绑定当前任务的执行身份；调用方必须在 finally 中 reset 返回的 token。"""
+    return _current.set(identity)
+
+
+def reset_execution_identity(token: Token) -> None:
+    """恢复进入当前执行边界前的 ContextVar 值，避免任务上下文泄漏。"""
+    _current.reset(token)
+
+
+@contextmanager
+def execution_identity_scope(identity: ExecutionIdentity) -> Iterator[None]:
+    """在同步/异步调用链共享的 ContextVar 中安全绑定执行身份。"""
+    token = set_execution_identity(identity)
+    try:
+        yield
+    finally:
+        reset_execution_identity(token)
 
 
 def get_execution_identity() -> ExecutionIdentity | None:
     return _current.get()
 
 
-__all__ = ["ExecutionIdentity", "get_execution_identity", "set_execution_identity"]
+__all__ = [
+    "ExecutionIdentity",
+    "execution_identity_scope",
+    "get_execution_identity",
+    "reset_execution_identity",
+    "set_execution_identity",
+]
