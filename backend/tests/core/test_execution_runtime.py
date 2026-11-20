@@ -13,16 +13,31 @@ import pytest
 
 
 class _FakeCollection:
+    """内存集合：记录 insert 的文档，delete_many 按 probe_id 精确删——
+    用于验证 #75 的清理语义（只删自己的，不动他人/不 drop 集合）。"""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+        self.delete_errors = False
+
     async def insert_one(self, doc, session=None):  # noqa: ARG002
+        self.docs.append(dict(doc))
         return None
 
-    async def drop(self):
-        return None
+    async def delete_many(self, flt):
+        if self.delete_errors:
+            raise RuntimeError("cleanup failed")
+        self.docs = [d for d in self.docs if not all(d.get(k) == v for k, v in flt.items())]
 
 
 class _OkSession:
     """支持事务的会话（replica set 形态）。motor 的 start_session 返回
-    既可 await 又可 async-with 的对象，fake 需同时实现两种协议。"""
+    既可 await 又可 async-with 的对象，fake 需同时实现两种协议。
+
+    真实语义（#75）：事务 CM 正常退出 = 自动提交——fake 以
+    ``committed`` 标记模拟，供断言探测不会在提交后再 abort。"""
+
+    committed = False
 
     def __await__(self):
         return self
@@ -32,13 +47,11 @@ class _OkSession:
         return self
 
     async def __aexit__(self, *exc_info):
+        self.committed = exc_info[0] is None
         return False
 
     def start_transaction(self):
         return self  # async CM：事务体
-
-    async def abort_transaction(self):
-        return None
 
 
 class _StandaloneSession(_OkSession):
@@ -62,9 +75,10 @@ class _FakeDatabase:
     def __init__(self, session_cls, *, set_name="rs0"):
         self.client = _FakeClient(session_cls)
         self._set_name = set_name
+        self.collections: dict[str, _FakeCollection] = {}
 
-    def get_collection(self, name):  # noqa: ARG002
-        return _FakeCollection()
+    def get_collection(self, name):
+        return self.collections.setdefault(name, _FakeCollection())
 
     async def command(self, name):  # noqa: ARG002
         if name == "hello":
@@ -93,7 +107,26 @@ def _reset_status():
 
 
 async def test_probe_ok_on_replica_set(_patch_db):
-    _patch_db(_FakeDatabase(_OkSession))
+    db = _FakeDatabase(_OkSession)
+    # 预置其他进程的探测文档：本次探测的清理不得波及（#75 并发清理语义）
+    other = db.get_collection(rt._PROBE_COLLECTIONS[0])
+    await other.insert_one({"probe_id": "probe-other", "ts": 0})
+
+    _patch_db(db)
+    ok, error = await rt.probe_transaction_capability()
+    assert ok is True
+    assert error is None
+    # 提交语义：本次探测文档与他人的都按精确清理处理——本次的已删，
+    # 他人的保留
+    assert {d["probe_id"] for d in other.docs} == {"probe-other"}
+
+
+async def test_probe_cleanup_failure_does_not_flip_result(_patch_db):
+    """清理失败只告警，不覆盖事务能力结论（#75 修复要求 5）。"""
+    db = _FakeDatabase(_OkSession)
+    _patch_db(db)
+    db.get_collection(rt._PROBE_COLLECTIONS[0]).delete_errors = True
+
     ok, error = await rt.probe_transaction_capability()
     assert ok is True
     assert error is None

@@ -212,13 +212,25 @@ class ExecutionRepository:
 
     @asynccontextmanager
     async def transaction(self, execution_id: str, expected_token: int):
-        """执行事实写事务：开启即触碰主记录（铁律 4）。
+        """执行事实写事务：touch 与事实写入同一事务（#74 修正）。
 
-        带 token 条件的 ``$inc write_version`` 失败 = Lease 已丢失/被接管
-        → ``LeaseLostError``（事务不开启，调用方立即停止推进）。
+        **先开启事务，再执行带 token 条件的主记录 touch（$inc
+        write_version）**——touch 必须是事务内写入：
+
+        - takeover（autocommit CAS）同样写主记录 → 旧 Worker 的事务与
+          takeover 在同一文档上形成写冲突，只有一个能提交；
+        - touch 未匹配（token 过期/被接管/不存在）→ 异常使事务 CM 走
+          abort 分支，随后抛 LeaseLostError/KeyError，不留下部分事实。
+
+        若 touch 在事务外执行（autocommit），"touch 成功 → takeover →
+        再开事务写事实"的窗口会让旧 Worker 的写入在接管后提交——正是
+        #74 指出的 P0 竞态，勿改回。
         """
         db = self._database()
-        async with await db.client.start_session() as session:
+        async with (
+            await db.client.start_session() as session,
+            session.start_transaction(),
+        ):
             touched = await self._executions().find_one_and_update(
                 {"_id": execution_id, "lease.fencing_token": expected_token},
                 {"$inc": {"write_version": 1}},
@@ -234,10 +246,9 @@ class ExecutionRepository:
                     raise KeyError(f"execution not found: {execution_id}")
                 raise LeaseLostError(execution_id, expected_token)
 
-            async with session.start_transaction():
-                txn = ExecutionTxn(self, execution_id, expected_token, session)
-                async with txn:
-                    yield txn
+            txn = ExecutionTxn(self, execution_id, expected_token, session)
+            async with txn:
+                yield txn
 
     async def record_fenced_diagnostic(
         self, execution_id: str, rejected_token: int, context: str

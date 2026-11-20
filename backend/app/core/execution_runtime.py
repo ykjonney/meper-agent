@@ -18,12 +18,12 @@ are only allowed on a replica set member or mongos"）。探测不落任何数�
 """
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 
 from loguru import logger
 
 from app.core.config import settings
+from app.models.base import utc_now
 
 # 探测用临时集合（同一事务内写两个集合，覆盖"跨集合"语义；结束后即删）
 _PROBE_COLLECTIONS = ("__txn_probe_a__", "__txn_probe_b__")
@@ -72,34 +72,53 @@ def as_health_dict() -> dict[str, object]:
 
 
 async def probe_transaction_capability() -> tuple[bool, str | None]:
-    """探测 MongoDB 多文档事务能力（跨集合写 + abort，不落数据）。
+    """探测 MongoDB 多文档事务能力（#75 修正：提交 + 唯一 ID 精确清理）。
+
+    事务 CM 正常退出即自动提交——在退出后调 abort 已太晚（会把支持事务
+    的 RS 误判为不支持，或留下已提交的脏数据）。因此改为：
+
+    1. 事务内跨两个集合写入带 ``probe_id``（每次探测唯一）的文档；
+    2. CM 退出（提交成功）→ 具备事务能力；
+    3. 清理只 ``delete_many({"probe_id": 本次})``——绝不 drop 共享集合，
+       也不影响其他进程的并发探测；
+    4. 清理失败单独记录日志，**不覆盖**事务能力的真实结论。
 
     Returns:
         (True, None) 具备能力；(False, 归因信息) 不具备。
     """
+    from uuid import uuid4
+
     from app.db.mongodb import get_database
 
+    probe_id = f"probe-{uuid4().hex}"
     db = get_database()
     error: str | None = None
     try:
-        async with await db.client.start_session() as session:
-            # 事务体内跨两个集合写入，随后 abort——commit 能力与 abort
-            # 语义都被验证，且不留下任何数据。
-            async with session.start_transaction():
-                for name in _PROBE_COLLECTIONS:
-                    await db.get_collection(name).insert_one(
-                        {"probe": True}, session=session
-                    )
-            await session.abort_transaction()
-        return True, None
+        # CM 正常退出 = commit；standalone 会在首个写操作抛
+        # "Transaction numbers are only allowed on a replica set member…
+        async with (
+            await db.client.start_session() as session,
+            session.start_transaction(),
+        ):
+            for name in _PROBE_COLLECTIONS:
+                await db.get_collection(name).insert_one(
+                    {"probe_id": probe_id, "ts": utc_now()}, session=session
+                )
     except Exception as exc:  # noqa: BLE001 - 归因信息本身就是要返回的内容
         error = f"{type(exc).__name__}: {exc}"
 
-    # 尽力清理（abort 失败路径下可能残留探测文档）
-    with contextlib.suppress(Exception):
-        for name in _PROBE_COLLECTIONS:
-            await db.get_collection(name).drop()
-    return False, error
+    # 精确清理：只删本次 probe_id 的文档（并发探测互不影响）。
+    # 清理失败不改变事务能力结论（#75：二者必须区分）。
+    for name in _PROBE_COLLECTIONS:
+        try:
+            await db.get_collection(name).delete_many({"probe_id": probe_id})
+        except Exception as exc:  # noqa: BLE001 - 清理是尽力而为
+            logger.warning(
+                "execution_probe_cleanup_failed collection={} error={}",
+                name,
+                exc,
+            )
+    return error is None, error
 
 
 async def _detect_backend_type() -> str | None:
