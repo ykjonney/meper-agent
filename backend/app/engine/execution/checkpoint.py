@@ -100,6 +100,28 @@ class CheckpointCoordinator:
                     payload={"checkpoint_seq": seq, "kind": kind, "step_id": step_id},
                 )
             )
+            if kind == "complete":
+                # The terminal boundary and shadow lifecycle close atomically.
+                await txn.update_execution(
+                    {
+                        "$set": {
+                            "status": ExecutionStatus.SUCCEEDED.value,
+                            "completed_at": utc_now(),
+                            "lease": None,
+                            "dispatch.state": "done",
+                            "shadow_active": False,
+                        }
+                    }
+                )
+                await txn.append_event(
+                    ExecutionEvent(
+                        execution_id=execution_id,
+                        seq=0,
+                        type="execution.succeeded",
+                        producer="checkpoint-coordinator",
+                        payload={"checkpoint_seq": seq, "source": "workflow_complete"},
+                    )
+                )
         return seq
 
     # ── E4 影子执行（workflow 双写期） ────────────────────────────────
@@ -237,6 +259,8 @@ class CheckpointCoordinator:
         step_id: str | None = None,
         committed_step_ids: list[str] | None = None,
         agent_thread_id: str | None = None,
+        graph_checkpoint_ns: str = "",
+        graph_checkpoint_id: str | None = None,
     ) -> int | None:
         """E4 双写入口：影子提交 workflow 边界（尽力而为，不抛）。
 
@@ -253,12 +277,12 @@ class CheckpointCoordinator:
                 kind=kind,
                 step_id=step_id,
                 committed_step_ids=committed_step_ids,
-                # agent 中断边界：thread 即精确定位（LangGraph 最新 checkpoint）；
-                # E6 接入读回验证的精确 checkpoint_id。
-                graph_thread_id=agent_thread_id,
-                graph_checkpoint_id=(
-                    f"latest:{agent_thread_id}" if agent_thread_id else None
-                ),
+                # A thread ID alone is not an exact checkpoint identity.
+                # Until callers pass a read-back checkpoint_id, leave the
+                # graph reference explicitly incomplete rather than fabricating one.
+                graph_thread_id=agent_thread_id if graph_checkpoint_id else None,
+                graph_checkpoint_ns=graph_checkpoint_ns,
+                graph_checkpoint_id=graph_checkpoint_id,
             )
         except Exception as exc:  # noqa: BLE001 - 影子双写绝不阻断权威路径
             logger.warning(
