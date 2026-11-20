@@ -216,7 +216,7 @@ async def lease_heartbeat(
                 await manager.heartbeat(execution_id, owner, token)
         except asyncio.CancelledError:
             raise
-        except BaseException:
+        except Exception:
             # A failed child task does not automatically stop its parent.
             # Cancel the Runner immediately; awaiting this task in finally
             # then propagates the original LeaseLostError to the caller.
