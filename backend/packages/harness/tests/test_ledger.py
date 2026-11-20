@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import pytest
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import ToolException
 
 from agent_flow_harness.execution_context import (
     ExecutionIdentity,
@@ -109,16 +108,16 @@ async def test_transitions_on_success():
     assert ledger.records["exec_1:step_1:call_1"]["summary"] == "sent"
 
 
-async def test_tool_exception_marks_failed():
+async def test_tool_exception_marks_unknown_without_proof_of_no_side_effect():
     ledger = MemoryLedger()
     set_ledger(ledger)
 
     async def boom():
-        raise ToolException("validation failed before send")
+        raise RuntimeError("tool adapter failed after request dispatch")
 
     with pytest.raises(ToolException):
         await ledger_protected_call(_draft(), boom)
-    assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.FAILED
+    assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.UNKNOWN
 
 
 async def test_connection_error_marks_unknown():
@@ -134,7 +133,7 @@ async def test_connection_error_marks_unknown():
     assert ledger.records["exec_1:step_1:call_1"]["status"] == LedgerStatus.UNKNOWN
 
 
-async def test_broken_ledger_does_not_block_execution():
+async def test_broken_ledger_fails_closed_before_execution():
     ledger = MemoryLedger()
     ledger.broken = True
     set_ledger(ledger)
@@ -142,8 +141,9 @@ async def test_broken_ledger_does_not_block_execution():
     async def ok():
         return ToolMessage(content="still works", tool_call_id="call_1")
 
-    result = await ledger_protected_call(_draft(), ok)
-    assert result.content == "still works"
+    with pytest.raises(RuntimeError, match="ledger down"):
+        await ledger_protected_call(_draft(), ok)
+    assert ledger.order == []
 
 
 # ── tool_wrapper 织入（身份 + 回放） ──────────────────────────────────
