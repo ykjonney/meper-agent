@@ -9,7 +9,7 @@
 - **多影**：同一 task 存在多条活跃影子 Execution（并发创建缺陷）。
 
 双写期这是预期的短暂窗口（影子尽力而为），对账用于量化漂移率与发现
-系统性缺陷；``--fix-status`` 将影子执行状态对齐终态（不删数据）。
+系统性缺陷；``--fix-status`` 只标记需要人工复核的项，不根据 Task.status 伪造 Execution 成功。
 """
 from __future__ import annotations
 
