@@ -6,8 +6,10 @@ harness 只定义协议与织入点，不感知存储（Mongo 实现由 app 注�
 状态机：``prepared → in_progress → succeeded | failed | unknown``，
 补偿支线 ``compensation_pending → compensated``。关键语义：
 
-- ``prepare`` 即持久化**原始调用意图**（完整参数 + digest）——恢复裁决
-  与回放以持久化意图为准，不假设模型重生成的 tool_call_id 稳定；
+- ``prepare`` 即持久化**原始调用意图**（完整参数 + digest）。当前 key 使用
+  tool_call_id；恢复必须从已持久化的 AIMessage/Graph checkpoint 继续执行原
+  ToolCall，不能重新调用模型生成替代 ID。跨 checkpoint 重生成去重仍需 E7
+  持久化逻辑 invocation identity，不能由本层自行推导；
 - ``unknown``：无法确认外部副作用是否发生（超时/连接中断）——禁止
   默认盲目重试，恢复时由裁决协议处理；
 - 命中 ``succeeded`` 的历史调用 → 直接回放记录的结果，不重执行。
@@ -43,7 +45,7 @@ class ToolInvocationDraft:
     tool_call_id: str
     tool_name: str
     args: dict[str, Any]
-    idempotency_key: str  # 恢复期稳定：{execution}:{step}:{tool_call_id}
+    idempotency_key: str  # {execution}:{step}:{checkpointed tool_call_id}
     request_digest: str  # sha256:… —— 回放三匹配校验之一
     tool_version: str | None = None
     step_id: str | None = None
@@ -65,7 +67,7 @@ class LedgerRecord:
 
 @runtime_checkable
 class SideEffectLedger(Protocol):
-    """副作用账本协议（实现必须自身容错——账本故障不得阻断工具执行）。"""
+    """副作用账本协议；持久化/认领失败必须阻止工具执行。"""
 
     async def prepare(self, draft: ToolInvocationDraft) -> None: ...
 
@@ -138,13 +140,10 @@ async def ledger_protected_call(
 ) -> Any:
     """账本包裹的工具执行（make_tool_wrapper 的 awrap 内部使用）。
 
-    状态迁移：prepare → in_progress → succeeded / failed / unknown。
-    异常分类（提案 §3.8 恢复裁决的运行侧一半）：
-    - ``ToolException``（业务校验失败，外部调用未发出或已确认失败）→ failed
-    - 其它异常（连接中断/超时——副作用可能已发生）→ unknown
-    - 成功 → succeeded（结果摘要一并持久化，供回放）
-
-    账本操作全部 best-effort：异常只告警，绝不阻断工具执行本身。
+    状态迁移：prepare → CAS claim → succeeded / unknown。
+    任何异常默认 UNKNOWN；只有纯文本 ToolMessage 可安全回放。结构化结果和
+    Command 在当前 schema 下记为 UNKNOWN，避免丢失语义后错误回放。
+    prepare/claim 失败会在副作用发生前 fail closed。
     """
     from langchain_core.messages import ToolMessage
     ledger = get_ledger()
