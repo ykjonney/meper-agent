@@ -80,24 +80,6 @@ class ExecutionTxn:
         self._committed = False
         self._notified_seq = 0  # 本事务内追加的最大事件 seq（通知用）
 
-    async def __aenter__(self) -> ExecutionTxn:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        if exc_type is None:
-            await self.session.commit_transaction()
-            self._committed = True
-            if self._notified_seq:
-                # 事实已提交——通知失败不影响结果（RedisNotifier 自吞异常）。
-                await notify_committed(self.execution_id, self._notified_seq)
-        else:
-            await self.session.abort_transaction()
-
     # ── 事务内写原语 ──────────────────────────────────────────────────
 
     async def update_execution(self, update: dict[str, Any]) -> None:
@@ -246,6 +228,7 @@ class ExecutionRepository:
         #74 指出的 P0 竞态，勿改回。
         """
         db = self._database()
+        notified_seq = 0
         async with (
             await db.client.start_session() as session,
             session.start_transaction(),
@@ -270,8 +253,12 @@ class ExecutionRepository:
                 raise LeaseLostError(execution_id, expected_token)
 
             txn = ExecutionTxn(self, execution_id, expected_token, session)
-            async with txn:
-                yield txn
+            yield txn
+            notified_seq = txn._notified_seq
+
+        # The transaction context manager has committed successfully at this point.
+        if notified_seq:
+            await notify_committed(execution_id, notified_seq)
 
     async def record_fenced_diagnostic(
         self, execution_id: str, rejected_token: int, context: str
@@ -318,9 +305,9 @@ class ExecutionRepository:
                     )
                 return
             except PyMongoError as exc:
-                if (
-                    exc.has_error_label("TransientTransactionError")
-                    or exc.has_error_label("UnknownTransactionCommitResult")
-                ):
-                    continue  # 瞬态冲突（并发 fenced 记录）→ 重试
+                if exc.has_error_label("TransientTransactionError"):
+                    continue  # 事务尚未提交：可安全重跑整个事务
+                # UnknownTransactionCommitResult 表示提交结果不确定；不能
+                # 重跑整笔事务，否则首次提交其实成功时会重复写诊断事件。
+                raise
                 raise
