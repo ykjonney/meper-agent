@@ -309,4 +309,3 @@ class ExecutionRepository:
                 # UnknownTransactionCommitResult 表示提交结果不确定；不能
                 # 重跑整笔事务，否则首次提交其实成功时会重复写诊断事件。
                 raise
-                raise
