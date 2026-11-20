@@ -147,8 +147,6 @@ async def ledger_protected_call(
     账本操作全部 best-effort：异常只告警，绝不阻断工具执行本身。
     """
     from langchain_core.messages import ToolMessage
-    from langchain_core.tools import ToolException
-
     ledger = get_ledger()
     # A durable side-effect ledger is a safety boundary, not best-effort
     # telemetry. If persistence/claim fails, fail closed before the tool runs.
@@ -160,14 +158,6 @@ async def ledger_protected_call(
 
     try:
         result = await execute()
-    except ToolException as exc:
-        try:
-            await ledger.mark(
-                draft.idempotency_key, LedgerStatus.FAILED, error=str(exc)[:2000]
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning("ledger_mark_failed", tool=draft.tool_name)
-        raise
     except BaseException as exc:
         # 含超时/连接错误与取消——外部副作用可能已发生 → unknown
         try:
