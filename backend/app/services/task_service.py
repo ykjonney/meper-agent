@@ -285,6 +285,33 @@ class TaskService:
         TaskService._store_celery_task_id(task_id, result.id)
 
     @staticmethod
+    async def _record_input_intent(task_id: str, variable_patch: dict) -> None:
+        """为存在 waiting_input Execution 的 Task 先行记录 input-intent。
+
+        无 Execution（legacy Task）时 no-op。失败只告警不阻断——intent
+        缺失的后果由既有保守语义承担（不误恢复）。
+        """
+        try:
+            from app.db.mongodb import get_database
+            from app.engine.execution.collections import EXECUTIONS
+            from app.engine.execution.repository import ExecutionRepository
+            from app.engine.execution.workflow_adapter import record_input_intent
+
+            execution = await get_database()[EXECUTIONS].find_one(
+                {"task_id": task_id, "status": "waiting_input"}, {"_id": 1}
+            )
+            if execution is not None:
+                await record_input_intent(
+                    ExecutionRepository(), execution["_id"], task_id, variable_patch
+                )
+        except Exception as exc:  # noqa: BLE001 - intent 记录尽力而为
+            from loguru import logger as _logger
+
+            _logger.warning(
+                "input_intent_record_failed task={} error={}", task_id, exc
+            )
+
+    @staticmethod
     async def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
@@ -1569,12 +1596,16 @@ class TaskService:
                     (doc.get("variables") or {}).get(human_node_id) or {}
                 )
                 current_node_vars.update(decision_data)
+                _patch = {
+                    f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
+                    human_node_id: current_node_vars,
+                }
+                # E6 r4 P1：intent 先行（write-ahead）——任何后续崩溃点都
+                # 可由 Supervisor 按 intent 补偿收敛。
+                await TaskService._record_input_intent(task_id, _patch)
                 await TaskService.update_variables(
                     task_id=task_id,
-                    variables={
-                        f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
-                        human_node_id: current_node_vars,
-                    },
+                    variables=_patch,
                     version=doc.get("version", 1),
                     reason=comment,
                     triggered_by=triggered_by,
@@ -1592,7 +1623,9 @@ class TaskService:
                 timeline_event_type="skip",
                 timeline_data={"comment": _comment_to_text(comment), "action": "skip", **decision_node_data},
             )
-            # Resume workflow execution (no decision written)
+            # Resume workflow execution (no decision written).
+            # E6 r4 P1：空 patch intent 仍先行——闭合 transition→resume 崩溃窗口。
+            await TaskService._record_input_intent(task_id, {})
             await TaskService.resume_task_execution(task_id)
 
         elif action == "reject":

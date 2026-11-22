@@ -107,11 +107,18 @@ class RecoverySupervisor:
             task_status = (task or {}).get("status")
             if task_status in (None, "waiting_human"):
                 continue  # 输入未提交，继续等
+            # E6 r4 P1：intent 协议——marker 缺失但 intent 已记（提交流程
+            # 已开始，崩溃于变量/marker/resume 任一点）→ 补偿收敛；两者
+            # 皆缺 = 提交未开始，不误恢复。
             if doc.get("input_committed_at") is None:
-                # E6 复审 P1-3：Task 已离开 waiting_human 但 marker 未落 =
-                # 审批变量尚未持久化（旧路径先转状态后写变量的窗口），
-                # 不得提前恢复——等 resume_task_execution 的显式调用。
-                continue
+                from app.engine.execution.workflow_adapter import (
+                    compensate_pending_input,
+                )
+
+                if not doc.get("input_intent") or not await compensate_pending_input(
+                    self._repo, doc["_id"]
+                ):
+                    continue
             from app.engine.execution.workflow_adapter import resume_waiting_execution
 
             if await resume_waiting_execution(self._repo, doc["_id"]):

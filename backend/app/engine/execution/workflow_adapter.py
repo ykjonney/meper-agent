@@ -185,6 +185,32 @@ async def _finish(
             )
 
 
+async def record_input_intent(
+    repo: ExecutionRepository, execution_id: str, task_id: str,
+    variable_patch: dict[str, Any],
+) -> None:
+    """input-intent 先行记录（E6 r4 P1，write-ahead）。
+
+    人工输入提交顺序固化为：**intent → 变量持久化 → marker → resume CAS**。
+    intent 携带最终变量 patch，使 Supervisor 能在"变量已写/未写"任何崩溃
+    点安全补偿：intent 存在 + Task 已离开 waiting_human + marker 缺失 →
+    重放 patch（单文档原子 $set，幂等）→ 补 marker → 收敛 queued。
+    无 intent + 无 marker = 提交流程未开始，继续等待，不误恢复。
+    """
+    from app.models.base import utc_now
+
+    await repo._executions().update_one(  # noqa: SLF001 - 同包协作层
+        {"_id": execution_id},
+        {"$set": {
+            "input_intent": {
+                "task_id": task_id,
+                "variable_patch": variable_patch,
+                "recorded_at": utc_now(),
+            },
+        }},
+    )
+
+
 async def mark_input_committed(repo: ExecutionRepository, execution_id: str) -> bool:
     """input-committed marker 的**独立幂等**持久化（E6 r3 P1-2）。
 
@@ -202,6 +228,31 @@ async def mark_input_committed(repo: ExecutionRepository, execution_id: str) -> 
         {"$set": {"input_committed_at": utc_now()}},
     )
     return result.matched_count == 1
+
+
+async def compensate_pending_input(repo: ExecutionRepository, execution_id: str) -> bool:
+    """Supervisor 补偿（E6 r4 P1）：intent 已记、marker 未落 → 补齐收敛。
+
+    幂等：重放 patch 到 Task.variables（单文档原子 $set）→ 补 marker。
+    任何崩溃点（变量前/后、marker 前/后）重入本函数都收敛到同一终态。
+    """
+    doc = await repo.get_execution(execution_id)
+    if doc is None:
+        return False
+    if doc.get("input_committed_at") is not None:
+        return True  # 已提交——无需补偿
+    intent = doc.get("input_intent")
+    if not intent:
+        return False  # 提交流程未开始
+
+    patch = intent.get("variable_patch") or {}
+    set_ops = {f"variables.{k}": v for k, v in patch.items()}
+    if set_ops:
+        await repo._database()["tasks"].update_one(  # noqa: SLF001
+            {"_id": intent.get("task_id")}, {"$set": set_ops}
+        )
+    await mark_input_committed(repo, execution_id)
+    return True
 
 
 async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str) -> bool:
