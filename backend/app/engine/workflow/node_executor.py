@@ -1586,19 +1586,22 @@ class ToolNodeExecutor(BaseNodeExecutor):
             ledger_protected_call,
         )
 
-        identity = get_execution_identity()
-        if identity is None:
-            return await tool.ainvoke(params)
-
-        draft = ToolInvocationDraft(
-            tool_call_id=f"tool:{tool_id}",
-            tool_name=str(getattr(tool, "name", "") or tool_id),
-            args=params,
-            idempotency_key=identity.tool_idempotency_key(f"tool:{tool_id}"),
-            request_digest=digest_args(params),
-            step_id=self.node_id,
-        )
+        # E6 r3 P1-1：scope 必须先于 identity 获取与幂等键计算——键是
+        # 一次性生成的字符串，事后进入 scope 无法再改；先包裹才能让
+        # {execution}:{node}:{tool} 真正落到节点维度。
         with step_scope(self.node_id):
+            identity = get_execution_identity()
+            if identity is None:
+                return await tool.ainvoke(params)
+
+            draft = ToolInvocationDraft(
+                tool_call_id=f"tool:{tool_id}",
+                tool_name=str(getattr(tool, "name", "") or tool_id),
+                args=params,
+                idempotency_key=identity.tool_idempotency_key(f"tool:{tool_id}"),
+                request_digest=digest_args(params),
+                step_id=self.node_id,
+            )
             return await ledger_protected_call(draft, lambda: tool.ainvoke(params))
 
     async def _invoke_with_retry(

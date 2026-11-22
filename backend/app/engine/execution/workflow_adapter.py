@@ -185,12 +185,31 @@ async def _finish(
             )
 
 
-async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str) -> bool:
-    """输入提交后的恢复入口（P1-3）：CAS waiting_input → queued + pending。
+async def mark_input_committed(repo: ExecutionRepository, execution_id: str) -> bool:
+    """input-committed marker 的**独立幂等**持久化（E6 r3 P1-2）。
 
-    幂等：仅 waiting_input 状态匹配（重复提交天然去重）；成功后由
-    RecoverySupervisor 扫描类 1 派发。输入持久化与重派之间的崩溃窗口
-    由 ``_scan_waiting_inputs`` 兜底闭合。
+    语义：人工输入/审批变量已持久化。一致性边界：调用方必须在
+    ``update_variables`` 成功**之后立即**调用（同为 update_variables 后
+    恢复链路的第一步）——崩溃窗口缩至"变量已落库 → marker 未落库"，
+    该窗口内 marker 缺失 = 视为输入未提交（保守正确：supervisor 跳过，
+    等待重试审批操作，不会错误恢复）。marker 落库后任何后续崩溃由
+    RecoverySupervisor 扫描类 4 兜底恢复。
+    """
+    from app.models.base import utc_now
+
+    result = await repo._executions().update_one(  # noqa: SLF001 - 同包协作层
+        {"_id": execution_id, "input_committed_at": None},
+        {"$set": {"input_committed_at": utc_now()}},
+    )
+    return result.matched_count == 1
+
+
+async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str) -> bool:
+    """输入提交后的恢复入口：CAS waiting_input → queued + pending。
+
+    幂等：仅 waiting_input 状态匹配（重复提交天然去重）；成功后由派发方
+    立即 dispatch 或 RecoverySupervisor 扫描类 1 兜底。marker 已由
+    ``mark_input_committed`` 独立落库（调用顺序：mark → resume）。
     """
     from app.models.base import utc_now
 
@@ -202,12 +221,6 @@ async def resume_waiting_execution(repo: ExecutionRepository, execution_id: str)
                 "dispatch.state": "pending",
                 "dispatch.attempts": 0,
                 "dispatch.next_dispatch_at": None,
-                # input-committed marker（E6 复审 P1-3）：与状态迁移同 CAS
-                # 落库，语义="人工输入已持久化"。调用方必须在
-                # update_variables 之后调用；supervisor 兜底扫描以它为
-                # 前置条件——Task 离开 waiting_human 但无 marker = 审批
-                # 变量尚未写完，不得提前恢复。
-                "input_committed_at": utc_now(),
                 "updated_at": utc_now(),
             }
         },

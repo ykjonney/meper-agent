@@ -299,17 +299,30 @@ class TaskService:
         from app.engine.execution.collections import EXECUTIONS
         from app.engine.execution.dispatcher import get_dispatcher
         from app.engine.execution.repository import ExecutionRepository
-        from app.engine.execution.workflow_adapter import resume_waiting_execution
+        from app.engine.execution.workflow_adapter import (
+            mark_input_committed,
+            resume_waiting_execution,
+        )
 
+        # 活动执行判定（E6 r3 P1-3）：waiting_input/queued/running 任一存在
+        # 即走统一 Dispatcher——不能只查 waiting_input：并发恢复时 A 先
+        # CAS 成 queued，B 查不到 waiting_input 会误判 legacy 双派发。
         execution = await get_database()[EXECUTIONS].find_one(
-            {"task_id": task_id, "status": "waiting_input"}, {"_id": 1}
+            {
+                "task_id": task_id,
+                "status": {"$in": ["waiting_input", "queued", "running"]},
+            },
+            {"_id": 1, "status": 1},
         )
         if execution is not None:
             repo = ExecutionRepository()
-            if await resume_waiting_execution(repo, execution["_id"]):
-                await get_dispatcher().dispatch(execution["_id"])
-                return
-            # CAS 失败=已恢复/并发提交：派发兜底（lease 互斥，输家安静退出）
+            # marker 独立先落（r3 P1-2）：变量已持久化（调用契约），此后
+            # 任何崩溃都由 supervisor 扫描类 4 兜底恢复。
+            await mark_input_committed(repo, execution["_id"])
+            if execution["status"] == "waiting_input":
+                await resume_waiting_execution(repo, execution["_id"])
+            # queued/running（含并发 CAS 已完成的）：直接派发——lease
+            # acquire 是唯一认领边界，重复消息输家安静退出，无双跑。
             await get_dispatcher().dispatch(execution["_id"])
             return
 

@@ -73,10 +73,12 @@ class RecoverySupervisor:
 
     async def scan_once(self) -> ScanReport:
         report = ScanReport()
+        # 顺序（E6 r3）：waiting_input 恢复先行——CAS 回 queued+pending 后，
+        # 同一 tick 的待派发扫描即可完成派发，不用等下一轮。
+        resumed = await self._scan_waiting_inputs()
         report.redispatched = await self._scan_due_dispatches()
         report.taken_over = await self._scan_expired_leases()
         report.skipped_active = await self._count_active()
-        resumed = await self._scan_waiting_inputs()
         if report.redispatched or report.taken_over or resumed:
             logger.info(
                 "execution_scan redispatched={} taken_over={} resumed_waiting={} active={}",

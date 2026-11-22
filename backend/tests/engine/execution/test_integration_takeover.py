@@ -219,3 +219,38 @@ async def test_takeover_rejects_late_mark_on_in_progress_invocation(real_db):
         )
     after = await db.tool_invocations.find_one({"idempotency_key": draft.idempotency_key})
     assert after == before  # 完全不变：状态仍 in_progress、无 result_ref/completed_at
+
+
+async def test_real_rs_marker_crash_window_recovery(real_db):
+    """r3 P1-2（真实 RS）：mark 落库后、resume CAS 前崩溃 → supervisor 恢复。"""
+    from app.engine.execution.models import Execution, ExecutionStatus
+    from app.engine.execution.recovery import RecoverySupervisor
+    from app.engine.execution.repository import ExecutionRepository
+    from app.engine.execution.workflow_adapter import mark_input_committed
+
+    db = real_db
+    await db.executions.delete_many({})
+    await db["tasks"].delete_many({"_id": "task_rs_m"})
+    exe = Execution(
+        task_id="task_rs_m", trigger="workflow", status=ExecutionStatus.WAITING_INPUT
+    )
+    await db.executions.insert_one(exe.model_dump(by_alias=True))
+    await db["tasks"].insert_one({"_id": "task_rs_m", "status": "running"})
+
+    # 变量已持久化 → marker 独立落库；随后进程崩溃（resume CAS 未执行）
+    await mark_input_committed(ExecutionRepository(), exe.id)
+
+    sup = RecoverySupervisor(repo=ExecutionRepository(), dispatcher=_RecDispatcher())
+    await sup.scan_once()
+    doc = await db.executions.find_one({"_id": exe.id})
+    assert doc["status"] == "queued"
+    assert doc["input_committed_at"] is not None
+    assert sup._dispatcher.dispatched == [exe.id]  # 同 tick 完成派发
+
+
+class _RecDispatcher:
+    def __init__(self) -> None:
+        self.dispatched: list[str] = []
+
+    async def dispatch(self, execution_id: str) -> None:
+        self.dispatched.append(execution_id)
