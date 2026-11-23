@@ -84,9 +84,44 @@
 - **决策：** Personal Workspace 不等于个人聊天窗口，也不等于 Collaboration Space；它承载个人 Work、Interaction、Artifact、Agent 和会话入口。
 - **影响：** 个人可不创建 Project/Space 就发起 Work；与团队协作的连接通过显式关联和授权完成。
 
-## Open Questions
+### PD-014：Agent 委派采用显式绑定，不要求动态发现
 
-以下问题尚未拍板，后续应在对应领域设计中决策：
+- **状态：Confirmed**
+- **决策：** Agent 的委派目标来自显式 Delegation Binding。平台提供通用 Agent，用户可以手动绑定其他 Agent；运行时 Agent 在已绑定且当前获准的目标范围内自主决定是否委派及选择目标，不要求运行时发现未知 Agent。
+- **背景与理由：** MVP 优先保证委派关系可理解、可配置和可治理，避免提前引入动态发现、候选检索与路由系统。
+- **影响：** Delegation Binding 是配置期关系；Agent Pool 实体、动态 Agent Discovery 和智能路由暂缓，不代表未来不做。
+
+### PD-015：Delegation Binding 与 Delegation 是不同对象
+
+- **状态：Confirmed**
+- **决策：** Delegation Binding 表示长期配置的可委派关系；Delegation 表示某次实际发生的委派执行。Binding 不构成永久父子关系，也不改变 Agent Ownership。
+- **影响：** 同一目标 Agent 可以被多个 Source Agent 绑定；运行时 Delegation 必须关联来源 Binding，并记录实际目标版本。
+
+### PD-016：Delegation Binding 支持基础用途与版本配置
+
+- **状态：Confirmed**
+- **决策：** Binding 至少支持 Purpose、Enabled 和 Version Policy；MVP 的版本策略支持 Latest Published 与 Pinned Version。复杂条件路由、评分和优先级暂缓。
+- **影响：** Agent Studio 可以显式管理委派目标及用途；实际 Delegation 创建时必须解析并固定具体 Agent Version。
+
+### PD-017：Platform、Personal 与 Organization Agent 复用同一领域模型
+
+- **状态：Confirmed**
+- **决策：** Platform Agent、Personal Agent 和 Organization Agent 使用同一套 Agent Domain 模型，通过 Owner、Publisher 等属性区分。
+- **影响：** 平台通用 Agent 是可复用的 Agent Definition / Template，不是特殊 Agent 类型；Clone 后的自定义 Agent 是独立定义。
+
+### PD-018：委派执行必须重新进行权限评估
+
+- **状态：Confirmed**
+- **决策：** Delegation Binding 不等于充分授权。每次委派仍需根据父执行主体、Work、目标 Agent、组织策略和本次委派请求计算有效权限；Agent 引用或绑定 Capability 不自动获得其执行权限。
+- **影响：** 子 Agent 不得因自身权限较宽而突破父执行、Work 或组织策略的限制；Delegation Context 传递不等于权限传递。
+
+### PD-019：组织治理与个人 Agent 配置权分离
+
+- **状态：Proposed**
+- **决策：** Agent Owner / Manager 管理自身 Agent 的委派绑定；Organization Admin 通过组织级 Policy 约束组织内委派行为，但不因管理员身份自动取得个人 Agent Definition 的修改权。
+- **影响：** Agent Configuration、Agent Access 和 Organization Governance 必须分离。组织策略对执行的限制仍可覆盖个人配置允许的范围。
+
+## Open Questions
 
 1. Personal Work 转入 Project 的具体操作语义：迁移、关联、复制还是创建协作 Work。
 2. Personal Artifact 分享后的归属、访问控制继承、撤销与版本可见性。
@@ -95,6 +130,11 @@
 5. Context Builder 在 Agent Identity、Delegating Principal、Organization Policy 与资源 ACL 之间的有效权限计算。
 6. Proposal 转 Decision 的授权、确认和审计流程。
 7. Work 与 Space/Project 的多对多关联、状态投影和归档策略。
+8. Agent Access 的具体权限矩阵及 Manager 可管理范围。
+9. Organization Policy、Work Policy 与 Binding Constraints 的策略合并和解释机制。
+10. Binding 被撤销、目标 Agent 被禁用或 Version 被 Deprecated 时，对运行中 Delegation 的精确影响。
+11. Clone 后的能力依赖、Skill / Tool 版本锁定及平台升级迁移机制。
+12. Delegation Policy 的默认配额、审批条件和企业管理员配置体验。
 
 ## Change policy
 
