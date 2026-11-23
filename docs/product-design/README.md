@@ -10,7 +10,7 @@
 |---|---|---|
 | [产品战略基线](./product-strategy.md) | 产品定位、核心用户价值、产品边界、核心闭环、MVP 与演进原则 | Baseline |
 | [架构决策记录](./decision-log.md) | 已确认的产品与领域设计决策、理由和待决问题 | Living document |
-| 领域模型 | Organization、Project、Space、Work、Agent、Artifact 等核心对象 | Planned |
+| [领域模型总览](./domain-model.md) | Organization、Project、Space、Work、Work Run、Agent、Execution、Artifact 等跨领域关系 | Design baseline |
 | [Agent Domain](./agent-domain.md) | Agent 身份、所有权、版本、能力、记忆、参与、委派绑定与治理 | Design baseline |
 | Collaboration Domain | Space、Conversation、Message、Proposal、Decision、Membership | Planned |
 | Work & Workflow Domain | Work、Assignment、Work Run、Interaction、Workflow/DAG | Planned |
@@ -39,6 +39,6 @@
 1. [产品战略基线](./product-strategy.md)
 2. [架构决策记录](./decision-log.md)
 3. [Agent Domain](./agent-domain.md)
-4. 领域模型总览（后续补充）
+4. [领域模型总览](./domain-model.md)
 5. 各领域详细设计
 6. MVP 规格与实施路线图
