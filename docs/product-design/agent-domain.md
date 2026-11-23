@@ -270,22 +270,22 @@ Organization Admin 可以通过 Organization Policy 限制组织内的委派行�
 
 **Proposed：** 子 Agent 的有效权限不得超过所有相关授权边界的交集：
 
-[
-P_{effective} =
-P_{parent}
-cap P_{work}
-cap P_{delegatee}
-cap P_{organization}
-cap P_{delegation}
-]
+```text
+P_effective =
+  P_parent
+  ∩ P_work
+  ∩ P_delegatee
+  ∩ P_organization
+  ∩ P_delegation
+```
 
 其中：
 
-- (P_{parent})：父执行主体可委派的权限。
-- (P_{work})：当前 Work 授予的权限。
-- (P_{delegatee})：目标 Agent 可使用的权限。
-- (P_{organization})：组织策略允许的权限。
-- (P_{delegation})：本次委派请求明确授予的权限范围。
+- `P_parent`：父执行主体可委派的权限。
+- `P_work`：当前 Work 授予的权限。
+- `P_delegatee`：目标 Agent 可使用的权限。
+- `P_organization`：组织策略允许的权限。
+- `P_delegation`：本次委派请求明确授予的权限范围。
 
 显式拒绝优先于允许。Agent 自身拥有某项 Tool 权限，不代表在某次只读委派中可以使用该权限。
 
