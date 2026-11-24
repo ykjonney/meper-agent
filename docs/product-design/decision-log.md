@@ -172,7 +172,6 @@
 - **影响：** Replanning 不会静默改变正在执行的任务定义；Acceptance Criteria 实质变化后需要重新验证。
 
 ## Open Questions
-
 1. Personal Work 转入 Project 的具体操作语义：迁移、关联、复制还是创建协作 Work。
 2. Personal Artifact 分享后的归属、访问控制继承、撤销与版本可见性。
 3. Personal Agent 加入 Space 时，Participation、Agent Access 与委托执行权限的组合规则。
@@ -185,11 +184,10 @@
 10. Binding 被撤销、目标 Agent 被禁用或 Version 被 Deprecated 时，对运行中 Delegation 的精确影响。
 11. Clone 后的能力依赖、Skill / Tool 版本锁定及平台升级迁移机制。
 12. Delegation Policy 的默认配额、审批条件和企业管理员配置体验。
-13. Plan Domain：Task 稳定身份与跨 Plan Version 的结构变更如何持久化。
-14. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象。
-15. Task 多 Assignee、并行 Execution 和运行中 Task 的 Replanning 迁移策略。
-16. Verification Policy 的风险等级、默认策略、独立验证要求及组织可配置边界。
-17. Agent Local Plan 的持久化模型、层级深度和父 Task 验收映射。
+13. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象。
+14. Task 多 Assignee、并行 Execution 和运行中 Task 的 Replanning 迁移策略。
+15. Verification Policy 的风险等级、默认策略、独立验证要求及组织可配置边界。
+16. Agent Local Plan 的持久化模型、层级深度和父 Task 验收映射。
 
 ## Change policy
 
