@@ -13,6 +13,7 @@
 | [领域模型总览](./domain-model.md) | Organization、Project、Space、Work、Work Run、Agent、Execution、Artifact 等跨领域关系 | Design baseline |
 | [Agent Domain](./agent-domain.md) | Agent 身份、所有权、版本、能力、记忆、参与、委派绑定与治理 | Design baseline |
 | [Plan Domain](./plan-domain.md) | Work Plan、Plan Version、Milestone、Task、Verification、Replanning 与 Agent Local Plan | Proposed |
+| [Plan Runtime Integration](./plan-runtime-integration.md) | Task Revision、Task Attempt、Coordinator、Execution 集成、事件一致性与 Recovery 协议 | Proposed |
 | Collaboration Domain | Space、Conversation、Message、Proposal、Decision、Membership | Planned |
 | Work & Workflow Domain | Work、Assignment、Work Run、Interaction、Workflow/DAG | Planned |
 | Artifact Domain | 产物、版本、共享、审阅与生命周期 | Planned |
@@ -42,5 +43,6 @@
 3. [Agent Domain](./agent-domain.md)
 4. [领域模型总览](./domain-model.md)
 5. [Plan Domain](./plan-domain.md)
-6. 各领域详细设计
-7. MVP 规格与实施路线图
+6. [Plan Runtime Integration & Recovery Protocol](./plan-runtime-integration.md)
+7. 各领域详细设计
+8. MVP 规格与实施路线图
