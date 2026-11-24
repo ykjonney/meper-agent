@@ -121,6 +121,20 @@
 - **决策：** Agent Owner / Manager 管理自身 Agent 的委派绑定；Organization Admin 通过组织级 Policy 约束组织内委派行为，但不因管理员身份自动取得个人 Agent Definition 的修改权。
 - **影响：** Agent Configuration、Agent Access 和 Organization Governance 必须分离。组织策略对执行的限制仍可覆盖个人配置允许的范围。
 
+
+### PD-020：Plan 是 Agent Runtime 的一等能力，Todo 是 Task 的视图
+
+- **状态：Confirmed**
+- **决策：** 平台将 Plan 作为 Agent Runtime 的一等能力；Plan 描述为实现 Work Run 目标而制定的执行方案，Task 是其中可分配、可追踪和可验证的工作项，Todo 是 Task 面向用户的清单视图，不建立独立 Todo 领域。
+- **影响：** Plan 必须支持持久化、版本化、重新规划，并与 Execution、Delegation、Checkpoint 和 Recovery 集成。一个 Task 不等同于一次模型调用或 Execution。
+
+### PD-021：Task 完成采用风险分级验证
+
+- **状态：Confirmed**
+- **决策：** Task 完成不能仅依赖 Agent 自我声明；Agent 提交 completion claim 和 Evidence 后，按风险分级 Verification Policy 验收。低风险任务可采用轻量自动检查，高风险操作或关键决策可要求确定性验证器或授权人工确认。
+- **影响：** Task 需要可追溯的 Acceptance Criteria、Evidence 和 Verification Result。Work 最终完成还必须满足 Work 自身的 Acceptance Criteria，不能仅以 Todo 全部勾选作为依据。
+
+
 ## Open Questions
 
 1. Personal Work 转入 Project 的具体操作语义：迁移、关联、复制还是创建协作 Work。
@@ -135,6 +149,11 @@
 10. Binding 被撤销、目标 Agent 被禁用或 Version 被 Deprecated 时，对运行中 Delegation 的精确影响。
 11. Clone 后的能力依赖、Skill / Tool 版本锁定及平台升级迁移机制。
 12. Delegation Policy 的默认配额、审批条件和企业管理员配置体验。
+13. Plan Domain：Task 稳定身份与跨 Plan Version 的结构变更如何持久化。
+14. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象。
+15. Task 多 Assignee、并行 Execution 和运行中 Task 的 Replanning 迁移策略。
+16. Verification Policy 的风险等级、默认策略、独立验证要求及组织可配置边界。
+17. Agent Local Plan 的持久化模型、层级深度和父 Task 验收映射。
 
 ## Change policy
 
