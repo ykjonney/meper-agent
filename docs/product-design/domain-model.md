@@ -104,6 +104,7 @@ flowchart TB
 | Project | Project, Project Membership, Project Context | 长期目标、项目背景和项目级协作组织 |
 | Collaboration | Space, Message, Thread, Proposal, Decision, Activity | 讨论、提及、协调、提案与决策 |
 | Work Management | Work, Assignment, Work Run, Interaction | 工作目标、责任分配、业务执行周期和人工交互 |
+| Planning | Work Plan, Plan Version, Milestone, Task, Dependency, Acceptance Criteria, Verification, Evidence | 目标导向计划、任务推进、重新规划和完成验证 |
 | Agent | Agent Definition, Version, Access, Participation, Binding | Agent 身份、配置、版本、参与和可委派关系 |
 | Execution | Execution, Step, Lease, Checkpoint, Event, ToolInvocation, ResourceBinding | 技术执行、调度、恢复、副作用和资源关联 |
 | Artifact | Artifact, Artifact Version, Artifact Link, Artifact Access | 产物归档、版本、关联、共享和交付 |
@@ -225,6 +226,8 @@ Work Run 表示某个 Work 的一次业务执行周期。
 
 Work Run 的业务状态与 Execution 的技术状态不同。Work Run 可以是 in_progress、blocked、completed 等业务状态；Execution 则有自己的调度和执行状态。单个 Worker Execution 失败不必然意味着整个 Work Run 失败，平台可根据 Work Run 的完成条件决定是否重试、重新规划或请求人工介入。
 
+**Confirmed direction：** Work Run 具有一个稳定的 Work Plan 身份；该 Plan 可产生多个 Plan Version，同一时刻只有一个 Active Plan Version。Plan 管理本轮整体执行方案，Task 管理可分配、可追踪和可验证的工作项。详细模型见 [Plan Domain](./plan-domain.md)。
+
 ### 4.4 Interaction
 
 Interaction 表示执行或协作过程中，需要用户或其他有权限主体响应的事项，例如：
@@ -313,13 +316,15 @@ Work
 
 Planning、Workflow 和 Execution 是不同概念：
 
-- Work Plan：Work Run 层面的整体执行方案。
-- Agent Local Plan：某个 Worker Execution 负责部分的专业计划。
+- Work Plan：Work Run 层面的整体执行方案，拥有稳定身份和版本化计划结构。
+- Plan Version：某一时刻的计划结构快照；计划调整产生新版本，历史版本保留。
+- Task：Plan 中的业务工作项；Todo 是 Task 的用户界面视图，不是独立领域事实源。
+- Agent Local Plan：某个 Worker Execution 针对被分配或委派 Task 制定的局部计划，必须关联父 Task / Delegation。
 - Workflow Definition：可复用的确定性流程定义及版本。
 - Workflow Run / Workflow Execution：在 Work Run 中实际运行某个 Workflow 的 Execution。
 - Step：Execution 内可观测、可恢复的执行单元。
 
-Planner 是平台能力；Agent 可以依据专业偏好决定是否规划、拆分或委派。Workflow/DAG 负责确定性流程控制，不等于 Planner，也不应成为所有 Work 的强制表达形式。
+Planner 是平台能力；Agent 可以依据专业偏好决定是否规划、拆分或委派。Workflow/DAG 负责确定性流程控制，不等于 Planner，也不应成为所有 Work 的强制表达形式。Task 不等于 Execution：一个 Task 可以跨多个模型调用、Execution 或 Delegation。Agent 的完成声明必须遵循 Task 的 Verification Policy，不能直接绕过验收进入 Completed。详细实体、生命周期、重新规划和恢复集成见 [Plan Domain](./plan-domain.md)。
 
 ### 5.6 Session and Conversation Context
 
@@ -407,8 +412,11 @@ Activity 可以作为跨领域时间线/通知投影，但不能取代上述领�
 | Product Domain | Execution Domain | Relationship |
 |---|---|---|
 | Work | — | 业务目标，不是执行记录 |
-| Work Run | One-to-many Execution | 一次业务执行周期聚合多个技术执行 |
+| Work Run | One-to-many Execution; one Work Plan identity | 一次业务执行周期聚合多个技术执行，并有一个版本化主计划 |
 | Assignment | — | 责任分配，不等于执行 |
+| Work Plan / Plan Version / Task | — | 业务计划与工作项；不替代 Execution / Step |
+| Agent Local Plan | Worker Execution / Delegation references | 子 Agent 局部计划映射到父 Task 和委派事实 |
+| Verification / Evidence | Execution Event, ToolInvocation, Artifact references | 验收结论消费可追溯执行证据 |
 | Agent Definition / Version | Execution configuration snapshot | 执行引用固定 Agent Version |
 | Worker Execution | Execution with Agent executor | 语义角色，不是独立重复的执行状态机 |
 | Delegation Binding | — | Agent Domain 的长期配置 |
@@ -433,6 +441,7 @@ Activity 可以作为跨领域时间线/通知投影，但不能取代上述领�
 - 基础 Project 和 Collaboration Space。
 - Message、Thread、@Mention、Proposal、Decision 的基础模型。
 - Work、Assignment、Work Run 的核心业务边界。
+- Work Run 关联 Work Plan；Plan Version、Task、基础依赖和验收验证能力。
 - Agent Definition、Version、Access、Participation 和显式 Delegation Binding。
 - Execution 与 Work Run 的关联；复用统一 Execution 恢复协议。
 - Artifact、Artifact Version、Artifact Link 和基础访问授权。
@@ -463,5 +472,6 @@ Deferred 是暂缓实现，不是产品不做。领域模型应允许演进，�
 9. Personal / Project / Space / Work Memory Namespace 的 ACL 继承、保留和删除策略。
 10. 现有 Task、Workflow Run、Session 与新 Work / Work Run 的数据迁移及 API 兼容策略。
 11. Activity 投影、Collaboration Event、Work Domain Event 和 Audit Event 的统一查询与保留策略。
+12. Plan Domain 中 Task 稳定身份、跨版本结构变更和运行中 Task 迁移的具体持久化语义（见 [Plan Domain Open Questions](./plan-domain.md#10-open-questions)）。
 
 在这些问题明确前，本文中的 Proposed 关系可作为讨论基线，不应直接转成不可变的实现约束。
