@@ -258,7 +258,11 @@ Replanning 流程：
 - 旧 Plan Version 保留，标记为 Superseded / Historical；Plan 的执行状态与 Version 的采用状态分开管理。
 - Plan Version 变更不代表创建新的 Work Run；只有新的业务执行周期才创建新的 Work Run。
 
-**Proposed：** Task Identity 在版本间保持稳定；结构性变化通过 Task Revision 或新 Task + lineage relation 表达。具体采用哪一种持久化方案留给实现设计，但外部可追踪身份和历史映射必须保留。
+**Confirmed（PD-022）：** Task 采用 Task Identity、Task Revision、Task Runtime State 三层分离。Identity 在版本间保持稳定；Revision 不可变；Runtime State 单独维护当前状态和活动 Attempt 指针。Plan Version 通过显式 PlanVersionTask 关系引用 Task Revision。结构性变化通过新 Revision 或新 Task + lineage relation 表达。
+
+### 6.1 Task Attempt and Revision Binding
+
+**Confirmed（PD-031）：** 一个 Task 默认最多允许一个活动业务 Attempt。一个 Attempt 可以关联多个 Execution / Delegation，以支持同一业务尝试中的多 Agent 协作。Attempt 不等于 Execution；Worker 崩溃恢复同一 Execution 不创建新 Attempt。Attempt 的状态机、Coordinator、数据库约束和 Recovery 协议见 [Plan Runtime Integration & Recovery Protocol](./plan-runtime-integration.md)。
 
 ## 7. Runtime, Execution and Recovery Integration
 
@@ -352,7 +356,6 @@ Deferred 表示暂缓实现，不代表产品不做。MVP 不需要复杂 DAG UI
 
 ## 10. Open Questions
 
-1. Task 是否需要独立聚合根，还是由 Plan Version 管理结构、由稳定 Task Identity 管理跨版本运行状态？
 2. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象？
 3. Task 是否允许多个并行 Assignee，以及如何表达共同负责、协作和审阅？
 4. Task 状态在 Plan Version 变化时如何投影，尤其是运行中 Task 的暂停、迁移和取消策略？
@@ -360,6 +363,6 @@ Deferred 表示暂缓实现，不代表产品不做。MVP 不需要复杂 DAG UI
 6. Verification 由 Agent 自检、独立 Agent、确定性验证器或人工执行时，如何定义独立性和防止自我验收？
 7. Work 最终验收与 Work Run 完成之间的状态转换和重开规则是什么？
 8. Agent Local Plan 是否复用同一 Plan 持久化模型，以及 Local Task 如何映射父 Task 的验收范围？
-9. 现有执行架构 Task 与产品 Plan Task 的数据模型、API 和迁移边界是什么？
+8. 现有执行架构 Task 与产品 Plan Task 的数据模型、API 和迁移边界是什么？
 
 在这些问题明确前，除已确认的原则外，本文中的实体拆分和状态细节均为 Proposed，不应直接视为实现约束。
