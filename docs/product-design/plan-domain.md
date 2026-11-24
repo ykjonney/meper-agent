@@ -355,14 +355,12 @@ Task 可以由 Agent 执行，也可以绑定或触发 Workflow Execution。Work
 Deferred 表示暂缓实现，不代表产品不做。MVP 不需要复杂 DAG UI，但底层 Dependency 和 Plan Version 设计不得阻断未来扩展。
 
 ## 10. Open Questions
-
-2. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象？
-3. Task 是否允许多个并行 Assignee，以及如何表达共同负责、协作和审阅？
-4. Task 状态在 Plan Version 变化时如何投影，尤其是运行中 Task 的暂停、迁移和取消策略？
-5. Verification Policy 的风险等级、默认策略和组织可配置边界如何定义？
-6. Verification 由 Agent 自检、独立 Agent、确定性验证器或人工执行时，如何定义独立性和防止自我验收？
-7. Work 最终验收与 Work Run 完成之间的状态转换和重开规则是什么？
-8. Agent Local Plan 是否复用同一 Plan 持久化模型，以及 Local Task 如何映射父 Task 的验收范围？
+1. Milestone 在 MVP 中采用嵌入式结构还是独立持久化对象？
+2. Task 是否允许多个并行 Assignee，以及如何表达共同负责、协作和审阅？
+3. Task 状态在 Plan Version 变化时如何投影，尤其是运行中 Task 的暂停、迁移和取消策略？
+4. Verification Policy 的风险等级、默认策略和组织可配置边界如何定义？
+5. Verification 由 Agent 自检、独立 Agent、确定性验证器或人工执行时，如何定义独立性和防止自我验收？
+6. Work 最终验收与 Work Run 完成之间的状态转换和重开规则是什么？
+7. Agent Local Plan 是否复用同一 Plan 持久化模型，以及 Local Task 如何映射父 Task 的验收范围？
 8. 现有执行架构 Task 与产品 Plan Task 的数据模型、API 和迁移边界是什么？
 
-在这些问题明确前，除已确认的原则外，本文中的实体拆分和状态细节均为 Proposed，不应直接视为实现约束。
