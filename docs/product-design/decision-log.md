@@ -135,6 +135,42 @@
 - **影响：** Task 需要可追溯的 Acceptance Criteria、Evidence 和 Verification Result。Work 最终完成还必须满足 Work 自身的 Acceptance Criteria，不能仅以 Todo 全部勾选作为依据。
 
 
+### PD-022：Task Identity、Revision 与 Runtime State 三层分离
+
+- **状态：Confirmed**
+- **决策：** Task 采用稳定身份（Identity）、不可变定义版本（Revision）和可变运行状态（Runtime State）三层模型。
+- **影响：** Plan Version 显式引用 Task Revision；运行进度不写入不可变 Revision；结构变化保留 lineage 和历史依据。
+
+### PD-031：一个 Task 默认最多允许一个活动 Attempt
+
+- **状态：Confirmed**
+- **决策：** MVP 默认一个 Task 同时最多只有一个活动业务 Attempt。多 Agent 协作通过同一 Attempt 下的多个 Execution / Delegation 实现，不通过并行顶层 Attempt 实现。
+- **影响：** Attempt 必须与 Execution 分离；单活动约束由 Coordinator 事务与数据库唯一约束共同保证。未来可通过 AttemptGroup 扩展竞争式并行尝试，不在 MVP 实现。
+
+### PD-032：Task Attempt 状态机与活动状态集合
+
+- **状态：Proposed**
+- **建议：** 活动状态为 Created、Running、Blocked、Awaiting Verification；终态为 Succeeded、Failed、Cancelled、Superseded。
+- **影响：** Blocked、暂停和 Awaiting Verification 仍占用活动 Attempt 名额，直到 Attempt 进入终态。
+
+### PD-033：一个 Attempt 可关联多个 Execution 与 Delegation
+
+- **状态：Proposed**
+- **建议：** Attempt 是业务尝试边界，可包含多个并行或串行 Execution / Delegation；通过显式关联记录角色和是否为完成所必需。
+- **影响：** 多 Agent 协作不意味着共享可写 Sandbox；父 Task 仍按自身验收标准验证。
+
+### PD-034：技术重试与业务重试分离
+
+- **状态：Proposed**
+- **建议：** Tool Retry、Execution Retry 和 Worker Recovery 不自动创建新 Task Attempt；业务级 Task Retry 创建新 Attempt，并保留旧尝试证据。
+- **影响：** 避免 Worker 崩溃、消息重投递或单工具失败导致业务尝试身份被错误重置。
+
+### PD-035：活动 Attempt 固定绑定启动时 Task Revision
+
+- **状态：Proposed**
+- **建议：** Attempt 创建时固定 `taskRevisionId`；Plan Version 激活不自动改变运行中 Attempt 的执行语义。Revision 迁移必须先安全停止旧执行并裁决外部副作用。
+- **影响：** Replanning 不会静默改变正在执行的任务定义；Acceptance Criteria 实质变化后需要重新验证。
+
 ## Open Questions
 
 1. Personal Work 转入 Project 的具体操作语义：迁移、关联、复制还是创建协作 Work。
