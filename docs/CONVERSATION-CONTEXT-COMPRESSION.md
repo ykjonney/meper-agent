@@ -107,9 +107,9 @@ Model Invocation
 
 ### 3.1 Stable Instructions 与动态更新
 
-- Platform Instructions、Agent Prompt 和 Tool Definitions 在每次 Model Invocation 时解析当前有效版本。
-- 修改 Prompt 不需要创建新 Context Session，不需要重新构建历史，也不需要迁移。
-- 修改 Tool Definition 后，后续模型调用使用当前定义；已经完成的旧 Tool Call / Result 是历史事实，不需要迁移或重新解释。
+- Platform Instructions、Agent Prompt 和 Tool Definitions 在每次新的执行请求 / 测试请求装配上下文时解析当前有效版本；同一次运行中已经装配的配置保持一致，不要求热更新。
+- 修改 Prompt 后，下一次新的执行 / 测试请求直接使用最新 Prompt；不需要创建新 Context Session，不需要重新构建历史，也不需要迁移。
+- 修改 Tool Definition 后，下一次新的执行请求装配当前定义；同一次运行中继续使用已装配的工具集合。已经完成的旧 Tool Call / Result 是历史事实，不需要迁移或重新解释。
 - 当前工具是否可用、当前操作是否授权，由 Runtime 在工具执行时检查。Prompt Cache 命中不能代替权限检查。
 - 不建立一套要求用户管理的 Prompt Revision / Tool Revision / Session Migration 领域系统。
 - 为调试和审计，可以在 Invocation 记录实际使用的 Prompt、Tool 与 Model 配置标识或摘要；这是诊断元数据，不是 Session 迁移条件。
