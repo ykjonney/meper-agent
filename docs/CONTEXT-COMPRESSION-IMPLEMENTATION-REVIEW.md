@@ -267,3 +267,167 @@
 - 不把 Summary 当成事实数据库。
 - 不把 Todo 变成第二套长期记忆。
 - 不在没有数据规模和合规要求前设计复杂的归档冷热分层系统。
+
+
+## 9. 深入设计：完整 Model Input Token Budget
+
+本节进一步明确 P1 问题的根因和建议实现方式。核心不是简单给 messages 估算加一个工具 Token 常量，而是让压缩器和真正的 LLM 调用基于同一份 **Invocation Input**。
+
+### 9.1 当前预算为什么不完整
+
+当前调用链：
+
+```text
+compress_node
+  └── estimate_context_tokens(state.messages)
+       └── _compress_by_turns(state.messages)
+            └── estimate_context_tokens(messages)
+                 │
+                 ▼
+llm_node
+  ├── llm.bind_tools(config.tools)
+  ├── MiddlewareChain.before_llm
+  │    └── TodoSalienceMiddleware 追加临时 HumanMessage
+  └── llm.ainvoke(call_state.messages)
+```
+
+有三个输入维度没有被压缩器完整看到：
+
+1. **Tool Definitions**：`llm_node` 把当前 tools 传给 `bind_tools`，但压缩器只估算 messages。
+2. **Todo 动态注入**：`TodoSalienceMiddleware` 在 compress_node 之后追加临时消息；该消息不持久化，但会消耗真实 Input Tokens。
+3. **其他未来的动态输入**：任何在压缩之后、模型调用之前改变消息或请求参数的 Middleware，都可能造成预算盲区。
+
+此外，`estimate_context_tokens` 复用上一次 `AIMessage.usage_metadata.input_tokens` 时，默认上一次调用的固定输入仍然有效。实际上 System Prompt、Tool Definitions、Todo 内容、Model Configuration 可能已经变化。
+
+### 9.2 目标模型：Invocation Input
+
+建议增加一个轻量的调用输入概念（Runtime 内部对象，不是持久化领域对象）：
+
+```text
+InvocationInput
+├── messages
+│   ├── Persistent Execution Conversation
+│   └── Ephemeral Context Messages
+├── tools
+│   └── Current Tool Definitions
+├── model_config
+└── input_fingerprint
+```
+
+其中：
+- Persistent Execution Conversation 是当前 Context Session 的持久化消息。
+- Ephemeral Context Messages 是本次调用临时注入的 Todo 等信息，不写入 Execution Conversation。
+- Tools 是本次调用实际传给 `bind_tools` 的工具集合。
+- input_fingerprint 是 Runtime 内部诊断 / Token 基准校验信息，不是 Agent Version，也不是 Session Migration 机制。
+
+压缩器只修改 Persistent Execution Conversation；预算估算同时计算 Persistent Messages、Ephemeral Context Messages 和 Tools。
+
+### 9.3 不要重复执行任意 before_llm Middleware
+
+不能简单在 compress_node 里提前调用一次 `chain.run_before_llm`，再在 llm_node 调用一次。Middleware 可能有计时、Recorder 等副作用，执行两次会重复记录或产生不一致。
+
+当前真正修改消息的只有 TodoSalienceMiddleware；UsageMiddleware 和 RecorderMiddleware 主要观察调用。因此建议把“提供模型上下文”从通用 Middleware 改写钩子中分离：
+
+- 引入明确的 Context Provider / Context Contributor 接口，例如 `context_messages(state) -> list[BaseMessage]`。
+- 该接口必须是无副作用、确定性的读取操作。
+- `compress_node` 使用它计算预算。
+- `llm_node` 使用同一接口构造最终模型输入。
+- TodoSalienceMiddleware 改为提供临时 Todo Context Message，不再通过普通 `before_llm` 追加。
+- Usage / Recorder 等观察型 Middleware 仍只在真实调用时执行一次。
+
+这样不需要把任意 Middleware 运行两遍，也不需要把 Todo 消息写入 Checkpoint。
+
+### 9.4 Tool Definition Token 估算
+
+预算必须覆盖传给 `bind_tools` 的同一组工具定义，而不是另行维护一份可能漂移的工具列表。
+
+建议抽象为 Model Adapter 的能力：
+
+```python
+estimate_input_tokens(
+    messages=current_messages,
+    tools=current_tools,
+    model_config=current_model_config,
+) -> TokenEstimate
+```
+
+估算策略按可靠性排序：
+
+1. 如果供应商 / LangChain Model Adapter 提供包含 Tools 的精确 Token 计数能力，优先使用。
+2. 否则对 Tool Schema 做规范化序列化，按 Schema 字段、描述、参数定义等进行保守估算。
+3. 额外保留可配置安全余量，避免启发式低估。
+4. 从真实模型响应的 `usage_metadata.input_tokens` 校准估算偏差，并记录估算值与真实值的差距。
+
+不要假定所有 Provider 的工具 Schema Token 计算完全一致；工具定义可能以独立请求字段发送，并不一定表现为普通 Message。
+
+### 9.5 Usage 基准必须有适用条件
+
+上一轮 `input_tokens` 可以作为当前估算基准，但只能在其静态输入条件仍然一致时复用。
+
+至少需要校验：
+- System / Platform / Agent Instructions 内容指纹；
+- 当前 Tool Definitions 指纹；
+- Model / Provider Configuration 指纹；
+- Ephemeral Context Messages 指纹（尤其是 Todo 内容）；
+- 上次调用之后的持久化消息确实只是追加，而不是被重排、替换或压缩。
+
+任一条件变化，旧 usage 基准失效，退回对当前完整 Invocation Input 的重新估算。
+
+这只是一个 Runtime 内部 fingerprint，不需要创建 Prompt Revision、Tool Revision 或 Context Session Migration 领域模型。
+
+特别注意：Prompt 或 Tool Definition 更新后，下一次新的执行请求使用最新定义；同一次运行中已装配的工具集合保持一致。Usage 基准不能跨越这类输入变化继续复用。
+
+### 9.6 压缩算法如何使用完整预算
+
+`_compress_by_turns` 仍然只对持久化 messages 做切分和压缩，但每个阶段都要用完整输入预算判断：
+
+```text
+estimate(
+  persistent_messages_after_compaction
+  + ephemeral_context_messages
+  + current_tool_definitions
+)
+```
+
+- Ephemeral Context Messages 和 Tool Definitions 属于本轮固定开销，不参与历史压缩。
+- 当预算超阈值时，压缩器只压缩持久化 Execution Conversation。
+- 若固定开销本身已过大，明确报错或要求减少工具 / 动态上下文，而不是继续删除历史。
+- 最终调用前再执行一次 preflight 校验，确保 `llm_node` 实际发送的输入与压缩器预算使用同一份上下文贡献和工具集合。
+- 保留回复 Token 预留；当前 `RESERVED_RESPONSE = 4000` 应统一进入 Token Budget 配置，不能散落在多个检查函数中。
+
+### 9.7 Prompt Cache 的兼容方式
+
+该设计不会要求平台自己管理供应商缓存：
+
+- System Prompt 与 Tools 保持稳定时，前缀自然更容易复用。
+- Todo 等动态上下文放在持久化对话之后，变化尽量只影响后缀。
+- Tool Definitions 变化允许 Provider Cache 失效。
+- 不为缓存命中保留过时的 Prompt 或 Tool Schema。
+- `cached_input_tokens` 继续作为观测指标；不参与正确性判断。
+
+### 9.8 建议测试矩阵
+
+| 场景 | 预期 |
+|---|---|
+| 首次调用，有 System + Messages + Tools | 预算包含三者 |
+| 工具 Schema 很大，Messages 很短 | 仍触发压缩或固定开销告警 |
+| Todo 很长，持久化 Messages 很短 | Todo Token 被计入 |
+| Todo 状态从短变长 | 旧 usage 基准失效 |
+| Agent Prompt 更新 | 旧 usage 基准失效；下一次新执行使用新 Prompt |
+| Tool Definition 更新 | 旧 usage 基准失效；下一次新执行使用新定义 |
+| 同一次 REACT 工具循环 | Tool Set 保持本次运行装配的一致性 |
+| Middleware 观察钩子 | 预算预检不重复触发 Recorder / Usage |
+| Context Compression 改写历史 | 旧 usage 基准失效 |
+| Ephemeral Todo 不写入 messages state | Checkpoint 不积累 Todo 快照 |
+| 最终 preflight 与 compress 估算 | 对同一 Invocation Input 得到一致的输入组成 |
+| Provider Usage 返回真实 Token 数 | 记录估算偏差并校准后续预算 |
+
+### 9.9 推荐实施切片
+
+1. 先引入 `InvocationInput` / Context Provider 的最小抽象，先迁移 Todo 注入，保证压缩和调用看到同一动态上下文。
+2. 为当前工具集合增加 Schema Token 估算；先做保守估算与安全余量，不追求跨 Provider 完美精确。
+3. 将 `compress_node`、`_compress_by_turns`、`_check_oversized_prompt`、`_check_oversized_tool_result` 统一改用完整 Invocation Input 预算。
+4. 增加 usage fingerprint，输入固定部分变化时自动退回全量估算。
+5. 在 `llm_node` 调用前增加最终 preflight，并补齐上述测试。
+
+不建议为此引入独立 Token Budget Service，也不建议把 Provider Cache、Prompt Revision 或 Tool Revision 变成业务领域对象。
