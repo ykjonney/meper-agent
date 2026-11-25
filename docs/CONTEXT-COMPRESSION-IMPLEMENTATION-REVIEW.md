@@ -1,0 +1,253 @@
+# 上下文压缩实现审查
+
+> 审查日期：2026-11-25
+>
+> 审查分支：`feature/execution-model`
+>
+> 审查范围：harness 压缩主流程、上下文分区、Token 估算、工具结果归档与回取、Todo 注入、Chat Checkpointer 接入。
+>
+> 本文是静态代码审查记录，不代表已运行测试。未在本次审查中修改运行时代码。
+
+## 1. 总体结论
+
+当前项目已经有一套相当完整的上下文压缩机制，尤其是：
+- 按 Token 预算与工具批次边界处理单条 HumanMessage 的长程 Agent 任务；
+- 保护未消费的 Tool Result；
+- 压缩前检查 Tool Call / Tool Result 配对；
+- 分级缩短已消费工具输出，再进行 LLM 语义摘要，最后才进入硬上限裁剪；
+- 为压缩后的工具结果提供 Recall 工具；
+- 使用摘要熔断器控制持续失败带来的成本。
+
+因此不建议推翻重写。后续应以现有 `compress_node → _compress_by_turns` 流程为基础，修正上下文边界与可靠性问题。
+
+但当前实现仍有几个与新架构决策不一致的地方，其中 Token 预算完整性、工具原文归档可靠性和“首条用户消息永久锚定”需要优先处理。
+
+## 2. 当前实现结构
+
+### 2.1 主流程
+
+生产压缩入口是：
+
+- `backend/packages/harness/src/agent_flow_harness/graph/nodes/llm_nodes.py`
+- `compress_node()` 在每次 LLM 调用前执行。
+- `_compress_by_turns()` 负责分级工具压缩、LLM 摘要和硬上限兜底。
+- 图结构为 `compress → llm → tools → compress`。
+
+### 2.2 压缩组件
+
+| 文件 | 当前职责 |
+|---|---|
+| `context_engineering/turns.py` | 按用户轮数或工具批次切分 outer / recent |
+| `context_engineering/pairing.py` | 清理不完整 Tool Call / Tool Result 配对 |
+| `context_engineering/tool_output.py` | 缩短已消费 Tool Result，保护未消费结果 |
+| `context_engineering/llm_summary.py` | 将较早历史渲染为结构化摘要 |
+| `context_engineering/compact_circuit.py` | 摘要失败/无进展时熔断 |
+| `engine/context.py` | Token 估算和模型窗口查找 |
+| `app/engine/harness_integration/context.py` | 注入原文归档和图片 Recall formatter |
+| `app/services/tool_output_archive_service.py` | 持久化压缩前的工具结果原文 |
+| `app/engine/agent/recall_tool.py` | Agent 按 tool_call_id 回取工具结果 |
+
+### 2.3 当前压缩顺序
+
+1. 清理不完整工具配对，并标注中断。
+2. 对较旧图片做降级。
+3. Token 未达软阈值时不做常规压缩。
+4. 切分 outer / recent。
+5. 压缩 outer 中已消费的大工具结果。
+6. 仍超阈值时压缩 recent 中已消费的大工具结果。
+7. 仍超阈值时对 outer 做 LLM 摘要。
+8. 接近硬上限时裁剪更早消息，并清理配对。
+
+现有实现默认使用 70% 软阈值、90% 硬阈值；近期保护默认 5 个 HumanMessage，长任务分区使用 15% 窗口预算和至少 3 个工具批次。
+
+## 3. 已有设计值得保留
+
+### 3.1 长程 Agent 不只按 HumanMessage 切分
+
+`turns.py::split_for_compression` 已处理“一个用户任务指令 + 大量工具往返”的场景。HumanMessage 数不足保护轮数时，按 Token 预算从尾部累计工具批次，并在批次边界切分。
+
+这是必要能力，应保留。
+
+### 3.2 未消费的工具结果受到保护
+
+`tool_output.py::find_unconsumed_tool_call_ids` 识别尚未被后续 AIMessage 消费的工具结果；`compress_tool_outputs` 不会截断这些结果。
+
+这能避免模型还没看到结果就先把它缩成占位符，应保留。
+
+### 3.3 工具配对作为压缩安全约束
+
+`ensure_tool_pairing` 在压缩前后保护 Tool Call / Tool Result 配对，避免向供应商发送结构不完整的工具轨迹。
+
+### 3.4 摘要不取代原始事实
+
+摘要中保留工具结果 Recall 引用；Agent 可以用 `recall_tool_result` 按需取回原始工具输出。这符合“完整历史按需回溯，而不是全部重新注入 Prompt”的方向。
+
+### 3.5 摘要熔断器只控制成本
+
+`compact_circuit` 的进程内状态用于避免无效摘要反复消耗成本，不承担正确性或恢复职责。这个边界是合理的。
+
+## 4. 需要优先处理的问题
+
+### P1 — Token 预算没有覆盖完整 Model Input
+
+涉及：
+- `context_engineering/engine/context.py::estimate_context_tokens`
+- `graph/nodes/llm_nodes.py::llm_node`
+- `app/engine/harness_integration/todo_middleware.py::before_llm`
+
+当前 Token 估算主要基于 `messages`。但实际 Model Input 还包括：
+
+1. `llm_node` 通过 `llm.bind_tools(tool_list)` 绑定的工具定义；
+2. Middleware 在 `before_llm` 中临时注入的 Todo 消息；
+3. 供应商协议可能附加的其他结构化输入。
+
+其中 Todo 是在 `compress_node` 完成压缩后、真正调用模型前才加入 `call_state["messages"]` 的。因此压缩节点看到的 Token 数并不等于最终发送给模型的 Token 数。
+
+此外，`estimate_context_tokens` 在历史被压缩改写后会切换到全量估算，但全量估算仍只遍历 messages，不包含工具定义。
+
+**风险：** 工具较多、Schema 较大或 Todo 较长时，压缩器认为上下文低于阈值，供应商实际收到的输入却可能超窗。
+
+**建议：**
+- 把预算对象从“消息 Token 数”提升为“完整 Model Input Token 估算”。
+- 至少纳入当前工具 Schema 和所有调用前 Middleware 注入内容。
+- 若供应商无法精确计算工具 Schema Token，使用保守预算或预留量。
+- 最终调用前保留一次预算校验；不能只在 compress_node 检查。
+- Usage Metadata 可作为上次调用的校准值，但任何前缀、工具定义或动态注入变化都必须使旧基准失效。
+
+### P1 — 工具原文归档是 fire-and-forget，压缩却立即宣称可回取
+
+涉及：
+- `app/engine/harness_integration/context.py::_schedule_archive`
+- `app/engine/harness_integration/context.py::_make_tool_output_reference_formatter`
+- `app/services/tool_output_archive_service.py::archive`
+
+当前 formatter 在压缩前调用 `_schedule_archive`，后者用 `asyncio.create_task` 异步写归档；formatter 不等待归档完成，直接返回“完整原文已存档”的提示。归档服务失败时只记录日志并吞掉异常。
+
+对 chat，部分场景可能还有产品消息 Timeline 作为回退；但 IM / workflow 等场景可能没有完整 Message 明细，归档是唯一原文来源。
+
+**风险：** 压缩后的上下文已经只剩 Recall 标记，但归档写入尚未完成或最终失败；进程在后台任务完成前崩溃时，原文可能永久丢失。
+
+**建议：**
+- 压缩器需要知道 formatter / archive 是否成功，而不只是拿到一段提示文本。
+- 归档成功前不能丢弃唯一原文副本；失败时保留原 ToolMessage 或跳过该条压缩。
+- 可以异步优化非关键工作，但“原文已持久化”必须是有确认的事实。
+- 归档保留期与产品历史和长程任务回溯要求对齐，不能只作为短期缓存处理。
+
+### P1 — 第一条 HumanMessage 被永久当成 Session 级任务目标
+
+涉及：
+- `context_engineering/turns.py::split_for_compression`
+- `graph/nodes/llm_nodes.py::_compress_by_turns`
+
+当前 `split_for_compression` 会把 outer 中第一条 HumanMessage 移入 recent；硬上限裁剪时也尝试保护该消息。代码注释将其定义为“任务指令”。
+
+这对“一条用户指令驱动的长任务”有意义，但新产品模型允许同一个 Conversation 持续讨论多个话题，且可以没有 Work / Current Objective。
+
+**风险：**
+- 普通聊天第一条用户消息会永久占用上下文预算，即使它早已无关。
+- 它并不一定是当前 Work 的 Goal。
+- 任务目标与 Conversation 首条消息被错误地绑定。
+
+**建议：**
+- 不要把首条 HumanMessage 作为所有 Context Session 的永久锚点。
+- 普通 Conversation 只保护近期交互单元；较早内容可摘要或裁剪，原始历史由 History Recall 保留。
+- 如果某个 Work 需要长期保留 Goal，应以 Work 的结构化 Goal / Work Context 为锚点，而不是复用 Session 第一条用户消息。
+- 在 Work 与 Context Session 关联机制尚未完成前，不要简单删除保护逻辑；先明确 chat 与长程 Work 两种模式的锚定策略。
+
+### P1/P2 — 硬上限兜底按单条消息裁剪，不是完整交互单元
+
+涉及：
+- `graph/nodes/llm_nodes.py::_compress_by_turns`，硬上限裁剪部分。
+
+常规 outer / recent 切分已尽量按用户轮或工具批次边界完成；但硬上限兜底会逐条从 outer 头部移除消息，必要时再逐条移除 recent 的较早消息，最后用 `ensure_tool_pairing` 清理不完整配对。
+
+**风险：** 硬上限路径可能把一个交互单元拆开；配对清理只能避免非法 Tool Call 结构，不能保证语义上的完整性。用户消息、Agent 回复、工具批次可能只保留一部分。
+
+**建议：**
+- 硬上限裁剪也应复用统一的 Compression Unit 边界。
+- 每次丢弃一个完整 Unit，而不是任意一条 Message。
+- 裁剪后验证工具配对、当前未完成调用、近期交互保护和任务状态。
+- 若固定占用本身已超窗，明确失败，不要继续破坏历史结构。
+
+## 5. 其他需要修正或明确的行为
+
+### P2 — System Message 去重后提前返回，跳过本轮压缩
+
+涉及：`graph/nodes/llm_nodes.py::compress_node`。
+
+当检测到多个带 ID 的 SystemMessage 时，当前逻辑删除旧消息后立即返回替换 Patch，没有继续执行 Token 预算检查和压缩。
+
+**风险：** 如果同一轮既发生 SystemMessage 去重又已经超过上下文预算，当前模型调用仍可能使用超预算的历史。
+
+**建议：** 去重后继续执行同一轮压缩流程，或确保在调用 LLM 前再次运行预算校验。
+
+### P2 — Todo 每次 LLM 调用都注入，而不是仅在用户轮 / 执行轮边界提醒
+
+涉及：`app/engine/harness_integration/todo_middleware.py::before_llm`。
+
+当前 Middleware 在每次模型调用前都将 Todo 临时追加到本次输入，不写入持久化 messages。这避免了历史版本堆积，但一个 REACT 循环内多次工具往返会反复支付 Todo Token。
+
+这与本项目已确定的 Todo 定位（轻量进度提醒器，在轮次结束 / 下一轮推进时提醒当前状态）不完全一致。
+
+**建议：**
+- 保留 Todo 的独立状态事实源。
+- 明确提醒频率：优先在新的用户轮或需要恢复任务位置的模型调用时注入，不要默认每个工具循环都重复注入。
+- 动态 Todo 注入必须纳入完整 Model Input Token 预算。
+
+### P2 — Token Usage 基准在 Prompt 前缀变化后可能失效
+
+涉及：`engine/context.py::estimate_context_tokens`。
+
+当前逻辑使用最近一条 AIMessage 的 `usage_metadata.input_tokens` 作为历史基准，再估算其后的新增消息。这个基准隐含前提是：该 AIMessage 之前的消息内容没有变化。
+
+但新的用户请求会更新固定 ID 的 SystemMessage（当前组装 ID 为 `sys`），Prompt 可能因此变化。若复用上次 AIMessage 的 usage 基准，却没有感知 SystemMessage 内容变化，Token 估算就可能沿用旧 Prompt 的输入量。
+
+**建议：**
+- 为 usage 基准记录其对应的消息前缀摘要 / 版本，或在 System Prompt、工具定义等前缀变化时使其失效。
+- 不需要建立复杂 Prompt Revision 领域对象；一个 Runtime 内部的输入指纹即可。
+- 该问题与完整 Model Input 预算问题一起处理。
+
+### P2 — Context Epoch 与压缩来源目前没有显式记录
+
+当前压缩结果直接写回 LangGraph State / Checkpoint；没有看到独立的 Context Epoch 或明确记录 Summary 来源消息范围的机制。
+
+这并不意味着必须新建 Epoch 集合。MVP 可以先用轻量压缩记录：压缩序号、来源消息 ID / 范围、摘要消息 ID、压缩时间，并确保 Checkpoint 与该状态一致。
+
+如果现有 Checkpoint 已完整保存压缩后的 messages，恢复正确性可以依赖 Checkpoint；Epoch 的首要价值是诊断、审计和理解多次压缩后的来源关系。
+
+## 6. 与目标架构的对照
+
+| 目标设计 | 当前实现 | 判断 |
+|---|---|---|
+| 历史与执行上下文独立演化 | Message 集合 + LangGraph Checkpointer；新会话不从 History 重建，Legacy Migration 是兼容路径 | 基本符合 |
+| Agent 按需 Recall 历史 | 已有 `recall_tool_result`，主要覆盖压缩工具结果 | 部分符合；通用 History Recall 尚需扩展 |
+| 普通 Conversation 不固定 Current Objective | 首条 HumanMessage 永久锚定 | 不符合 |
+| 长程任务按完整交互 / 工具批次压缩 | 已有 Token + 批次边界切分 | 基本符合，硬上限路径需加强 |
+| 未消费 Tool Result 不压缩 | 已实现 | 符合 |
+| 原文可可靠回取 | 异步 best-effort Archive + 30 天 TTL | 不符合可靠性要求 |
+| Todo 不进入压缩历史 | Todo 在独立 state 中，并临时注入 | 符合 |
+| Todo 作为轻量提醒 | 每次 LLM 调用都注入 | 需要调整频率 |
+| Token Budget 覆盖完整 Prompt | 主要估算 messages，工具定义 / Middleware 注入未完整计入 | 不符合 |
+| Prompt 更新无需 Session Migration | 新请求重新装配 Agent Prompt / Tool 集合，System Message 以固定 ID 更新 | 基本符合 |
+| Prompt Cache 独立于业务状态 | 未发现平台显式 Provider Cache 管理层 | 不应在 MVP 新建复杂缓存域 |
+| Context Epoch / Summary 来源追踪 | 未发现显式实现 | 可用轻量记录补足 |
+
+## 7. 推荐修正顺序
+
+1. **先修 Token Budget 完整性**：确保最终发送给模型的输入（消息、工具定义、Middleware 动态注入）都被预算覆盖。
+2. **再修原文归档可靠性**：未确认归档成功前，不允许压缩掉唯一原文。
+3. **调整锚定策略**：区分普通 Conversation 与有 Work 的长程任务；不要永久锚定 Conversation 第一条消息。
+4. **统一 Compression Unit**：常规切分和硬上限裁剪复用同一套交互单元边界。
+5. **修复 System 去重后的提前返回**，并处理 Prompt 前缀变化导致的旧 usage 基准失效。
+6. **调整 Todo 提醒频率**，并把 Todo 注入纳入 Token Budget。
+7. **最后补轻量压缩来源记录**，不急于实现独立 Epoch 服务。
+
+## 8. 本次审查不建议做的事情
+
+- 不推翻现有 `turns.py`、`tool_output.py` 和 `llm_summary.py`。
+- 不为了 Prompt Cache 引入独立的会话版本迁移系统。
+- 不要求 Prompt / Tool Definition 修改触发 Session Fork 或 Migration。
+- 不把产品历史重新构造成每次模型调用的完整 Prompt。
+- 不把 Summary 当成事实数据库。
+- 不把 Todo 变成第二套长期记忆。
+- 不在没有数据规模和合规要求前设计复杂的归档冷热分层系统。
