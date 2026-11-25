@@ -77,11 +77,12 @@
 - Todo 是轻量的进度提醒器，提示 Agent 当前推进位置；不是第二套长期记忆，也不替代 Execution History。
 - Todo 状态应独立于可压缩的 messages 保存。
 - Todo 的更新不应不断向 Execution Conversation 追加历史版本；需要提醒模型时，以临时 Runtime Context 形式提供当前状态。
-- Todo 注入由 Runtime 在新一轮会话执行开始时门控：先检查关联的上一次 Execution 是否仍未结束；未结束且可恢复时，才注入该执行对应的当前 Todo Snapshot。
-- 如果上一次 Execution 已正常结束，不因历史 Todo 而注入提醒；普通聊天或没有关联未完成 Work / Execution 时，也不注入 Todo。
-- Todo Snapshot 在本次新执行开始时读取一次；同一执行内部的普通 LLM / Tool 循环不重复注入。Todo 在执行过程中更新后，变化保存在独立 Todo 状态中，留待下一次会话边界重新读取，不通过反复追加消息来同步。
-- 用户打断、暂停或等待外部条件不等同于任务已完成：只要 Execution 保留可恢复状态，下一次会话就仍属于未结束执行，应注入 Todo。已终止且不可恢复的 Execution 不触发该规则。
-- 不存在 Work / Plan / 未完成 Execution 时，不凭空注入空的 Current Objective。
+- Todo 是 Agent 自己维护的轻量进度提醒器，状态独立于可压缩的 messages 保存；Runtime 不解释或改写 Todo 项的语义状态。
+- 新任务首次执行时，Agent 可按需要创建 Todo；不要求 Runtime 预先注入空 Todo。
+- Agent 每次准备结束一次执行时，Runtime 检查当前 Todo：全部完成则正常结束；仍有未完成项则向 Agent 注入一次结束前提醒，让 Agent 决定继续执行，或向用户说明阻塞 / 无法继续的原因。
+- 结束前提醒不是强制门控：Runtime 不无限阻止结束，也不因 Execution 结束而自动把 Todo 标记完成。Todo 内容与完成状态始终由 Agent 通过 `todo_write` 管理。
+- 如果 Execution 未结束而需要恢复，在新一轮执行开始时读取并注入当前 Todo 一次，帮助 Agent 恢复进度；同一次 Execution 内的普通 LLM / Tool 循环不重复注入。
+- Todo 提醒注入后应进入当前执行上下文，使 Agent 在本次继续执行期间持续可见；Todo 的独立状态仍不参与 Context Compression。
 
 ## 3. Model Invocation 输入结构
 
@@ -123,9 +124,9 @@ Model Invocation
 Runtime Context 是某次模型调用的辅助状态快照，不是 Conversation Message，也不是固定的 Current Objective。
 
 - 仅在相关时注入。
-- Todo 有独立的注入门控：新一轮会话执行开始时，Runtime 先检查上一次关联 Execution 是否仍未结束且可恢复；满足条件才读取并注入当前 Todo Snapshot。
-- Todo Snapshot 在一次新执行开始时固定；同一执行内部的普通工具往返不重复注入。执行中 Todo 的更新留在独立状态中，不通过重复改写本次 Invocation 输入来追赶。
-- 上一次 Execution 已正常结束、已终止且不可恢复，或当前消息不关联未完成任务时，不注入旧 Todo。
+- Todo 有两个明确的提醒时机：恢复未结束的 Execution 时，在新一轮执行入口注入当前 Todo 一次；Agent 每次准备结束执行时，如果仍有未完成项，再注入一次结束前提醒。
+- 结束前提醒只促使 Agent 重新检查进度，不构成强制门控。Agent 可以继续执行，也可以判断无法继续并向用户说明原因；Runtime 不替 Agent 修改 Todo 状态。
+- 同一次 Execution 内的普通 LLM / Tool 循环不重复注入恢复提醒；Todo 状态由 Agent 更新并独立保存，不参与消息压缩。
 - 其他 Runtime Context 仍仅在相关时注入；内容发生变化时更新，不因变化而向 Execution Conversation 追加历史版本。
 - 尽量放在稳定前缀之后，减少对 Prompt Prefix Cache 的影响。
 - 只注入模型完成当前推理真正需要的信息。
@@ -272,7 +273,7 @@ Agent 不需要知道 Context Session ID、Checkpoint ID、Epoch 存储结构、
 | Tool Definition 更新 | 下一次模型调用使用当前定义，不迁移 Session |
 | 历史 Tool Call / Result | 保留为历史事实，不做版本迁移 |
 | 权限与可用性 | 工具执行时检查当前状态 |
-| Todo | 独立轻量进度提醒；新一轮会话开始时仅对尚未结束且可恢复的 Execution 注入一次，不在普通工具循环重复注入 |
+| Todo | Agent 独立维护；恢复未结束 Execution 时注入一次，且每次准备结束执行时若仍有未完成项则提醒 Agent；提醒不是强制门控 |
 | 压缩时机 | 完整交互边界或下一次模型调用前，不在 Token Stream 中途压缩 |
 | 压缩边界 | 按交互单元、工具批次与消费状态识别，不只按 HumanMessage |
 | Prompt Cache | 优化层，不是正确性或恢复依据 |
