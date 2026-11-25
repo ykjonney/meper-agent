@@ -444,3 +444,66 @@ estimate(
 5. 在 `llm_node` 调用前增加最终 preflight，并补齐上述测试。
 
 不建议为此引入独立 Token Budget Service，也不建议把 Provider Cache、Prompt Revision 或 Tool Revision 变成业务领域对象。
+
+## 10. Todo Final Answer Gate：最小改造设计
+
+本节只定义结束前提醒机制的最小改造，不涉及 Todo 数据结构、工具接口或恢复注入机制的实现变更。
+
+### 10.1 目标语义
+
+`todo_final_gate` 不再是“未完成 Todo 时拒绝结束”的强制门控，而是“Agent 准备正常结束时的一次提醒”。
+
+- 仅在 LLM 产生无 tool call 的候选最终回复时检查 Todo。
+- Todo 全部完成或清单为空：返回 `None`，正常结束。
+- 存在 `pending` / `in_progress` 项：返回提醒文本，由 Harness 将提醒作为消息交给模型，并重新执行一次 LLM 决策。
+- 提醒后的下一次模型决策可以继续调用工具，也可以向用户解释阻塞 / 无法继续并结束；Runtime 不再因同一批未完成项重复拦截。
+- Runtime 不自动修改 Todo，也不要求 Agent 为了结束而清空清单或虚假标记完成。
+
+### 10.2 Harness 行为
+
+复用现有 `final_answer_gate` 与“提醒后回到 LLM”路径，不新建结束状态机：
+
+1. 首次候选最终回复触发 gate。
+2. Gate 发现未完成项，返回一条中性提醒。
+3. Harness 将提醒加入执行上下文并路由回 LLM。
+4. 本次提醒之后，当前执行不再触发第二次 Todo gate 提醒；后续模型可正常结束。
+
+因此，原有 `_FINAL_GATE_REMINDER_BUDGET = 2` 应调整为一次提醒的语义。若 Harness 的 gate 预算是通用机制，不应全局改变其默认值；应确认 Todo gate 的计数作用域，确保只限制 Todo 提醒，不影响其他 Gate。
+
+### 10.3 提醒文案
+
+建议使用不带强制命令的文案：
+
+```text
+系统提醒：当前 Todo 清单仍有未完成项。
+
+请根据实际执行情况决定下一步：
+- 如果任务可以继续，请继续执行并更新 Todo。
+- 如果遇到阻塞或无法继续，请向用户说明原因。
+- 不要为了结束执行而虚假标记任务完成。
+```
+
+提醒只提供事实和决策提示，不要求必须完成所有 Todo，也不要求清空清单。
+
+### 10.4 本次改造范围
+
+纳入：
+- 调整 `todo_final_gate` 的返回文案与语义。
+- 将 Todo gate 的提醒次数限制为每次执行一次（具体计数位置以 Harness 现有实现为准）。
+- 更新工具描述、模块注释和相关测试，使其不再宣称“还有未完成项就要求继续”。
+
+暂不纳入：
+- `TodoSalienceMiddleware` 每次 LLM 调用重复注入的问题；这是独立改动，后续单独处理。
+- Todo 恢复入口注入。
+- Todo 状态模型、`todo_write` 全量替换语义。
+- Plan Runtime 或 Execution 生命周期重构。
+
+### 10.5 验收场景
+
+1. Todo 为空：候选最终回复直接结束，不产生提醒。
+2. Todo 全部 completed：候选最终回复直接结束，不产生提醒。
+3. 存在 pending / in_progress：第一次候选最终回复触发一次提醒并回到 LLM。
+4. 提醒后 Agent 调用工具：工具循环正常执行，不重复注入 Todo gate 提醒。
+5. 提醒后 Agent 说明阻塞并产生最终回复：允许结束，即使 Todo 仍未完成。
+6. 提醒后 Agent 继续工作，最终再次产生候选最终回复：不因同一轮 Todo 再次触发提醒。
+7. 不因提醒而自动修改或清空 `state.todos`。
