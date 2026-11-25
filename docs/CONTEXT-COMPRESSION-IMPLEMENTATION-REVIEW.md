@@ -181,25 +181,26 @@
 
 **建议：** 去重后继续执行同一轮压缩流程，或确保在调用 LLM 前再次运行预算校验。
 
-### P2 — Todo 注入缺少 Execution 生命周期门控
+### P2 — Todo 结束前提醒与恢复注入时机需要调整
 
-涉及：`app/engine/harness_integration/todo_middleware.py::before_llm`。
+涉及：`app/engine/harness_integration/todo_middleware.py::before_llm` 及当前 `todo_final_gate`。
 
-当前 Middleware 在每次模型调用前都将 Todo 临时追加到本次输入，不写入持久化 messages。这避免了历史版本堆积，但一个 REACT 循环内多次工具往返会反复支付 Todo Token；同时也没有把“上一次执行是否已经结束”作为注入条件。
+当前 Middleware 在每次模型调用前都将 Todo 临时追加到本次输入，不写入持久化 messages。这避免了历史版本堆积，但一个 REACT 循环内多次工具往返会反复支付 Todo Token。当前 `todo_final_gate` 还会在 Todo 有 pending 项时阻止 Agent 正常结束，最多提醒两次；这把 Todo 从提醒器变成了强制任务完成门控。
 
 **目标规则（本轮讨论已明确）：**
-- 在下一轮会话执行开始时，Runtime 先检查关联的上一次 Execution 是否已经结束。
-- 如果上一次 Execution 尚未结束且保留可恢复状态，则读取该执行对应的最新 Todo Snapshot，并在本次新执行的输入中注入一次。
-- 如果上一次 Execution 已正常结束，或已终止且不可恢复，则不注入旧 Todo。
-- 用户打断、暂停或等待外部条件，不应仅因当前运行进程停止就被视为任务已完成；只要仍可恢复，就按未结束执行处理。
-- 同一次 Execution 内的普通 LLM / Tool 循环不重复注入。执行中 Todo 的变更写入独立 Todo 状态，留待下一次会话边界读取。
-- 只有与本次会话关联的未结束执行 / Work 的 Todo 可以注入；不把同一 Conversation 下其他 Work 的 Todo 一并注入。
+- 新任务首次执行时，不要求 Runtime 预先注入 Todo；由 Agent 根据需要创建和维护。
+- Agent 每次准备结束一次 Execution 时，Runtime 检查 Todo。全部完成则正常结束；仍有未完成项则向 Agent 注入一次结束前提醒。
+- 结束前提醒不是强制门控。Agent 可以继续执行，也可以判断无法继续并向用户说明阻塞 / 原因；Runtime 不无限阻止结束。
+- Todo 内容与完成状态始终由 Agent 通过 `todo_write` 管理。Runtime 不自动标记完成，也不判断任务在业务语义上是否完成。
+- 如果 Execution 尚未结束并在后续新一轮执行中恢复，则在恢复入口读取当前 Todo 并注入一次，帮助 Agent 找回进度。
+- 同一次 Execution 内普通 LLM / Tool 循环不重复注入恢复提醒；结束前检查是独立的提醒时机。
+- Todo 状态独立保存，不参与 Context Compression。提醒内容进入当前执行上下文后，应在本次继续执行期间持续可见。
 
 **建议：**
-- 把注入门控放在 Runtime 的新执行准备 / Session Resolution 边界，不让通用 `before_llm` Middleware 每次自行决定。
-- 保留 Todo 独立状态事实源，生成一次性、不可变的 Todo Snapshot，供本次 Invocation 预算估算和最终模型调用共同使用。
-- 动态 Todo 注入必须纳入完整 Model Input Token 预算。
-- 现有 Middleware 是否继续承担最终消息拼装，需要结合 InvocationInput 改造统一处理；不能让压缩预算与真实调用看到不同的 Todo 输入。
+- 将现有 `todo_final_gate` 的语义从“pending 时拒绝结束”调整为“pending 时向 Agent 提醒”，并允许 Agent 在说明阻塞 / 无法继续后结束。
+- 保留 Runtime 对结束边界的 Todo 检查，但不要让 Runtime 管理 Todo 项的业务状态。
+- 恢复入口的 Todo 注入与结束前提醒分开处理；两者都应纳入完整 Model Input Token Budget，且同一执行内不因普通工具循环重复注入。
+- 不要把 Todo 扩展成 Todo Lifecycle / Event 子系统，也不要与长期 Plan Runtime 合并。
 
 ### P2 — Token Usage 基准在 Prompt 前缀变化后可能失效
 
@@ -249,7 +250,7 @@
 | 未消费 Tool Result 不压缩 | 已实现 | 符合 |
 | 原文可可靠回取 | 异步 best-effort Archive + 30 天 TTL | 不符合可靠性要求 |
 | Todo 不进入压缩历史 | Todo 在独立 state 中，并临时注入 | 符合 |
-| Todo 作为轻量提醒 | 每次 LLM 调用都注入 | 不符合；应在新一轮会话开始时根据上一次 Execution 是否未结束且可恢复进行门控，同一次执行内部不重复注入 |
+| Todo 作为轻量提醒 | 每次 LLM 调用都注入；最终门控会阻止 pending Todo 时结束 | 不符合；应在结束前检查并提醒 Agent，不强制拦截；恢复未结束 Execution 时另注入一次 |
 | Token Budget 覆盖完整 Prompt | 主要估算 messages，工具定义 / Middleware 注入未完整计入 | 不符合 |
 | Prompt 更新无需 Session Migration | 新请求重新装配 Agent Prompt / Tool 集合，System Message 以固定 ID 更新 | 基本符合 |
 | Prompt Cache 独立于业务状态 | 未发现平台显式 Provider Cache 管理层 | 不应在 MVP 新建复杂缓存域 |
@@ -262,7 +263,7 @@
 3. **调整锚定策略**：区分普通 Conversation 与有 Work 的长程任务；不要永久锚定 Conversation 第一条消息。
 4. **统一 Compression Unit**：常规切分和硬上限裁剪复用同一套交互单元边界。
 5. **修复 System 去重后的提前返回**，并处理 Prompt 前缀变化导致的旧 usage 基准失效。
-6. **调整 Todo 注入门控**：在新一轮会话执行开始时检查上一次 Execution 是否仍未结束且可恢复；满足条件才注入一次，并把该 Snapshot 纳入 Token Budget。
+6. **调整 Todo 提醒机制**：将 `todo_final_gate` 从强制结束门控改为结束前提醒；恢复未结束 Execution 时另注入当前 Todo 一次。两种注入都纳入 Token Budget，普通工具循环不重复注入。
 7. **最后补轻量压缩来源记录**，不急于实现独立 Epoch 服务。
 
 ## 8. 本次审查不建议做的事情
@@ -419,11 +420,11 @@ estimate(
 | 首次调用，有 System + Messages + Tools | 预算包含三者 |
 | 工具 Schema 很大，Messages 很短 | 仍触发压缩或固定开销告警 |
 | Todo 很长，持久化 Messages 很短 | Todo Token 被计入 |
-| 新一轮开始且上一次 Execution 未结束、可恢复 | 注入当前 Todo Snapshot；该 Snapshot 纳入预算 |
-| 新一轮开始且上一次 Execution 已结束 | 不注入旧 Todo |
-| 用户暂停 / 打断后恢复未结束 Execution | 注入当前 Todo Snapshot |
+| Agent 准备结束且 Todo 仍有未完成项 | 注入结束前提醒；Agent 可继续或说明阻塞后结束，不强制拦截 |
+| Agent 准备结束且 Todo 全部完成 | 正常结束，不注入提醒 |
+| 用户暂停 / 打断后恢复未结束 Execution | 在恢复入口注入当前 Todo 一次 |
 | 同一次 Execution 内多次 REACT 工具往返 | 不重复注入 Todo |
-| Todo 在同一次 Execution 内更新 | 更新独立 Todo 状态，不重写当前 Invocation Snapshot；下一次会话边界重新读取 |
+| Todo 在同一次 Execution 内更新 | 更新独立 Todo 状态；结束前检查读取最新状态，不重复注入普通循环提醒 |
 | Todo 状态从短变长且在新会话边界重新注入 | 旧 usage 基准失效 |
 | Agent Prompt 更新 | 旧 usage 基准失效；下一次新执行使用新 Prompt |
 | Tool Definition 更新 | 旧 usage 基准失效；下一次新执行使用新定义 |
