@@ -207,6 +207,22 @@
 - 不需要建立复杂 Prompt Revision 领域对象；一个 Runtime 内部的输入指纹即可。
 - 该问题与完整 Model Input 预算问题一起处理。
 
+### P2 — Chat 的 Checkpointer Thread ID 仍直接使用产品 Session ID
+
+涉及：
+- `backend/app/engine/harness_integration/execution.py`
+- `backend/app/services/agent_execution_service.py`
+
+当前 Chat 执行将 LangGraph `thread_id` 设为 `session_id`，Recall Archive 也使用这个 thread 标识。产品消息集合与 Checkpointer 状态虽然是两套存储，但身份边界仍然是一对一绑定。
+
+这对当前“一个 Chat Session 持续一个模型上下文”的行为足够；但未来一个 Conversation 中出现多个 Work、多个 Agent 或显式 Fork 时，产品 Conversation 与模型 Context Session 不再必然一一对应。
+
+**建议：**
+- MVP 不必立即重构所有 ID。
+- 在 Runtime 中引入 Session Resolution 抽象，让调用方通过 Runtime 取得 Context Session，而不是在业务代码中直接假定 `thread_id == session_id`。
+- 后续再按 Work / Agent / Fork 场景决定是否创建独立 Context Session。
+- Archive / Recall 的关联键也应逐步转向 Context Session + 稳定 Tool Invocation 标识，避免依赖产品 Session ID。
+
 ### P2 — Context Epoch 与压缩来源目前没有显式记录
 
 当前压缩结果直接写回 LangGraph State / Checkpoint；没有看到独立的 Context Epoch 或明确记录 Summary 来源消息范围的机制。
