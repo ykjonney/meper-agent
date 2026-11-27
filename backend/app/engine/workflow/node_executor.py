@@ -17,6 +17,8 @@ from typing import Any
 
 from loguru import logger
 
+from app.engine.execution.repository import LeaseLostError
+
 
 @dataclass
 class NodeResult:
@@ -889,30 +891,34 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         )
                         return bool(doc and doc.get("status") == "cancelled")
 
+                    # E6：节点级 step 身份——账本幂等键细化到 {execution}:{node}:{call}
+                    from agent_flow_harness.execution_context import step_scope
+
                     if resume_thread_id:
                         # 恢复被取消的 agent：用 Command(resume) 续接 REACT 循环
                         from app.engine.harness_integration import resume_agent
 
-                        result = await asyncio.wait_for(
-                            resume_agent(
-                                agent_doc,
-                                {
-                                    "messages": initial_messages,
-                                    "session_id": resume_thread_id,
-                                    "user_id": user_id,
-                                    "agent_id": agent_id,
-                                },
-                                thread_id=resume_thread_id,
-                                resume_value="continue",
-                                workspace=task_workspace,
-                                cancel_checker=_cancel_checker,
-                                user_token=user_token,
-                                require_user_credentials=require_user_credentials,
-                                execution_context="workflow",
-                                subagents=subagent_bundles or None,
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
+                        with step_scope(self.node_id):
+                            result = await asyncio.wait_for(
+                                resume_agent(
+                                    agent_doc,
+                                    {
+                                        "messages": initial_messages,
+                                        "session_id": resume_thread_id,
+                                        "user_id": user_id,
+                                        "agent_id": agent_id,
+                                    },
+                                    thread_id=resume_thread_id,
+                                    resume_value="continue",
+                                    workspace=task_workspace,
+                                    cancel_checker=_cancel_checker,
+                                    user_token=user_token,
+                                    require_user_credentials=require_user_credentials,
+                                    execution_context="workflow",
+                                    subagents=subagent_bundles or None,
+                                ),
+                                timeout=timeout_ms / 1000,
+                            )
                         # 恢复成功后清除标志，后续重试走正常 invoke
                         resume_thread_id = ""
                     else:
@@ -921,26 +927,27 @@ class AgentNodeExecutor(BaseNodeExecutor):
                         # pending_messages 非空 = schema 反馈轮：只带反馈消息，
                         # 历史（system prompt/工具调用/违规输出）由 checkpointer
                         # 按 thread_id 追加恢复，不重复注入 SystemMessage。
-                        result = await asyncio.wait_for(
-                            invoke(
-                                agent_doc,
-                                {
-                                    "messages": pending_messages
-                                    if pending_messages is not None
-                                    else initial_messages,
-                                    "session_id": _thread_id,
-                                    "user_id": user_id,
-                                    "agent_id": agent_id,
-                                },
-                                workspace=task_workspace,
-                                cancel_checker=_cancel_checker,
-                                user_token=user_token,
-                                require_user_credentials=require_user_credentials,
-                                execution_context="workflow",
-                                subagents=subagent_bundles or None,
-                            ),
-                            timeout=timeout_ms / 1000,
-                        )
+                        with step_scope(self.node_id):
+                            result = await asyncio.wait_for(
+                                invoke(
+                                    agent_doc,
+                                    {
+                                        "messages": pending_messages
+                                        if pending_messages is not None
+                                        else initial_messages,
+                                        "session_id": _thread_id,
+                                        "user_id": user_id,
+                                        "agent_id": agent_id,
+                                    },
+                                    workspace=task_workspace,
+                                    cancel_checker=_cancel_checker,
+                                    user_token=user_token,
+                                    require_user_credentials=require_user_credentials,
+                                    execution_context="workflow",
+                                    subagents=subagent_bundles or None,
+                                ),
+                                timeout=timeout_ms / 1000,
+                            )
                         pending_messages = None  # 反馈轮只生效一次
 
                     # ── 委派 trace 落 Task timeline（M2.1 委派可观测）──
@@ -1158,6 +1165,9 @@ class AgentNodeExecutor(BaseNodeExecutor):
                             "usage": result.get("usage") or {},
                         },
                     )
+                except LeaseLostError:
+                    # E6 复审 P1-1：失去 Lease 不是 Agent 失败——透传停止推进
+                    raise
                 except TimeoutError:
                     last_error = f"Agent 执行超时 ({timeout_ms}ms)"
                     logger.warning("node_agent_timeout", node_id=self.node_id, attempt=attempt + 1)
@@ -1462,6 +1472,9 @@ class ToolNodeExecutor(BaseNodeExecutor):
                     "note": "Skill 类工具需由下游 Agent 节点执行，本节点仅透传说明",
                 },
             )
+        except LeaseLostError:
+            # E6 复审 P1-1：失去 Lease 原样透传，不转普通节点失败
+            raise
         except Exception as exc:
             logger.error("node_tool_failed", node_id=self.node_id, error=str(exc))
             return NodeResult(
@@ -1550,6 +1563,47 @@ class ToolNodeExecutor(BaseNodeExecutor):
             if ws_token is not None:
                 reset_workspace_context(ws_token)
 
+    async def _ledger_invoked(
+        self, tool: Any, params: dict[str, Any], tool_id: str
+    ) -> Any:
+        """账本包裹的工具调用（无执行身份时原样直调）。
+
+        幂等键 {execution}:{node}:{tool_id}（不含 attempt）——超时/中断
+        记 UNKNOWN 后，同键重试会被 claim 拒绝（LedgerClaimError 向上，
+        归入节点失败），不再盲目重执行副作用。
+
+        E6 复审 P1-2：此处建立 ``step_scope(node_id)``——工具节点各分支
+        （MCP/OpenAPI/Code 直调）统一经本方法，账本身份不落 root；同
+        Workflow 不同节点调用相同 Tool 时幂等键天然隔离。
+        """
+        from agent_flow_harness.execution_context import (
+            get_execution_identity,
+            step_scope,
+        )
+        from agent_flow_harness.ledger import (
+            ToolInvocationDraft,
+            digest_args,
+            ledger_protected_call,
+        )
+
+        # E6 r3 P1-1：scope 必须先于 identity 获取与幂等键计算——键是
+        # 一次性生成的字符串，事后进入 scope 无法再改；先包裹才能让
+        # {execution}:{node}:{tool} 真正落到节点维度。
+        with step_scope(self.node_id):
+            identity = get_execution_identity()
+            if identity is None:
+                return await tool.ainvoke(params)
+
+            draft = ToolInvocationDraft(
+                tool_call_id=f"tool:{tool_id}",
+                tool_name=str(getattr(tool, "name", "") or tool_id),
+                args=params,
+                idempotency_key=identity.tool_idempotency_key(f"tool:{tool_id}"),
+                request_digest=digest_args(params),
+                step_id=self.node_id,
+            )
+            return await ledger_protected_call(draft, lambda: tool.ainvoke(params))
+
     async def _invoke_with_retry(
         self,
         tool: Any,
@@ -1578,7 +1632,15 @@ class ToolNodeExecutor(BaseNodeExecutor):
         last_error: str | None = None
         for attempt in range(1 + max_retries):
             try:
-                result = await asyncio.wait_for(tool.ainvoke(params), timeout=timeout_s)
+                # E6 follow-up P1-2：独立工具节点（MCP/OpenAPI/Code）的外部
+                # 副作用统一经 SideEffectLedger——幂等键按节点执行体稳定
+                # （不含 attempt：首次超时/中断记 UNKNOWN 后，claim 拒绝
+                # 后续重试，符合"无幂等保证不得凭 timeout 盲目重试"）。
+                # 无执行身份（legacy 路径）时账本旁路，行为不变。
+                result = await asyncio.wait_for(
+                    self._ledger_invoked(tool, params, tool_id),
+                    timeout=timeout_s,
+                )
                 if (
                     fail_on_error_result
                     and isinstance(result, str)
@@ -1593,6 +1655,10 @@ class ToolNodeExecutor(BaseNodeExecutor):
                     )
                 else:
                     return NodeResult(success=True, output={"result": result, "tool_id": tool_id})
+            except LeaseLostError:
+                # E6 复审 P1-1：失去 Lease 不是工具失败——原样透传，立即停止
+                # 推进（不重试、不转普通 NodeResult），由 Runner 按 zombie 协议退出。
+                raise
             except TimeoutError:
                 last_error = f"{label}执行超时 ({timeout_ms}ms)"
                 logger.warning("tool_execution_timeout", node_id=self.node_id, attempt=attempt + 1)
@@ -1674,6 +1740,9 @@ class ToolNodeExecutor(BaseNodeExecutor):
             # 超时 + 重试（与 openapi/code 直调共用 _invoke_with_retry）
             return await self._invoke_with_retry(tool, params, tool_doc["_id"], label="MCP 工具")
 
+        except LeaseLostError:
+            # E6 复审 P1-1：失去 Lease 原样透传，不转普通节点失败
+            raise
         except Exception as exc:
             logger.error("mcp_tool_setup_failed", error=str(exc))
             return NodeResult(

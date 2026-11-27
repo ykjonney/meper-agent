@@ -42,6 +42,24 @@ async def init_critical_path() -> None:
 
     configure_mongo_checkpointer(log_on_error=False)
 
+    # 执行域前提检查（#64/PR #73 E0）：探测 Mongo 多文档事务能力，
+    # durable 模式下不可用即 fail-closed 拒绝启动（与 checkpointer 同口径）。
+    from app.core.execution_runtime import check_execution_runtime
+
+    await check_execution_runtime()
+
+    # 执行事件通知（E2）：Redis 只做实时提示，事实源是 execution_events
+    # 游标（丢失无损）。装配失败不影响启动（NoopNotifier 兜底）。
+    from app.engine.execution.events import RedisNotifier, set_notifier
+
+    set_notifier(RedisNotifier())
+
+    # 副作用账本（E5，#71）：durable 模式注入 Mongo 实现；失败不阻断
+    # 启动（NoLedger 旁路——工具执行不受影响，仅无账本）。
+    from app.engine.execution.tool_ledger import configure_tool_ledger
+
+    await configure_tool_ledger()
+
     # 后台任务软超时：backend settings → harness 工具层（bash_output 的
     # 软超时与清扫豁免共用该值；docs/background-tasks.md §5）。
     from agent_flow_harness.sandbox import bg_tasks as _bg_tasks
@@ -91,6 +109,9 @@ async def ensure_all_indexes() -> TriggerRepository:
 
     trigger_repo = TriggerRepository(get_database())
 
+    # 执行域索引（#64 E1）：幂等创建，缺列不影响既有集合。
+    from app.engine.execution.collections import ensure_execution_indexes
+
     await asyncio.gather(
         trigger_repo.ensure_indexes(),
         RoleService.ensure_indexes(),
@@ -98,6 +119,7 @@ async def ensure_all_indexes() -> TriggerRepository:
         ExecutionLogService.ensure_indexes(),
         ToolOutputArchiveService.ensure_indexes(),
         AgentSnapshotService.ensure_indexes(),
+        ensure_execution_indexes(get_database()),
         # 全量核心索引（users/agents/tools/kb/user_skills/skill_logs/
         # message_feedback 等）——此前只能手动 python -m app.db.indexes，
         # 新环境部署会缺（含消息反馈唯一索引的并发防线）

@@ -285,14 +285,74 @@ class TaskService:
         TaskService._store_celery_task_id(task_id, result.id)
 
     @staticmethod
-    def resume_task_execution(task_id: str) -> None:
+    async def _record_input_intent(task_id: str, variable_patch: dict) -> None:
+        """为存在 waiting_input Execution 的 Task 先行记录 input-intent。
+
+        无 Execution（legacy Task）时 no-op。失败只告警不阻断——intent
+        缺失的后果由既有保守语义承担（不误恢复）。
+        """
+        try:
+            from app.db.mongodb import get_database
+            from app.engine.execution.collections import EXECUTIONS
+            from app.engine.execution.repository import ExecutionRepository
+            from app.engine.execution.workflow_adapter import record_input_intent
+
+            execution = await get_database()[EXECUTIONS].find_one(
+                {"task_id": task_id, "status": "waiting_input"}, {"_id": 1}
+            )
+            if execution is not None:
+                await record_input_intent(
+                    ExecutionRepository(), execution["_id"], task_id, variable_patch
+                )
+        except Exception as exc:  # noqa: BLE001 - intent 记录尽力而为
+            from loguru import logger as _logger
+
+            _logger.warning(
+                "input_intent_record_failed task={} error={}", task_id, exc
+            )
+
+    @staticmethod
+    async def resume_task_execution(task_id: str) -> None:
         """Fire-and-forget: resume a paused Task from checkpoint.
 
-        Symmetric with ``_start_workflow_execution`` — used after Human node
-        intervention (approve/skip) or after cancelling + resuming to continue
-        workflow execution. Dispatched to a Celery worker; the engine detects
-        the saved checkpoint and resumes from there.
+        E6 复审 P1-3：恢复统一优先走 Execution Dispatcher——该 Task 存在
+        waiting_input 执行时，先 ``resume_waiting_execution``（CAS + 落
+        input_committed_at，调用方须在 **update_variables 之后** 调用本方法
+        ——marker 语义即"输入已持久化"），再经 Dispatcher 派发原 Execution
+        （lease 认领边界唯一，杜绝与 legacy 路径双跑）。无执行（legacy
+        任务）时回退原 Celery 直投。
         """
+        from app.db.mongodb import get_database
+        from app.engine.execution.collections import EXECUTIONS
+        from app.engine.execution.dispatcher import get_dispatcher
+        from app.engine.execution.repository import ExecutionRepository
+        from app.engine.execution.workflow_adapter import (
+            mark_input_committed,
+            resume_waiting_execution,
+        )
+
+        # 活动执行判定（E6 r3 P1-3）：waiting_input/queued/running 任一存在
+        # 即走统一 Dispatcher——不能只查 waiting_input：并发恢复时 A 先
+        # CAS 成 queued，B 查不到 waiting_input 会误判 legacy 双派发。
+        execution = await get_database()[EXECUTIONS].find_one(
+            {
+                "task_id": task_id,
+                "status": {"$in": ["waiting_input", "queued", "running"]},
+            },
+            {"_id": 1, "status": 1},
+        )
+        if execution is not None:
+            repo = ExecutionRepository()
+            # marker 独立先落（r3 P1-2）：变量已持久化（调用契约），此后
+            # 任何崩溃都由 supervisor 扫描类 4 兜底恢复。
+            await mark_input_committed(repo, execution["_id"])
+            if execution["status"] == "waiting_input":
+                await resume_waiting_execution(repo, execution["_id"])
+            # queued/running（含并发 CAS 已完成的）：直接派发——lease
+            # acquire 是唯一认领边界，重复消息输家安静退出，无双跑。
+            await get_dispatcher().dispatch(execution["_id"])
+            return
+
         from app.workers.tasks.workflow_execution import run_workflow_task
 
         result = run_workflow_task.delay(task_id)
@@ -1430,7 +1490,7 @@ class TaskService:
         await TaskService._clear_checkpointer_threads(task_id, trim_set)
 
         # ── 11. Resume (fire-and-forget) ──
-        TaskService.resume_task_execution(task_id)
+        await TaskService.resume_task_execution(task_id)
 
         return updated
 
@@ -1536,18 +1596,22 @@ class TaskService:
                     (doc.get("variables") or {}).get(human_node_id) or {}
                 )
                 current_node_vars.update(decision_data)
+                _patch = {
+                    f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
+                    human_node_id: current_node_vars,
+                }
+                # E6 r4 P1：intent 先行（write-ahead）——任何后续崩溃点都
+                # 可由 Supervisor 按 intent 补偿收敛。
+                await TaskService._record_input_intent(task_id, _patch)
                 await TaskService.update_variables(
                     task_id=task_id,
-                    variables={
-                        f"human_decision_{_sanitize_node_id(human_node_id)}": decision_data,
-                        human_node_id: current_node_vars,
-                    },
+                    variables=_patch,
                     version=doc.get("version", 1),
                     reason=comment,
                     triggered_by=triggered_by,
                 )
             # Resume workflow execution
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "skip":
             # Transition waiting_human → running
@@ -1559,8 +1623,10 @@ class TaskService:
                 timeline_event_type="skip",
                 timeline_data={"comment": _comment_to_text(comment), "action": "skip", **decision_node_data},
             )
-            # Resume workflow execution (no decision written)
-            TaskService.resume_task_execution(task_id)
+            # Resume workflow execution (no decision written).
+            # E6 r4 P1：空 patch intent 仍先行——闭合 transition→resume 崩溃窗口。
+            await TaskService._record_input_intent(task_id, {})
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "reject":
             # Transition waiting_human → failed (no resume)
@@ -1638,7 +1704,7 @@ class TaskService:
             )
             # Resume workflow execution (from checkpoint — works for both
             # waiting_human and cancelled states).
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "retry":
             # Transition failed → running（直接重新执行，不经过 pending，
@@ -1673,7 +1739,7 @@ class TaskService:
             # 清理附属数据：FileRef/FileUsage + workspace 文件 + checkpointer
             await TaskService._cleanup_task_artifacts(task_id, delete_workspace=True)
             # Start workflow execution from scratch
-            TaskService.resume_task_execution(task_id)
+            await TaskService.resume_task_execution(task_id)
 
         elif action == "rewind":
             # Rewind: trim target_node_id + downstream from checkpoint,

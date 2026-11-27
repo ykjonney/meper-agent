@@ -70,10 +70,25 @@ class TestTaskServiceDispatch:
         mock_celery_task.delay.assert_called_once_with("task_123")
 
     @patch("app.workers.tasks.workflow_execution.run_workflow_task")
-    def test_resume_dispatches_celery(self, mock_celery_task: MagicMock) -> None:
-        """resume_task_execution should call run_workflow_task.delay."""
+    async def test_resume_dispatches_celery(self, mock_celery_task: MagicMock) -> None:
+        """legacy 任务（无 waiting_input Execution）→ resume 回退 Celery 直投。
+
+        E6 复审 P1-3 后 resume 优先走 Execution Dispatcher；本用例验证无
+        Execution 的 legacy Task 仍走原路径。
+        """
         from app.services.task_service import TaskService
 
-        TaskService.resume_task_execution("task_456")
+        class _EmptyColl:
+            async def find_one(self, *a, **k):  # noqa: ARG002
+                return None
+
+        class _EmptyDB:
+            def __getitem__(self, name):  # noqa: ARG002
+                return _EmptyColl()
+
+        import app.db.mongodb as mongodb_mod
+
+        with patch.object(mongodb_mod, "get_database", lambda: _EmptyDB()):
+            await TaskService.resume_task_execution("task_456")
 
         mock_celery_task.delay.assert_called_once_with("task_456")
